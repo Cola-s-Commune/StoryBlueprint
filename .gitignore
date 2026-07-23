@@ -27,6 +27,7 @@ app/build/
 
 # Sandbox temp
 _tmp_*
+._commit_msg
 
 # Logs
 logs/
