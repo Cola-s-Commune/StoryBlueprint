@@ -18,6 +18,12 @@ release/
 *.rpm
 *.snap
 
+# TypeScript compiled output leaked into source dirs (editor uses electron-vite, not tsc)
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
 # Electron specific
 app/dist/
 app/build/
@@ -28,6 +34,8 @@ app/build/
 # Sandbox temp
 _tmp_*
 ._commit_msg
+
+# Electron binary (moved out of node_modules to avoid shadowing)
 
 # Logs
 logs/

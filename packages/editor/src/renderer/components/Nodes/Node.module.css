@@ -1,0 +1,54 @@
+.node {
+  background: #1e1e1e;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  min-width: 180px;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.header {
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #fff;
+}
+
+.body {
+  padding: 8px 10px;
+  color: #ccc;
+  line-height: 1.5;
+}
+
+.body label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.field {
+  font-size: 13px;
+  color: #ddd;
+  margin-bottom: 6px;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.choice {
+  font-size: 12px;
+  color: #ffab40;
+  padding: 3px 6px;
+  background: rgba(255, 152, 0, 0.1);
+  border-radius: 3px;
+}

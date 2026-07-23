@@ -10,9 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "jsx": "react-jsx",
-    "outDir": "dist/renderer",
-    "rootDir": "src/renderer",
-    "sourceMap": true
+    "noEmit": true,
+    "sourceMap": false
   },
   "include": ["src/renderer"]
 }

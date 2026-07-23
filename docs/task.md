@@ -88,12 +88,12 @@
 
 ### Story Graph
 
-- [ ] React Flow
-- [ ] 无限画布
-- [ ] 缩放
-- [ ] 平移
-- [ ] MiniMap
-- [ ] Background Grid
+- [x] React Flow
+- [x] 无限画布
+- [x] 缩放
+- [x] 平移
+- [x] MiniMap
+- [x] Background Grid
 
 ---
 
@@ -117,9 +117,9 @@
 
 ## Node
 
-- [ ] Node Base
-- [ ] Node Registry
-- [ ] Node Factory
+- [x] Node Base
+- [x] Node Registry
+- [x] Node Factory
 
 ---
 
