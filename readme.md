@@ -214,18 +214,21 @@ Unity UI
 
 Project Status：
 
-🚧 Planning
+🚧 Milestone 1 — Main Window Layout
 
 当前阶段：
 
 - [x] Overall Architecture
-- [ ] Editor
+- [x] Editor (骨架：Electron + React + Dock 布局)
+- [ ] Editor (画布：React Flow 节点图)
 - [ ] Runtime
 - [ ] Compiler
 - [ ] Plugin SDK
 - [ ] Unity Adapter
 - [ ] Unreal Adapter
 - [ ] Godot Adapter
+
+> 详细进度见 `docs/devlog.md` 和 `docs/task.md`
 
 ---
 

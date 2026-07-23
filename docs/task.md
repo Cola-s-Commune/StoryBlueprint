@@ -12,13 +12,13 @@
 
 ## Repository
 
-- [ ] 初始化 Git 仓库
-- [ ] 配置 pnpm Workspace
-- [ ] 创建 packages 目录
-- [ ] 配置 TypeScript
-- [ ] 配置 ESLint
-- [ ] 配置 Prettier
-- [ ] 配置 EditorConfig
+- [x] 初始化 Git 仓库
+- [x] 配置 pnpm Workspace
+- [x] 创建 packages 目录
+- [x] 配置 TypeScript
+- [x] 配置 ESLint
+- [x] 配置 Prettier
+- [x] 配置 EditorConfig
 - [ ] 配置 Git Hooks（Husky）
 - [ ] 配置 Commitlint（可选）
 
@@ -26,9 +26,9 @@
 
 ## Electron
 
-- [ ] 创建 Electron 主进程
-- [ ] 创建 React Renderer
-- [ ] 配置 IPC
+- [x] 创建 Electron 主进程
+- [x] 创建 React Renderer
+- [x] 配置 IPC
 - [ ] 配置 热更新（Hot Reload）
 - [ ] 配置 Release Build
 
@@ -36,11 +36,11 @@
 
 ## Project Structure
 
-- [ ] 创建 editor 包
-- [ ] 创建 common 包
-- [ ] 创建 runtime 包（空）
-- [ ] 创建 compiler 包（空）
-- [ ] 创建 sdk 包（空）
+- [x] 创建 editor 包
+- [x] 创建 common 包
+- [x] 创建 runtime 包（空）
+- [x] 创建 compiler 包（空）
+- [x] 创建 sdk 包（空）
 
 ---
 
@@ -68,10 +68,10 @@
 
 ## Window
 
-- [ ] 创建 Main Layout
-- [ ] 创建 Menu Bar
-- [ ] 创建 Dock Layout
-- [ ] 创建 Status Bar
+- [x] 创建 Main Layout
+- [x] 创建 Menu Bar
+- [x] 创建 Dock Layout
+- [x] 创建 Status Bar
 
 ---
 

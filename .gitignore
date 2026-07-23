@@ -7,6 +7,8 @@ node_modules/
 dist/
 build/
 out/
+out2/
+.output/
 release/
 *.app
 *.dmg
@@ -19,6 +21,12 @@ release/
 # Electron specific
 app/dist/
 app/build/
+
+# Project data
+.workbuddy/
+
+# Sandbox temp
+_tmp_*
 
 # Logs
 logs/

@@ -1,0 +1,30 @@
+{
+  "name": "@story-blueprint/editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Story Blueprint Editor - Electron + React",
+  "main": "./.output/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@story-blueprint/common": "*",
+    "react-resizable-panels": "^4.12.2"
+  },
+  "devDependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.0",
+    "electron": "31.0.0",
+    "electron-vite": "^5.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "vite": "^5.4.0"
+  }
+}

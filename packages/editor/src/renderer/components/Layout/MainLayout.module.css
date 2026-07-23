@@ -1,0 +1,25 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #cccccc;
+}
+
+.content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.resizeHandle {
+  width: 4px;
+  background: #2d2d2d;
+  transition: background 0.15s;
+  cursor: col-resize;
+
+  &:hover,
+  &[data-resize-handle-active] {
+    background: #007acc;
+  }
+}

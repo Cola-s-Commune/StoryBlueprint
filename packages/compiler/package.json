@@ -1,0 +1,17 @@
+{
+  "name": "@story-blueprint/compiler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Story Blueprint Compiler - Graph → AST → JSON",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@story-blueprint/common": "*"
+  }
+}
