@@ -29,6 +29,40 @@ function requiredNumber(value: unknown, path: string): number {
   return value;
 }
 
+function requiredPositiveInteger(value: unknown, path: string): number {
+  const number = requiredNumber(value, path);
+  if (!Number.isInteger(number) || number < 1) {
+    throw new StoryFormatError(`${path} must be a positive integer`);
+  }
+  return number;
+}
+
+function assertNodeShape(
+  node: Node,
+  path: string,
+  options: {
+    arguments: number;
+    properties: readonly string[];
+    children: readonly string[];
+  },
+): void {
+  if (node.getArguments().length !== options.arguments) {
+    throw new StoryFormatError(`${path} must have ${options.arguments} argument(s)`);
+  }
+  const allowedProperties = new Set(options.properties);
+  for (const property of node.getProperties().keys()) {
+    if (!allowedProperties.has(property)) {
+      throw new StoryFormatError(`${path} contains unsupported property ${property}`);
+    }
+  }
+  const allowedChildren = new Set(options.children);
+  for (const child of node.children?.nodes ?? []) {
+    if (!allowedChildren.has(child.getName())) {
+      throw new StoryFormatError(`${path} contains unsupported child ${child.getName()}`);
+    }
+  }
+}
+
 function requiredId<Prefix extends string>(
   value: unknown,
   prefix: Prefix,
@@ -113,6 +147,17 @@ export function serializeStorySource(source: StorySourceDocument): string {
   if (source.format !== STORY_SOURCE_FORMAT || source.version !== STORY_SOURCE_VERSION) {
     throw new StoryFormatError('Unsupported Story Source format or version');
   }
+  if (
+    source.chapters.length > 0 ||
+    source.variables.length > 0 ||
+    source.characters.length > 0 ||
+    source.assets.length > 0 ||
+    source.events.length > 0
+  ) {
+    throw new StoryFormatError(
+      'This writer cannot yet preserve chapters, variables, characters, assets, or events',
+    );
+  }
   const story = Node.create('story');
   story.addArgument(source.id);
   story.setProperty('format', source.format);
@@ -129,19 +174,46 @@ function parseNodeData(node: Node, type: StoryNodeType): Readonly<Record<string,
   switch (type) {
     case StoryNodeType.Start:
     case StoryNodeType.End:
+      assertNodeShape(data, `${type}.data`, {
+        arguments: 0,
+        properties: ['title'],
+        children: [],
+      });
       return { title: requiredString(data.getProperty('title'), `${type}.title`) };
     case StoryNodeType.Dialogue:
+      assertNodeShape(data, `${type}.data`, {
+        arguments: 0,
+        properties: ['speaker', 'text'],
+        children: [],
+      });
       return {
         speaker: requiredString(data.getProperty('speaker'), `${type}.speaker`),
         text: requiredString(data.getProperty('text'), `${type}.text`),
       };
     case StoryNodeType.Branch:
+      assertNodeShape(data, `${type}.data`, {
+        arguments: 0,
+        properties: ['condition'],
+        children: [],
+      });
       return { condition: requiredString(data.getProperty('condition'), `${type}.condition`) };
     case StoryNodeType.Choice: {
-      const options: ChoiceOption[] = data.findNodesByName('option').map((option) => ({
-        id: requiredId(option.getArgument(0), 'option', 'choice.option.id'),
-        label: requiredString(option.getProperty('label'), 'choice.option.label'),
-      }));
+      assertNodeShape(data, `${type}.data`, {
+        arguments: 0,
+        properties: ['prompt'],
+        children: ['option'],
+      });
+      const options: ChoiceOption[] = data.findNodesByName('option').map((option) => {
+        assertNodeShape(option, 'choice.option', {
+          arguments: 1,
+          properties: ['label'],
+          children: [],
+        });
+        return {
+          id: requiredId(option.getArgument(0), 'option', 'choice.option.id'),
+          label: requiredString(option.getProperty('label'), 'choice.option.label'),
+        };
+      });
       return {
         prompt: requiredString(data.getProperty('prompt'), 'choice.prompt'),
         options,
@@ -151,23 +223,50 @@ function parseNodeData(node: Node, type: StoryNodeType): Readonly<Record<string,
 }
 
 function parseGraph(graph: Node): SourceGraph {
+  assertNodeShape(graph, 'story.graph', {
+    arguments: 0,
+    properties: [],
+    children: ['node', 'edge'],
+  });
+  const nodeIds = new Set<string>();
+  const nodeNames = new Set<string>();
+  const optionIds = new Set<string>();
   const nodes: SourceNode[] = graph.findNodesByName('node').map((node) => {
     const id = requiredId(node.getArgument(0), 'node', 'node.id');
+    assertNodeShape(node, id, {
+      arguments: 1,
+      properties: ['name', 'type', 'definition-version', 'x', 'y'],
+      children: ['data'],
+    });
+    if (node.findNodesByName('data').length !== 1) {
+      throw new StoryFormatError(`${id} must contain exactly one data node`);
+    }
+    if (nodeIds.has(id)) throw new StoryFormatError(`Duplicate node ID: ${id}`);
+    nodeIds.add(id);
     const type = nodeType(node.getProperty('type'), `${id}.type`);
     const data = parseNodeData(node, type);
+    const name = requiredString(node.getProperty('name'), `${id}.name`);
+    if (nodeNames.has(name)) throw new StoryFormatError(`Duplicate node name: ${name}`);
+    nodeNames.add(name);
     const dynamicPorts =
       type === StoryNodeType.Choice
-        ? ((data.options as ChoiceOption[]) ?? []).map((option) => ({
-            id: option.id,
-            name: `option_${option.id.slice(-8).replaceAll('-', '_')}`,
-            displayName: option.label,
-          }))
+        ? ((data.options as ChoiceOption[]) ?? []).map((option) => {
+            if (optionIds.has(option.id)) {
+              throw new StoryFormatError(`Duplicate option ID: ${option.id}`);
+            }
+            optionIds.add(option.id);
+            return {
+              id: option.id,
+              name: `option_${option.id.slice(-8).replaceAll('-', '_')}`,
+              displayName: option.label,
+            };
+          })
         : undefined;
     return {
       id,
-      name: requiredString(node.getProperty('name'), `${id}.name`),
+      name,
       type,
-      definitionVersion: requiredNumber(
+      definitionVersion: requiredPositiveInteger(
         node.getProperty('definition-version'),
         `${id}.definition-version`,
       ),
@@ -180,31 +279,50 @@ function parseGraph(graph: Node): SourceGraph {
     };
   });
 
-  const edges: SourceEdge[] = graph.findNodesByName('edge').map((edge) => ({
-    id: requiredId(edge.getArgument(0), 'edge', 'edge.id'),
-    from: {
-      nodeId: requiredId(edge.getProperty('from-node'), 'node', 'edge.from-node'),
-      portId: requiredString(edge.getProperty('from-port'), 'edge.from-port'),
-    },
-    to: {
-      nodeId: requiredId(edge.getProperty('to-node'), 'node', 'edge.to-node'),
-      portId: requiredString(edge.getProperty('to-port'), 'edge.to-port'),
-    },
-  }));
+  const edgeIds = new Set<string>();
+  const edges: SourceEdge[] = graph.findNodesByName('edge').map((edge) => {
+    assertNodeShape(edge, 'story.graph.edge', {
+      arguments: 1,
+      properties: ['from-node', 'from-port', 'to-node', 'to-port'],
+      children: [],
+    });
+    const id = requiredId(edge.getArgument(0), 'edge', 'edge.id');
+    if (edgeIds.has(id)) throw new StoryFormatError(`Duplicate edge ID: ${id}`);
+    edgeIds.add(id);
+    return {
+      id,
+      from: {
+        nodeId: requiredId(edge.getProperty('from-node'), 'node', 'edge.from-node'),
+        portId: requiredString(edge.getProperty('from-port'), 'edge.from-port'),
+      },
+      to: {
+        nodeId: requiredId(edge.getProperty('to-node'), 'node', 'edge.to-node'),
+        portId: requiredString(edge.getProperty('to-port'), 'edge.to-port'),
+      },
+    };
+  });
   return { nodes, edges };
 }
 
 export function parseStorySource(text: string): StorySourceDocument {
   const document = parse(text);
-  const story = document.findNodeByName('story');
-  if (!story) throw new StoryFormatError('Document must contain a story node');
+  if (document.nodes.length !== 1 || document.nodes[0]?.getName() !== 'story') {
+    throw new StoryFormatError('Document must contain exactly one story node');
+  }
+  const story = document.nodes[0];
+  assertNodeShape(story, 'story', {
+    arguments: 1,
+    properties: ['format', 'version', 'name', 'display-name'],
+    children: ['graph'],
+  });
   const formatName = requiredString(story.getProperty('format'), 'story.format');
   const version = requiredNumber(story.getProperty('version'), 'story.version');
   if (formatName !== STORY_SOURCE_FORMAT || version !== STORY_SOURCE_VERSION) {
     throw new StoryFormatError(`Unsupported story format ${formatName}@${version}`);
   }
-  const graph = story.findNodeByName('graph');
-  if (!graph) throw new StoryFormatError('story is missing graph');
+  const graphs = story.findNodesByName('graph');
+  if (graphs.length !== 1) throw new StoryFormatError('story must contain exactly one graph');
+  const graph = graphs[0];
   return {
     format: STORY_SOURCE_FORMAT,
     version: STORY_SOURCE_VERSION,

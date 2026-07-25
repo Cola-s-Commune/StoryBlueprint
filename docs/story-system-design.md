@@ -63,20 +63,20 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 
 ### 3.1 MVP 节点
 
-| 节点 | 用途 | 执行输入 | 执行输出 |
-|---|---|---:|---|
-| Story Entry | 根 Story 入口 | 0 | Next |
-| Dialogue | 显示角色对话 | 1 | Next |
-| Narration | 显示无说话人的旁白 | 1 | Next |
-| Choice | 等待玩家选择 | 1 | 每个选项一个动态输出 |
-| Branch | 根据布尔表达式自动分流 | 1 | True / False |
-| Set Variable | 修改 Story 变量 | 1 | Next |
-| Call Event | 调用 Adapter 注册的游戏事件 | 1 | Next 或结果分支 |
-| Call Chapter | 调用可复用 Chapter | 1 | Completed |
-| End Story | 结束整个 Story 实例 | 1 | 0 |
-| Return | 从 Chapter 返回调用点 | 1 | 0 |
-| Reroute | 整理连线，不产生运行指令 | 1 | 1 |
-| Comment | 编辑器注释，不参与运行 | 0 | 0 |
+| 节点         | 用途                        | 执行输入 | 执行输出             |
+| ------------ | --------------------------- | -------: | -------------------- |
+| Story Entry  | 根 Story 入口               |        0 | Next                 |
+| Dialogue     | 显示角色对话                |        1 | Next                 |
+| Narration    | 显示无说话人的旁白          |        1 | Next                 |
+| Choice       | 等待玩家选择                |        1 | 每个选项一个动态输出 |
+| Branch       | 根据布尔表达式自动分流      |        1 | True / False         |
+| Set Variable | 修改 Story 变量             |        1 | Next                 |
+| Call Event   | 调用 Adapter 注册的游戏事件 |        1 | Next 或结果分支      |
+| Call Chapter | 调用可复用 Chapter          |        1 | Completed            |
+| End Story    | 结束整个 Story 实例         |        1 | 0                    |
+| Return       | 从 Chapter 返回调用点       |        1 | 0                    |
+| Reroute      | 整理连线，不产生运行指令    |        1 | 1                    |
+| Comment      | 编辑器注释，不参与运行      |        0 | 0                    |
 
 ### 3.2 后续节点
 
@@ -247,8 +247,8 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 
 ```ts
 interface NamedObject {
-  id: string;          // 永久稳定，不随重命名变化
-  name: string;        // 项目或作用域内唯一的脚本名称
+  id: string; // 永久稳定，不随重命名变化
+  name: string; // 项目或作用域内唯一的脚本名称
   displayName: string; // 面向作者和玩家的展示名称，可本地化
 }
 ```
@@ -266,12 +266,12 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 
 第一版定义四种作用域：
 
-| 作用域 | 生命周期 | 典型用途 |
-|---|---|---|
-| Project | 由 Engine Adapter 提供并跨 Story 保存 | 世界状态、长期任务状态 |
-| Story | 当前 Story 实例 | 当前剧情流程状态 |
-| Chapter | 每次调用创建 | 参数、临时计算、返回值 |
-| Character | 由 Character ID 定位 | 好感度、角色状态 |
+| 作用域    | 生命周期                              | 典型用途               |
+| --------- | ------------------------------------- | ---------------------- |
+| Project   | 由 Engine Adapter 提供并跨 Story 保存 | 世界状态、长期任务状态 |
+| Story     | 当前 Story 实例                       | 当前剧情流程状态       |
+| Chapter   | 每次调用创建                          | 参数、临时计算、返回值 |
+| Character | 由 Character ID 定位                  | 好感度、角色状态       |
 
 约束：
 
@@ -435,50 +435,44 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 ### 9.1 完整示例
 
 ```kdl
-story story_intro name="intro" version=1 {
-  meta title="序章"
-
-  variable var_favor name="favor" type=number scope=story default=0
-  variable var_has_key name="hasKey" type=boolean scope=story default=#false
-
-  node node_start name="start" type="story-entry@1" x=80 y=120
-
-  node node_greeting name="greeting" type="dialogue@1" x=320 y=120 {
-    speaker char_alice
-    text text_alice_greeting default="你好，旅行者。"
-    voice voice.alice.greeting_001
-    emotion happy
-  }
-
-  node node_check_favor name="checkFavor" type="branch@1" x=600 y=120 {
-    condition "favor >= 10 && hasKey" {
-      bind favor id=var_favor
-      bind hasKey id=var_has_key
+story story_intro format=story-blueprint version=1 name=intro display-name=序章 {
+  graph {
+    node node_start name=start type=story-entry definition-version=1 x=80 y=120 {
+      data title=序章
     }
+    node node_greeting name=greeting type=dialogue definition-version=1 x=320 y=120 {
+      data speaker=Alice text=你好，旅行者。
+    }
+    node node_check name=checkFavor type=branch definition-version=1 x=600 y=120 {
+      data condition="favor >= 10 && hasKey"
+    }
+    node node_choose name=choose type=choice definition-version=1 x=860 y=120 {
+      data prompt=是否接受任务？ {
+        option option_accept label=接受任务
+        option option_refuse label=拒绝任务
+      }
+    }
+    node node_end name=ending type=end-story definition-version=1 x=1120 y=300 {
+      data title=结束
+    }
+    edge edge_start_greeting from-node=node_start from-port=out to-node=node_greeting to-port=in
+    edge edge_greeting_check from-node=node_greeting from-port=out to-node=node_check to-port=in
+    edge edge_check_choose from-node=node_check from-port="true" to-node=node_choose to-port=in
+    edge edge_check_end from-node=node_check from-port="false" to-node=node_end to-port=in
+    edge edge_accept_end from-node=node_choose from-port=option_accept to-node=node_end to-port=in
   }
-
-  node node_choose name="choose" type="choice@1" x=860 y=120 {
-    option option_accept textId=text_accept default="接受任务"
-    option option_refuse textId=text_refuse default="拒绝任务"
-  }
-
-  node node_ending name="ending" type="end-story@1" x=1120 y=300
-
-  edge node_start.out node_greeting.in
-  edge node_greeting.out node_check_favor.in
-  edge node_check_favor.true node_choose.in
-  edge node_check_favor.false node_ending.in
-  edge node_choose.option_accept node_ending.in
-  edge node_choose.option_refuse node_ending.in
 }
 ```
+
+这是当前 `story-blueprint@1` writer 的真实输出。Character、Variable、Voice、Emotion、Text ID 和 Chapter
+会在各自 Schema 落地后按版本迁移加入；在此之前 writer 遇到这些尚不能保存的区段会拒绝覆盖文件。
 
 `.story` 是唯一权威编辑源，包含：
 
 - 节点及其属性
 - 动态端口项及其稳定 ID；静态端口由 Node Definition 派生
 - 连线
-- 节点坐标和尺寸
+- 节点坐标；尺寸将在可调整大小节点落地后加入版本化 Schema
 - Comment、Group、Reroute
 - 编辑器需要持久化的其他信息
 
@@ -488,7 +482,7 @@ story story_intro name="intro" version=1 {
 - Parser 先建立 Source Model，再迁移到当前版本，不能让 UI 组件直接解释 KDL。
 - Writer 使用固定的字段排序、缩进、数字格式和集合排序规则，减少 Git Diff 噪声。
 - 节点顺序不表达执行语义；执行顺序只由 Edge 和动态端口顺序决定。
-- 对未来版本或插件产生的未知字段应尽量保留；无法安全保留时拒绝覆盖保存。
+- 对未来版本或插件产生的未知字段应尽量保留；当前 parser 在尚无无损编辑模型时会拒绝加载未知字段，防止覆盖保存。
 - 注释的保留能力需要单独测试，不把“能解析 KDL”视为“能无损改写文件”。
 - 自动生成的稳定 ID 不因移动、改名、复制文件或格式化而改变；Duplicate 操作必须生成新 ID。
 
@@ -654,9 +648,7 @@ switch (instruction.op) {
     return adapter.showChoices(instruction);
 
   case 'branch':
-    currentBlock = evaluate(instruction.condition)
-      ? instruction.then
-      : instruction.else;
+    currentBlock = evaluate(instruction.condition) ? instruction.then : instruction.else;
     break;
 
   case 'call':
@@ -731,14 +723,14 @@ Runtime 不负责：
 
 ## 13. 文件职责总结
 
-| 文件 | 格式 | 是否权威源 | 用途 |
-|---|---|---:|---|
-| `*.story` | KDL 2.0 | 是 | 编辑器完整工程数据 |
-| `*.storyc.json` | JSON Runtime Program | 否 | Runtime 执行逻辑 |
-| `*.storyc.json.map` | JSON | 否 | 可选调试映射 |
-| `*.ink` | Ink | 否 | 导入、导出与 Ink Block |
-| `*.character` | KDL 2.0 | 是 | 可选独立角色资源 |
-| `*.storyproject` | KDL 2.0 | 是 | 项目级配置与资源索引 |
+| 文件                | 格式                 | 是否权威源 | 用途                   |
+| ------------------- | -------------------- | ---------: | ---------------------- |
+| `*.story`           | KDL 2.0              |         是 | 编辑器完整工程数据     |
+| `*.storyc.json`     | JSON Runtime Program |         否 | Runtime 执行逻辑       |
+| `*.storyc.json.map` | JSON                 |         否 | 可选调试映射           |
+| `*.ink`             | Ink                  |         否 | 导入、导出与 Ink Block |
+| `*.character`       | KDL 2.0              |         是 | 可选独立角色资源       |
+| `*.storyproject`    | KDL 2.0              |         是 | 项目级配置与资源索引   |
 
 ---
 

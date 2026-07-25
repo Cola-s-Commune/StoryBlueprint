@@ -13,7 +13,8 @@ type SubMenuItem =
       label: string;
       shortcut?: string;
       disabled?: boolean;
-      action?: 'new' | 'open' | 'save' | 'save-as' | 'exit' | 'undo' | 'redo';
+      action?: 'new' | 'open' | 'save' | 'save-as' | 'exit' | 'undo' | 'redo' | 'reset-layout';
+      panelId?: 'resources' | 'graph' | 'inspector' | 'console';
     }
   | { type: 'separator' };
 
@@ -47,7 +48,12 @@ const menuItems: MenuItem[] = [
   {
     label: 'View',
     submenu: [
-      { type: 'item', label: 'Reset Layout' },
+      { type: 'item', label: 'Resource Browser', panelId: 'resources' },
+      { type: 'item', label: 'Story Graph', panelId: 'graph' },
+      { type: 'item', label: 'Inspector', panelId: 'inspector' },
+      { type: 'item', label: 'Console', panelId: 'console' },
+      { type: 'separator' },
+      { type: 'item', label: 'Reset Layout', action: 'reset-layout' },
       { type: 'separator' },
       { type: 'item', label: 'Zoom In', shortcut: 'Ctrl+=' },
       { type: 'item', label: 'Zoom Out', shortcut: 'Ctrl+-' },
@@ -60,7 +66,12 @@ const menuItems: MenuItem[] = [
   },
 ];
 
-export function MenuBar() {
+interface MenuBarProps {
+  onResetLayout: () => void;
+  onShowPanel: (panelId: 'resources' | 'graph' | 'inspector' | 'console') => void;
+}
+
+export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
   const { newStory, openStory, saveStory, undo, redo } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -119,6 +130,9 @@ export function MenuBar() {
       case 'exit':
         window.close();
         break;
+      case 'reset-layout':
+        onResetLayout();
+        break;
     }
   };
 
@@ -145,11 +159,12 @@ export function MenuBar() {
                 ) : (
                   <div
                     key={j}
-                    className={`${styles.subItem} ${sub.disabled ? styles.disabled : ''}`}
+                    className={`${styles.subItem} ${sub.disabled || (!sub.action && !sub.panelId) ? styles.disabled : ''}`}
                     onMouseDown={(e) => {
                       e.stopPropagation();
                       setOpenMenu(null);
                       if (!sub.disabled && sub.action) runAction(sub.action);
+                      if (!sub.disabled && sub.panelId) onShowPanel(sub.panelId);
                     }}
                   >
                     <span>{sub.label}</span>

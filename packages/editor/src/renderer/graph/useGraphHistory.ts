@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import type { EditorGraphState } from './editorGraph';
 
 function cloneGraph(graph: EditorGraphState): EditorGraphState {
@@ -37,5 +37,5 @@ export function useGraphHistory(limit = 100) {
     future.current = [];
   }, []);
 
-  return { checkpoint, undo, redo, clear };
+  return useMemo(() => ({ checkpoint, undo, redo, clear }), [checkpoint, undo, redo, clear]);
 }

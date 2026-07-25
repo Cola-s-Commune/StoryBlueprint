@@ -22,7 +22,7 @@ npm run dev
 ### M1 Done
 
 - Electron + React 项目骨架（npm workspaces + electron-vite + TypeScript）
-- 主窗口布局：Dock 风格三栏 + 底部 Console
+- 主窗口布局：Dockview 三栏 + 底部 Console；支持拖拽、分组、浮动、恢复关闭面板和持久化布局
 - MenuBar / StatusBar
 - StoryGraph 画布接入 React Flow（无限画布、背景网格、MiniMap、Controls）
 
@@ -50,6 +50,12 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 用 Dockview 替换自制浮窗与固定分栏：面板可拖拽分组、应用内浮动、显式 Float / Dock，并持久化布局                    |
+| 2026-07-25 | View 菜单可重新打开四个面板或重置布局；Inspector 默认 420px、最小 360px，浮动宽度 520px                            |
+| 2026-07-25 | 收紧 Electron preload / IPC 与文件能力边界；异步保存按文档 revision 清理 dirty，避免覆盖保存期间的新编辑           |
+| 2026-07-25 | Electron 从已停止维护的 31 升级到 43.2.0；Node 最低版本同步提升为 22.12，并完成真实启动验证                        |
+| 2026-07-25 | common/compiler/runtime/sdk 改为 tsup 双格式包入口，覆盖 ESM/CJS/types，并建立统一 Node 版本基线                   |
+| 2026-07-25 | KDL parser/writer 增加结构、未知字段与重复 ID 校验；新增 Vitest 测试与 GitHub Actions 全量 CI                      |
 | 2026-07-25 | 修复 React Strict Mode 导致浮窗创建后立即关闭；Inspector 改为 420px 默认、360px 最小的固定像素约束                 |
 | 2026-07-25 | 补齐面板标题栏拖拽拆分；扩大左右调宽手柄命中区，并修复 Console 上下调高分隔条尺寸                                  |
 | 2026-07-25 | Inspector 默认宽度提升到 28%；Resource Browser、Inspector、Console 支持拆分为原生浮动窗口并在关闭后自动回停靠区    |

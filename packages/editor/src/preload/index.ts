@@ -1,24 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ElectronAPI } from '../shared/electronApi';
 
-contextBridge.exposeInMainWorld('electronAPI', {
+const electronAPI = {
   platform: process.platform,
   isElectron: true,
-
-  // IPC channels — add as needed
-  send: (channel: string, ...args: unknown[]) => {
-    const validChannels = ['app:minimize', 'app:maximize', 'app:close'];
-    if (validChannels.includes(channel)) {
-      ipcRenderer.send(channel, ...args);
-    }
-  },
-  invoke: (channel: string, ...args: unknown[]) => {
-    return ipcRenderer.invoke(channel, ...args);
-  },
-  on: (channel: string, callback: (...args: unknown[]) => void) => {
-    ipcRenderer.on(channel, (_event, ...args) => callback(...args));
-  },
   openStory: () => ipcRenderer.invoke('story:open'),
-  saveStory: (request: { filePath?: string; content: string; saveAs?: boolean }) =>
-    ipcRenderer.invoke('story:save', request),
-  setStoryDirty: (dirty: boolean) => ipcRenderer.send('story:set-dirty', dirty),
-});
+  saveStory: (request) => ipcRenderer.invoke('story:save', request),
+  setStoryDirty: (dirty) => ipcRenderer.send('story:set-dirty', dirty),
+} satisfies ElectronAPI;
+
+contextBridge.exposeInMainWorld('electronAPI', electronAPI);

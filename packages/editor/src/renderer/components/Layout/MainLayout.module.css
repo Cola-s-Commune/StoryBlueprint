@@ -8,27 +8,29 @@
 }
 
 .content {
+  min-height: 0;
   flex: 1;
   overflow: hidden;
 }
 
-.resizeHandle {
-  background: #2d2d2d;
-  transition: background 0.15s;
-
-  &:hover,
-  &:focus-visible {
-    background: #007acc;
-    outline: none;
-  }
+.content :global(.dockview-theme-dark) {
+  width: 100%;
+  height: 100%;
+  --dv-background-color: #1e1e1e;
+  --dv-paneview-active-outline-color: #007acc;
+  --dv-tabs-and-actions-container-background-color: #252526;
+  --dv-activegroup-visiblepanel-tab-background-color: #1e1e1e;
+  --dv-activegroup-hiddenpanel-tab-background-color: #2d2d2d;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #252526;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #2d2d2d;
+  --dv-tab-divider-color: #1e1e1e;
+  --dv-separator-border: #3a3a3a;
+  --dv-drag-over-background-color: rgb(0 122 204 / 18%);
+  --dv-drag-over-border-color: #007acc;
+  --dv-floating-box-shadow: 0 10px 35px rgb(0 0 0 / 55%);
 }
 
-.horizontalResizeHandle {
-  width: 6px;
-  cursor: col-resize;
-}
-
-.verticalResizeHandle {
-  height: 6px;
-  cursor: row-resize;
+.content :global(.dv-content-container) {
+  min-width: 0;
+  min-height: 0;
 }

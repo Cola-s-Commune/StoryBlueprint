@@ -32,6 +32,7 @@ import {
   pasteGraphClipboard,
   type EditorGraphEdge,
   type EditorGraphNode,
+  type EditorGraphState,
   type GraphClipboard,
 } from '../../graph/editorGraph';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
@@ -88,6 +89,7 @@ export function StoryGraph() {
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
+  const dragSnapshot = useRef<EditorGraphState | null>(null);
 
   const validateConnection = useCallback(
     (connection: Connection | Edge) =>
@@ -253,16 +255,30 @@ export function StoryGraph() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [copySelection, deleteSelection, duplicateSelection, paste, redo, undo]);
 
-  const onNodeDragStart = useCallback(() => checkpoint(), [checkpoint]);
-  const onNodeDragStop = useCallback(() => markDirty(), [markDirty]);
+  const onNodeDragStart = useCallback(() => {
+    dragSnapshot.current = structuredClone(graph);
+  }, [graph]);
+  const onNodeDragStop = useCallback(
+    (_event: unknown, node: EditorGraphNode) => {
+      const snapshot = dragSnapshot.current;
+      dragSnapshot.current = null;
+      const original = snapshot?.nodes.find((candidate) => candidate.id === node.id);
+      if (
+        !snapshot ||
+        !original ||
+        (original.position.x === node.position.x && original.position.y === node.position.y)
+      ) {
+        return;
+      }
+      checkpoint(snapshot);
+      markDirty();
+    },
+    [checkpoint, markDirty],
+  );
   const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
 
   return (
     <div className={styles.panel}>
-      <div className={styles.header}>
-        <span>Story Graph</span>
-        <span className={styles.shortcutHint}>Ctrl+C / V / D · Ctrl+Z / Shift+Z</span>
-      </div>
       <div className={styles.canvas} ref={canvasRef}>
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}

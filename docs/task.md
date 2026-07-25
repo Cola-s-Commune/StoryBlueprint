@@ -80,9 +80,10 @@
 ### Docking / Floating
 
 - [x] Inspector 默认宽度 420px、最小宽度 360px，可调整至 720px
-- [x] Resource Browser / Inspector / Console 可通过标题栏拖拽或按钮拆分为原生浮动窗口
-- [x] 关闭浮动窗口时自动恢复到主窗口停靠区
-- [ ] 保存和恢复面板尺寸、停靠状态与浮动窗口位置
+- [x] Resource Browser / Story Graph / Inspector / Console 使用 Dockview，支持拖拽分组、调整尺寸和应用内浮动
+- [x] 面板标签右键支持显式 Float / Dock，View 菜单可恢复已关闭面板
+- [x] 保存和恢复面板尺寸、停靠状态与浮动窗口位置
+- [x] View → Reset Layout 恢复默认布局
 - [ ] 评估 Story Graph 多窗口视图
 
 ### Resource Browser
@@ -181,7 +182,7 @@
 
 - [x] Character（只读渲染）
 - [x] Text（只读渲染）
-- [ ] Speaker / Text 可编辑属性
+- [x] Speaker / Text 可编辑属性
 - [ ] Voice Asset 与按语言覆盖
 - [ ] Emotion / Portrait
 - [ ] 稳定 Text ID
@@ -638,13 +639,13 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 
 项目达到 MVP 需要满足：
 
-- [ ] Electron 应用启动
-- [ ] React Flow 画布
-- [ ] 创建 Dialogue Node
-- [ ] 创建 Branch Node
-- [ ] 创建 End Story Node
-- [ ] 节点连线
-- [ ] Inspector 可编辑属性
+- [x] Electron 应用启动
+- [x] React Flow 画布
+- [x] 创建 Dialogue Node
+- [x] 创建 Branch Node
+- [x] 创建 End Story Node
+- [x] 节点连线
+- [x] Inspector 可编辑属性
 - [x] 保存 `.story`
 - [x] 打开 `.story`
 - [ ] 导出 `.storyc.json`

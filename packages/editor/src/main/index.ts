@@ -1,40 +1,77 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { is } from '@electron-toolkit/utils';
+import type { SaveStoryRequest } from '../shared/electronApi';
 
 let mainWindow: BrowserWindow | null = null;
 let storyDirty = false;
+let currentStoryFile: { path: string; token: string } | undefined;
 
-interface SaveStoryRequest {
-  filePath?: string;
-  content: string;
-  saveAs?: boolean;
-}
+const MAX_STORY_BYTES = 64 * 1024 * 1024;
 
 function ensureStoryExtension(filePath: string): string {
-  return extname(filePath) ? filePath : `${filePath}.story`;
+  return filePath.toLowerCase().endsWith('.story') ? filePath : `${filePath}.story`;
+}
+
+function isTrustedSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return mainWindow !== null && event.sender === mainWindow.webContents;
+}
+
+function isSaveStoryRequest(value: unknown): value is SaveStoryRequest {
+  if (typeof value !== 'object' || value === null) return false;
+  const request = value as Partial<SaveStoryRequest>;
+  return (
+    typeof request.content === 'string' &&
+    Buffer.byteLength(request.content, 'utf8') <= MAX_STORY_BYTES &&
+    (request.filePath === undefined || typeof request.filePath === 'string') &&
+    (request.fileToken === undefined || typeof request.fileToken === 'string') &&
+    (request.saveAs === undefined || typeof request.saveAs === 'boolean')
+  );
 }
 
 function registerStoryFileHandlers(): void {
-  ipcMain.on('story:set-dirty', (_event, dirty: boolean) => {
+  ipcMain.on('story:set-dirty', (event, dirty: unknown) => {
+    if (!isTrustedSender(event) || typeof dirty !== 'boolean') return;
     storyDirty = dirty === true;
   });
-  ipcMain.handle('story:open', async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('story:open', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Open Story',
       properties: ['openFile'],
       filters: [{ name: 'Story Blueprint', extensions: ['story'] }],
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     const filePath = result.filePaths[0];
-    return { canceled: false, filePath, content: await readFile(filePath, 'utf8') };
+    const content = await readFile(filePath, 'utf8');
+    const fileToken = randomUUID();
+    currentStoryFile = { path: filePath, token: fileToken };
+    return { canceled: false, filePath, fileToken, content };
   });
 
-  ipcMain.handle('story:save', async (_event, request: SaveStoryRequest) => {
-    let filePath = request.saveAs ? undefined : request.filePath;
+  ipcMain.handle('story:save', async (event, request: unknown) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    if (!isSaveStoryRequest(request)) throw new Error('Invalid story save request');
+
+    let filePath =
+      !request.saveAs &&
+      currentStoryFile &&
+      request.filePath === currentStoryFile.path &&
+      request.fileToken === currentStoryFile.token
+        ? currentStoryFile.path
+        : undefined;
     if (!filePath) {
-      const result = await dialog.showSaveDialog({
+      const result = await dialog.showSaveDialog(mainWindow, {
         title: 'Save Story',
         defaultPath: request.filePath ?? 'untitled.story',
         filters: [{ name: 'Story Blueprint', extensions: ['story'] }],
@@ -43,7 +80,9 @@ function registerStoryFileHandlers(): void {
       filePath = ensureStoryExtension(result.filePath);
     }
     await writeFile(filePath, request.content, 'utf8');
-    return { canceled: false, filePath };
+    const fileToken = randomUUID();
+    currentStoryFile = { path: filePath, token: fileToken };
+    return { canceled: false, filePath, fileToken };
   });
 }
 
@@ -58,6 +97,7 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
 
@@ -129,6 +169,7 @@ app.on('web-contents-created', (_event, contents) => {
           webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
+            sandbox: true,
           },
         },
       };

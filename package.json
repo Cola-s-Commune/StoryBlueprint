@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "A cross-engine visual narrative framework for games",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -10,15 +13,19 @@
     "dev": "npm run dev --workspace @story-blueprint/editor",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
-    "typecheck": "npm run build --workspace @story-blueprint/common && npm run typecheck --workspaces"
+    "typecheck": "npm run build --workspace @story-blueprint/common && npm run typecheck --workspaces",
+    "test": "vitest run",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "electron": "31.0.0",
+    "electron": "43.2.0",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.2.0",
-    "typescript": "^5.5.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.5.0",
+    "vitest": "^3.2.4"
   }
 }

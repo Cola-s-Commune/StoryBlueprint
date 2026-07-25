@@ -6,8 +6,8 @@ import {
   type EndNodeData,
   type StartNodeData,
 } from '@story-blueprint/common';
+import { useRef } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
-import { PanelHeader, type PanelFloatPosition } from './PanelHeader';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -15,15 +15,35 @@ interface PropertyFieldProps {
   label: string;
   value: string;
   multiline?: boolean;
-  onFocus: () => void;
+  onBeginEdit: () => void;
   onChange: (value: string) => void;
 }
 
-function PropertyField({ label, value, multiline, onFocus, onChange }: PropertyFieldProps) {
+function PropertyField({ label, value, multiline, onBeginEdit, onChange }: PropertyFieldProps) {
+  const editing = useRef(false);
+  const handleChange = (nextValue: string) => {
+    if (!editing.current) {
+      onBeginEdit();
+      editing.current = true;
+    }
+    onChange(nextValue);
+  };
+  const handleBlur = () => {
+    editing.current = false;
+  };
   const control = multiline ? (
-    <textarea value={value} rows={5} onFocus={onFocus} onChange={(e) => onChange(e.target.value)} />
+    <textarea
+      value={value}
+      rows={5}
+      onBlur={handleBlur}
+      onChange={(event) => handleChange(event.target.value)}
+    />
   ) : (
-    <input value={value} onFocus={onFocus} onChange={(e) => onChange(e.target.value)} />
+    <input
+      value={value}
+      onBlur={handleBlur}
+      onChange={(event) => handleChange(event.target.value)}
+    />
   );
 
   return (
@@ -34,19 +54,13 @@ function PropertyField({ label, value, multiline, onFocus, onChange }: PropertyF
   );
 }
 
-interface InspectorProps {
-  floating?: boolean;
-  onToggleFloating?: (position?: PanelFloatPosition) => void;
-}
-
-export function Inspector({ floating, onToggleFloating }: InspectorProps) {
+export function Inspector() {
   const { nodes, checkpoint, updateNode, updateNodeData } = useStoryGraphStore();
   const selected = nodes.filter((node) => node.selected);
 
   if (selected.length !== 1) {
     return (
       <div className={panelStyles.panel}>
-        <PanelHeader title="Inspector" floating={floating} onToggleFloating={onToggleFloating} />
         <div className={panelStyles.body}>
           <p className={panelStyles.placeholder}>
             {selected.length > 1 ? `${selected.length} nodes selected` : 'Select a node to edit'}
@@ -69,7 +83,7 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
           <PropertyField
             label="Title"
             value={data.title}
-            onFocus={checkpoint}
+            onBeginEdit={checkpoint}
             onChange={(title) => updateNodeData(node.id, StoryNodeType.Start, { title })}
           />
         );
@@ -81,14 +95,14 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
             <PropertyField
               label="Speaker"
               value={data.speaker}
-              onFocus={checkpoint}
+              onBeginEdit={checkpoint}
               onChange={(speaker) => updateNodeData(node.id, StoryNodeType.Dialogue, { speaker })}
             />
             <PropertyField
               label="Text"
               value={data.text}
               multiline
-              onFocus={checkpoint}
+              onBeginEdit={checkpoint}
               onChange={(text) => updateNodeData(node.id, StoryNodeType.Dialogue, { text })}
             />
           </>
@@ -101,7 +115,7 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
             <PropertyField
               label="Prompt"
               value={data.prompt}
-              onFocus={checkpoint}
+              onBeginEdit={checkpoint}
               onChange={(prompt) => updateNodeData(node.id, StoryNodeType.Choice, { prompt })}
             />
             <div className={styles.groupLabel}>Options</div>
@@ -110,7 +124,7 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
                 key={option.id}
                 label={`Option ${index + 1}`}
                 value={option.label}
-                onFocus={checkpoint}
+                onBeginEdit={checkpoint}
                 onChange={(label) => {
                   const options = data.options.map((candidate) =>
                     candidate.id === option.id ? { ...candidate, label } : candidate,
@@ -129,7 +143,7 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
             label="Condition"
             value={data.condition}
             multiline
-            onFocus={checkpoint}
+            onBeginEdit={checkpoint}
             onChange={(condition) => updateNodeData(node.id, StoryNodeType.Branch, { condition })}
           />
         );
@@ -140,7 +154,7 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
           <PropertyField
             label="Title"
             value={data.title}
-            onFocus={checkpoint}
+            onBeginEdit={checkpoint}
             onChange={(title) => updateNodeData(node.id, StoryNodeType.End, { title })}
           />
         );
@@ -150,14 +164,13 @@ export function Inspector({ floating, onToggleFloating }: InspectorProps) {
 
   return (
     <div className={panelStyles.panel}>
-      <PanelHeader title="Inspector" floating={floating} onToggleFloating={onToggleFloating} />
       <div className={`${panelStyles.body} ${styles.body}`}>
         <section className={styles.section}>
           <div className={styles.sectionTitle}>Node</div>
           <PropertyField
             label="Name"
             value={node.name}
-            onFocus={checkpoint}
+            onBeginEdit={checkpoint}
             onChange={(name) => updateNode(node.id, { name })}
           />
           {duplicateName && <div className={styles.warning}>Name must be unique.</div>}

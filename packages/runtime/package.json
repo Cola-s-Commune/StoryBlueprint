@@ -3,11 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "Story Blueprint Runtime - Engine-independent story executor",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean --sourcemap --target es2022 --tsconfig tsconfig.tsup.json",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch --sourcemap --target es2022 --tsconfig tsconfig.tsup.json",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },

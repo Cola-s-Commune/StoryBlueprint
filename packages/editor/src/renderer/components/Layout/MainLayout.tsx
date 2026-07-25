@@ -1,146 +1,215 @@
-import { useCallback, useState } from 'react';
-import { Group, Panel, Separator } from 'react-resizable-panels';
+import { useCallback, useRef } from 'react';
+import {
+  DockviewReact,
+  type DockviewApi,
+  type DockviewReadyEvent,
+  type IDockviewPanelProps,
+  type SerializedDockview,
+} from 'dockview-react';
+import 'dockview-react/dist/styles/dockview.css';
 import { MenuBar } from './MenuBar';
 import { StatusBar } from './StatusBar';
-import { DetachedWindow } from './DetachedWindow';
 import { ResourceBrowser } from '../Panels/ResourceBrowser';
 import { StoryGraph } from '../Panels/StoryGraph';
 import { Inspector } from '../Panels/Inspector';
 import { ConsolePanel } from '../Panels/Console';
-import type { PanelFloatPosition } from '../Panels/PanelHeader';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-type FloatingPanel = false | true | PanelFloatPosition;
+const layoutStorageKey = 'story-blueprint:dock-layout:v1';
 
-interface FloatingPanels {
-  resources: FloatingPanel;
-  inspector: FloatingPanel;
-  console: FloatingPanel;
+const dockComponents = {
+  resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
+  graph: (_props: IDockviewPanelProps) => <StoryGraph />,
+  inspector: (_props: IDockviewPanelProps) => <Inspector />,
+  console: (_props: IDockviewPanelProps) => <ConsolePanel />,
+};
+
+function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
+  if (panelId === 'resources') return 'left';
+  if (panelId === 'console') return 'bottom';
+  return 'right';
 }
 
-const resizeTargetMinimumSize = { coarse: 24, fine: 12 };
+function createDefaultLayout(api: DockviewApi) {
+  api.clear();
+  const graph = api.addPanel({
+    id: 'graph',
+    component: 'graph',
+    title: 'Story Graph',
+    minimumWidth: 420,
+  });
+  const resources = api.addPanel({
+    id: 'resources',
+    component: 'resources',
+    title: 'Resource Browser',
+    position: { referencePanel: 'graph', direction: 'left' },
+    initialWidth: 240,
+    minimumWidth: 190,
+    maximumWidth: 420,
+  });
+  const inspector = api.addPanel({
+    id: 'inspector',
+    component: 'inspector',
+    title: 'Inspector',
+    position: { referencePanel: 'graph', direction: 'right' },
+    initialWidth: 420,
+    minimumWidth: 360,
+    maximumWidth: 720,
+  });
+  const consolePanel = api.addPanel({
+    id: 'console',
+    component: 'console',
+    title: 'Console',
+    position: { referencePanel: 'graph', direction: 'below' },
+    initialHeight: 230,
+    minimumHeight: 120,
+  });
 
-function floatingPosition(panel: FloatingPanel): PanelFloatPosition | undefined {
-  return typeof panel === 'object' ? panel : undefined;
+  resources.api.group.api.setSize({ width: 240 });
+  inspector.api.group.api.setSize({ width: 420 });
+  consolePanel.api.group.api.setSize({ height: 230 });
+  graph.api.setActive();
+}
+
+type DockPanelId = keyof typeof dockComponents;
+
+function showPanel(api: DockviewApi, panelId: DockPanelId) {
+  const existing = api.getPanel(panelId);
+  if (existing) {
+    existing.api.setActive();
+    return;
+  }
+
+  const graph = api.getPanel('graph');
+  const common = { id: panelId, component: panelId };
+  switch (panelId) {
+    case 'graph':
+      api.addPanel({ ...common, title: 'Story Graph', minimumWidth: 420 });
+      break;
+    case 'resources':
+      api.addPanel({
+        ...common,
+        title: 'Resource Browser',
+        ...(graph && { position: { referencePanel: graph, direction: 'left' as const } }),
+        initialWidth: 240,
+        minimumWidth: 190,
+        maximumWidth: 420,
+      });
+      break;
+    case 'inspector':
+      api.addPanel({
+        ...common,
+        title: 'Inspector',
+        ...(graph && { position: { referencePanel: graph, direction: 'right' as const } }),
+        initialWidth: 420,
+        minimumWidth: 360,
+        maximumWidth: 720,
+      });
+      break;
+    case 'console':
+      api.addPanel({
+        ...common,
+        title: 'Console',
+        ...(graph && { position: { referencePanel: graph, direction: 'below' as const } }),
+        initialHeight: 230,
+        minimumHeight: 120,
+      });
+      break;
+  }
+}
+
+function readSavedLayout(): SerializedDockview | undefined {
+  try {
+    const serialized = localStorage.getItem(layoutStorageKey);
+    return serialized ? (JSON.parse(serialized) as SerializedDockview) : undefined;
+  } catch {
+    localStorage.removeItem(layoutStorageKey);
+    return undefined;
+  }
 }
 
 export function MainLayout() {
-  const [floating, setFloating] = useState<FloatingPanels>({
-    resources: false,
-    inspector: false,
-    console: false,
-  });
+  const dockApiRef = useRef<DockviewApi>();
 
-  const floatResources = useCallback(
-    (position?: PanelFloatPosition) =>
-      setFloating((state) => ({ ...state, resources: position ?? true })),
-    [],
-  );
-  const dockResources = useCallback(
-    () => setFloating((state) => ({ ...state, resources: false })),
-    [],
-  );
-  const floatInspector = useCallback(
-    (position?: PanelFloatPosition) =>
-      setFloating((state) => ({ ...state, inspector: position ?? true })),
-    [],
-  );
-  const dockInspector = useCallback(
-    () => setFloating((state) => ({ ...state, inspector: false })),
-    [],
-  );
-  const floatConsole = useCallback(
-    (position?: PanelFloatPosition) =>
-      setFloating((state) => ({ ...state, console: position ?? true })),
-    [],
-  );
-  const dockConsole = useCallback(() => setFloating((state) => ({ ...state, console: false })), []);
+  const resetLayout = useCallback(() => {
+    const api = dockApiRef.current;
+    if (!api) return;
+    localStorage.removeItem(layoutStorageKey);
+    createDefaultLayout(api);
+  }, []);
+
+  const showDockPanel = useCallback((panelId: DockPanelId) => {
+    const api = dockApiRef.current;
+    if (api) showPanel(api, panelId);
+  }, []);
+
+  const onDockReady = useCallback((event: DockviewReadyEvent) => {
+    dockApiRef.current = event.api;
+    const savedLayout = readSavedLayout();
+
+    if (savedLayout) {
+      try {
+        event.api.fromJSON(savedLayout);
+      } catch {
+        localStorage.removeItem(layoutStorageKey);
+        createDefaultLayout(event.api);
+      }
+    } else {
+      createDefaultLayout(event.api);
+    }
+
+    event.api.onDidLayoutChange(() => {
+      localStorage.setItem(layoutStorageKey, JSON.stringify(event.api.toJSON()));
+    });
+  }, []);
 
   return (
     <StoryGraphStoreProvider>
       <div className={styles.root}>
-        <MenuBar />
-
+        <MenuBar onResetLayout={resetLayout} onShowPanel={showDockPanel} />
         <div className={styles.content}>
-          <Group orientation="horizontal" resizeTargetMinimumSize={resizeTargetMinimumSize}>
-            {!floating.resources && (
-              <>
-                <Panel id="resources" defaultSize="240px" minSize="190px" maxSize="420px">
-                  <ResourceBrowser onToggleFloating={floatResources} />
-                </Panel>
-                <Separator className={`${styles.resizeHandle} ${styles.horizontalResizeHandle}`} />
-              </>
-            )}
-
-            <Panel id="center" minSize="420px">
-              <Group orientation="vertical" resizeTargetMinimumSize={resizeTargetMinimumSize}>
-                <Panel id="graph" defaultSize={floating.console ? 100 : 75} minSize={45}>
-                  <StoryGraph />
-                </Panel>
-                {!floating.console && (
-                  <>
-                    <Separator
-                      className={`${styles.resizeHandle} ${styles.verticalResizeHandle}`}
-                    />
-                    <Panel id="console" defaultSize={25} minSize={10} maxSize={45}>
-                      <ConsolePanel onToggleFloating={floatConsole} />
-                    </Panel>
-                  </>
-                )}
-              </Group>
-            </Panel>
-
-            {!floating.inspector && (
-              <>
-                <Separator className={`${styles.resizeHandle} ${styles.horizontalResizeHandle}`} />
-                <Panel id="inspector" defaultSize="420px" minSize="360px" maxSize="720px">
-                  <Inspector onToggleFloating={floatInspector} />
-                </Panel>
-              </>
-            )}
-          </Group>
+          <DockviewReact
+            className="dockview-theme-dark"
+            components={dockComponents}
+            dndStrategy="pointer"
+            floatingGroupBounds="boundedWithinViewport"
+            floatingGroupDragHandle="titlebar"
+            keyboardNavigation
+            getTabContextMenuItems={({ api, panel }) => {
+              const isFloating = panel.api.location.type === 'floating';
+              const dockTarget = api.panels.find(
+                (candidate) => candidate.id !== panel.id && candidate.api.location.type === 'grid',
+              );
+              return [
+                isFloating
+                  ? {
+                      label: 'Dock Panel',
+                      disabled: !dockTarget,
+                      action: () =>
+                        dockTarget &&
+                        panel.api.moveTo({
+                          group: dockTarget.group,
+                          position: dockPosition(panel.id),
+                        }),
+                    }
+                  : {
+                      label: 'Float Panel',
+                      action: () =>
+                        api.addFloatingGroup(panel, {
+                          width: panel.id === 'inspector' ? 520 : 480,
+                          height: panel.id === 'console' ? 380 : 640,
+                        }),
+                    },
+                'separator',
+                'close',
+              ];
+            }}
+            onReady={onDockReady}
+          />
         </div>
-
         <StatusBar />
       </div>
-
-      {floating.resources && (
-        <DetachedWindow
-          id="resources"
-          title="Resource Browser"
-          width={420}
-          height={720}
-          {...floatingPosition(floating.resources)}
-          onClose={dockResources}
-        >
-          <ResourceBrowser floating onToggleFloating={dockResources} />
-        </DetachedWindow>
-      )}
-      {floating.inspector && (
-        <DetachedWindow
-          id="inspector"
-          title="Inspector"
-          width={520}
-          height={820}
-          {...floatingPosition(floating.inspector)}
-          onClose={dockInspector}
-        >
-          <Inspector floating onToggleFloating={dockInspector} />
-        </DetachedWindow>
-      )}
-      {floating.console && (
-        <DetachedWindow
-          id="console"
-          title="Console"
-          width={760}
-          height={420}
-          {...floatingPosition(floating.console)}
-          onClose={dockConsole}
-        >
-          <ConsolePanel floating onToggleFloating={dockConsole} />
-        </DetachedWindow>
-      )}
     </StoryGraphStoreProvider>
   );
 }
