@@ -157,10 +157,11 @@
 
 # Milestone 3 - Basic Nodes
 
-## Start Node
+## Story Entry Node（当前实现名：Start）
 
 - [ ] Create
 - [x] Render
+- [ ] 将持久化类型统一为 `story-entry@1`
 
 ---
 
@@ -170,8 +171,26 @@
 
 - [x] Character（只读渲染）
 - [x] Text（只读渲染）
-- [ ] Audio
-- [ ] Portrait
+- [ ] Speaker / Text 可编辑属性
+- [ ] Voice Asset 与按语言覆盖
+- [ ] Emotion / Portrait
+- [ ] 稳定 Text ID
+
+---
+
+## Narration Node
+
+- [ ] Text
+- [ ] Voice Asset（可选）
+
+---
+
+## Choice Node
+
+- [x] Render
+- [ ] 动态 Option 与稳定 Option ID
+- [ ] Option Text / Condition
+- [ ] 每个 Option 的动态执行输出
 
 ---
 
@@ -179,8 +198,32 @@
 
 属性：
 
-- [ ] Dynamic Outputs
-- [ ] Choice Name
+- [x] Render
+- [ ] Boolean Expression
+- [ ] 固定 True / False 输出
+
+---
+
+## Set Variable Node
+
+- [ ] Variable Reference
+- [ ] Typed Value Expression
+
+---
+
+## Call Event Node
+
+- [ ] Event Reference
+- [ ] Typed Parameters / Result
+- [ ] Error Policy
+
+---
+
+## End Story Node
+
+- [x] Render
+- [ ] 根 Story 终止语义
+- [ ] Chapter 内使用警告
 
 ---
 
@@ -188,7 +231,8 @@
 
 属性：
 
-- [ ] Return ID
+- [ ] 仅在 Chapter 中创建
+- [ ] 可选 Typed Return Value
 
 ---
 
@@ -197,7 +241,8 @@
 属性：
 
 - [ ] Chapter Reference
-- [ ] Auto Generate Outputs
+- [ ] Typed Input Parameters
+- [ ] Completed 输出与返回值
 
 ---
 
@@ -207,6 +252,7 @@
 
 - [ ] Script ID
 - [ ] Parameters
+- [ ] 延后到基础 Call Event 完成后评估
 
 ---
 
@@ -244,6 +290,8 @@
 
 - [ ] Character Asset
 - [ ] Character List
+- [ ] 稳定 ID / Name / Display Name
+- [ ] Emotion / Portrait 配置
 
 ---
 
@@ -251,12 +299,14 @@
 
 - [ ] Audio Asset
 - [ ] Search
+- [ ] Locale Voice Mapping
 
 ---
 
 ## Chapter
 
 - [ ] Chapter List
+- [ ] Parameter / Local Variable / Return Type
 
 ---
 
@@ -269,6 +319,17 @@
 ## Variable
 
 - [ ] Variable List
+- [ ] Project / Story / Chapter / Character Scope
+- [ ] Boolean / Number / String / Enum / Struct / Nullable
+- [ ] 引用检查与安全重命名
+
+---
+
+## Localization
+
+- [ ] 内联默认文本与稳定 Text ID
+- [ ] 本地化表提取
+- [ ] Locale Fallback
 
 ---
 
@@ -285,9 +346,16 @@
 
 ## Serialization
 
-- [ ] Graph JSON
-- [ ] Node JSON
-- [ ] Resource JSON
+- [ ] 定义版本化 `.story` KDL Schema
+- [ ] 定义版本化 Node Definition Schema
+- [ ] `.story` Parse / Serialize
+- [ ] 稳定格式化（确保 Git Diff 可读）
+- [ ] 注释与未知字段保留测试
+- [ ] Typed Story Graph 内存模型
+- [ ] 静态端口派生、动态端口项序列化
+- [ ] Character / Variable / Asset 引用序列化
+- [ ] 稳定 ID / Name / Display Name 模型
+- [ ] 格式版本迁移
 
 ---
 
@@ -306,6 +374,10 @@
 - [ ] Missing Connection
 - [ ] Invalid Chapter
 - [ ] Duplicate ID
+- [ ] 悬空 Node / Port / Resource 引用
+- [ ] Entry / End / Return 上下文与终结路径
+- [ ] Chapter 参数和返回值类型
+- [ ] 无等待点的紧密死循环
 
 ---
 
@@ -313,12 +385,23 @@
 
 - [ ] Build AST
 - [ ] Validate AST
+- [ ] Graph → Story AST
+- [ ] Story AST → Runtime Program
+- [ ] 表达式字符串 → Typed Expression AST
+- [ ] 表达式稳定符号绑定与安全重命名
+- [ ] 移除坐标、端口、边和编辑器元数据
+- [ ] Block 终结指令与显式 Jump 校验
+- [ ] 可选 Source Map
 
 ---
 
 ## Export
 
-- [ ] story.json
+- [ ] 导出 `.storyc.json`
+- [ ] 定义版本化 Runtime Program Schema
+- [ ] Compiler Backend 接口
+- [ ] 暂不实现自定义字节码
+- [ ] 暂不生成 TypeScript 剧情代码
 
 ---
 
@@ -333,7 +416,8 @@
 ## Preview Window
 
 - [ ] Dialogue
-- [ ] Branch
+- [ ] Choice
+- [ ] Branch / Condition
 - [ ] Next
 - [ ] History
 
@@ -341,10 +425,27 @@
 
 ## Runtime
 
-- [ ] Load story.json
-- [ ] Execute
-- [ ] Variable
-- [ ] Return
+- [ ] Load `.storyc.json`
+- [ ] `blockId + instructionIndex` 执行状态机
+- [ ] Async Pause / Resume / Abort
+- [ ] Project / Story / Chapter / Character Variables
+- [ ] Call Stack / Return Value
+- [ ] End Story
+- [ ] 稳定点 Save / Load
+- [ ] Pending Choice / Event 恢复
+- [ ] Program Version 兼容性检查
+- [ ] 结构化 Runtime Diagnostics
+
+---
+
+## Engine Adapter
+
+- [ ] Dialogue / Choice 异步接口
+- [ ] Event Registry 与 Typed Parameters / Result
+- [ ] Text / Voice / Asset 解析
+- [ ] External Variable 读写
+- [ ] AbortSignal 取消
+- [ ] Adapter 返回值校验与错误策略
 
 ---
 
@@ -408,6 +509,75 @@
 
 ---
 
+# Milestone 11 - AI Editing Foundation
+
+目标：
+
+AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画布，也不绕过校验直接修改内部状态。
+
+## Semantic Model
+
+- [ ] 为 Story / Chapter / Node / Port / Resource 定义稳定 ID
+- [ ] Typed Story Graph Schema
+- [ ] 面向 AI 的精简语义视图（不包含坐标和 UI 状态）
+- [ ] 按 Chapter / Subgraph 构建局部上下文
+- [ ] Revision / Conflict Detection
+
+---
+
+## Blueprint Command API
+
+- [ ] Command Schema Version / Operation ID
+- [ ] Add / Update / Remove Node
+- [ ] Connect / Disconnect
+- [ ] Add / Update Character
+- [ ] Add / Update Variable
+- [ ] Set Expression
+- [ ] Create / Refactor Chapter
+- [ ] Import / Export Ink
+- [ ] Validate / Auto Layout
+- [ ] 通用原语与高级命令展开
+
+---
+
+## Safe Editing
+
+- [ ] JSON Schema 校验 AI 命令
+- [ ] 端口与数据类型校验
+- [ ] 批量 Transaction
+- [ ] Dry Run / Preconditions / Atomic Rollback
+- [ ] 与 Undo / Redo 集成
+- [ ] 语义 Diff / 布局 Diff 分离
+- [ ] 高风险操作执行前 Diff Preview
+- [ ] 低风险局部操作自动执行策略
+- [ ] 高亮 AI 新增、修改和删除内容
+- [ ] 失败时返回结构化 Diagnostics
+- [ ] 删除与改型前引用检查
+- [ ] Operation ID 去重
+
+---
+
+# Milestone 12 - Ink Interoperability
+
+## Versioned Ink Profile
+
+- [ ] 定义受支持的 Story Blueprint Ink 子集
+- [ ] Speaker / Voice / Emotion / Text ID Tag 规范
+- [ ] Tag 转义与稳定 ID 规则
+- [ ] Ink Variable 与 Typed Variable 映射
+
+---
+
+## Import / Export
+
+- [ ] `.story` → `.ink` 语义导出
+- [ ] 受支持 `.ink` → Typed Story Graph
+- [ ] 不受支持结构的 Diagnostics / Preview
+- [ ] 任意 Ink 降级为保留原文的 Ink Block
+- [ ] 语义往返测试
+
+---
+
 # Future
 
 ## Plugin
@@ -424,6 +594,10 @@
 - [ ] AI Dialogue Generation
 - [ ] AI Branch Suggestion
 - [ ] AI Translation
+- [ ] AI Logic Validation
+- [ ] AI Ink Conversion
+- [ ] AI Chapter Refactoring
+- [ ] AI Character / Voice / Emotion Completion
 
 ---
 
@@ -451,12 +625,12 @@
 - [ ] React Flow 画布
 - [ ] 创建 Dialogue Node
 - [ ] 创建 Branch Node
-- [ ] 创建 Return Node
+- [ ] 创建 End Story Node
 - [ ] 节点连线
 - [ ] Inspector 可编辑属性
 - [ ] 保存 `.story`
 - [ ] 打开 `.story`
-- [ ] 导出 `story.json`
+- [ ] 导出 `.storyc.json`
 - [ ] Runtime Preview 可以执行简单剧情
 
 ---
