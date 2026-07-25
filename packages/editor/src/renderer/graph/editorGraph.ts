@@ -5,6 +5,7 @@ import {
   StoryNodeType,
   validateGraphConnection,
   type ChoiceNodeData,
+  type ChapterId,
   type EdgeId,
   type NodeId,
   type NodeInstance,
@@ -37,6 +38,143 @@ export interface EditorGraphState {
 export interface GraphClipboard {
   nodes: EditorGraphNode[];
   edges: EditorGraphEdge[];
+}
+
+export type ExtractSelectionResult =
+  | {
+      ok: true;
+      chapterGraph: EditorGraphState;
+      remainingGraph: EditorGraphState;
+      callNodeId: NodeId;
+    }
+  | { ok: false; message: string };
+
+/** Extracts a single-entry/single-exit selection into a callable substory graph. */
+export function extractSelectionToSubstory(
+  graph: EditorGraphState,
+  chapterId: ChapterId,
+): ExtractSelectionResult {
+  const selected = graph.nodes.filter((node) => node.selected);
+  if (selected.length === 0) return { ok: false, message: 'Select one or more nodes first.' };
+  if (
+    selected.some(
+      (node) =>
+        node.type === StoryNodeType.Start ||
+        node.type === StoryNodeType.End ||
+        node.type === StoryNodeType.Return,
+    )
+  ) {
+    return { ok: false, message: 'Entry, End Story, and Return cannot be extracted.' };
+  }
+
+  const selectedIds = new Set(selected.map((node) => node.id));
+  const incoming = graph.edges.filter(
+    (edge) => !selectedIds.has(edge.source) && selectedIds.has(edge.target),
+  );
+  const outgoing = graph.edges.filter(
+    (edge) => selectedIds.has(edge.source) && !selectedIds.has(edge.target),
+  );
+  if (incoming.length !== 1 || outgoing.length !== 1) {
+    return {
+      ok: false,
+      message: `Selection needs exactly one incoming and one outgoing connection (found ${incoming.length} in, ${outgoing.length} out).`,
+    };
+  }
+  if (incoming[0].targetHandle !== 'in' || outgoing[0].targetHandle !== 'in') {
+    return { ok: false, message: 'Data-pin boundaries cannot be extracted yet.' };
+  }
+
+  const minX = Math.min(...selected.map((node) => node.position.x));
+  const maxX = Math.max(...selected.map((node) => node.position.x));
+  const centerX = Math.round(
+    selected.reduce((sum, node) => sum + node.position.x, 0) / selected.length,
+  );
+  const centerY = Math.round(
+    selected.reduce((sum, node) => sum + node.position.y, 0) / selected.length,
+  );
+  const incomingTarget = selected.find((node) => node.id === incoming[0].target)!;
+  const outgoingSource = selected.find((node) => node.id === outgoing[0].source)!;
+  const entry: EditorGraphNode = {
+    id: createStableId('node'),
+    type: StoryNodeType.Start,
+    definitionVersion: 1,
+    position: { x: Math.round(minX - 280), y: Math.round(incomingTarget.position.y) },
+    data: { title: 'Substory Entry' } as EditorNodeData,
+    selected: false,
+  };
+  const returnNode: EditorGraphNode = {
+    id: createStableId('node'),
+    type: StoryNodeType.Return,
+    definitionVersion: 1,
+    position: { x: Math.round(maxX + 280), y: Math.round(outgoingSource.position.y) },
+    data: {} as EditorNodeData,
+    selected: false,
+  };
+  const call: EditorGraphNode = {
+    id: createStableId('node'),
+    type: StoryNodeType.CallSubstory,
+    definitionVersion: 1,
+    position: { x: centerX, y: centerY },
+    data: { chapterId } as EditorNodeData,
+    selected: true,
+  };
+
+  const internalEdges = graph.edges.filter(
+    (edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target),
+  );
+  const chapterGraph: EditorGraphState = {
+    nodes: [
+      entry,
+      ...selected.map((node) => ({ ...structuredClone(node), selected: false })),
+      returnNode,
+    ],
+    edges: [
+      ...internalEdges.map((edge) => ({ ...structuredClone(edge), selected: false })),
+      {
+        id: createStableId('edge'),
+        source: entry.id,
+        sourceHandle: 'out',
+        target: incoming[0].target,
+        targetHandle: incoming[0].targetHandle,
+      },
+      {
+        id: createStableId('edge'),
+        source: outgoing[0].source,
+        sourceHandle: outgoing[0].sourceHandle,
+        target: returnNode.id,
+        targetHandle: 'in',
+      },
+    ],
+  };
+
+  const remainingGraph: EditorGraphState = {
+    nodes: [
+      ...graph.nodes
+        .filter((node) => !selectedIds.has(node.id))
+        .map((node) => ({ ...node, selected: false })),
+      call,
+    ],
+    edges: [
+      ...graph.edges
+        .filter((edge) => !selectedIds.has(edge.source) && !selectedIds.has(edge.target))
+        .map((edge) => ({ ...edge, selected: false })),
+      {
+        id: createStableId('edge'),
+        source: incoming[0].source,
+        sourceHandle: incoming[0].sourceHandle,
+        target: call.id,
+        targetHandle: 'in',
+      },
+      {
+        id: createStableId('edge'),
+        source: call.id,
+        sourceHandle: 'out',
+        target: outgoing[0].target,
+        targetHandle: outgoing[0].targetHandle,
+      },
+    ],
+  };
+  return { ok: true, chapterGraph, remainingGraph, callNodeId: call.id };
 }
 
 export function toEditorGraphNode(instance: NodeInstance): EditorGraphNode {

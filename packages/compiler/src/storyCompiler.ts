@@ -6,6 +6,8 @@ import {
   StoryNodeType,
   type BlockId,
   type BranchNodeData,
+  type CallSubstoryNodeData,
+  type ChapterId,
   type ChoiceNodeData,
   type DialogueNodeData,
   type GetVariableNodeData,
@@ -13,9 +15,11 @@ import {
   type NodeId,
   type ProgramId,
   type RuntimeBlock,
+  type RuntimeChapterDefinition,
   type RuntimeInstruction,
   type SetVariableNodeData,
   type SourceEdge,
+  type SourceGraph,
   type SourceNode,
   type StorySourceDocument,
   type TextId,
@@ -79,201 +83,262 @@ export class DefaultStoryCompiler implements StoryCompiler {
       };
     }
 
-    const entry = source.root.nodes.find((node) => node.type === StoryNodeType.Start);
-    if (!entry) {
+    const rootEntry = source.root.nodes.find((node) => node.type === StoryNodeType.Start);
+    if (!rootEntry) {
       return {
         ok: false,
         diagnostics: [
-          {
-            code: 'MISSING_ENTRY_BLOCK',
-            severity: 'error',
-            message: 'Story has no entry node',
-          },
+          { code: 'MISSING_ENTRY_BLOCK', severity: 'error', message: 'Story has no entry node' },
         ],
       };
     }
 
-    const blocks: Record<string, RuntimeBlock> = {};
-    const requireTarget = (node: SourceNode, portId: string): BlockId | undefined => {
-      const target = edgeTarget(source.root.edges, node.id, portId);
-      if (!target) {
+    const chapterEntries = new Map<ChapterId, SourceNode>();
+    for (const chapter of source.chapters) {
+      const entry = chapter.graph.nodes.find((node) => node.type === StoryNodeType.Start);
+      if (entry) chapterEntries.set(chapter.id, entry);
+      else {
         diagnostics.push({
-          code: 'MISSING_CONNECTION',
+          code: 'MISSING_ENTRY_BLOCK',
           severity: 'error',
-          message: `${node.type}.${portId} is not connected`,
-          sourceNodeId: node.id,
+          message: `Substory ${chapter.displayName} has no entry node`,
         });
       }
-      return target;
-    };
-    const compileSafe = <T>(node: SourceNode, work: () => T): T | undefined => {
-      try {
-        return work();
-      } catch (error) {
-        diagnostics.push({
-          code: 'EXPRESSION_ERROR',
-          severity: 'error',
-          message: error instanceof ExpressionCompileError ? error.message : String(error),
-          sourceNodeId: node.id,
-        });
-        return undefined;
-      }
-    };
+    }
 
-    for (const node of source.root.nodes) {
-      if (node.type === StoryNodeType.GetVariable) continue;
-      const instructions: RuntimeInstruction[] = [];
-      switch (node.type) {
-        case StoryNodeType.Start: {
-          const target = requireTarget(node, 'out');
-          if (target) instructions.push(jump(node, target));
-          break;
+    const blocks: Record<string, RuntimeBlock> = {};
+    const compileGraph = (graph: SourceGraph, chapterId?: ChapterId) => {
+      const requireTarget = (node: SourceNode, portId: string): BlockId | undefined => {
+        const target = edgeTarget(graph.edges, node.id, portId);
+        if (!target) {
+          diagnostics.push({
+            code: 'MISSING_CONNECTION',
+            severity: 'error',
+            message: `${node.type}.${portId} is not connected`,
+            sourceNodeId: node.id,
+          });
         }
-        case StoryNodeType.Dialogue: {
-          const data = node.data as unknown as DialogueNodeData;
-          const text = compileSafe(node, () =>
-            compileTextTemplate(data.text.source, textId(node.id), source.variables),
-          );
-          if (text) {
-            instructions.push({
-              id: instructionId(node.id),
-              op: 'dialogue',
-              speakerId: data.speakerId,
-              text,
-              voice: data.voiceId ? { default: data.voiceId } : undefined,
-              emotion: data.emotion,
-            });
+        return target;
+      };
+      const compileSafe = <T>(node: SourceNode, work: () => T): T | undefined => {
+        try {
+          return work();
+        } catch (error) {
+          diagnostics.push({
+            code: 'EXPRESSION_ERROR',
+            severity: 'error',
+            message: error instanceof ExpressionCompileError ? error.message : String(error),
+            sourceNodeId: node.id,
+          });
+          return undefined;
+        }
+      };
+
+      for (const node of graph.nodes) {
+        if (node.type === StoryNodeType.GetVariable) continue;
+        const instructions: RuntimeInstruction[] = [];
+        switch (node.type) {
+          case StoryNodeType.Start: {
+            const target = requireTarget(node, 'out');
+            if (target) instructions.push(jump(node, target));
+            break;
           }
-          const target = requireTarget(node, 'out');
-          if (target) instructions.push(jump(node, target));
-          break;
-        }
-        case StoryNodeType.SetVariable: {
-          const data = node.data as unknown as SetVariableNodeData;
-          if (
-            !data.variableId ||
-            !source.variables.some((variable) => variable.id === data.variableId)
-          ) {
-            diagnostics.push({
-              code: 'INVALID_NODE',
-              severity: 'error',
-              message: 'Set Variable does not reference an existing variable',
-              sourceNodeId: node.id,
-            });
-          } else {
-            const value = compileSafe(node, () => compileExpression(data.value, source.variables));
-            if (value) {
+          case StoryNodeType.Dialogue: {
+            const data = node.data as unknown as DialogueNodeData;
+            const text = compileSafe(node, () =>
+              compileTextTemplate(data.text.source, textId(node.id), source.variables),
+            );
+            if (text) {
               instructions.push({
                 id: instructionId(node.id),
-                op: 'set-variable',
-                variableId: data.variableId,
-                value,
+                op: 'dialogue',
+                speakerId: data.speakerId,
+                text,
+                voice: data.voiceId ? { default: data.voiceId } : undefined,
+                emotion: data.emotion,
               });
             }
+            const target = requireTarget(node, 'out');
+            if (target) instructions.push(jump(node, target));
+            break;
           }
-          const target = requireTarget(node, 'out');
-          if (target) instructions.push(jump(node, target));
-          break;
-        }
-        case StoryNodeType.Choice: {
-          const data = node.data as unknown as ChoiceNodeData;
-          const options = data.options.flatMap((option) => {
-            const target = requireTarget(node, option.id);
-            if (!target) return [];
-            const text = compileSafe(node, () =>
-              compileTextTemplate(option.text.source, textId(option.id), source.variables),
-            );
-            if (!text) return [];
-            const visibleIf = option.visibleIf
-              ? compileSafe(node, () => compileExpression(option.visibleIf!, source.variables))
-              : undefined;
-            const enabledIf = option.enabledIf
-              ? compileSafe(node, () => compileExpression(option.enabledIf!, source.variables))
-              : undefined;
-            return [{ id: option.id, text, visibleIf, enabledIf, target }];
-          });
-          const prompt = data.prompt.source
-            ? compileSafe(node, () =>
-                compileTextTemplate(
-                  data.prompt.source,
-                  textId(`${node.id}_prompt`),
-                  source.variables,
-                ),
-              )
-            : undefined;
-          instructions.push({ id: instructionId(node.id), op: 'choice', prompt, options });
-          break;
-        }
-        case StoryNodeType.Branch: {
-          const data = node.data as unknown as BranchNodeData;
-          const whenTrue = requireTarget(node, 'true');
-          const whenFalse = requireTarget(node, 'false');
-          const condition = compileSafe(node, () =>
-            compileExpression(data.condition, source.variables),
-          );
-          if (whenTrue && whenFalse && condition) {
-            if (condition.valueType.kind !== 'boolean' && condition.valueType.kind !== 'any') {
+          case StoryNodeType.SetVariable: {
+            const data = node.data as unknown as SetVariableNodeData;
+            if (!data.variableId || !source.variables.some((item) => item.id === data.variableId)) {
               diagnostics.push({
-                code: 'EXPRESSION_ERROR',
+                code: 'INVALID_NODE',
                 severity: 'error',
-                message: 'Branch condition must be boolean',
+                message: 'Set Variable does not reference an existing variable',
                 sourceNodeId: node.id,
               });
             } else {
+              const value = compileSafe(node, () =>
+                compileExpression(data.value, source.variables),
+              );
+              if (value) {
+                instructions.push({
+                  id: instructionId(node.id),
+                  op: 'set-variable',
+                  variableId: data.variableId,
+                  value,
+                });
+              }
+            }
+            const target = requireTarget(node, 'out');
+            if (target) instructions.push(jump(node, target));
+            break;
+          }
+          case StoryNodeType.Choice: {
+            const data = node.data as unknown as ChoiceNodeData;
+            const options = data.options.flatMap((option) => {
+              const target = requireTarget(node, option.id);
+              if (!target) return [];
+              const text = compileSafe(node, () =>
+                compileTextTemplate(option.text.source, textId(option.id), source.variables),
+              );
+              if (!text) return [];
+              const visibleIf = option.visibleIf
+                ? compileSafe(node, () => compileExpression(option.visibleIf!, source.variables))
+                : undefined;
+              const enabledIf = option.enabledIf
+                ? compileSafe(node, () => compileExpression(option.enabledIf!, source.variables))
+                : undefined;
+              return [{ id: option.id, text, visibleIf, enabledIf, target }];
+            });
+            const prompt = data.prompt.source
+              ? compileSafe(node, () =>
+                  compileTextTemplate(
+                    data.prompt.source,
+                    textId(`${node.id}_prompt`),
+                    source.variables,
+                  ),
+                )
+              : undefined;
+            instructions.push({ id: instructionId(node.id), op: 'choice', prompt, options });
+            break;
+          }
+          case StoryNodeType.Branch: {
+            const data = node.data as unknown as BranchNodeData;
+            const whenTrue = requireTarget(node, 'true');
+            const whenFalse = requireTarget(node, 'false');
+            const condition = compileSafe(node, () =>
+              compileExpression(data.condition, source.variables),
+            );
+            if (whenTrue && whenFalse && condition) {
+              if (condition.valueType.kind !== 'boolean' && condition.valueType.kind !== 'any') {
+                diagnostics.push({
+                  code: 'EXPRESSION_ERROR',
+                  severity: 'error',
+                  message: 'Branch condition must be boolean',
+                  sourceNodeId: node.id,
+                });
+              } else {
+                instructions.push({
+                  id: instructionId(node.id),
+                  op: 'branch',
+                  condition,
+                  whenTrue,
+                  whenFalse,
+                });
+              }
+            }
+            break;
+          }
+          case StoryNodeType.CallSubstory: {
+            const data = node.data as unknown as CallSubstoryNodeData;
+            const chapter = data.chapterId
+              ? source.chapters.find((item) => item.id === data.chapterId)
+              : undefined;
+            const entry = data.chapterId ? chapterEntries.get(data.chapterId) : undefined;
+            const returnBlock = requireTarget(node, 'out');
+            if (!chapter || !entry) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Call Substory does not reference an existing substory',
+                sourceNodeId: node.id,
+              });
+            } else if (returnBlock) {
               instructions.push({
                 id: instructionId(node.id),
-                op: 'branch',
-                condition,
-                whenTrue,
-                whenFalse,
+                op: 'call-chapter',
+                chapterId: chapter.id,
+                target: blockId(entry.id),
+                arguments: {},
+                returnTo: { blockId: returnBlock, instructionIndex: 0 },
               });
             }
+            break;
           }
-          break;
-        }
-        case StoryNodeType.End:
-          instructions.push({ id: instructionId(node.id), op: 'end-story' });
-          break;
-        case StoryNodeType.GetVariable: {
-          const data = node.data as unknown as GetVariableNodeData;
-          if (
-            data.variableId &&
-            !source.variables.some((variable) => variable.id === data.variableId)
-          ) {
+          case StoryNodeType.Return:
+            if (!chapterId) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Return can only be used inside a substory',
+                sourceNodeId: node.id,
+              });
+            } else instructions.push({ id: instructionId(node.id), op: 'return' });
+            break;
+          case StoryNodeType.End:
+            instructions.push({ id: instructionId(node.id), op: 'end-story' });
+            break;
+          case StoryNodeType.GetVariable: {
+            const data = node.data as unknown as GetVariableNodeData;
+            if (data.variableId && !source.variables.some((item) => item.id === data.variableId)) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Get Variable references a missing variable',
+                sourceNodeId: node.id,
+              });
+            }
+            break;
+          }
+          default:
             diagnostics.push({
               code: 'INVALID_NODE',
               severity: 'error',
-              message: 'Get Variable references a missing variable',
+              message: `Unsupported node type ${node.type}`,
               sourceNodeId: node.id,
             });
-          }
-          break;
         }
-        default:
-          diagnostics.push({
-            code: 'INVALID_NODE',
-            severity: 'error',
-            message: `Unsupported node type ${node.type}`,
-            sourceNodeId: node.id,
-          });
+        if (instructions.length > 0) {
+          const id = blockId(node.id);
+          blocks[id] = { id, instructions };
+        }
       }
-      if (instructions.length > 0) {
-        const id = blockId(node.id);
-        blocks[id] = { id, instructions };
-      }
-    }
+    };
 
+    compileGraph(source.root);
+    for (const chapter of source.chapters) compileGraph(chapter.graph, chapter.id);
     if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
       return { ok: false, diagnostics };
     }
+
+    const chapters: Record<string, RuntimeChapterDefinition> = Object.fromEntries(
+      source.chapters.map((chapter) => [
+        chapter.id,
+        {
+          id: chapter.id,
+          entryBlockId: blockId(chapterEntries.get(chapter.id)!.id),
+          parameters: chapter.parameters.map((parameter) => ({
+            variableId: parameter.variable.id,
+            valueType: parameter.variable.valueType,
+          })),
+          localVariables: [...chapter.localVariables],
+          returnType: chapter.returnType,
+        },
+      ]),
+    );
     const program = {
       format: STORY_RUNTIME_FORMAT,
       version: STORY_RUNTIME_VERSION,
       id: programId(source.id),
       contentVersion: options.contentVersion ?? 'dev',
-      entryBlockId: blockId(entry.id),
+      entryBlockId: blockId(rootEntry.id),
       blocks,
-      chapters: {},
+      chapters,
       variables: [...source.variables],
     } as const;
     const validationDiagnostics = validateRuntimeProgram(program);

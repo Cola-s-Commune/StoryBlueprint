@@ -19,6 +19,10 @@ npm run dev
 
 ## Current: Story Data / Compiler → Runtime Preview
 
+- Resource Browser 已支持 Main Story 与多个 Substory 的创建、重命名、切换和引用安全删除。
+- 画布多选节点可提取为单入口、单出口 Substory；原位置自动替换为 Call Substory，子故事自动生成 Entry 与 Return。
+- `.story` KDL、Compiler 与 Runtime 已贯通 Substory Graph、Call Chapter、Call Stack 和 Return。
+
 - Runtime Preview 已接入 Dockview，可直接编译并运行当前 Story，支持逐句继续、选项、历史、变量和执行位置查看。
 - Runtime 新增 `blockId + instructionIndex` 状态机；Dialogue / Choice 形成稳定暂停点，Branch / Set Variable / Jump 自动执行，End Story 正常终止。
 - Runtime 对非法位置、非法选项、表达式错误、未支持指令和无等待点紧密循环返回结构化诊断。

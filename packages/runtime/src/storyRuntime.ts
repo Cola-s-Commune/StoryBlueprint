@@ -190,9 +190,9 @@ export class StoryRuntime {
         });
       }
       case 'set-variable':
-        this.currentState.storyVariables[instruction.variableId] = evaluateExpression(
-          instruction.value,
-          this.readVariable,
+        this.writeVariable(
+          instruction.variableId,
+          evaluateExpression(instruction.value, this.readVariable),
         );
         this.currentState.instructionIndex += 1;
         return undefined;
@@ -224,6 +224,54 @@ export class StoryRuntime {
         };
         this.currentState.status = 'waiting';
         return this.waiting(this.choiceInteraction(instruction));
+      }
+      case 'call-chapter': {
+        const chapter = this.program.chapters[instruction.chapterId];
+        if (!chapter) {
+          return this.fail({
+            code: 'INVALID_LOCATION',
+            severity: 'error',
+            message: `Missing substory ${instruction.chapterId}`,
+            location: this.location(),
+            instructionId: instruction.id,
+          });
+        }
+        const locals: Record<string, RuntimeValue> = Object.fromEntries(
+          chapter.localVariables.map((variable) => [variable.id, variable.defaultValue]),
+        );
+        for (const [variableId, expression] of Object.entries(instruction.arguments)) {
+          locals[variableId] = evaluateExpression(expression, this.readVariable);
+        }
+        this.currentState.callStack.push({
+          chapterId: instruction.chapterId,
+          returnTo: instruction.returnTo,
+          resultVariableId: instruction.resultVariableId,
+          locals,
+        });
+        this.jump(instruction.target);
+        return undefined;
+      }
+      case 'return': {
+        const value = instruction.value
+          ? evaluateExpression(instruction.value, this.readVariable)
+          : undefined;
+        const frame = this.currentState.callStack.pop();
+        if (!frame) {
+          return this.fail({
+            code: 'INVALID_LOCATION',
+            severity: 'error',
+            message: 'Return executed without a calling substory frame',
+            location: this.location(),
+            instructionId: instruction.id,
+          });
+        }
+        this.currentState.blockId = frame.returnTo.blockId;
+        this.currentState.instructionIndex = frame.returnTo.instructionIndex;
+        this.currentState.status = 'running';
+        if (frame.resultVariableId && value !== undefined) {
+          this.writeVariable(frame.resultVariableId, value);
+        }
+        return undefined;
       }
       case 'end-story':
         this.currentState.pending = undefined;
@@ -288,9 +336,17 @@ export class StoryRuntime {
   }
 
   private readonly readVariable = (id: VariableId): RuntimeValue => {
+    const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
+    if (frame && id in frame.locals) return frame.locals[id];
     if (!(id in this.currentState.storyVariables)) throw new TypeError(`Missing variable ${id}`);
     return this.currentState.storyVariables[id];
   };
+
+  private writeVariable(id: VariableId, value: RuntimeValue): void {
+    const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
+    if (frame && id in frame.locals) frame.locals[id] = value;
+    else this.currentState.storyVariables[id] = value;
+  }
 
   private currentInstruction(): RuntimeInstruction | undefined {
     return this.program.blocks[this.currentState.blockId]?.instructions[

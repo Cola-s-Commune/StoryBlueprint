@@ -47,6 +47,8 @@
   position: absolute;
   z-index: 20;
   width: 190px;
+  max-height: calc(100% - 8px);
+  overflow-y: auto;
   padding: 6px;
   border: 1px solid #454545;
   border-radius: 5px;
@@ -93,4 +95,34 @@
   height: 8px;
   border-radius: 2px;
   flex-shrink: 0;
+}
+
+.graphBadge {
+  position: absolute;
+  z-index: 5;
+  top: 10px;
+  left: 10px;
+  display: grid;
+  gap: 2px;
+  padding: 6px 9px;
+  border: 1px solid #3d4652;
+  border-radius: 4px;
+  background: rgb(29 33 39 / 88%);
+  color: #d5dbe3;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.graphBadge span {
+  color: #737e8c;
+  font-size: 8px;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+}
+
+.contextMenuDivider {
+  height: 1px;
+  margin: 5px 3px;
+  background: #414141;
 }

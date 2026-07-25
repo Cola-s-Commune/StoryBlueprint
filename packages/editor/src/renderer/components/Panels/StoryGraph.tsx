@@ -79,6 +79,9 @@ export function StoryGraph() {
     undo,
     redo,
     addNode,
+    activeGraphId,
+    chapters,
+    extractSelectionToSubstory,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [flowInstance, setFlowInstance] = useState<
@@ -203,7 +206,7 @@ export function StoryGraph() {
       const bounds = canvasRef.current.getBoundingClientRect();
       setContextMenu({
         left: Math.max(4, Math.min(event.clientX - bounds.left, bounds.width - 200)),
-        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - 260)),
+        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - 390)),
         flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
       });
     },
@@ -257,6 +260,14 @@ export function StoryGraph() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [copySelection, deleteSelection, duplicateSelection, paste, redo, undo]);
 
+  useEffect(() => {
+    if (!flowInstance) return;
+    const frame = requestAnimationFrame(() => {
+      void flowInstance.fitView({ padding: 0.2, duration: 180 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeGraphId, flowInstance]);
+
   const onNodeDragStart = useCallback(() => {
     dragSnapshot.current = structuredClone(graph);
   }, [graph]);
@@ -287,6 +298,11 @@ export function StoryGraph() {
     [checkpoint, markDirty, setNodes],
   );
   const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
+  const activeName =
+    activeGraphId === 'root'
+      ? 'Main Story'
+      : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
+  const selectedCount = nodes.filter((node) => node.selected).length;
 
   return (
     <div className={styles.panel}>
@@ -322,6 +338,10 @@ export function StoryGraph() {
           }
         }}
       >
+        <div className={styles.graphBadge}>
+          <span>{activeGraphId === 'root' ? 'Root Blueprint' : 'Substory'}</span>
+          {activeName}
+        </div>
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}
           edges={edges}
@@ -362,7 +382,10 @@ export function StoryGraph() {
               <button
                 key={definition.type}
                 type="button"
-                disabled={definition.type === StoryNodeType.Start && hasStoryEntry}
+                disabled={
+                  (definition.type === StoryNodeType.Start && hasStoryEntry) ||
+                  (definition.type === StoryNodeType.Return && activeGraphId === 'root')
+                }
                 onClick={() => createNode(definition.type)}
               >
                 <span
@@ -372,6 +395,22 @@ export function StoryGraph() {
                 {definition.label}
               </button>
             ))}
+            {selectedCount > 0 && (
+              <>
+                <div className={styles.contextMenuDivider} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const result = extractSelectionToSubstory();
+                    if (!result.ok) setConnectionError(result.message);
+                    setContextMenu(null);
+                  }}
+                >
+                  <span className={styles.contextMenuColor} style={{ background: '#6d96df' }} />
+                  Extract to Substory
+                </button>
+              </>
+            )}
           </div>
         )}
         {connectionError && <div className={styles.connectionError}>{connectionError}</div>}

@@ -9,6 +9,8 @@ export {
   type BranchNodeData,
   type GetVariableNodeData,
   type SetVariableNodeData,
+  type CallSubstoryNodeData,
+  type ReturnNodeData,
   type EndNodeData,
   type StoryNodeDataMap,
   type NodeDefinition,

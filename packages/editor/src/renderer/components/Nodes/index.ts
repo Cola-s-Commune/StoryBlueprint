@@ -6,6 +6,7 @@ import { ChoiceNode } from './ChoiceNode';
 import { BranchNode } from './BranchNode';
 import { EndNode } from './EndNode';
 import { GetVariableNode, SetVariableNode } from './VariableNode';
+import { CallSubstoryNode, ReturnNode } from './SubstoryNode';
 
 /** React Flow nodeTypes mapping — pass to <ReactFlow nodeTypes={...}> */
 export const nodeTypes: NodeTypes = {
@@ -15,5 +16,7 @@ export const nodeTypes: NodeTypes = {
   [StoryNodeType.Branch]: BranchNode,
   [StoryNodeType.GetVariable]: GetVariableNode,
   [StoryNodeType.SetVariable]: SetVariableNode,
+  [StoryNodeType.CallSubstory]: CallSubstoryNode,
+  [StoryNodeType.Return]: ReturnNode,
   [StoryNodeType.End]: EndNode,
 };

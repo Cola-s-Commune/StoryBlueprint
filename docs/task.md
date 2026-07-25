@@ -89,7 +89,10 @@
 
 ### Resource Browser
 
-- [ ] TreeView
+- [x] Story 内 Main Story / Substory 蓝图列表
+- [x] 新建、重命名、切换和安全删除 Substory
+- [x] 多选节点提取为单入口、单出口 Substory
+- [ ] 文件系统 TreeView
 - [ ] Search
 - [ ] Context Menu
 - [ ] Drag Support
@@ -249,7 +252,7 @@
 
 属性：
 
-- [ ] 仅在 Chapter 中创建
+- [x] 仅在 Substory 中创建
 - [ ] 可选 Typed Return Value
 
 ---
@@ -258,7 +261,7 @@
 
 属性：
 
-- [ ] Chapter Reference
+- [x] Substory 稳定引用与下拉选择
 - [ ] Typed Input Parameters
 - [ ] Completed 输出与返回值
 
@@ -326,7 +329,7 @@
 
 ## Chapter
 
-- [ ] Chapter List
+- [x] Substory / Chapter List
 - [ ] Parameter / Local Variable / Return Type
 
 ---
@@ -377,6 +380,7 @@
 - [x] Typed Story Graph 内存模型
 - [ ] 静态端口派生、动态端口项序列化
 - [x] Character / Variable / Asset 引用序列化
+- [x] Substory Graph、Call Substory 与 Return 序列化
 - [x] 稳定 ID / Name / Display Name 模型
 - [x] v2 紧凑格式：短 ID、可选 Node Name、无 Edge ID、默认端口/版本省略、整数坐标
 - [x] 明确放弃旧格式兼容与迁移
@@ -401,6 +405,7 @@
 - [ ] 悬空 Node / Port / Resource 引用
 - [ ] Entry / End / Return 上下文与终结路径
 - [ ] Chapter 参数和返回值类型
+- [x] 根蓝图与 Substory 编译、Call / Return 降级
 - [ ] 无等待点的紧密死循环
 
 ---
@@ -457,7 +462,8 @@
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
 - [ ] Project / Story / Chapter / Character Variables 状态机集成
-- [ ] Call Stack / Return Value
+- [ ] Typed Return Value
+- [x] 无返回值 Substory Call Stack / Return
 - [x] End Story
 - [ ] 稳定点 Save / Load
 - [ ] Pending Choice / Event 恢复

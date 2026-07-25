@@ -1,0 +1,196 @@
+.body {
+  padding: 0;
+  background: #1b1e23;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 10px;
+  border-bottom: 1px solid #30343a;
+  background: #20242a;
+}
+
+.eyebrow,
+.sectionTitle {
+  color: #767e89;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.65px;
+  text-transform: uppercase;
+}
+
+.storyName {
+  overflow: hidden;
+  max-width: 160px;
+  margin-top: 3px;
+  color: #d9dde3;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconButton,
+.rowActions button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #414852;
+  border-radius: 3px;
+  background: #292e35;
+  color: #b9c0c9;
+  font: inherit;
+  cursor: pointer;
+}
+
+.iconButton:hover,
+.rowActions button:hover {
+  border-color: #5d83a9;
+  color: #e3e9ef;
+}
+
+.sectionTitle {
+  padding: 12px 10px 6px;
+}
+
+.resourceRow {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px 6px 10px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: #c6cbd2;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.resourceRow:hover {
+  background: #252a31;
+}
+
+.resourceRow.active {
+  border-left-color: #5796d2;
+  background: #273443;
+}
+
+.graphIcon,
+.subgraphIcon {
+  color: #6eb1eb;
+  font-size: 13px;
+}
+
+.subgraphIcon {
+  color: #9a8bd0;
+}
+
+.resourceText {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.resourceText strong,
+.resourceText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resourceText strong {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.resourceText small {
+  color: #707985;
+  font-size: 9px;
+}
+
+.resourceRow input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #5081af;
+  border-radius: 3px;
+  outline: none;
+  background: #1e252d;
+  color: #e2e7ed;
+  padding: 5px 6px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.rowActions {
+  display: none;
+  gap: 3px;
+}
+
+.resourceRow:hover .rowActions,
+.resourceRow.active .rowActions {
+  display: flex;
+}
+
+.rowActions button {
+  width: 19px;
+  height: 19px;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+}
+
+.actions {
+  display: grid;
+  gap: 5px;
+  margin: 12px 9px;
+  padding-top: 12px;
+  border-top: 1px solid #30343a;
+}
+
+.actions > button {
+  border: 1px solid #46515e;
+  border-radius: 4px;
+  background: #29323c;
+  color: #ccd5df;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.actions > button:hover:not(:disabled) {
+  border-color: #5d87ae;
+  background: #303c49;
+}
+
+.actions > button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.actions small {
+  color: #656e79;
+  font-size: 9px;
+  text-align: center;
+}
+
+.message {
+  margin: 8px 9px 12px;
+  padding: 7px 8px;
+  border: 1px solid #625b40;
+  border-radius: 4px;
+  background: #302d23;
+  color: #c9b975;
+  font-size: 10px;
+  line-height: 1.4;
+}

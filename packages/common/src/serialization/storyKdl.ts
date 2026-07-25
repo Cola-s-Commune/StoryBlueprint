@@ -6,6 +6,7 @@ import {
   STORY_SOURCE_VERSION,
   type AssetSource,
   type CharacterSource,
+  type ChapterSource,
   type SourceEdge,
   type SourceGraph,
   type SourceNode,
@@ -156,6 +157,13 @@ function serializeSourceNode(source: SourceNode): Node {
       target.setProperty('value', setVariable.value.source);
       break;
     }
+    case StoryNodeType.CallSubstory: {
+      const chapterId = (data as StoryNodeDataMap[StoryNodeType.CallSubstory]).chapterId;
+      if (chapterId) target.setProperty('chapter', chapterId);
+      break;
+    }
+    case StoryNodeType.Return:
+      break;
   }
   return target;
 }
@@ -247,17 +255,45 @@ function serializeAssets(assets: readonly AssetSource[]): Node | undefined {
   return container;
 }
 
+function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined {
+  if (chapters.length === 0) return undefined;
+  const container = Node.create('chapters');
+  for (const chapter of chapters) {
+    if (chapter.parameters.length > 0 || chapter.localVariables.length > 0 || chapter.returnType) {
+      throw new StoryFormatError(
+        'Chapter parameters, locals, and return values are not supported yet',
+      );
+    }
+    const node = Node.create('chapter');
+    node.addArgument(chapter.id);
+    node.setProperty('name', chapter.name);
+    if (chapter.displayName !== chapter.name) node.setProperty('display-name', chapter.displayName);
+    node.appendNode(serializeGraph(chapter.graph));
+    container.appendNode(node);
+  }
+  return container;
+}
+
 function validateStoryReferences(source: StorySourceDocument): void {
-  const nodeIds = new Set(source.root.nodes.map((node) => node.id));
+  const chapterIds = new Set(source.chapters.map((chapter) => chapter.id));
   const variableIds = new Set(source.variables.map((variable) => variable.id));
   const characterIds = new Set(source.characters.map((character) => character.id));
   const assetIds = new Set(source.assets.map((asset) => asset.id));
-  for (const edge of source.root.edges) {
-    if (!nodeIds.has(edge.from.nodeId) || !nodeIds.has(edge.to.nodeId)) {
-      throw new StoryFormatError('Link references a missing node');
+  const allNodeIds = new Set<string>();
+  const graphs = [source.root, ...source.chapters.map((chapter) => chapter.graph)];
+  for (const graph of graphs) {
+    const nodeIds = new Set(graph.nodes.map((node) => node.id));
+    for (const nodeId of nodeIds) {
+      if (allNodeIds.has(nodeId)) throw new StoryFormatError(`Duplicate node ID: ${nodeId}`);
+      allNodeIds.add(nodeId);
+    }
+    for (const edge of graph.edges) {
+      if (!nodeIds.has(edge.from.nodeId) || !nodeIds.has(edge.to.nodeId)) {
+        throw new StoryFormatError('Link references a missing node');
+      }
     }
   }
-  for (const node of source.root.nodes) {
+  for (const node of graphs.flatMap((graph) => graph.nodes)) {
     if (node.type === StoryNodeType.Dialogue) {
       const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Dialogue];
       if (data.speakerId && !characterIds.has(data.speakerId)) {
@@ -272,6 +308,12 @@ function validateStoryReferences(source: StorySourceDocument): void {
         StoryNodeDataMap[StoryNodeType.GetVariable] | StoryNodeDataMap[StoryNodeType.SetVariable];
       if (data.variableId && !variableIds.has(data.variableId)) {
         throw new StoryFormatError(`${node.id} references missing variable ${data.variableId}`);
+      }
+    }
+    if (node.type === StoryNodeType.CallSubstory) {
+      const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      if (!data.chapterId || !chapterIds.has(data.chapterId)) {
+        throw new StoryFormatError(`${node.id} references a missing substory`);
       }
     }
   }
@@ -291,8 +333,8 @@ export function serializeStorySource(source: StorySourceDocument): string {
   if (source.format !== STORY_SOURCE_FORMAT || source.version !== STORY_SOURCE_VERSION) {
     throw new StoryFormatError('Unsupported Story Source format or version');
   }
-  if (source.chapters.length > 0 || source.events.length > 0) {
-    throw new StoryFormatError('This writer cannot yet preserve chapters or events');
+  if (source.events.length > 0) {
+    throw new StoryFormatError('This writer cannot yet preserve events');
   }
   validateStoryReferences(source);
   const story = Node.create('story');
@@ -304,9 +346,11 @@ export function serializeStorySource(source: StorySourceDocument): string {
   const variables = serializeVariables(source.variables);
   const characters = serializeCharacters(source.characters);
   const assets = serializeAssets(source.assets);
+  const chapters = serializeChapters(source.chapters);
   if (variables) story.appendNode(variables);
   if (characters) story.appendNode(characters);
   if (assets) story.appendNode(assets);
+  if (chapters) story.appendNode(chapters);
   story.appendNode(serializeGraph(source.root));
   return format(new Document([story]));
 }
@@ -325,6 +369,8 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.Branch]: ['condition'],
     [StoryNodeType.GetVariable]: ['variable'],
     [StoryNodeType.SetVariable]: ['variable', 'value'],
+    [StoryNodeType.CallSubstory]: ['chapter'],
+    [StoryNodeType.Return]: [],
     [StoryNodeType.End]: ['title'],
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
@@ -334,6 +380,8 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.Branch]: [],
     [StoryNodeType.GetVariable]: [],
     [StoryNodeType.SetVariable]: [],
+    [StoryNodeType.CallSubstory]: [],
+    [StoryNodeType.Return]: [],
     [StoryNodeType.End]: [],
   };
   assertShape(node, id, {
@@ -412,6 +460,16 @@ function parseSourceNode(node: Node): SourceNode {
           : undefined,
         value: expressionSource(node.getProperty('value'), `${id}.value`),
       };
+      break;
+    case StoryNodeType.CallSubstory:
+      data = {
+        chapterId: node.getProperty('chapter')
+          ? requiredId(node.getProperty('chapter'), 'chapter', `${id}.chapter`)
+          : undefined,
+      };
+      break;
+    case StoryNodeType.Return:
+      data = {};
       break;
   }
   const definitionVersionValue = node.getProperty('definition-version');
@@ -600,6 +658,37 @@ function parseAssets(container: Node | undefined): AssetSource[] {
   });
 }
 
+function parseChapters(container: Node | undefined): ChapterSource[] {
+  if (!container) return [];
+  assertShape(container, 'story.chapters', { arguments: 0, children: ['chapter'] });
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  return container.findNodesByName('chapter').map((node) => {
+    assertShape(node, 'story.chapters.chapter', {
+      arguments: 1,
+      properties: ['name', 'display-name'],
+      children: ['graph'],
+    });
+    if (node.findNodesByName('graph').length !== 1) {
+      throw new StoryFormatError('Chapter must contain exactly one graph');
+    }
+    const id = requiredId(node.getArgument(0), 'chapter', 'chapter.id');
+    const name = requiredString(node.getProperty('name'), `${id}.name`);
+    if (ids.has(id)) throw new StoryFormatError(`Duplicate chapter ID: ${id}`);
+    if (names.has(name)) throw new StoryFormatError(`Duplicate chapter name: ${name}`);
+    ids.add(id);
+    names.add(name);
+    return {
+      id,
+      name,
+      displayName: optionalString(node.getProperty('display-name'), `${id}.display-name`) ?? name,
+      parameters: [],
+      localVariables: [],
+      graph: parseGraph(node.findNodeByName('graph')!),
+    };
+  });
+}
+
 export function parseStorySource(text: string): StorySourceDocument {
   let document: Document;
   try {
@@ -614,12 +703,12 @@ export function parseStorySource(text: string): StorySourceDocument {
   assertShape(story, 'story', {
     arguments: 1,
     properties: ['format', 'version', 'name', 'display-name'],
-    children: ['variables', 'characters', 'assets', 'graph'],
+    children: ['variables', 'characters', 'assets', 'chapters', 'graph'],
   });
   if (story.findNodesByName('graph').length !== 1) {
     throw new StoryFormatError('Story must contain exactly one graph');
   }
-  for (const section of ['variables', 'characters', 'assets'] as const) {
+  for (const section of ['variables', 'characters', 'assets', 'chapters'] as const) {
     if (story.findNodesByName(section).length > 1) {
       throw new StoryFormatError(`Story may contain at most one ${section} section`);
     }
@@ -642,7 +731,7 @@ export function parseStorySource(text: string): StorySourceDocument {
     variables: parseVariables(story.findNodeByName('variables')),
     characters: parseCharacters(story.findNodeByName('characters')),
     assets: parseAssets(story.findNodeByName('assets')),
-    chapters: [],
+    chapters: parseChapters(story.findNodeByName('chapters')),
     events: [],
   };
   validateStoryReferences(source);

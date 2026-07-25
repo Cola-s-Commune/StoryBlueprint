@@ -150,6 +150,28 @@ export class NodeRegistry {
       defaultData: () => ({ value: { source: '', bindings: {} } }),
     });
 
+    this.register<StoryNodeType.CallSubstory>({
+      type: StoryNodeType.CallSubstory,
+      version: 1,
+      label: 'Call Substory',
+      category: 'flow',
+      color: '#5f88d1',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Completed', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({}),
+    });
+
+    this.register<StoryNodeType.Return>({
+      type: StoryNodeType.Return,
+      version: 1,
+      label: 'Return',
+      category: 'flow',
+      color: '#b67ad1',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [],
+      defaultData: () => ({}),
+    });
+
     // End
     this.register<StoryNodeType.End>({
       type: StoryNodeType.End,

@@ -27,6 +27,8 @@ import {
   createStableId,
   nodeRegistry,
   type NodeId,
+  type ChapterId,
+  type ChapterSource,
   type VariableId,
   type VariableDefinition,
   type CharacterId,
@@ -39,6 +41,7 @@ import {
 } from '@story-blueprint/common';
 import {
   fromSourceGraph,
+  extractSelectionToSubstory as extractGraphSelection,
   toEditorGraphNode,
   toSourceGraph,
   type EditorGraphEdge,
@@ -172,6 +175,39 @@ function createNewGraph(): EditorGraphState {
   return { nodes: instance ? [{ ...toEditorGraphNode(instance), selected: true }] : [], edges: [] };
 }
 
+function createNewSubstoryGraph(): EditorGraphState {
+  const entry = NodeFactory.create(
+    NodeFactory.generateId(StoryNodeType.Start),
+    StoryNodeType.Start,
+    {
+      x: 120,
+      y: 120,
+    },
+  );
+  const returnNode = NodeFactory.create(
+    NodeFactory.generateId(StoryNodeType.Return),
+    StoryNodeType.Return,
+    { x: 460, y: 120 },
+  );
+  if (!entry || !returnNode) return { nodes: [], edges: [] };
+  entry.data = { title: 'Substory Entry' };
+  return {
+    nodes: [
+      { ...toEditorGraphNode(entry), selected: true },
+      { ...toEditorGraphNode(returnNode), selected: false },
+    ],
+    edges: [
+      {
+        id: createStableId('edge'),
+        source: entry.id,
+        sourceHandle: 'out',
+        target: returnNode.id,
+        targetHandle: 'in',
+      },
+    ],
+  };
+}
+
 interface StoryDocumentInfo {
   id: StoryId;
   name: string;
@@ -181,6 +217,12 @@ interface StoryDocumentInfo {
   dirty: boolean;
   error?: string;
 }
+
+export interface EditorChapter extends Omit<ChapterSource, 'graph'> {
+  graph: EditorGraphState;
+}
+
+export type ActiveGraphId = 'root' | ChapterId;
 
 interface StoryGraphStoreValue {
   source: StorySourceDocument;
@@ -210,6 +252,14 @@ interface StoryGraphStoreValue {
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
+  chapters: EditorChapter[];
+  activeGraphId: ActiveGraphId;
+  switchGraph: (id: ActiveGraphId) => void;
+  addSubstory: () => ChapterId;
+  updateSubstory: (id: ChapterId, update: { name?: string; displayName?: string }) => void;
+  removeSubstory: (id: ChapterId) => string | undefined;
+  extractSelectionToSubstory: () =>
+    { ok: true; chapterId: ChapterId } | { ok: false; message: string };
   addVariable: () => VariableId;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => void;
   removeVariable: (id: VariableId) => void;
@@ -236,6 +286,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [variables, setVariables] = useState<VariableDefinition[]>([]);
   const [characters, setCharacters] = useState<CharacterSource[]>([]);
   const [assets, setAssets] = useState<AssetSource[]>([]);
+  const rootGraphRef = useRef<EditorGraphState>(structuredClone(initialGraph));
+  const [chapters, setChapters] = useState<EditorChapter[]>([]);
+  const [activeGraphId, setActiveGraphId] = useState<ActiveGraphId>('root');
   const revisionRef = useRef(0);
   const [document, setDocument] = useState<StoryDocumentInfo>(() => ({
     id: createStableId('story'),
@@ -250,14 +303,27 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       id: document.id,
       name: document.name,
       displayName: document.displayName,
-      root: toSourceGraph(graph),
-      chapters: [],
+      root: toSourceGraph(activeGraphId === 'root' ? graph : rootGraphRef.current),
+      chapters: chapters.map((chapter) => ({
+        ...chapter,
+        graph: toSourceGraph(activeGraphId === chapter.id ? graph : chapter.graph),
+      })),
       variables,
       characters,
       assets,
       events: [],
     }),
-    [assets, characters, document.displayName, document.id, document.name, graph, variables],
+    [
+      activeGraphId,
+      assets,
+      chapters,
+      characters,
+      document.displayName,
+      document.id,
+      document.name,
+      graph,
+      variables,
+    ],
   );
 
   const markDirty = useCallback(() => {
@@ -283,6 +349,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [setEdges, setNodes],
   );
 
+  const switchGraph = useCallback(
+    (id: ActiveGraphId) => {
+      if (id === activeGraphId) return;
+      const target =
+        id === 'root' ? rootGraphRef.current : chapters.find((item) => item.id === id)?.graph;
+      if (!target) return;
+      if (activeGraphId === 'root') {
+        rootGraphRef.current = structuredClone(graph);
+      } else {
+        setChapters((current) =>
+          current.map((chapter) =>
+            chapter.id === activeGraphId ? { ...chapter, graph: structuredClone(graph) } : chapter,
+          ),
+        );
+      }
+      setActiveGraphId(id);
+      restoreGraph(structuredClone(target));
+      history.clear();
+    },
+    [activeGraphId, chapters, graph, history, restoreGraph],
+  );
+
+  const updateInactiveGraphs = useCallback(
+    (transform: (graph: EditorGraphState) => EditorGraphState) => {
+      if (activeGraphId !== 'root') rootGraphRef.current = transform(rootGraphRef.current);
+      setChapters((current) =>
+        current.map((chapter) =>
+          chapter.id === activeGraphId ? chapter : { ...chapter, graph: transform(chapter.graph) },
+        ),
+      );
+    },
+    [activeGraphId],
+  );
+
   const undo = useCallback(() => {
     const previous = history.undo(graph);
     if (previous) {
@@ -306,6 +406,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       initialData?: Partial<StoryNodeDataMap[StoryNodeType]>,
     ): NodeId | null => {
       if (type === StoryNodeType.Start && nodes.some((node) => node.type === type)) return null;
+      if (type === StoryNodeType.Return && activeGraphId === 'root') return null;
       const instance = NodeFactory.create(NodeFactory.generateId(type), type, position);
       if (!instance) return null;
 
@@ -324,8 +425,105 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
       return node.id;
     },
-    [checkpoint, markDirty, nodes, setEdges, setNodes],
+    [activeGraphId, checkpoint, markDirty, nodes, setEdges, setNodes],
   );
+
+  const nextSubstoryIdentity = useCallback(() => {
+    const used = new Set(chapters.map((chapter) => chapter.name));
+    let index = chapters.length + 1;
+    let name = `substory${index}`;
+    while (used.has(name)) name = `substory${++index}`;
+    return { name, displayName: `Substory ${index}` };
+  }, [chapters]);
+
+  const addSubstory = useCallback((): ChapterId => {
+    const id = createStableId('chapter');
+    const identity = nextSubstoryIdentity();
+    const chapter: EditorChapter = {
+      id,
+      ...identity,
+      parameters: [],
+      localVariables: [],
+      graph: createNewSubstoryGraph(),
+    };
+    if (activeGraphId === 'root') rootGraphRef.current = structuredClone(graph);
+    setChapters((current) => [
+      ...current.map((item) =>
+        item.id === activeGraphId ? { ...item, graph: structuredClone(graph) } : item,
+      ),
+      chapter,
+    ]);
+    setActiveGraphId(id);
+    restoreGraph(structuredClone(chapter.graph));
+    history.clear();
+    markDirty();
+    return id;
+  }, [activeGraphId, graph, history, markDirty, nextSubstoryIdentity, restoreGraph]);
+
+  const updateSubstory = useCallback(
+    (id: ChapterId, update: { name?: string; displayName?: string }) => {
+      setChapters((current) =>
+        current.map((chapter) => (chapter.id === id ? { ...chapter, ...update, id } : chapter)),
+      );
+      markDirty();
+    },
+    [markDirty],
+  );
+
+  const removeSubstory = useCallback(
+    (id: ChapterId): string | undefined => {
+      const allGraphs = [
+        activeGraphId === 'root' ? graph : rootGraphRef.current,
+        ...chapters
+          .filter((chapter) => chapter.id !== id)
+          .map((chapter) => (activeGraphId === chapter.id ? graph : chapter.graph)),
+      ];
+      const referenced = allGraphs.some((candidate) =>
+        candidate.nodes.some(
+          (node) => node.type === StoryNodeType.CallSubstory && node.data.chapterId === id,
+        ),
+      );
+      if (referenced) return 'Remove Call Substory nodes that reference this substory first.';
+      if (activeGraphId === id) {
+        setActiveGraphId('root');
+        restoreGraph(structuredClone(rootGraphRef.current));
+        history.clear();
+      }
+      setChapters((current) => current.filter((chapter) => chapter.id !== id));
+      markDirty();
+      return undefined;
+    },
+    [activeGraphId, chapters, graph, history, markDirty, restoreGraph],
+  );
+
+  const extractSelectionToSubstory = useCallback(():
+    { ok: true; chapterId: ChapterId } | { ok: false; message: string } => {
+    const id = createStableId('chapter');
+    const extracted = extractGraphSelection(graph, id);
+    if (!extracted.ok) return extracted;
+    const identity = nextSubstoryIdentity();
+    checkpoint();
+    restoreGraph(extracted.remainingGraph);
+    setChapters((current) => [
+      ...current.map((chapter) =>
+        chapter.id === activeGraphId
+          ? { ...chapter, graph: structuredClone(extracted.remainingGraph) }
+          : chapter,
+      ),
+      {
+        id,
+        ...identity,
+        parameters: [],
+        localVariables: [],
+        graph: extracted.chapterGraph,
+      },
+    ]);
+    if (activeGraphId === 'root') {
+      rootGraphRef.current = structuredClone(extracted.remainingGraph);
+    }
+    markDirty();
+    return { ok: true, chapterId: id };
+  }, [activeGraphId, checkpoint, graph, markDirty, nextSubstoryIdentity, restoreGraph]);
 
   const addVariable = useCallback((): VariableId => {
     const id = createStableId('variable');
@@ -357,13 +555,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         setNodes((current) =>
           current.map((node) => renameVariableInNode(node, previous.name, update.name!)),
         );
+        updateInactiveGraphs((candidate) => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) =>
+            renameVariableInNode(node, previous.name, update.name!),
+          ),
+        }));
       }
       setVariables((current) =>
         current.map((variable) => (variable.id === id ? { ...variable, ...update, id } : variable)),
       );
       markDirty();
     },
-    [markDirty, setNodes, variables],
+    [markDirty, setNodes, updateInactiveGraphs, variables],
   );
 
   const removeVariable = useCallback(
@@ -380,9 +584,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           return node;
         }),
       );
+      updateInactiveGraphs((candidate) => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) => {
+          if (
+            (node.type === StoryNodeType.GetVariable || node.type === StoryNodeType.SetVariable) &&
+            node.data.variableId === id
+          ) {
+            return { ...node, data: { ...node.data, variableId: undefined } };
+          }
+          return node;
+        }),
+      }));
       markDirty();
     },
-    [markDirty, setNodes],
+    [markDirty, setNodes, updateInactiveGraphs],
   );
 
   const addCharacter = useCallback((): CharacterId => {
@@ -425,9 +641,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             : node,
         ),
       );
+      updateInactiveGraphs((candidate) => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) =>
+          node.type === StoryNodeType.Dialogue && node.data.speakerId === id
+            ? { ...node, data: { ...node.data, speakerId: undefined } }
+            : node,
+        ),
+      }));
       markDirty();
     },
-    [markDirty, setNodes],
+    [markDirty, setNodes, updateInactiveGraphs],
   );
 
   const addAsset = useCallback((): AssetId => {
@@ -469,6 +693,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             : node,
         ),
       );
+      updateInactiveGraphs((candidate) => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) =>
+          node.type === StoryNodeType.Dialogue && node.data.voiceId === id
+            ? { ...node, data: { ...node.data, voiceId: undefined } }
+            : node,
+        ),
+      }));
       setCharacters((current) =>
         current.map((character) => ({
           ...character,
@@ -484,7 +716,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty, setNodes],
+    [markDirty, setNodes, updateInactiveGraphs],
   );
 
   const updateNode = useCallback(
@@ -518,7 +750,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const newStory = useCallback(() => {
     if (!confirmDiscardChanges()) return;
-    restoreGraph(createNewGraph());
+    const nextGraph = createNewGraph();
+    rootGraphRef.current = structuredClone(nextGraph);
+    restoreGraph(nextGraph);
+    setChapters([]);
+    setActiveGraphId('root');
     setVariables([]);
     setCharacters([]);
     setAssets([]);
@@ -538,7 +774,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const result = await window.electronAPI.openStory();
       if (result.canceled) return;
       const source = parseStorySource(result.content);
-      restoreGraph(fromSourceGraph(source.root));
+      const rootGraph = fromSourceGraph(source.root);
+      rootGraphRef.current = structuredClone(rootGraph);
+      restoreGraph(rootGraph);
+      setChapters(
+        source.chapters.map((chapter) => ({ ...chapter, graph: fromSourceGraph(chapter.graph) })),
+      );
+      setActiveGraphId('root');
       setVariables([...source.variables]);
       setCharacters([...source.characters]);
       setAssets([...source.assets]);
@@ -608,11 +850,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       undo,
       redo,
       addNode,
+      addSubstory,
       updateNode,
       updateNodeData,
       variables,
       characters,
       assets,
+      chapters,
+      activeGraphId,
+      switchGraph,
+      updateSubstory,
+      removeSubstory,
+      extractSelectionToSubstory,
       addVariable,
       updateVariable,
       removeVariable,
@@ -633,11 +882,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       addCharacter,
       addAsset,
+      addSubstory,
       checkpoint,
       characters,
+      chapters,
       document,
       edges,
       graph,
+      activeGraphId,
       nodes,
       markDirty,
       newStory,
@@ -646,6 +898,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       redo,
       removeCharacter,
       removeAsset,
+      removeSubstory,
       removeVariable,
       restoreGraph,
       setEdges,
@@ -653,14 +906,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       openStory,
       saveStory,
       source,
+      switchGraph,
       undo,
       updateCharacter,
       updateAsset,
       updateNode,
       updateNodeData,
+      updateSubstory,
       updateVariable,
       variables,
       assets,
+      extractSelectionToSubstory,
     ],
   );
 

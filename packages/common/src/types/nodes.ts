@@ -2,7 +2,7 @@
 // StoryBlueprint Node Type Definitions
 // ============================================================
 
-import type { AssetId, CharacterId, OptionId, VariableId } from './ids';
+import type { AssetId, ChapterId, CharacterId, OptionId, VariableId } from './ids';
 import type { ExpressionSource, TextTemplateSource } from './expressions';
 import type { ValueType } from './values';
 
@@ -17,6 +17,8 @@ export enum StoryNodeType {
   Branch = 'branch',
   GetVariable = 'get-variable',
   SetVariable = 'set-variable',
+  CallSubstory = 'call-substory',
+  Return = 'return',
   End = 'end-story',
 }
 
@@ -91,6 +93,14 @@ export interface SetVariableNodeData {
   value: ExpressionSource;
 }
 
+/** Calls another blueprint contained by the current Story asset. */
+export interface CallSubstoryNodeData {
+  chapterId?: ChapterId;
+}
+
+/** Returns from the current substory to its caller. */
+export interface ReturnNodeData {}
+
 /** Data for End node — story endpoint */
 export interface EndNodeData {
   /** Ending label or title */
@@ -107,6 +117,8 @@ export interface StoryNodeDataMap {
   [StoryNodeType.Branch]: BranchNodeData;
   [StoryNodeType.GetVariable]: GetVariableNodeData;
   [StoryNodeType.SetVariable]: SetVariableNodeData;
+  [StoryNodeType.CallSubstory]: CallSubstoryNodeData;
+  [StoryNodeType.Return]: ReturnNodeData;
   [StoryNodeType.End]: EndNodeData;
 }
 

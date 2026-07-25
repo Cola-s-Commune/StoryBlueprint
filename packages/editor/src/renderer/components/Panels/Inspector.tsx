@@ -1,6 +1,7 @@
 import {
   StoryNodeType,
   type BranchNodeData,
+  type CallSubstoryNodeData,
   type ChoiceNodeData,
   type DialogueNodeData,
   type EndNodeData,
@@ -113,8 +114,17 @@ function VariableSelect({
 }
 
 export function Inspector() {
-  const { nodes, variables, characters, assets, checkpoint, updateNode, updateNodeData } =
-    useStoryGraphStore();
+  const {
+    nodes,
+    variables,
+    characters,
+    assets,
+    chapters,
+    activeGraphId,
+    checkpoint,
+    updateNode,
+    updateNodeData,
+  } = useStoryGraphStore();
   const selected = nodes.filter((node) => node.selected);
 
   if (selected.length !== 1) {
@@ -377,15 +387,50 @@ export function Inspector() {
           </>
         );
       }
+      case StoryNodeType.CallSubstory: {
+        const data = node.data as CallSubstoryNodeData;
+        return (
+          <label className={styles.field}>
+            <span>Substory</span>
+            <select
+              value={data.chapterId ?? ''}
+              onChange={(event) => {
+                checkpoint();
+                updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                  chapterId: (event.target.value || undefined) as CallSubstoryNodeData['chapterId'],
+                });
+              }}
+            >
+              <option value="">Select substory…</option>
+              {chapters
+                .filter((chapter) => chapter.id !== activeGraphId)
+                .map((chapter) => (
+                  <option key={chapter.id} value={chapter.id}>
+                    {chapter.displayName}
+                  </option>
+                ))}
+            </select>
+          </label>
+        );
+      }
+      case StoryNodeType.Return:
+        return <div className={styles.info}>Returns execution to the calling blueprint.</div>;
       case StoryNodeType.End: {
         const data = node.data as EndNodeData;
         return (
-          <PropertyField
-            label="Title"
-            value={data.title}
-            onBeginEdit={checkpoint}
-            onChange={(title) => updateNodeData(node.id, StoryNodeType.End, { title })}
-          />
+          <>
+            {activeGraphId !== 'root' && (
+              <div className={styles.warning}>
+                End Story stops the whole story. Use Return to exit only this substory.
+              </div>
+            )}
+            <PropertyField
+              label="Title"
+              value={data.title}
+              onBeginEdit={checkpoint}
+              onChange={(title) => updateNodeData(node.id, StoryNodeType.End, { title })}
+            />
+          </>
         );
       }
     }
