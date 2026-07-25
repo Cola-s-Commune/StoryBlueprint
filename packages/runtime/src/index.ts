@@ -11,3 +11,10 @@ export type {
   RuntimeDiagnostic,
   RuntimeSnapshot,
 } from './types';
+export {
+  evaluateExpression,
+  renderTextTemplate,
+  resolveChoiceOptions,
+  type VariableReader,
+  type ResolvedChoiceOption,
+} from './evaluator';

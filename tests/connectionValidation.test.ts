@@ -13,7 +13,7 @@ const nodes: GraphNodeLike[] = [
   {
     id: 'dialogue',
     type: StoryNodeType.Dialogue,
-    data: { speaker: 'Alice', text: 'Hello' },
+    data: { text: { source: 'Hello' } },
   },
   { id: 'end', type: StoryNodeType.End, data: { title: 'End' } },
 ];

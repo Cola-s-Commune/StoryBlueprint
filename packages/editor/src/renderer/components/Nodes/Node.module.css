@@ -242,3 +242,37 @@
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
+
+.variableBody {
+  display: flex;
+  min-width: 190px;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+}
+
+.variableName {
+  flex: 1;
+  color: #7dd5c8;
+  font-weight: 650;
+}
+
+.variableType {
+  color: #727c8b;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.dataHandle {
+  width: 12px !important;
+  height: 12px !important;
+  border: 2px solid #57cdbc !important;
+  border-radius: 50% !important;
+  background: #20242b !important;
+}
+
+.dataHandleOutput {
+  right: -7px !important;
+}

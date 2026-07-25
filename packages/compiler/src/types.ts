@@ -12,7 +12,10 @@ export type CompilerDiagnosticCode =
   | 'EARLY_TERMINATOR'
   | 'INVALID_RETURN_LOCATION'
   | 'EMPTY_CHOICE'
-  | 'DUPLICATE_OPTION_ID';
+  | 'DUPLICATE_OPTION_ID'
+  | 'MISSING_CONNECTION'
+  | 'EXPRESSION_ERROR'
+  | 'INVALID_NODE';
 
 export interface CompilerDiagnostic {
   code: CompilerDiagnosticCode;

@@ -2,7 +2,8 @@
 // StoryBlueprint Node Type Definitions
 // ============================================================
 
-import type { OptionId } from './ids';
+import type { AssetId, CharacterId, OptionId, VariableId } from './ids';
+import type { ExpressionSource, TextTemplateSource } from './expressions';
 import type { ValueType } from './values';
 
 /**
@@ -14,12 +15,14 @@ export enum StoryNodeType {
   Dialogue = 'dialogue',
   Choice = 'choice',
   Branch = 'branch',
+  GetVariable = 'get-variable',
+  SetVariable = 'set-variable',
   End = 'end-story',
 }
 
 /**
  * A port (connection point) on a node.
- * Each node has input ports (top/bottom) and output ports (bottom).
+ * Execution flow is authored left-to-right; data ports are typed independently.
  */
 export interface NodePort {
   /** Unique port ID within the node */
@@ -43,16 +46,20 @@ export interface StartNodeData {
 
 /** Data for Dialogue node — a single dialogue line */
 export interface DialogueNodeData {
-  /** Speaker name (character ID or display name) */
-  speaker: string;
+  /** Stable character reference. */
+  speakerId?: CharacterId;
   /** Dialogue text content */
-  text: string;
+  text: TextTemplateSource;
+  /** Optional voice asset reference. */
+  voiceId?: AssetId;
+  /** Emotion key configured on the character. */
+  emotion?: string;
 }
 
 /** Data for Choice node — presents options to the player */
 export interface ChoiceNodeData {
   /** The prompt/question shown to the player */
-  prompt: string;
+  prompt: TextTemplateSource;
   /** Available choices (each maps to an output port) */
   options: ChoiceOption[];
 }
@@ -60,15 +67,28 @@ export interface ChoiceNodeData {
 /** A single player choice option */
 export interface ChoiceOption {
   /** Display text for this option */
-  label: string;
+  text: TextTemplateSource;
   /** Unique ID matching the output port ID */
   id: OptionId;
+  visibleIf?: ExpressionSource;
+  enabledIf?: ExpressionSource;
 }
 
 /** Data for Branch node — conditional routing (engine-evaluated) */
 export interface BranchNodeData {
   /** Human-readable description of the branch condition */
-  condition: string;
+  condition: ExpressionSource;
+}
+
+/** Reads a story variable as a typed data value. */
+export interface GetVariableNodeData {
+  variableId?: VariableId;
+}
+
+/** Assigns a safe expression to a story variable. */
+export interface SetVariableNodeData {
+  variableId?: VariableId;
+  value: ExpressionSource;
 }
 
 /** Data for End node — story endpoint */
@@ -85,6 +105,8 @@ export interface StoryNodeDataMap {
   [StoryNodeType.Dialogue]: DialogueNodeData;
   [StoryNodeType.Choice]: ChoiceNodeData;
   [StoryNodeType.Branch]: BranchNodeData;
+  [StoryNodeType.GetVariable]: GetVariableNodeData;
+  [StoryNodeType.SetVariable]: SetVariableNodeData;
   [StoryNodeType.End]: EndNodeData;
 }
 

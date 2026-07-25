@@ -17,7 +17,7 @@ export type EditorNodeData = StoryNodeDataMap[StoryNodeType] & Record<string, un
 
 export type EditorGraphNode = Node<EditorNodeData, StoryNodeType> & {
   id: NodeId;
-  name: string;
+  name?: string;
   definitionVersion: number;
 };
 
@@ -53,8 +53,8 @@ export function toSourceGraph(graph: EditorGraphState): SourceGraph {
         node.type === StoryNodeType.Choice
           ? (node.data as ChoiceNodeData).options.map((option) => ({
               id: option.id,
-              name: `option_${option.id.slice(-8).replaceAll('-', '_')}`,
-              displayName: option.label,
+              name: option.id,
+              displayName: option.text.source,
             }))
           : undefined;
 
@@ -63,13 +63,12 @@ export function toSourceGraph(graph: EditorGraphState): SourceGraph {
         name: node.name,
         type: node.type,
         definitionVersion: node.definitionVersion,
-        position: node.position,
+        position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
         data: node.data,
         dynamicPorts,
       };
     }),
     edges: graph.edges.map((edge) => ({
-      id: edge.id,
       from: { nodeId: edge.source, portId: edge.sourceHandle },
       to: { nodeId: edge.target, portId: edge.targetHandle },
     })),
@@ -111,9 +110,9 @@ export function fromSourceGraph(source: SourceGraph): EditorGraphState {
         targetPortId: existing.targetHandle,
       })),
     );
-    if (!result.valid) throw new Error(`Invalid edge ${edge.id}: ${result.diagnostic.message}`);
+    if (!result.valid) throw new Error(`Invalid link: ${result.diagnostic.message}`);
     edges.push({
-      id: edge.id,
+      id: createStableId('edge'),
       source: edge.from.nodeId,
       sourceHandle: edge.from.portId,
       target: edge.to.nodeId,
@@ -136,7 +135,8 @@ export function createGraphClipboard(graph: EditorGraphState): GraphClipboard | 
   });
 }
 
-function uniqueCopyName(name: string, usedNames: Set<string>): string {
+function uniqueCopyName(name: string | undefined, usedNames: Set<string>): string | undefined {
+  if (!name) return undefined;
   const base = `${name}_copy`;
   let candidate = base;
   let suffix = 2;
@@ -177,7 +177,7 @@ export function pasteGraphClipboard(
 ): EditorGraphState {
   const nodeIds = new Map<string, NodeId>();
   const portIds = new Map<string, ReadonlyMap<string, string>>();
-  const usedNames = new Set(graph.nodes.map((node) => node.name));
+  const usedNames = new Set(graph.nodes.flatMap((node) => (node.name ? [node.name] : [])));
 
   const pastedNodes = clipboard.nodes.map((node) => {
     const id = createStableId('node');

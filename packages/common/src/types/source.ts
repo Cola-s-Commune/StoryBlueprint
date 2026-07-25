@@ -2,7 +2,6 @@ import type {
   AssetId,
   ChapterId,
   CharacterId,
-  EdgeId,
   EventId,
   NodeId,
   OptionId,
@@ -13,7 +12,7 @@ import type { ExpressionSource } from './expressions';
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_SOURCE_FORMAT = 'story-blueprint' as const;
-export const STORY_SOURCE_VERSION = 1 as const;
+export const STORY_SOURCE_VERSION = 2 as const;
 
 export interface SourcePosition {
   x: number;
@@ -26,7 +25,6 @@ export interface SourcePortRef {
 }
 
 export interface SourceEdge {
-  id: EdgeId;
   from: SourcePortRef;
   to: SourcePortRef;
 }
@@ -39,7 +37,7 @@ export interface DynamicPortItem {
 
 export interface SourceNode<TData = Readonly<Record<string, unknown>>> {
   id: NodeId;
-  name: string;
+  name?: string;
   type: string;
   definitionVersion: number;
   position: SourcePosition;

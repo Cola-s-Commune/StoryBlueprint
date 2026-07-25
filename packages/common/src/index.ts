@@ -7,6 +7,8 @@ export {
   type ChoiceNodeData,
   type ChoiceOption,
   type BranchNodeData,
+  type GetVariableNodeData,
+  type SetVariableNodeData,
   type EndNodeData,
   type StoryNodeDataMap,
   type NodeDefinition,
@@ -38,6 +40,7 @@ export {
   createStableId,
   isStableId,
   type StableId,
+  type StableIdKind,
   type StoryId,
   type ChapterId,
   type NodeId,
@@ -65,6 +68,7 @@ export type {
 } from './types/values';
 export type {
   ExpressionSource,
+  TextTemplateSource,
   UnaryOperator,
   BinaryOperator,
   TypedExpression,
@@ -97,6 +101,8 @@ export {
   isRuntimeTerminator,
   type ProgramLocation,
   type LocalizedVoiceRef,
+  type RuntimeTextPart,
+  type RuntimeTextTemplate,
   type DialogueInstruction,
   type NarrationInstruction,
   type SetVariableInstruction,

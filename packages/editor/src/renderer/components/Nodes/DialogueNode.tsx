@@ -1,11 +1,14 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { DialogueNodeData } from '@story-blueprint/common';
 import type { CSSProperties } from 'react';
+import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import styles from './Node.module.css';
 
 export function DialogueNode({ data }: NodeProps) {
   const d = data as unknown as DialogueNodeData;
-  const speaker = d.speaker || 'Character';
+  const { characters } = useStoryGraphStore();
+  const character = characters.find((candidate) => candidate.id === d.speakerId);
+  const speaker = character?.displayName || 'Narrator';
   return (
     <div
       className={styles.node}
@@ -30,7 +33,7 @@ export function DialogueNode({ data }: NodeProps) {
         </div>
         <div className={styles.field}>
           <label>Line</label>
-          <div className={styles.dialogueText}>{d.text || 'No dialogue text yet…'}</div>
+          <div className={styles.dialogueText}>{d.text.source || 'No dialogue text yet…'}</div>
         </div>
       </div>
       <Handle

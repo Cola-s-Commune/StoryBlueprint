@@ -4,10 +4,14 @@ import {
   type ChoiceNodeData,
   type DialogueNodeData,
   type EndNodeData,
+  type GetVariableNodeData,
+  type SetVariableNodeData,
   type StartNodeData,
+  type VariableId,
 } from '@story-blueprint/common';
-import { useRef } from 'react';
+import { useRef, type DragEvent } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { readStoryDataDrag } from '../../graph/storyDataDrag';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -15,11 +19,20 @@ interface PropertyFieldProps {
   label: string;
   value: string;
   multiline?: boolean;
+  variableMode?: 'template' | 'expression';
   onBeginEdit: () => void;
   onChange: (value: string) => void;
 }
 
-function PropertyField({ label, value, multiline, onBeginEdit, onChange }: PropertyFieldProps) {
+function PropertyField({
+  label,
+  value,
+  multiline,
+  variableMode,
+  onBeginEdit,
+  onChange,
+}: PropertyFieldProps) {
+  const { variables } = useStoryGraphStore();
   const editing = useRef(false);
   const handleChange = (nextValue: string) => {
     if (!editing.current) {
@@ -31,31 +44,77 @@ function PropertyField({ label, value, multiline, onBeginEdit, onChange }: Prope
   const handleBlur = () => {
     editing.current = false;
   };
-  const control = multiline ? (
-    <textarea
-      value={value}
-      rows={5}
-      onBlur={handleBlur}
-      onChange={(event) => handleChange(event.target.value)}
-    />
-  ) : (
-    <input
-      value={value}
-      onBlur={handleBlur}
-      onChange={(event) => handleChange(event.target.value)}
-    />
-  );
+  const handleDrop = (event: DragEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (!variableMode) return;
+    const payload = readStoryDataDrag(event.dataTransfer);
+    if (payload?.kind !== 'variable') return;
+    const variable = variables.find((candidate) => candidate.id === payload.id);
+    if (!variable) return;
+    event.preventDefault();
+    const control = event.currentTarget;
+    const start = control.selectionStart ?? value.length;
+    const end = control.selectionEnd ?? start;
+    const token = variableMode === 'template' ? `{${variable.name}}` : variable.name;
+    handleChange(`${value.slice(0, start)}${token}${value.slice(end)}`);
+  };
+  const common = {
+    value,
+    onBlur: handleBlur,
+    onDragOver: (event: DragEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (variableMode && readStoryDataDrag(event.dataTransfer)?.kind === 'variable') {
+        event.preventDefault();
+      }
+    },
+    onDrop: handleDrop,
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      handleChange(event.target.value),
+  };
 
   return (
     <label className={styles.field}>
       <span>{label}</span>
-      {control}
+      {multiline ? <textarea {...common} rows={5} /> : <input {...common} />}
+      {variableMode && <small>Drag a variable here to insert it.</small>}
+    </label>
+  );
+}
+
+function VariableSelect({
+  label,
+  value,
+  onBeginEdit,
+  onChange,
+}: {
+  label: string;
+  value?: VariableId;
+  onBeginEdit: () => void;
+  onChange: (value: VariableId | undefined) => void;
+}) {
+  const { variables } = useStoryGraphStore();
+  return (
+    <label className={styles.field}>
+      <span>{label}</span>
+      <select
+        value={value ?? ''}
+        onChange={(event) => {
+          onBeginEdit();
+          onChange((event.target.value || undefined) as VariableId | undefined);
+        }}
+      >
+        <option value="">Select variable…</option>
+        {variables.map((variable) => (
+          <option key={variable.id} value={variable.id}>
+            {variable.name} · {variable.valueType.kind}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
 
 export function Inspector() {
-  const { nodes, checkpoint, updateNode, updateNodeData } = useStoryGraphStore();
+  const { nodes, variables, characters, assets, checkpoint, updateNode, updateNodeData } =
+    useStoryGraphStore();
   const selected = nodes.filter((node) => node.selected);
 
   if (selected.length !== 1) {
@@ -71,8 +130,9 @@ export function Inspector() {
   }
 
   const node = selected[0];
-  const duplicateName = nodes.some(
-    (candidate) => candidate.id !== node.id && candidate.name === node.name,
+  const duplicateName = Boolean(
+    node.name &&
+    nodes.some((candidate) => candidate.id !== node.id && candidate.name === node.name),
   );
 
   const renderTypeProperties = () => {
@@ -90,21 +150,107 @@ export function Inspector() {
       }
       case StoryNodeType.Dialogue: {
         const data = node.data as DialogueNodeData;
+        const character = characters.find((candidate) => candidate.id === data.speakerId);
         return (
           <>
+            <label
+              className={styles.field}
+              onDragOver={(event) => {
+                if (readStoryDataDrag(event.dataTransfer)?.kind === 'character')
+                  event.preventDefault();
+              }}
+              onDrop={(event) => {
+                const payload = readStoryDataDrag(event.dataTransfer);
+                if (payload?.kind !== 'character') return;
+                event.preventDefault();
+                checkpoint();
+                updateNodeData(node.id, StoryNodeType.Dialogue, { speakerId: payload.id });
+              }}
+            >
+              <span>Speaker</span>
+              <select
+                value={data.speakerId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateNodeData(node.id, StoryNodeType.Dialogue, {
+                    speakerId: (event.target.value || undefined) as DialogueNodeData['speakerId'],
+                  });
+                }}
+              >
+                <option value="">Narrator</option>
+                {characters.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.displayName}
+                  </option>
+                ))}
+              </select>
+              <small>Drag a character here to assign it.</small>
+            </label>
             <PropertyField
-              label="Speaker"
-              value={data.speaker}
-              onBeginEdit={checkpoint}
-              onChange={(speaker) => updateNodeData(node.id, StoryNodeType.Dialogue, { speaker })}
-            />
-            <PropertyField
-              label="Text"
-              value={data.text}
+              label="Text Template"
+              value={data.text.source}
               multiline
+              variableMode="template"
               onBeginEdit={checkpoint}
-              onChange={(text) => updateNodeData(node.id, StoryNodeType.Dialogue, { text })}
+              onChange={(source) =>
+                updateNodeData(node.id, StoryNodeType.Dialogue, { text: { source } })
+              }
             />
+            {character && (
+              <label className={styles.field}>
+                <span>Emotion</span>
+                <select
+                  value={data.emotion ?? ''}
+                  onChange={(event) => {
+                    checkpoint();
+                    updateNodeData(node.id, StoryNodeType.Dialogue, {
+                      emotion: event.target.value || undefined,
+                    });
+                  }}
+                >
+                  <option value="">Default</option>
+                  {Object.entries(character.emotions).map(([key, emotion]) => (
+                    <option key={key} value={key}>
+                      {emotion.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label
+              className={styles.field}
+              onDragOver={(event) => {
+                if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset') event.preventDefault();
+              }}
+              onDrop={(event) => {
+                const payload = readStoryDataDrag(event.dataTransfer);
+                if (payload?.kind !== 'asset') return;
+                event.preventDefault();
+                checkpoint();
+                updateNodeData(node.id, StoryNodeType.Dialogue, { voiceId: payload.id });
+              }}
+            >
+              <span>Voice Asset</span>
+              <select
+                value={data.voiceId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateNodeData(node.id, StoryNodeType.Dialogue, {
+                    voiceId: (event.target.value || undefined) as DialogueNodeData['voiceId'],
+                  });
+                }}
+              >
+                <option value="">None</option>
+                {assets
+                  .filter((asset) => asset.kind === 'audio')
+                  .map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.displayName}
+                    </option>
+                  ))}
+              </select>
+              <small>Drag a voice asset here to assign it.</small>
+            </label>
           </>
         );
       }
@@ -113,25 +259,64 @@ export function Inspector() {
         return (
           <>
             <PropertyField
-              label="Prompt"
-              value={data.prompt}
+              label="Prompt Template"
+              value={data.prompt.source}
+              variableMode="template"
               onBeginEdit={checkpoint}
-              onChange={(prompt) => updateNodeData(node.id, StoryNodeType.Choice, { prompt })}
+              onChange={(source) =>
+                updateNodeData(node.id, StoryNodeType.Choice, { prompt: { source } })
+              }
             />
             <div className={styles.groupLabel}>Options</div>
             {data.options.map((option, index) => (
-              <PropertyField
-                key={option.id}
-                label={`Option ${index + 1}`}
-                value={option.label}
-                onBeginEdit={checkpoint}
-                onChange={(label) => {
-                  const options = data.options.map((candidate) =>
-                    candidate.id === option.id ? { ...candidate, label } : candidate,
-                  );
-                  updateNodeData(node.id, StoryNodeType.Choice, { options });
-                }}
-              />
+              <div key={option.id} className={styles.optionGroup}>
+                <PropertyField
+                  label={`Option ${index + 1}`}
+                  value={option.text.source}
+                  variableMode="template"
+                  onBeginEdit={checkpoint}
+                  onChange={(source) => {
+                    const options = data.options.map((candidate) =>
+                      candidate.id === option.id ? { ...candidate, text: { source } } : candidate,
+                    );
+                    updateNodeData(node.id, StoryNodeType.Choice, { options });
+                  }}
+                />
+                <PropertyField
+                  label="Visible If"
+                  value={option.visibleIf?.source ?? ''}
+                  variableMode="expression"
+                  onBeginEdit={checkpoint}
+                  onChange={(source) => {
+                    const options = data.options.map((candidate) =>
+                      candidate.id === option.id
+                        ? {
+                            ...candidate,
+                            visibleIf: source ? { source, bindings: {} } : undefined,
+                          }
+                        : candidate,
+                    );
+                    updateNodeData(node.id, StoryNodeType.Choice, { options });
+                  }}
+                />
+                <PropertyField
+                  label="Enabled If"
+                  value={option.enabledIf?.source ?? ''}
+                  variableMode="expression"
+                  onBeginEdit={checkpoint}
+                  onChange={(source) => {
+                    const options = data.options.map((candidate) =>
+                      candidate.id === option.id
+                        ? {
+                            ...candidate,
+                            enabledIf: source ? { source, bindings: {} } : undefined,
+                          }
+                        : candidate,
+                    );
+                    updateNodeData(node.id, StoryNodeType.Choice, { options });
+                  }}
+                />
+              </div>
             ))}
           </>
         );
@@ -140,12 +325,56 @@ export function Inspector() {
         const data = node.data as BranchNodeData;
         return (
           <PropertyField
-            label="Condition"
-            value={data.condition}
+            label="Boolean Expression"
+            value={data.condition.source}
             multiline
+            variableMode="expression"
             onBeginEdit={checkpoint}
-            onChange={(condition) => updateNodeData(node.id, StoryNodeType.Branch, { condition })}
+            onChange={(source) =>
+              updateNodeData(node.id, StoryNodeType.Branch, {
+                condition: { source, bindings: {} },
+              })
+            }
           />
+        );
+      }
+      case StoryNodeType.GetVariable: {
+        const data = node.data as GetVariableNodeData;
+        return (
+          <VariableSelect
+            label="Variable"
+            value={data.variableId}
+            onBeginEdit={checkpoint}
+            onChange={(variableId) =>
+              updateNodeData(node.id, StoryNodeType.GetVariable, { variableId })
+            }
+          />
+        );
+      }
+      case StoryNodeType.SetVariable: {
+        const data = node.data as SetVariableNodeData;
+        return (
+          <>
+            <VariableSelect
+              label="Variable"
+              value={data.variableId}
+              onBeginEdit={checkpoint}
+              onChange={(variableId) =>
+                updateNodeData(node.id, StoryNodeType.SetVariable, { variableId })
+              }
+            />
+            <PropertyField
+              label="Value Expression"
+              value={data.value.source}
+              variableMode="expression"
+              onBeginEdit={checkpoint}
+              onChange={(source) =>
+                updateNodeData(node.id, StoryNodeType.SetVariable, {
+                  value: { source, bindings: {} },
+                })
+              }
+            />
+          </>
         );
       }
       case StoryNodeType.End: {
@@ -168,24 +397,29 @@ export function Inspector() {
         <section className={styles.section}>
           <div className={styles.sectionTitle}>Node</div>
           <PropertyField
-            label="Name"
-            value={node.name}
+            label="Name (optional)"
+            value={node.name ?? ''}
             onBeginEdit={checkpoint}
-            onChange={(name) => updateNode(node.id, { name })}
+            onChange={(name) => updateNode(node.id, { name: name || undefined })}
           />
           {duplicateName && <div className={styles.warning}>Name must be unique.</div>}
           <div className={styles.readonlyField}>
             <span>Type</span>
-            <code>{`${node.type}@${node.definitionVersion}`}</code>
+            <code>{node.type}</code>
           </div>
           <div className={styles.readonlyField}>
             <span>ID</span>
             <code title={node.id}>{node.id}</code>
           </div>
         </section>
-
         <section className={styles.section}>
           <div className={styles.sectionTitle}>Properties</div>
+          {variables.length === 0 &&
+            (node.type === StoryNodeType.Branch || node.type === StoryNodeType.Choice) && (
+              <div className={styles.info}>
+                Create variables in Story Data, then drag them here.
+              </div>
+            )}
           {renderTypeProperties()}
         </section>
       </div>

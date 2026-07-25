@@ -14,7 +14,7 @@ type SubMenuItem =
       shortcut?: string;
       disabled?: boolean;
       action?: 'new' | 'open' | 'save' | 'save-as' | 'exit' | 'undo' | 'redo' | 'reset-layout';
-      panelId?: 'resources' | 'graph' | 'inspector' | 'console';
+      panelId?: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console';
     }
   | { type: 'separator' };
 
@@ -49,6 +49,7 @@ const menuItems: MenuItem[] = [
     label: 'View',
     submenu: [
       { type: 'item', label: 'Resource Browser', panelId: 'resources' },
+      { type: 'item', label: 'Story Data', panelId: 'storyData' },
       { type: 'item', label: 'Story Graph', panelId: 'graph' },
       { type: 'item', label: 'Inspector', panelId: 'inspector' },
       { type: 'item', label: 'Console', panelId: 'console' },
@@ -68,7 +69,7 @@ const menuItems: MenuItem[] = [
 
 interface MenuBarProps {
   onResetLayout: () => void;
-  onShowPanel: (panelId: 'resources' | 'graph' | 'inspector' | 'console') => void;
+  onShowPanel: (panelId: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console') => void;
 }
 
 export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {

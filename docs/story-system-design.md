@@ -233,7 +233,7 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 
 ## 6. Blackboard 与项目数据
 
-编辑器提供类似 UE Blueprint 的 Blackboard / Project Data 面板，默认放在右下区域。
+编辑器提供类似 UE Blueprint 的 Story Data 面板，默认放在 Resource Browser 下方的左下区域。
 
 面板管理：
 
@@ -264,19 +264,18 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 
 ### 6.1 变量与作用域
 
-第一版定义四种作用域：
+当前编辑器定义三种内部作用域；Project / Character 外部变量待 Adapter 生命周期落地后再加入：
 
-| 作用域    | 生命周期                              | 典型用途               |
-| --------- | ------------------------------------- | ---------------------- |
-| Project   | 由 Engine Adapter 提供并跨 Story 保存 | 世界状态、长期任务状态 |
-| Story     | 当前 Story 实例                       | 当前剧情流程状态       |
-| Chapter   | 每次调用创建                          | 参数、临时计算、返回值 |
-| Character | 由 Character ID 定位                  | 好感度、角色状态       |
+| 作用域  | 生命周期        | 典型用途               |
+| ------- | --------------- | ---------------------- |
+| Story   | 当前 Story 实例 | 当前剧情流程状态       |
+| Chapter | 每次调用创建    | 参数、临时计算、返回值 |
+| Local   | 当前执行上下文  | 临时计算               |
 
 约束：
 
 - 每个变量必须声明稳定 ID、可读名称、类型、作用域和默认值。
-- 第一版支持 Boolean、Number、String、Enum、对象结构体以及相应的可空类型；数组延后实现。
+- 当前编辑器支持 Boolean、Number、String；Enum、结构体、可空类型和数组后续加入。
 - 禁止隐式 String/Number/Boolean 转换，转换必须在表达式中显式写出。
 - Chapter 参数按值传入，局部变量随 Call Frame 创建，Return 可以返回一个声明类型的值。
 - Project 和 Character 变量的读取、写入及持久化通过 Adapter 完成。
@@ -435,51 +434,53 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 ### 9.1 完整示例
 
 ```kdl
-story story_intro format=story-blueprint version=1 name=intro display-name=序章 {
+story s_intro format=story-blueprint version=2 name=intro display-name=序章 {
+  variables {
+    variable v_favor name=favor display-name=好感度 type=number default=0
+    variable v_name name=playerName display-name=玩家姓名 type=string default=Player
+  }
+  characters {
+    character c_alice name=alice display-name=爱丽丝 {
+      emotion happy display-name=开心
+      emotion angry display-name=生气
+    }
+  }
   graph {
-    node node_start name=start type=story-entry definition-version=1 x=80 y=120 {
-      data title=序章
+    story-entry n_start x=80 y=120 title=序章
+    dialogue n_greet name=greeting x=320 y=120 speaker=c_alice emotion=happy {
+      text "你好，{playerName}。"
     }
-    node node_greeting name=greeting type=dialogue definition-version=1 x=320 y=120 {
-      data speaker=Alice text=你好，旅行者。
+    branch n_check x=600 y=120 condition="favor >= 10"
+    choice n_choose x=860 y=120 prompt=是否接受任务？ {
+      option o_accept 接受任务 enabled-if="favor >= 10"
+      option o_refuse 拒绝任务
     }
-    node node_check name=checkFavor type=branch definition-version=1 x=600 y=120 {
-      data condition="favor >= 10 && hasKey"
-    }
-    node node_choose name=choose type=choice definition-version=1 x=860 y=120 {
-      data prompt=是否接受任务？ {
-        option option_accept label=接受任务
-        option option_refuse label=拒绝任务
-      }
-    }
-    node node_end name=ending type=end-story definition-version=1 x=1120 y=300 {
-      data title=结束
-    }
-    edge edge_start_greeting from-node=node_start from-port=out to-node=node_greeting to-port=in
-    edge edge_greeting_check from-node=node_greeting from-port=out to-node=node_check to-port=in
-    edge edge_check_choose from-node=node_check from-port="true" to-node=node_choose to-port=in
-    edge edge_check_end from-node=node_check from-port="false" to-node=node_end to-port=in
-    edge edge_accept_end from-node=node_choose from-port=option_accept to-node=node_end to-port=in
+    end-story n_end x=1120 y=300 title=结束
+    link n_start n_greet
+    link n_greet n_check
+    link n_check n_choose from=true
+    link n_check n_end from=false
+    link n_choose n_end from=o_accept
   }
 }
 ```
 
-这是当前 `story-blueprint@1` writer 的真实输出。Character、Variable、Voice、Emotion、Text ID 和 Chapter
-会在各自 Schema 落地后按版本迁移加入；在此之前 writer 遇到这些尚不能保存的区段会拒绝覆盖文件。
+这是当前不兼容旧格式的 `story-blueprint@2` writer 输出。项目尚处早期，不提供 v1 迁移或兼容读取。
+节点、变量、角色、资源和选项使用短稳定 ID；节点 `name` 只有作者明确命名时才写入；Edge 不持久化 ID。
 
 `.story` 是唯一权威编辑源，包含：
 
 - 节点及其属性
 - 动态端口项及其稳定 ID；静态端口由 Node Definition 派生
 - 连线
-- 节点坐标；尺寸将在可调整大小节点落地后加入版本化 Schema
+- 取整后的节点坐标；编译产物不包含坐标
 - Comment、Group、Reroute
 - 编辑器需要持久化的其他信息
 
 ### 9.2 Schema、未知字段与稳定格式化
 
 - `.story` 顶层必须包含格式版本，Node Definition 也必须带版本。
-- Parser 先建立 Source Model，再迁移到当前版本，不能让 UI 组件直接解释 KDL。
+- Parser 直接建立当前 Source Model，不能让 UI 组件直接解释 KDL；当前版本明确不承担旧格式迁移。
 - Writer 使用固定的字段排序、缩进、数字格式和集合排序规则，减少 Git Diff 噪声。
 - 节点顺序不表达执行语义；执行顺序只由 Edge 和动态端口顺序决定。
 - 对未来版本或插件产生的未知字段应尽量保留；当前 parser 在尚无无损编辑模型时会拒绝加载未知字段，防止覆盖保存。

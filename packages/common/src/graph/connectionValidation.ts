@@ -88,7 +88,13 @@ export function resolveNodePorts(
       continue;
     }
     const id = item[dynamic.idProperty];
-    const label = item[dynamic.labelProperty];
+    const rawLabel = item[dynamic.labelProperty];
+    const label =
+      typeof rawLabel === 'string'
+        ? rawLabel
+        : isRecord(rawLabel) && typeof rawLabel.source === 'string'
+          ? rawLabel.source
+          : undefined;
     if (typeof id !== 'string' || typeof label !== 'string') {
       diagnostics.push({
         code: 'INVALID_DYNAMIC_PORT_DATA',
@@ -117,6 +123,7 @@ export function resolveNodePorts(
 }
 
 function sameValueType(source: ValueType | undefined, target: ValueType | undefined): boolean {
+  if (source?.kind === 'any' || target?.kind === 'any') return true;
   if (!source || !target || source.kind !== target.kind) return false;
   if (source.nullable && !target.nullable) return false;
   if (source.kind === 'enum' && target.kind === 'enum') return source.name === target.name;

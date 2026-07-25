@@ -10,13 +10,13 @@ function program(): RuntimeProgram {
   return {
     format: STORY_RUNTIME_FORMAT,
     version: STORY_RUNTIME_VERSION,
-    id: 'program_test',
+    id: 'p_test',
     contentVersion: 'test-1',
-    entryBlockId: 'block_entry',
+    entryBlockId: 'b_entry',
     blocks: {
-      block_entry: {
-        id: 'block_entry',
-        instructions: [{ id: 'instruction_end', op: 'end-story' }],
+      b_entry: {
+        id: 'b_entry',
+        instructions: [{ id: 'i_endx', op: 'end-story' }],
       },
     },
     chapters: {},
@@ -31,12 +31,11 @@ describe('runtime program validation', () => {
 
   it('rejects blocks without an explicit terminator', () => {
     const invalid = program();
-    invalid.blocks.block_entry.instructions = [
+    invalid.blocks.b_entry.instructions = [
       {
-        id: 'instruction_dialogue',
+        id: 'i_talk',
         op: 'dialogue',
-        textId: 'text_hello',
-        defaultText: 'Hello',
+        text: { id: 't_hello', parts: [{ kind: 'text', value: 'Hello' }] },
       },
     ];
     expect(validateRuntimeProgram(invalid)).toContainEqual(

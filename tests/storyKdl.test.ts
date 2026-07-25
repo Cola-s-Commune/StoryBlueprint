@@ -13,48 +13,81 @@ function sourceDocument(): StorySourceDocument {
   return {
     format: STORY_SOURCE_FORMAT,
     version: STORY_SOURCE_VERSION,
-    id: 'story_test',
+    id: 's_test',
     name: 'test',
     displayName: 'Test Story',
     root: {
       nodes: [
         {
-          id: 'node_start',
-          name: 'start',
+          id: 'n_start',
           type: StoryNodeType.Start,
           definitionVersion: 1,
-          position: { x: 80, y: 120 },
+          position: { x: 80.4, y: 120.2 },
           data: { title: 'Start' },
         },
         {
-          id: 'node_end',
-          name: 'end',
+          id: 'n_talk',
+          name: 'greeting',
+          type: StoryNodeType.Dialogue,
+          definitionVersion: 1,
+          position: { x: 360.1, y: 120.8 },
+          data: { speakerId: 'c_arys', text: { source: 'Hello {gold}' }, emotion: 'happy' },
+        },
+        {
+          id: 'n_endx',
           type: StoryNodeType.End,
           definitionVersion: 1,
-          position: { x: 360, y: 120 },
+          position: { x: 640, y: 121 },
           data: { title: 'End' },
         },
       ],
       edges: [
         {
-          id: 'edge_start_end',
-          from: { nodeId: 'node_start', portId: 'out' },
-          to: { nodeId: 'node_end', portId: 'in' },
+          from: { nodeId: 'n_start', portId: 'out' },
+          to: { nodeId: 'n_talk', portId: 'in' },
+        },
+        {
+          from: { nodeId: 'n_talk', portId: 'out' },
+          to: { nodeId: 'n_endx', portId: 'in' },
         },
       ],
     },
     chapters: [],
-    variables: [],
-    characters: [],
+    variables: [
+      {
+        id: 'v_gold',
+        name: 'gold',
+        displayName: 'Gold',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 5,
+      },
+    ],
+    characters: [
+      {
+        id: 'c_arys',
+        name: 'arys',
+        displayName: 'Arys',
+        emotions: { happy: { displayName: 'Happy' } },
+      },
+    ],
     assets: [],
     events: [],
   };
 }
 
-describe('story KDL', () => {
+describe('story KDL v2', () => {
   it('has a stable serialize-parse-serialize round trip', () => {
     const serialized = serializeStorySource(sourceDocument());
     expect(serializeStorySource(parseStorySource(serialized))).toBe(serialized);
+  });
+
+  it('uses compact links, optional names and integer coordinates', () => {
+    const serialized = serializeStorySource(sourceDocument());
+    expect(serialized).toContain('story-entry n_start x=80 y=120');
+    expect(serialized).toContain('link n_start n_talk');
+    expect(serialized).not.toContain('definition-version');
+    expect(serialized).not.toContain('edge_');
   });
 
   it('rejects unknown fields instead of silently dropping them', () => {
@@ -66,23 +99,18 @@ describe('story KDL', () => {
   });
 
   it('rejects duplicate stable IDs', () => {
-    const serialized = serializeStorySource(sourceDocument()).replace('node_end', 'node_start');
+    const serialized = serializeStorySource(sourceDocument()).replace('n_endx', 'n_start');
     expect(() => parseStorySource(serialized)).toThrow(/Duplicate node ID/);
   });
 
-  it('refuses to serialize source sections the writer cannot preserve yet', () => {
-    const source = sourceDocument();
-    const unsupported = {
-      ...source,
-      characters: [
-        {
-          id: 'character_alice' as const,
-          name: 'alice',
-          displayName: 'Alice',
-          emotions: {},
-        },
-      ],
-    } satisfies StorySourceDocument;
-    expect(() => serializeStorySource(unsupported)).toThrow(StoryFormatError);
+  it('preserves variables and characters', () => {
+    const parsed = parseStorySource(serializeStorySource(sourceDocument()));
+    expect(parsed.variables[0]).toMatchObject({ id: 'v_gold', defaultValue: 5 });
+    expect(parsed.characters[0]).toMatchObject({ id: 'c_arys', displayName: 'Arys' });
+  });
+
+  it('rejects the discarded v1 format without migration', () => {
+    const serialized = serializeStorySource(sourceDocument()).replace('version=2', 'version=1');
+    expect(() => parseStorySource(serialized)).toThrow(StoryFormatError);
   });
 });

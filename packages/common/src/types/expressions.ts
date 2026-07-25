@@ -8,6 +8,11 @@ export interface ExpressionSource {
   bindings: Readonly<Record<string, VariableId>>;
 }
 
+/** Inline authoring text. Expressions inside braces use the same safe expression grammar. */
+export interface TextTemplateSource {
+  source: string;
+}
+
 export type UnaryOperator = 'not' | 'negate';
 export type BinaryOperator =
   | 'add'

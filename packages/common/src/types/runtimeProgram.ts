@@ -26,6 +26,14 @@ export interface LocalizedVoiceRef {
   locales?: Readonly<Record<string, AssetId>>;
 }
 
+export type RuntimeTextPart =
+  { kind: 'text'; value: string } | { kind: 'expression'; expression: TypedExpression };
+
+export interface RuntimeTextTemplate {
+  id: TextId;
+  parts: readonly RuntimeTextPart[];
+}
+
 interface RuntimeInstructionBase {
   /** Compiler-generated stable ID. This is not an editor node ID. */
   id: InstructionId;
@@ -35,8 +43,7 @@ export interface DialogueInstruction extends RuntimeInstructionBase {
   op: 'dialogue';
   speakerId?: CharacterId;
   dynamicSpeaker?: TypedExpression;
-  textId: TextId;
-  defaultText: string;
+  text: RuntimeTextTemplate;
   voice?: LocalizedVoiceRef;
   emotion?: string;
   portraitId?: AssetId;
@@ -69,16 +76,15 @@ export interface CallEventInstruction extends RuntimeInstructionBase {
 
 export interface ChoiceOptionInstruction {
   id: OptionId;
-  textId: TextId;
-  defaultText: string;
-  condition?: TypedExpression;
+  text: RuntimeTextTemplate;
+  visibleIf?: TypedExpression;
+  enabledIf?: TypedExpression;
   target: BlockId;
 }
 
 export interface ChoiceInstruction extends RuntimeInstructionBase {
   op: 'choice';
-  promptTextId?: TextId;
-  defaultPrompt?: string;
+  prompt?: RuntimeTextTemplate;
   options: readonly ChoiceOptionInstruction[];
 }
 

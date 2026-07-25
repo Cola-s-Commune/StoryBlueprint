@@ -77,8 +77,7 @@ export class NodeRegistry {
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
       defaultData: () => ({
-        speaker: 'Character',
-        text: '',
+        text: { source: '' },
       }),
     });
 
@@ -94,14 +93,14 @@ export class NodeRegistry {
       dynamicOutputs: {
         sourceProperty: 'options',
         idProperty: 'id',
-        labelProperty: 'label',
+        labelProperty: 'text',
         kind: 'execution',
       },
       defaultData: () => ({
-        prompt: 'What will you do?',
+        prompt: { source: 'What will you do?' },
         options: [
-          { label: 'Option A', id: createStableId('option') },
-          { label: 'Option B', id: createStableId('option') },
+          { text: { source: 'Option A' }, id: createStableId('option') },
+          { text: { source: 'Option B' }, id: createStableId('option') },
         ] as ChoiceOption[],
       }),
     });
@@ -118,7 +117,37 @@ export class NodeRegistry {
         { id: 'true', label: 'True', kind: 'execution', direction: 'output' },
         { id: 'false', label: 'False', kind: 'execution', direction: 'output' },
       ],
-      defaultData: () => ({ condition: 'someCondition' }),
+      defaultData: () => ({ condition: { source: 'true', bindings: {} } }),
+    });
+
+    this.register<StoryNodeType.GetVariable>({
+      type: StoryNodeType.GetVariable,
+      version: 1,
+      label: 'Get Variable',
+      category: 'logic',
+      color: '#36b5a3',
+      inputs: [],
+      outputs: [
+        {
+          id: 'value',
+          label: 'Value',
+          kind: 'data',
+          direction: 'output',
+          valueType: { kind: 'any' },
+        },
+      ],
+      defaultData: () => ({}),
+    });
+
+    this.register<StoryNodeType.SetVariable>({
+      type: StoryNodeType.SetVariable,
+      version: 1,
+      label: 'Set Variable',
+      category: 'logic',
+      color: '#36b5a3',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({ value: { source: '', bindings: {} } }),
     });
 
     // End

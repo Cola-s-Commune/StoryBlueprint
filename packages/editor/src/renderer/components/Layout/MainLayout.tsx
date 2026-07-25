@@ -13,20 +13,22 @@ import { ResourceBrowser } from '../Panels/ResourceBrowser';
 import { StoryGraph } from '../Panels/StoryGraph';
 import { Inspector } from '../Panels/Inspector';
 import { ConsolePanel } from '../Panels/Console';
+import { StoryData } from '../Panels/StoryData';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v1';
+const layoutStorageKey = 'story-blueprint:dock-layout:v2';
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
+  storyData: (_props: IDockviewPanelProps) => <StoryData />,
   graph: (_props: IDockviewPanelProps) => <StoryGraph />,
   inspector: (_props: IDockviewPanelProps) => <Inspector />,
   console: (_props: IDockviewPanelProps) => <ConsolePanel />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
-  if (panelId === 'resources') return 'left';
+  if (panelId === 'resources' || panelId === 'storyData') return 'left';
   if (panelId === 'console') return 'bottom';
   return 'right';
 }
@@ -57,6 +59,14 @@ function createDefaultLayout(api: DockviewApi) {
     minimumWidth: 360,
     maximumWidth: 720,
   });
+  const storyData = api.addPanel({
+    id: 'storyData',
+    component: 'storyData',
+    title: 'Story Data',
+    position: { referencePanel: 'resources', direction: 'below' },
+    initialHeight: 320,
+    minimumHeight: 160,
+  });
   const consolePanel = api.addPanel({
     id: 'console',
     component: 'console',
@@ -67,6 +77,7 @@ function createDefaultLayout(api: DockviewApi) {
   });
 
   resources.api.group.api.setSize({ width: 240 });
+  storyData.api.group.api.setSize({ height: 320 });
   inspector.api.group.api.setSize({ width: 420 });
   consolePanel.api.group.api.setSize({ height: 230 });
   graph.api.setActive();
@@ -97,6 +108,19 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
         maximumWidth: 420,
       });
       break;
+    case 'storyData': {
+      const resources = api.getPanel('resources');
+      api.addPanel({
+        ...common,
+        title: 'Story Data',
+        ...((resources ?? graph) && {
+          position: { referencePanel: resources ?? graph!, direction: 'below' as const },
+        }),
+        initialHeight: 320,
+        minimumHeight: 160,
+      });
+      break;
+    }
     case 'inspector':
       api.addPanel({
         ...common,
@@ -197,7 +221,8 @@ export function MainLayout() {
                       label: 'Float Panel',
                       action: () =>
                         api.addFloatingGroup(panel, {
-                          width: panel.id === 'inspector' ? 520 : 480,
+                          width:
+                            panel.id === 'inspector' ? 520 : panel.id === 'storyData' ? 360 : 480,
                           height: panel.id === 'console' ? 380 : 640,
                         }),
                     },

@@ -37,6 +37,7 @@ import {
   type GraphClipboard,
 } from '../../graph/editorGraph';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { readStoryDataDrag, storyDataMime } from '../../graph/storyDataDrag';
 import styles from './StoryGraph.module.css';
 
 function toGraphNodes(nodes: readonly EditorGraphNode[]): GraphNodeLike[] {
@@ -264,23 +265,63 @@ export function StoryGraph() {
       const snapshot = dragSnapshot.current;
       dragSnapshot.current = null;
       const original = snapshot?.nodes.find((candidate) => candidate.id === node.id);
+      const roundedPosition = {
+        x: Math.round(node.position.x),
+        y: Math.round(node.position.y),
+      };
+      setNodes((current) =>
+        current.map((candidate) =>
+          candidate.id === node.id ? { ...candidate, position: roundedPosition } : candidate,
+        ),
+      );
       if (
         !snapshot ||
         !original ||
-        (original.position.x === node.position.x && original.position.y === node.position.y)
+        (original.position.x === roundedPosition.x && original.position.y === roundedPosition.y)
       ) {
         return;
       }
       checkpoint(snapshot);
       markDirty();
     },
-    [checkpoint, markDirty],
+    [checkpoint, markDirty, setNodes],
   );
   const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
 
   return (
     <div className={styles.panel}>
-      <div className={styles.canvas} ref={canvasRef}>
+      <div
+        className={styles.canvas}
+        ref={canvasRef}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(storyDataMime)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }
+        }}
+        onDrop={(event) => {
+          const payload = readStoryDataDrag(event.dataTransfer);
+          if (!payload || !flowInstance) return;
+          event.preventDefault();
+          const position = flowInstance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          if (payload.kind === 'character') {
+            addNode(StoryNodeType.Dialogue, position, {
+              speakerId: payload.id,
+              text: { source: '' },
+            });
+          } else if (payload.kind === 'variable' && payload.action === 'set') {
+            addNode(StoryNodeType.SetVariable, position, {
+              variableId: payload.id,
+              value: { source: '', bindings: {} },
+            });
+          } else if (payload.kind === 'variable') {
+            addNode(StoryNodeType.GetVariable, position, { variableId: payload.id });
+          }
+        }}
+      >
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}
           edges={edges}

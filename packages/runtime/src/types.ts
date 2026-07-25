@@ -66,6 +66,7 @@ export interface ChoiceRequest {
     id: OptionId;
     textId: TextId;
     defaultText: string;
+    enabled: boolean;
   }[];
 }
 

@@ -81,6 +81,7 @@
 
 - [x] Inspector 默认宽度 420px、最小宽度 360px，可调整至 720px
 - [x] Resource Browser / Story Graph / Inspector / Console 使用 Dockview，支持拖拽分组、调整尺寸和应用内浮动
+- [x] Story Data 默认停靠在左下，可独立拖拽、关闭、恢复和浮动
 - [x] 面板标签右键支持显式 Float / Dock，View 菜单可恢复已关闭面板
 - [x] 保存和恢复面板尺寸、停靠状态与浮动窗口位置
 - [x] View → Reset Layout 恢复默认布局
@@ -180,11 +181,12 @@
 
 属性：
 
-- [x] Character（只读渲染）
-- [x] Text（只读渲染）
+- [x] Character 稳定引用与下拉选择
+- [x] 变量化 Text Template 编辑与画布渲染
 - [x] Speaker / Text 可编辑属性
-- [ ] Voice Asset 与按语言覆盖
-- [ ] Emotion / Portrait
+- [x] Voice Asset ID 基础字段
+- [x] Character Emotion 选择
+- [ ] Voice / Portrait 资源选择器与按语言覆盖
 - [ ] 稳定 Text ID
 
 ---
@@ -199,9 +201,9 @@
 ## Choice Node
 
 - [x] Render
-- [ ] 动态 Option 与稳定 Option ID
-- [ ] Option Text / Condition
-- [ ] 每个 Option 的动态执行输出
+- [x] 动态 Option 与稳定 Option ID
+- [x] Option Text Template / Visible If / Enabled If
+- [x] 每个 Option 的动态执行输出
 
 ---
 
@@ -210,15 +212,20 @@
 属性：
 
 - [x] Render
-- [ ] Boolean Expression
-- [ ] 固定 True / False 输出
+- [x] Boolean Expression 文本编辑与变量拖入
+- [x] 固定 True / False 输出
 
 ---
 
 ## Set Variable Node
 
-- [ ] Variable Reference
-- [ ] Typed Value Expression
+- [x] Variable Reference
+- [x] Typed Value Expression
+
+## Get Variable Node
+
+- [x] Variable Reference
+- [x] Typed Data Output Pin
 
 ---
 
@@ -301,16 +308,17 @@
 
 ## Character
 
-- [ ] Character Asset
-- [ ] Character List
-- [ ] 稳定 ID / Name / Display Name
-- [ ] Emotion / Portrait 配置
+- [x] Story Data Character List
+- [x] 稳定 ID / Name / Display Name
+- [x] Emotion 名称配置
+- [ ] Portrait 资源选择器
 
 ---
 
 ## Audio
 
-- [ ] Audio Asset
+- [x] Story Data Asset List 与 Voice / Portrait / Other 类型
+- [x] Dialogue Voice Asset 引用
 - [ ] Search
 - [ ] Locale Voice Mapping
 
@@ -331,9 +339,11 @@
 
 ## Variable
 
-- [ ] Variable List
-- [ ] Project / Story / Chapter / Character Scope
-- [ ] Boolean / Number / String / Enum / Struct / Nullable
+- [x] Story Data Variable List
+- [x] Story / Chapter / Local Scope
+- [x] Boolean / Number / String
+- [ ] Project / Character 外部 Scope
+- [ ] Enum / Struct / Nullable
 - [ ] 引用检查与安全重命名
 
 ---
@@ -366,9 +376,10 @@
 - [ ] 注释与未知字段保留测试
 - [x] Typed Story Graph 内存模型
 - [ ] 静态端口派生、动态端口项序列化
-- [ ] Character / Variable / Asset 引用序列化
+- [x] Character / Variable / Asset 引用序列化
 - [x] 稳定 ID / Name / Display Name 模型
-- [ ] 格式版本迁移
+- [x] v2 紧凑格式：短 ID、可选 Node Name、无 Edge ID、默认端口/版本省略、整数坐标
+- [x] 明确放弃旧格式兼容与迁移
 
 ---
 
@@ -384,7 +395,7 @@
 ## Graph Validation
 
 - [ ] Dead Node
-- [ ] Missing Connection
+- [x] Missing Connection
 - [ ] Invalid Chapter
 - [ ] Duplicate ID
 - [ ] 悬空 Node / Port / Resource 引用
@@ -398,11 +409,10 @@
 
 - [ ] Build AST
 - [ ] Validate AST
-- [ ] Graph → Story AST
-- [ ] Story AST → Runtime Program
-- [ ] 表达式字符串 → Typed Expression AST
+- [x] Typed Story Graph → Runtime Program
+- [x] 表达式字符串 → Typed Expression AST
 - [ ] 表达式稳定符号绑定与安全重命名
-- [ ] 移除坐标、端口、边和编辑器元数据
+- [x] 移除坐标、端口、边和编辑器节点 ID
 - [x] Block 终结指令与显式 Jump 校验
 - [ ] 可选 Source Map
 
@@ -412,7 +422,7 @@
 
 - [ ] 导出 `.storyc.json`
 - [x] 定义版本化 Runtime Program Schema
-- [ ] Compiler Backend 接口
+- [x] Compiler Backend 接口与默认实现
 - [ ] 暂不实现自定义字节码
 - [ ] 暂不生成 TypeScript 剧情代码
 
@@ -442,7 +452,8 @@
 - [x] RuntimeState / CallFrame / PendingInteraction 类型契约
 - [ ] `blockId + instructionIndex` 执行状态机
 - [ ] Async Pause / Resume / Abort
-- [ ] Project / Story / Chapter / Character Variables
+- [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
+- [ ] Project / Story / Chapter / Character Variables 状态机集成
 - [ ] Call Stack / Return Value
 - [ ] End Story
 - [ ] 稳定点 Save / Load

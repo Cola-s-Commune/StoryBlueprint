@@ -5,6 +5,7 @@ export type RuntimeStruct = { readonly [field: string]: RuntimeValue };
 export type RuntimeValue = RuntimeScalar | RuntimeStruct;
 
 export type ValueType =
+  | { kind: 'any'; nullable?: boolean }
   | { kind: 'boolean'; nullable?: boolean }
   | { kind: 'number'; nullable?: boolean }
   | { kind: 'string'; nullable?: boolean }
@@ -16,7 +17,7 @@ export type ValueType =
       nullable?: boolean;
     };
 
-export type VariableScope = 'project' | 'story' | 'chapter' | 'character';
+export type VariableScope = 'story' | 'chapter' | 'local';
 
 export interface VariableDefinition {
   id: VariableId;

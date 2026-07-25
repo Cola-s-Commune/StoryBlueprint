@@ -22,13 +22,13 @@ export function ChoiceNode({ data }: NodeProps) {
       <div className={styles.body}>
         <div className={styles.field}>
           <label>Prompt</label>
-          {d.prompt || 'Choose...'}
+          {d.prompt.source || 'Choose...'}
         </div>
         <div className={styles.choices}>
           {d.options?.map((opt, index) => (
             <div key={opt.id} className={styles.choice}>
               <span className={styles.choiceIndex}>{index + 1}</span>
-              <span className={styles.choiceText}>{opt.label}</span>
+              <span className={styles.choiceText}>{opt.text.source}</span>
               <Handle
                 className={`${styles.handle} ${styles.handleOutput} ${styles.rowHandle}`}
                 type="source"

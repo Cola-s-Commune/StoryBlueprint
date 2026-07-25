@@ -30,7 +30,8 @@
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid #414141;
@@ -49,9 +50,33 @@
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   border-color: #4778a8;
   box-shadow: 0 0 0 1px #4778a8;
+}
+
+.field small {
+  color: #5f6976;
+  font-size: 9px;
+}
+
+.optionGroup {
+  margin: 0 -4px 12px;
+  padding: 9px 8px 1px;
+  border: 1px solid #343a43;
+  border-radius: 5px;
+  background: #20242a;
+}
+
+.info {
+  margin-bottom: 10px;
+  padding: 7px 8px;
+  border: 1px solid #36516a;
+  border-radius: 4px;
+  background: #202c37;
+  color: #8eb4d3;
+  font-size: 10px;
 }
 
 .readonlyField {

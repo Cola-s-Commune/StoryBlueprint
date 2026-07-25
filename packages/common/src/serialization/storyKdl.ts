@@ -1,14 +1,17 @@
 import { Document, Node, format, parse } from '@bgotink/kdl';
-import { isStableId } from '../types/ids';
-import { StoryNodeType, type ChoiceOption } from '../types/nodes';
+import { isStableId, type StableId, type StableIdKind } from '../types/ids';
+import { StoryNodeType, type ChoiceOption, type StoryNodeDataMap } from '../types/nodes';
 import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
+  type AssetSource,
+  type CharacterSource,
   type SourceEdge,
   type SourceGraph,
   type SourceNode,
   type StorySourceDocument,
 } from '../types/source';
+import type { RuntimeValue, ValueType, VariableDefinition, VariableScope } from '../types/values';
 
 export class StoryFormatError extends Error {
   constructor(message: string) {
@@ -22,6 +25,11 @@ function requiredString(value: unknown, path: string): string {
   return value;
 }
 
+function optionalString(value: unknown, path: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return requiredString(value, path);
+}
+
 function requiredNumber(value: unknown, path: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new StoryFormatError(`${path} must be a finite number`);
@@ -29,311 +37,614 @@ function requiredNumber(value: unknown, path: string): number {
   return value;
 }
 
-function requiredPositiveInteger(value: unknown, path: string): number {
+function requiredInteger(value: unknown, path: string): number {
   const number = requiredNumber(value, path);
-  if (!Number.isInteger(number) || number < 1) {
-    throw new StoryFormatError(`${path} must be a positive integer`);
-  }
+  if (!Number.isInteger(number)) throw new StoryFormatError(`${path} must be an integer`);
   return number;
 }
 
-function assertNodeShape(
+function requiredId<Kind extends StableIdKind>(
+  value: unknown,
+  kind: Kind,
+  path: string,
+): StableId<Kind> {
+  const id = requiredString(value, path);
+  if (!isStableId(id, kind)) throw new StoryFormatError(`${path} is not a valid ${kind} ID`);
+  return id as StableId<Kind>;
+}
+
+function assertShape(
   node: Node,
   path: string,
   options: {
     arguments: number;
-    properties: readonly string[];
-    children: readonly string[];
+    properties?: readonly string[];
+    children?: readonly string[];
   },
 ): void {
   if (node.getArguments().length !== options.arguments) {
     throw new StoryFormatError(`${path} must have ${options.arguments} argument(s)`);
   }
-  const allowedProperties = new Set(options.properties);
+  const properties = new Set(options.properties ?? []);
   for (const property of node.getProperties().keys()) {
-    if (!allowedProperties.has(property)) {
+    if (!properties.has(property)) {
       throw new StoryFormatError(`${path} contains unsupported property ${property}`);
     }
   }
-  const allowedChildren = new Set(options.children);
+  const children = new Set(options.children ?? []);
   for (const child of node.children?.nodes ?? []) {
-    if (!allowedChildren.has(child.getName())) {
+    if (!children.has(child.getName())) {
       throw new StoryFormatError(`${path} contains unsupported child ${child.getName()}`);
     }
   }
 }
 
-function requiredId<Prefix extends string>(
-  value: unknown,
-  prefix: Prefix,
-  path: string,
-): `${Prefix}_${string}` {
-  const id = requiredString(value, path);
-  if (!isStableId(id, prefix)) throw new StoryFormatError(`${path} must start with ${prefix}_`);
-  return id;
+function addCommonNodeProperties(target: Node, source: SourceNode): void {
+  if (source.name) target.setProperty('name', source.name);
+  if (source.definitionVersion !== 1)
+    target.setProperty('definition-version', source.definitionVersion);
+  target.setProperty('x', Math.round(source.position.x));
+  target.setProperty('y', Math.round(source.position.y));
 }
 
-function nodeType(value: unknown, path: string): StoryNodeType {
-  if (Object.values(StoryNodeType).includes(value as StoryNodeType)) {
-    return value as StoryNodeType;
+function expressionSource(value: unknown, path: string) {
+  const source = requiredString(value, path);
+  return { source, bindings: {} } as const;
+}
+
+function serializeSourceNode(source: SourceNode): Node {
+  if (!Object.values(StoryNodeType).includes(source.type as StoryNodeType)) {
+    throw new StoryFormatError(`Cannot serialize unsupported node type ${source.type}`);
   }
-  throw new StoryFormatError(`${path} contains unsupported node type ${String(value)}`);
-}
+  const target = Node.create(source.type);
+  target.addArgument(source.id);
+  addCommonNodeProperties(target, source);
+  const data = source.data as StoryNodeDataMap[StoryNodeType];
 
-function createDataNode(source: SourceNode): Node {
-  const data = Node.create('data');
-  const values = source.data as Readonly<Record<string, unknown>>;
   switch (source.type) {
     case StoryNodeType.Start:
     case StoryNodeType.End:
-      data.setProperty('title', requiredString(values.title, `${source.id}.data.title`));
-      break;
-    case StoryNodeType.Dialogue:
-      data.setProperty('speaker', requiredString(values.speaker, `${source.id}.data.speaker`));
-      data.setProperty('text', requiredString(values.text, `${source.id}.data.text`));
-      break;
-    case StoryNodeType.Branch:
-      data.setProperty(
-        'condition',
-        requiredString(values.condition, `${source.id}.data.condition`),
+      target.setProperty(
+        'title',
+        requiredString(
+          (data as StoryNodeDataMap[StoryNodeType.Start] | StoryNodeDataMap[StoryNodeType.End])
+            .title,
+          `${source.id}.title`,
+        ),
       );
       break;
+    case StoryNodeType.Dialogue: {
+      const dialogue = data as StoryNodeDataMap[StoryNodeType.Dialogue];
+      if (dialogue.speakerId) target.setProperty('speaker', dialogue.speakerId);
+      if (dialogue.voiceId) target.setProperty('voice', dialogue.voiceId);
+      if (dialogue.emotion) target.setProperty('emotion', dialogue.emotion);
+      const text = Node.create('text');
+      text.addArgument(requiredString(dialogue.text.source, `${source.id}.text`));
+      target.appendNode(text);
+      break;
+    }
     case StoryNodeType.Choice: {
-      data.setProperty('prompt', requiredString(values.prompt, `${source.id}.data.prompt`));
-      if (!Array.isArray(values.options)) {
-        throw new StoryFormatError(`${source.id}.data.options must be an array`);
-      }
-      for (const rawOption of values.options) {
-        const option = rawOption as Partial<ChoiceOption>;
+      const choice = data as StoryNodeDataMap[StoryNodeType.Choice];
+      target.setProperty('prompt', requiredString(choice.prompt.source, `${source.id}.prompt`));
+      for (const option of choice.options) {
         const optionNode = Node.create('option');
-        optionNode.addArgument(requiredId(option.id, 'option', `${source.id}.option.id`));
-        optionNode.setProperty('label', requiredString(option.label, `${source.id}.option.label`));
-        data.appendNode(optionNode);
+        optionNode.addArgument(option.id);
+        optionNode.addArgument(requiredString(option.text.source, `${source.id}.option.text`));
+        if (option.visibleIf?.source) optionNode.setProperty('visible-if', option.visibleIf.source);
+        if (option.enabledIf?.source) optionNode.setProperty('enabled-if', option.enabledIf.source);
+        target.appendNode(optionNode);
       }
       break;
     }
-    default:
-      throw new StoryFormatError(`Cannot serialize unsupported node type ${source.type}`);
+    case StoryNodeType.Branch:
+      target.setProperty(
+        'condition',
+        requiredString(
+          (data as StoryNodeDataMap[StoryNodeType.Branch]).condition.source,
+          `${source.id}.condition`,
+        ),
+      );
+      break;
+    case StoryNodeType.GetVariable: {
+      const variableId = (data as StoryNodeDataMap[StoryNodeType.GetVariable]).variableId;
+      if (variableId) target.setProperty('variable', variableId);
+      break;
+    }
+    case StoryNodeType.SetVariable: {
+      const setVariable = data as StoryNodeDataMap[StoryNodeType.SetVariable];
+      if (setVariable.variableId) target.setProperty('variable', setVariable.variableId);
+      target.setProperty('value', setVariable.value.source);
+      break;
+    }
   }
-  return data;
+  return target;
 }
 
 function serializeGraph(source: SourceGraph): Node {
   const graph = Node.create('graph');
-  for (const sourceNode of source.nodes) {
-    const node = Node.create('node');
-    node.addArgument(sourceNode.id);
-    node.setProperty('name', sourceNode.name);
-    node.setProperty('type', sourceNode.type);
-    node.setProperty('definition-version', sourceNode.definitionVersion);
-    node.setProperty('x', sourceNode.position.x);
-    node.setProperty('y', sourceNode.position.y);
-    node.appendNode(createDataNode(sourceNode));
-    graph.appendNode(node);
-  }
+  for (const sourceNode of source.nodes) graph.appendNode(serializeSourceNode(sourceNode));
   for (const sourceEdge of source.edges) {
-    const edge = Node.create('edge');
-    edge.addArgument(sourceEdge.id);
-    edge.setProperty('from-node', sourceEdge.from.nodeId);
-    edge.setProperty('from-port', sourceEdge.from.portId);
-    edge.setProperty('to-node', sourceEdge.to.nodeId);
-    edge.setProperty('to-port', sourceEdge.to.portId);
-    graph.appendNode(edge);
+    const link = Node.create('link');
+    link.addArgument(sourceEdge.from.nodeId);
+    link.addArgument(sourceEdge.to.nodeId);
+    if (sourceEdge.from.portId !== 'out') link.setProperty('from', sourceEdge.from.portId);
+    if (sourceEdge.to.portId !== 'in') link.setProperty('to', sourceEdge.to.portId);
+    graph.appendNode(link);
   }
   return graph;
+}
+
+function valueTypeName(valueType: ValueType): string {
+  if (valueType.kind === 'boolean' || valueType.kind === 'number' || valueType.kind === 'string') {
+    return valueType.kind;
+  }
+  throw new StoryFormatError(`Unsupported variable type ${valueType.kind}`);
+}
+
+function serializeVariables(variables: readonly VariableDefinition[]): Node | undefined {
+  if (variables.length === 0) return undefined;
+  const container = Node.create('variables');
+  for (const variable of variables) {
+    const node = Node.create('variable');
+    node.addArgument(variable.id);
+    node.setProperty('name', variable.name);
+    if (variable.displayName !== variable.name)
+      node.setProperty('display-name', variable.displayName);
+    node.setProperty('type', valueTypeName(variable.valueType));
+    if (variable.scope !== 'story') node.setProperty('scope', variable.scope);
+    if (
+      variable.defaultValue !== null &&
+      typeof variable.defaultValue !== 'boolean' &&
+      typeof variable.defaultValue !== 'number' &&
+      typeof variable.defaultValue !== 'string'
+    ) {
+      throw new StoryFormatError(`${variable.id}.default must be a scalar`);
+    }
+    node.setProperty('default', variable.defaultValue);
+    container.appendNode(node);
+  }
+  return container;
+}
+
+function serializeCharacters(characters: readonly CharacterSource[]): Node | undefined {
+  if (characters.length === 0) return undefined;
+  const container = Node.create('characters');
+  for (const character of characters) {
+    const node = Node.create('character');
+    node.addArgument(character.id);
+    node.setProperty('name', character.name);
+    node.setProperty('display-name', character.displayName);
+    if (character.defaultPortraitId) node.setProperty('portrait', character.defaultPortraitId);
+    for (const [key, emotion] of Object.entries(character.emotions)) {
+      const emotionNode = Node.create('emotion');
+      emotionNode.addArgument(key);
+      emotionNode.setProperty('display-name', emotion.displayName);
+      if (emotion.portraitId) emotionNode.setProperty('portrait', emotion.portraitId);
+      node.appendNode(emotionNode);
+    }
+    container.appendNode(node);
+  }
+  return container;
+}
+
+function serializeAssets(assets: readonly AssetSource[]): Node | undefined {
+  if (assets.length === 0) return undefined;
+  const container = Node.create('assets');
+  for (const asset of assets) {
+    const node = Node.create('asset');
+    node.addArgument(asset.id);
+    node.setProperty('name', asset.name);
+    node.setProperty('display-name', asset.displayName);
+    node.setProperty('kind', asset.kind);
+    for (const [locale, path] of Object.entries(asset.locales ?? {})) {
+      const localeNode = Node.create('locale');
+      localeNode.addArgument(locale);
+      localeNode.addArgument(path);
+      node.appendNode(localeNode);
+    }
+    container.appendNode(node);
+  }
+  return container;
+}
+
+function validateStoryReferences(source: StorySourceDocument): void {
+  const nodeIds = new Set(source.root.nodes.map((node) => node.id));
+  const variableIds = new Set(source.variables.map((variable) => variable.id));
+  const characterIds = new Set(source.characters.map((character) => character.id));
+  const assetIds = new Set(source.assets.map((asset) => asset.id));
+  for (const edge of source.root.edges) {
+    if (!nodeIds.has(edge.from.nodeId) || !nodeIds.has(edge.to.nodeId)) {
+      throw new StoryFormatError('Link references a missing node');
+    }
+  }
+  for (const node of source.root.nodes) {
+    if (node.type === StoryNodeType.Dialogue) {
+      const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Dialogue];
+      if (data.speakerId && !characterIds.has(data.speakerId)) {
+        throw new StoryFormatError(`${node.id} references missing character ${data.speakerId}`);
+      }
+      if (data.voiceId && !assetIds.has(data.voiceId)) {
+        throw new StoryFormatError(`${node.id} references missing voice asset ${data.voiceId}`);
+      }
+    }
+    if (node.type === StoryNodeType.GetVariable || node.type === StoryNodeType.SetVariable) {
+      const data = node.data as unknown as
+        StoryNodeDataMap[StoryNodeType.GetVariable] | StoryNodeDataMap[StoryNodeType.SetVariable];
+      if (data.variableId && !variableIds.has(data.variableId)) {
+        throw new StoryFormatError(`${node.id} references missing variable ${data.variableId}`);
+      }
+    }
+  }
+  for (const character of source.characters) {
+    if (character.defaultPortraitId && !assetIds.has(character.defaultPortraitId)) {
+      throw new StoryFormatError(`${character.id} references a missing portrait asset`);
+    }
+    for (const emotion of Object.values(character.emotions)) {
+      if (emotion.portraitId && !assetIds.has(emotion.portraitId)) {
+        throw new StoryFormatError(`${character.id} emotion references a missing portrait asset`);
+      }
+    }
+  }
 }
 
 export function serializeStorySource(source: StorySourceDocument): string {
   if (source.format !== STORY_SOURCE_FORMAT || source.version !== STORY_SOURCE_VERSION) {
     throw new StoryFormatError('Unsupported Story Source format or version');
   }
-  if (
-    source.chapters.length > 0 ||
-    source.variables.length > 0 ||
-    source.characters.length > 0 ||
-    source.assets.length > 0 ||
-    source.events.length > 0
-  ) {
-    throw new StoryFormatError(
-      'This writer cannot yet preserve chapters, variables, characters, assets, or events',
-    );
+  if (source.chapters.length > 0 || source.events.length > 0) {
+    throw new StoryFormatError('This writer cannot yet preserve chapters or events');
   }
+  validateStoryReferences(source);
   const story = Node.create('story');
   story.addArgument(source.id);
   story.setProperty('format', source.format);
   story.setProperty('version', source.version);
   story.setProperty('name', source.name);
-  story.setProperty('display-name', source.displayName);
+  if (source.displayName !== source.name) story.setProperty('display-name', source.displayName);
+  const variables = serializeVariables(source.variables);
+  const characters = serializeCharacters(source.characters);
+  const assets = serializeAssets(source.assets);
+  if (variables) story.appendNode(variables);
+  if (characters) story.appendNode(characters);
+  if (assets) story.appendNode(assets);
   story.appendNode(serializeGraph(source.root));
   return format(new Document([story]));
 }
 
-function parseNodeData(node: Node, type: StoryNodeType): Readonly<Record<string, unknown>> {
-  const data = node.findNodeByName('data');
-  if (!data) throw new StoryFormatError(`node ${node.getArgument(0)} is missing data`);
+function parseSourceNode(node: Node): SourceNode {
+  const type = node.getName() as StoryNodeType;
+  if (!Object.values(StoryNodeType).includes(type)) {
+    throw new StoryFormatError(`Unsupported node type ${type}`);
+  }
+  const id = requiredId(node.getArgument(0), 'node', `${type}.id`);
+  const commonProperties = ['name', 'definition-version', 'x', 'y'] as const;
+  const typeProperties: Record<StoryNodeType, readonly string[]> = {
+    [StoryNodeType.Start]: ['title'],
+    [StoryNodeType.Dialogue]: ['speaker', 'voice', 'emotion'],
+    [StoryNodeType.Choice]: ['prompt'],
+    [StoryNodeType.Branch]: ['condition'],
+    [StoryNodeType.GetVariable]: ['variable'],
+    [StoryNodeType.SetVariable]: ['variable', 'value'],
+    [StoryNodeType.End]: ['title'],
+  };
+  const typeChildren: Record<StoryNodeType, readonly string[]> = {
+    [StoryNodeType.Dialogue]: ['text'],
+    [StoryNodeType.Choice]: ['option'],
+    [StoryNodeType.Start]: [],
+    [StoryNodeType.Branch]: [],
+    [StoryNodeType.GetVariable]: [],
+    [StoryNodeType.SetVariable]: [],
+    [StoryNodeType.End]: [],
+  };
+  assertShape(node, id, {
+    arguments: 1,
+    properties: [...commonProperties, ...typeProperties[type]],
+    children: typeChildren[type],
+  });
+
+  let data: StoryNodeDataMap[StoryNodeType];
   switch (type) {
     case StoryNodeType.Start:
     case StoryNodeType.End:
-      assertNodeShape(data, `${type}.data`, {
-        arguments: 0,
-        properties: ['title'],
-        children: [],
-      });
-      return { title: requiredString(data.getProperty('title'), `${type}.title`) };
-    case StoryNodeType.Dialogue:
-      assertNodeShape(data, `${type}.data`, {
-        arguments: 0,
-        properties: ['speaker', 'text'],
-        children: [],
-      });
-      return {
-        speaker: requiredString(data.getProperty('speaker'), `${type}.speaker`),
-        text: requiredString(data.getProperty('text'), `${type}.text`),
+      data = { title: requiredString(node.getProperty('title'), `${id}.title`) };
+      break;
+    case StoryNodeType.Dialogue: {
+      const texts = node.findNodesByName('text');
+      if (texts.length !== 1) throw new StoryFormatError(`${id} must contain exactly one text`);
+      assertShape(texts[0], `${id}.text`, { arguments: 1 });
+      data = {
+        text: { source: requiredString(texts[0].getArgument(0), `${id}.text`) },
+        speakerId: node.getProperty('speaker')
+          ? requiredId(node.getProperty('speaker'), 'character', `${id}.speaker`)
+          : undefined,
+        voiceId: node.getProperty('voice')
+          ? requiredId(node.getProperty('voice'), 'asset', `${id}.voice`)
+          : undefined,
+        emotion: optionalString(node.getProperty('emotion'), `${id}.emotion`),
       };
-    case StoryNodeType.Branch:
-      assertNodeShape(data, `${type}.data`, {
-        arguments: 0,
-        properties: ['condition'],
-        children: [],
-      });
-      return { condition: requiredString(data.getProperty('condition'), `${type}.condition`) };
+      break;
+    }
     case StoryNodeType.Choice: {
-      assertNodeShape(data, `${type}.data`, {
-        arguments: 0,
-        properties: ['prompt'],
-        children: ['option'],
-      });
-      const options: ChoiceOption[] = data.findNodesByName('option').map((option) => {
-        assertNodeShape(option, 'choice.option', {
-          arguments: 1,
-          properties: ['label'],
-          children: [],
+      const optionIds = new Set<string>();
+      const options = node.findNodesByName('option').map((optionNode): ChoiceOption => {
+        assertShape(optionNode, `${id}.option`, {
+          arguments: 2,
+          properties: ['visible-if', 'enabled-if'],
         });
+        const optionId = requiredId(optionNode.getArgument(0), 'option', `${id}.option.id`);
+        if (optionIds.has(optionId)) throw new StoryFormatError(`Duplicate option ID: ${optionId}`);
+        optionIds.add(optionId);
+        const visible = optionalString(
+          optionNode.getProperty('visible-if'),
+          `${optionId}.visible-if`,
+        );
+        const enabled = optionalString(
+          optionNode.getProperty('enabled-if'),
+          `${optionId}.enabled-if`,
+        );
         return {
-          id: requiredId(option.getArgument(0), 'option', 'choice.option.id'),
-          label: requiredString(option.getProperty('label'), 'choice.option.label'),
+          id: optionId,
+          text: { source: requiredString(optionNode.getArgument(1), `${optionId}.text`) },
+          visibleIf: visible ? expressionSource(visible, `${optionId}.visible-if`) : undefined,
+          enabledIf: enabled ? expressionSource(enabled, `${optionId}.enabled-if`) : undefined,
         };
       });
-      return {
-        prompt: requiredString(data.getProperty('prompt'), 'choice.prompt'),
+      data = {
+        prompt: { source: requiredString(node.getProperty('prompt'), `${id}.prompt`) },
         options,
       };
+      break;
     }
+    case StoryNodeType.Branch:
+      data = { condition: expressionSource(node.getProperty('condition'), `${id}.condition`) };
+      break;
+    case StoryNodeType.GetVariable:
+      data = {
+        variableId: node.getProperty('variable')
+          ? requiredId(node.getProperty('variable'), 'variable', `${id}.variable`)
+          : undefined,
+      };
+      break;
+    case StoryNodeType.SetVariable:
+      data = {
+        variableId: node.getProperty('variable')
+          ? requiredId(node.getProperty('variable'), 'variable', `${id}.variable`)
+          : undefined,
+        value: expressionSource(node.getProperty('value'), `${id}.value`),
+      };
+      break;
   }
+  const definitionVersionValue = node.getProperty('definition-version');
+  return {
+    id,
+    name: optionalString(node.getProperty('name'), `${id}.name`),
+    type,
+    definitionVersion:
+      definitionVersionValue === undefined
+        ? 1
+        : requiredInteger(definitionVersionValue, `${id}.definition-version`),
+    position: {
+      x: requiredInteger(node.getProperty('x'), `${id}.x`),
+      y: requiredInteger(node.getProperty('y'), `${id}.y`),
+    },
+    data: data as unknown as Readonly<Record<string, unknown>>,
+  };
 }
 
 function parseGraph(graph: Node): SourceGraph {
-  assertNodeShape(graph, 'story.graph', {
+  assertShape(graph, 'story.graph', {
     arguments: 0,
-    properties: [],
-    children: ['node', 'edge'],
+    children: [...Object.values(StoryNodeType), 'link'],
   });
+  const nodes: SourceNode[] = [];
   const nodeIds = new Set<string>();
   const nodeNames = new Set<string>();
-  const optionIds = new Set<string>();
-  const nodes: SourceNode[] = graph.findNodesByName('node').map((node) => {
-    const id = requiredId(node.getArgument(0), 'node', 'node.id');
-    assertNodeShape(node, id, {
-      arguments: 1,
-      properties: ['name', 'type', 'definition-version', 'x', 'y'],
-      children: ['data'],
-    });
-    if (node.findNodesByName('data').length !== 1) {
-      throw new StoryFormatError(`${id} must contain exactly one data node`);
+  for (const node of graph.children?.nodes ?? []) {
+    if (node.getName() === 'link') continue;
+    const sourceNode = parseSourceNode(node);
+    if (nodeIds.has(sourceNode.id))
+      throw new StoryFormatError(`Duplicate node ID: ${sourceNode.id}`);
+    nodeIds.add(sourceNode.id);
+    if (sourceNode.name) {
+      if (nodeNames.has(sourceNode.name))
+        throw new StoryFormatError(`Duplicate node name: ${sourceNode.name}`);
+      nodeNames.add(sourceNode.name);
     }
-    if (nodeIds.has(id)) throw new StoryFormatError(`Duplicate node ID: ${id}`);
-    nodeIds.add(id);
-    const type = nodeType(node.getProperty('type'), `${id}.type`);
-    const data = parseNodeData(node, type);
-    const name = requiredString(node.getProperty('name'), `${id}.name`);
-    if (nodeNames.has(name)) throw new StoryFormatError(`Duplicate node name: ${name}`);
-    nodeNames.add(name);
-    const dynamicPorts =
-      type === StoryNodeType.Choice
-        ? ((data.options as ChoiceOption[]) ?? []).map((option) => {
-            if (optionIds.has(option.id)) {
-              throw new StoryFormatError(`Duplicate option ID: ${option.id}`);
-            }
-            optionIds.add(option.id);
-            return {
-              id: option.id,
-              name: `option_${option.id.slice(-8).replaceAll('-', '_')}`,
-              displayName: option.label,
-            };
-          })
-        : undefined;
-    return {
-      id,
-      name,
-      type,
-      definitionVersion: requiredPositiveInteger(
-        node.getProperty('definition-version'),
-        `${id}.definition-version`,
-      ),
-      position: {
-        x: requiredNumber(node.getProperty('x'), `${id}.x`),
-        y: requiredNumber(node.getProperty('y'), `${id}.y`),
-      },
-      data,
-      dynamicPorts,
-    };
-  });
-
-  const edgeIds = new Set<string>();
-  const edges: SourceEdge[] = graph.findNodesByName('edge').map((edge) => {
-    assertNodeShape(edge, 'story.graph.edge', {
-      arguments: 1,
-      properties: ['from-node', 'from-port', 'to-node', 'to-port'],
-      children: [],
+    nodes.push(sourceNode);
+  }
+  const edges: SourceEdge[] = graph.findNodesByName('link').map((link) => {
+    assertShape(link, 'story.graph.link', {
+      arguments: 2,
+      properties: ['from', 'to'],
     });
-    const id = requiredId(edge.getArgument(0), 'edge', 'edge.id');
-    if (edgeIds.has(id)) throw new StoryFormatError(`Duplicate edge ID: ${id}`);
-    edgeIds.add(id);
     return {
-      id,
       from: {
-        nodeId: requiredId(edge.getProperty('from-node'), 'node', 'edge.from-node'),
-        portId: requiredString(edge.getProperty('from-port'), 'edge.from-port'),
+        nodeId: requiredId(link.getArgument(0), 'node', 'link.from-node'),
+        portId: optionalString(link.getProperty('from'), 'link.from-port') ?? 'out',
       },
       to: {
-        nodeId: requiredId(edge.getProperty('to-node'), 'node', 'edge.to-node'),
-        portId: requiredString(edge.getProperty('to-port'), 'edge.to-port'),
+        nodeId: requiredId(link.getArgument(1), 'node', 'link.to-node'),
+        portId: optionalString(link.getProperty('to'), 'link.to-port') ?? 'in',
       },
     };
   });
   return { nodes, edges };
 }
 
+function parseValueType(value: unknown, path: string): ValueType {
+  const kind = requiredString(value, path);
+  if (kind === 'boolean' || kind === 'number' || kind === 'string') return { kind };
+  throw new StoryFormatError(`${path} contains unsupported type ${kind}`);
+}
+
+function parseVariables(container: Node | undefined): VariableDefinition[] {
+  if (!container) return [];
+  assertShape(container, 'story.variables', { arguments: 0, children: ['variable'] });
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  return container.findNodesByName('variable').map((node) => {
+    assertShape(node, 'story.variables.variable', {
+      arguments: 1,
+      properties: ['name', 'display-name', 'type', 'scope', 'default'],
+    });
+    const id = requiredId(node.getArgument(0), 'variable', 'variable.id');
+    const name = requiredString(node.getProperty('name'), `${id}.name`);
+    if (ids.has(id)) throw new StoryFormatError(`Duplicate variable ID: ${id}`);
+    if (names.has(name)) throw new StoryFormatError(`Duplicate variable name: ${name}`);
+    ids.add(id);
+    names.add(name);
+    const valueType = parseValueType(node.getProperty('type'), `${id}.type`);
+    const scopeValue = optionalString(node.getProperty('scope'), `${id}.scope`) ?? 'story';
+    if (!['story', 'chapter', 'local'].includes(scopeValue)) {
+      throw new StoryFormatError(`${id}.scope is unsupported`);
+    }
+    const defaultValue = node.getProperty('default');
+    if (
+      defaultValue !== null &&
+      typeof defaultValue !== 'boolean' &&
+      typeof defaultValue !== 'number' &&
+      typeof defaultValue !== 'string'
+    ) {
+      throw new StoryFormatError(`${id}.default must be a scalar`);
+    }
+    return {
+      id,
+      name,
+      displayName: optionalString(node.getProperty('display-name'), `${id}.display-name`) ?? name,
+      scope: scopeValue as VariableScope,
+      valueType,
+      defaultValue: defaultValue as RuntimeValue,
+    };
+  });
+}
+
+function parseCharacters(container: Node | undefined): CharacterSource[] {
+  if (!container) return [];
+  assertShape(container, 'story.characters', { arguments: 0, children: ['character'] });
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  return container.findNodesByName('character').map((node) => {
+    assertShape(node, 'story.characters.character', {
+      arguments: 1,
+      properties: ['name', 'display-name', 'portrait'],
+      children: ['emotion'],
+    });
+    const id = requiredId(node.getArgument(0), 'character', 'character.id');
+    const name = requiredString(node.getProperty('name'), `${id}.name`);
+    if (ids.has(id)) throw new StoryFormatError(`Duplicate character ID: ${id}`);
+    if (names.has(name)) throw new StoryFormatError(`Duplicate character name: ${name}`);
+    ids.add(id);
+    names.add(name);
+    const emotions: CharacterSource['emotions'] = Object.fromEntries(
+      node.findNodesByName('emotion').map((emotion) => {
+        assertShape(emotion, `${id}.emotion`, {
+          arguments: 1,
+          properties: ['display-name', 'portrait'],
+        });
+        const key = requiredString(emotion.getArgument(0), `${id}.emotion.key`);
+        return [
+          key,
+          {
+            displayName:
+              optionalString(emotion.getProperty('display-name'), `${id}.${key}.display-name`) ??
+              key,
+            portraitId: emotion.getProperty('portrait')
+              ? requiredId(emotion.getProperty('portrait'), 'asset', `${id}.${key}.portrait`)
+              : undefined,
+          },
+        ];
+      }),
+    );
+    return {
+      id,
+      name,
+      displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
+      defaultPortraitId: node.getProperty('portrait')
+        ? requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`)
+        : undefined,
+      emotions,
+    };
+  });
+}
+
+function parseAssets(container: Node | undefined): AssetSource[] {
+  if (!container) return [];
+  assertShape(container, 'story.assets', { arguments: 0, children: ['asset'] });
+  return container.findNodesByName('asset').map((node) => {
+    assertShape(node, 'story.assets.asset', {
+      arguments: 1,
+      properties: ['name', 'display-name', 'kind'],
+      children: ['locale'],
+    });
+    const id = requiredId(node.getArgument(0), 'asset', 'asset.id');
+    const kind = requiredString(node.getProperty('kind'), `${id}.kind`);
+    if (kind !== 'audio' && kind !== 'portrait' && kind !== 'other') {
+      throw new StoryFormatError(`${id}.kind is unsupported`);
+    }
+    const locales = Object.fromEntries(
+      node.findNodesByName('locale').map((locale) => {
+        assertShape(locale, `${id}.locale`, { arguments: 2 });
+        return [
+          requiredString(locale.getArgument(0), `${id}.locale.name`),
+          requiredString(locale.getArgument(1), `${id}.locale.path`),
+        ];
+      }),
+    );
+    return {
+      id,
+      name: requiredString(node.getProperty('name'), `${id}.name`),
+      displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
+      kind,
+      locales: Object.keys(locales).length > 0 ? locales : undefined,
+    };
+  });
+}
+
 export function parseStorySource(text: string): StorySourceDocument {
-  const document = parse(text);
+  let document: Document;
+  try {
+    document = parse(text);
+  } catch (error) {
+    throw new StoryFormatError(error instanceof Error ? error.message : String(error));
+  }
   if (document.nodes.length !== 1 || document.nodes[0]?.getName() !== 'story') {
     throw new StoryFormatError('Document must contain exactly one story node');
   }
   const story = document.nodes[0];
-  assertNodeShape(story, 'story', {
+  assertShape(story, 'story', {
     arguments: 1,
     properties: ['format', 'version', 'name', 'display-name'],
-    children: ['graph'],
+    children: ['variables', 'characters', 'assets', 'graph'],
   });
-  const formatName = requiredString(story.getProperty('format'), 'story.format');
-  const version = requiredNumber(story.getProperty('version'), 'story.version');
-  if (formatName !== STORY_SOURCE_FORMAT || version !== STORY_SOURCE_VERSION) {
-    throw new StoryFormatError(`Unsupported story format ${formatName}@${version}`);
+  if (story.findNodesByName('graph').length !== 1) {
+    throw new StoryFormatError('Story must contain exactly one graph');
   }
-  const graphs = story.findNodesByName('graph');
-  if (graphs.length !== 1) throw new StoryFormatError('story must contain exactly one graph');
-  const graph = graphs[0];
-  return {
+  for (const section of ['variables', 'characters', 'assets'] as const) {
+    if (story.findNodesByName(section).length > 1) {
+      throw new StoryFormatError(`Story may contain at most one ${section} section`);
+    }
+  }
+  const formatName = requiredString(story.getProperty('format'), 'story.format');
+  const version = requiredInteger(story.getProperty('version'), 'story.version');
+  if (formatName !== STORY_SOURCE_FORMAT || version !== STORY_SOURCE_VERSION) {
+    throw new StoryFormatError(
+      `Unsupported Story Source format or version: ${formatName}@${version}`,
+    );
+  }
+  const name = requiredString(story.getProperty('name'), 'story.name');
+  const source: StorySourceDocument = {
     format: STORY_SOURCE_FORMAT,
     version: STORY_SOURCE_VERSION,
     id: requiredId(story.getArgument(0), 'story', 'story.id'),
-    name: requiredString(story.getProperty('name'), 'story.name'),
-    displayName: requiredString(story.getProperty('display-name'), 'story.display-name'),
-    root: parseGraph(graph),
+    name,
+    displayName: optionalString(story.getProperty('display-name'), 'story.display-name') ?? name,
+    root: parseGraph(story.findNodeByName('graph')!),
+    variables: parseVariables(story.findNodeByName('variables')),
+    characters: parseCharacters(story.findNodeByName('characters')),
+    assets: parseAssets(story.findNodeByName('assets')),
     chapters: [],
-    variables: [],
-    characters: [],
-    assets: [],
     events: [],
   };
+  validateStoryReferences(source);
+  return source;
 }

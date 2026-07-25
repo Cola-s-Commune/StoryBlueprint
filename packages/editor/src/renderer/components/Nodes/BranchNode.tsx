@@ -22,7 +22,7 @@ export function BranchNode({ data }: NodeProps) {
       <div className={styles.body}>
         <div className={styles.field}>
           <label>Condition</label>
-          <span className={styles.expression}>{d.condition || 'true'}</span>
+          <span className={styles.expression}>{d.condition.source || 'true'}</span>
         </div>
         <div className={styles.branchOutputs}>
           <div className={styles.branchOutput}>

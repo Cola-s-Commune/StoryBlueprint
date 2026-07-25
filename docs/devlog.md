@@ -17,7 +17,7 @@ npm run dev
 
 ---
 
-## Current: Milestone 6 → Compiler / Preview
+## Current: Story Data / Compiler → Runtime Preview
 
 ### M1 Done
 
@@ -35,11 +35,18 @@ npm run dev
 - StoryGraph 已接入 nodeRegistry + nodeTypes 映射，使用工厂生成演示节点
 - `npm run build` 全套构建通过
 
+### Story Data + Compiler foundation done
+
+- 左下 Story Data 面板管理 Story / Chapter / Local 变量、角色和基础资源定义，支持 Dockview 停靠和浮动。
+- 变量、角色可拖到画布创建 Get / Set Variable 或 Dialogue；也可拖入 Inspector 的模板、表达式和 Speaker 字段。
+- Dialogue / Choice 使用 `{expression}` Text Template；Choice 区分 Visible If 与 Enabled If；Branch / Set 使用安全表达式。
+- `.story` 切换到不兼容 v1 的紧凑 v2：短 ID、整数坐标、可选节点名、无持久化 Edge ID、默认端口和版本省略。
+- 默认 Compiler 将节点图降级为无坐标、无编辑器节点 ID 的 Runtime Program；Runtime 提供表达式求值、模板渲染和选项过滤。
+
 ### Next
 
 **[M7/M8] Compiler + Runtime Preview**
 
-- 把 Typed Story Graph 编译为 Runtime Program
 - 实现 Dialogue / Choice / Branch / End 的最小执行器
 - 编辑器内运行当前 Story
 - 见 `docs/task.md` → Milestone 7 / 8
@@ -50,6 +57,9 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 增加左下 Story Data、变量/角色编辑、拖拽创建 Get/Set/Dialogue，以及 Inspector 模板和表达式变量投放                 |
+| 2026-07-25 | `.story` 改为紧凑 v2：短稳定 ID、整数坐标、可选节点名、无 Edge ID；不兼容且不迁移旧格式                            |
+| 2026-07-25 | Compiler 实现安全表达式、Text Template 与基础图降级；Runtime 实现求值、模板渲染及 Choice 显示/可用条件             |
 | 2026-07-25 | 用 Dockview 替换自制浮窗与固定分栏：面板可拖拽分组、应用内浮动、显式 Float / Dock，并持久化布局                    |
 | 2026-07-25 | View 菜单可重新打开四个面板或重置布局；Inspector 默认 420px、最小 360px，浮动宽度 520px                            |
 | 2026-07-25 | 收紧 Electron preload / IPC 与文件能力边界；异步保存按文档 revision 清理 dirty，避免覆盖保存期间的新编辑           |
