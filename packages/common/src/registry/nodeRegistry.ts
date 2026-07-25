@@ -1,7 +1,6 @@
 import {
   StoryNodeType,
   type NodeDefinition,
-  type StoryNodeDataMap,
   type ChoiceOption,
 } from '../types/nodes';
 

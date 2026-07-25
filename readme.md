@@ -214,13 +214,16 @@ Unity UI
 
 Project Status：
 
-🚧 Milestone 1 — Main Window Layout
+🚧 Milestone 2 — Graph System / Edge
 
 当前阶段：
 
 - [x] Overall Architecture
 - [x] Editor (骨架：Electron + React + Dock 布局)
-- [ ] Editor (画布：React Flow 节点图)
+- [x] Editor (画布：React Flow 节点图)
+- [x] Node Registry / Node Factory
+- [x] Start / Dialogue / Choice / Branch / End 节点渲染
+- [ ] Edge 校验与完整管理
 - [ ] Runtime
 - [ ] Compiler
 - [ ] Plugin SDK

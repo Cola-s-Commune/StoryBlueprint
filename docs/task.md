@@ -13,7 +13,7 @@
 ## Repository
 
 - [x] 初始化 Git 仓库
-- [x] 配置 pnpm Workspace
+- [x] 配置 npm Workspace
 - [x] 创建 packages 目录
 - [x] 配置 TypeScript
 - [x] 配置 ESLint
@@ -29,7 +29,7 @@
 - [x] 创建 Electron 主进程
 - [x] 创建 React Renderer
 - [x] 配置 IPC
-- [ ] 配置 热更新（Hot Reload）
+- [x] 配置 热更新（Hot Reload）
 - [ ] 配置 Release Build
 
 ---
@@ -160,7 +160,7 @@
 ## Start Node
 
 - [ ] Create
-- [ ] Render
+- [x] Render
 
 ---
 
@@ -168,8 +168,8 @@
 
 属性：
 
-- [ ] Character
-- [ ] Text
+- [x] Character（只读渲染）
+- [x] Text（只读渲染）
 - [ ] Audio
 - [ ] Portrait
 

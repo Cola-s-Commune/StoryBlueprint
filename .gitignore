@@ -24,6 +24,9 @@ packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.d.ts.map
 
+# Hand-written renderer declarations (not compiler output)
+!packages/editor/src/renderer/types.d.ts
+
 # Electron specific
 app/dist/
 app/build/

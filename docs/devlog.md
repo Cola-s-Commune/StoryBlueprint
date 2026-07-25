@@ -33,7 +33,7 @@ npm run dev
 - `packages/common/src/registry/nodeFactory.ts` — 工厂：create(id, type, position) + generateId
 - `packages/editor/.../Nodes/` — 5 种自定义 React Flow 节点组件（Start / Dialogue / Choice / Branch / End）
 - StoryGraph 已接入 nodeRegistry + nodeTypes 映射，使用工厂生成演示节点
-- `tsc -b` 全套编译零错误
+- `npm run build` 全套构建通过
 
 ### Next
 

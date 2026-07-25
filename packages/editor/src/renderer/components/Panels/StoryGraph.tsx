@@ -8,7 +8,6 @@ import {
   useNodesState,
   useEdgesState,
   type Node,
-  type Edge,
   type Connection,
   addEdge,
 } from '@xyflow/react';
@@ -61,7 +60,7 @@ function buildInitialNodes(): Node[] {
 }
 
 export function StoryGraph() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(buildInitialNodes());
+  const [nodes, , onNodesChange] = useNodesState(buildInitialNodes());
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   const onConnect = useCallback(
