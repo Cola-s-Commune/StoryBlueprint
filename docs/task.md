@@ -125,9 +125,9 @@
 
 ## Edge
 
-- [ ] Connection
-- [ ] Validation
-- [ ] Delete
+- [x] Connection
+- [x] Validation
+- [x] Delete
 
 ---
 

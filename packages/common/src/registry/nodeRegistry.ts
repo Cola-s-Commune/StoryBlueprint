@@ -94,6 +94,7 @@ export class NodeRegistry {
         sourceProperty: 'options',
         idProperty: 'id',
         labelProperty: 'label',
+        kind: 'execution',
       },
       defaultData: () => ({
         prompt: 'What will you do?',

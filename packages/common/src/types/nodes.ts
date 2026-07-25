@@ -2,6 +2,8 @@
 // StoryBlueprint Node Type Definitions
 // ============================================================
 
+import type { ValueType } from './values';
+
 /**
  * All supported node types in the story graph.
  * Add new types here as the framework evolves.
@@ -26,6 +28,8 @@ export interface NodePort {
   /** Execution ports control flow; data ports carry typed values. */
   kind: 'execution' | 'data';
   direction: 'input' | 'output';
+  /** Required for data ports and omitted for execution ports. */
+  valueType?: ValueType;
 }
 
 // ---- Per-type data interfaces ----
@@ -109,6 +113,8 @@ export interface NodeDefinition<T extends StoryNodeType = StoryNodeType> {
     sourceProperty: string;
     idProperty: string;
     labelProperty: string;
+    kind: 'execution' | 'data';
+    valueType?: ValueType;
   };
   /** Factory: returns default data for a new node of this type */
   defaultData: () => StoryNodeDataMap[T];

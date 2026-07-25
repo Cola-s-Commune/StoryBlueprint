@@ -18,6 +18,18 @@ export { NodeRegistry, nodeRegistry } from './registry/nodeRegistry';
 // ---- Factory ----
 export { NodeFactory, type NodeInstance } from './registry/nodeFactory';
 
+// ---- Typed graph connection rules ----
+export {
+  resolveNodePorts,
+  validateGraphConnection,
+  type GraphNodeLike,
+  type GraphEdgeLike,
+  type ConnectionCandidate,
+  type ConnectionDiagnosticCode,
+  type ConnectionDiagnostic,
+  type ConnectionValidationResult,
+} from './graph/connectionValidation';
+
 // ---- Stable IDs ----
 export {
   createStableId,

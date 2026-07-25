@@ -37,12 +37,12 @@ npm run dev
 
 ### Next
 
-**[M2] Edge 连线系统 + Typed Story Graph**
+**[M2] Selection / Clipboard + Typed Story Graph**
 
-- Connection validation（类型校验，不允许非法连线）
-- Edge delete
+- 单选、多选、框选状态接入 Command History
+- Copy / Paste / Duplicate 时生成新稳定 ID
 - 将 React Flow 状态接入版本化 Source Model
-- 见 `docs/task.md` → Milestone 2 → Edge
+- 见 `docs/task.md` → Milestone 2
 
 ---
 
@@ -50,6 +50,8 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 完成 Typed Graph 端口解析与连线校验：方向、执行/数据类型、动态端口、重复连接和连接占用规则                         |
+| 2026-07-25 | React Flow 接入统一校验，非法连线显示错误提示，Edge 使用稳定 ID                                                    |
 | 2026-07-25 | 建立 Source Model、稳定 ID、表达式、Runtime Program/State、Adapter 类型契约与 Runtime 控制流校验                   |
 | 2026-07-25 | 节点持久化类型统一为 `story-entry/end-story`，静态端口由 Node Definition 派生，Choice 输出声明为动态端口           |
 | 2026-07-25 | 补齐 common → compiler/runtime/sdk 的 TypeScript project references                                                |

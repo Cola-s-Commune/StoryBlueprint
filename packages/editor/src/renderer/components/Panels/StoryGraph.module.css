@@ -22,7 +22,23 @@
 }
 
 .canvas {
+  position: relative;
   flex: 1;
   overflow: hidden;
   background: #1e1e1e;
+}
+
+.connectionError {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  max-width: 360px;
+  padding: 8px 10px;
+  border: 1px solid #8f3d3d;
+  border-radius: 4px;
+  background: rgb(65 26 26 / 92%);
+  color: #ffb3b3;
+  font-size: 12px;
+  pointer-events: none;
 }
