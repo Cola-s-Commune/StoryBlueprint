@@ -66,14 +66,14 @@ export function MainLayout() {
           <Group orientation="horizontal" resizeTargetMinimumSize={resizeTargetMinimumSize}>
             {!floating.resources && (
               <>
-                <Panel id="resources" defaultSize={18} minSize={14} maxSize={32}>
+                <Panel id="resources" defaultSize="240px" minSize="190px" maxSize="420px">
                   <ResourceBrowser onToggleFloating={floatResources} />
                 </Panel>
                 <Separator className={`${styles.resizeHandle} ${styles.horizontalResizeHandle}`} />
               </>
             )}
 
-            <Panel id="center" defaultSize={54} minSize={35}>
+            <Panel id="center" minSize="420px">
               <Group orientation="vertical" resizeTargetMinimumSize={resizeTargetMinimumSize}>
                 <Panel id="graph" defaultSize={floating.console ? 100 : 75} minSize={45}>
                   <StoryGraph />
@@ -94,7 +94,7 @@ export function MainLayout() {
             {!floating.inspector && (
               <>
                 <Separator className={`${styles.resizeHandle} ${styles.horizontalResizeHandle}`} />
-                <Panel id="inspector" defaultSize={28} minSize={22} maxSize={45}>
+                <Panel id="inspector" defaultSize="420px" minSize="360px" maxSize="720px">
                   <Inspector onToggleFloating={floatInspector} />
                 </Panel>
               </>

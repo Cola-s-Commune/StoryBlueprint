@@ -30,7 +30,7 @@ export function PanelHeader({ title, floating, onToggleFloating }: PanelHeaderPr
 
     dragStart.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    onToggleFloating({ x: event.screenX - 32, y: event.screenY - 14 });
+    onToggleFloating({ x: Math.max(0, event.screenX - 32), y: Math.max(0, event.screenY - 14) });
   };
 
   const handlePointerEnd = (event: PointerEvent<HTMLDivElement>) => {

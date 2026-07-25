@@ -79,7 +79,7 @@
 
 ### Docking / Floating
 
-- [x] Inspector 默认宽度提升到 28%，可调整至 45%
+- [x] Inspector 默认宽度 420px、最小宽度 360px，可调整至 720px
 - [x] Resource Browser / Inspector / Console 可通过标题栏拖拽或按钮拆分为原生浮动窗口
 - [x] 关闭浮动窗口时自动恢复到主窗口停靠区
 - [ ] 保存和恢复面板尺寸、停靠状态与浮动窗口位置
