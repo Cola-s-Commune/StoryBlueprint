@@ -7,7 +7,7 @@ import {
   type StartNodeData,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
-import { PanelHeader } from './PanelHeader';
+import { PanelHeader, type PanelFloatPosition } from './PanelHeader';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -36,7 +36,7 @@ function PropertyField({ label, value, multiline, onFocus, onChange }: PropertyF
 
 interface InspectorProps {
   floating?: boolean;
-  onToggleFloating?: () => void;
+  onToggleFloating?: (position?: PanelFloatPosition) => void;
 }
 
 export function Inspector({ floating, onToggleFloating }: InspectorProps) {

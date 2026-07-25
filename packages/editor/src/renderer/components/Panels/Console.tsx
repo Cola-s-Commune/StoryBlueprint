@@ -1,9 +1,9 @@
 import styles from './Panel.module.css';
-import { PanelHeader } from './PanelHeader';
+import { PanelHeader, type PanelFloatPosition } from './PanelHeader';
 
 interface ConsolePanelProps {
   floating?: boolean;
-  onToggleFloating?: () => void;
+  onToggleFloating?: (position?: PanelFloatPosition) => void;
 }
 
 export function ConsolePanel({ floating, onToggleFloating }: ConsolePanelProps) {

@@ -6,6 +6,8 @@ interface DetachedWindowProps {
   title: string;
   width?: number;
   height?: number;
+  x?: number;
+  y?: number;
   onClose: () => void;
   children: ReactNode;
 }
@@ -21,6 +23,8 @@ export function DetachedWindow({
   title,
   width = 480,
   height = 760,
+  x,
+  y,
   onClose,
   children,
 }: DetachedWindowProps) {
@@ -32,10 +36,11 @@ export function DetachedWindow({
   }, [onClose]);
 
   useEffect(() => {
+    const positionFeatures = x === undefined || y === undefined ? '' : `,left=${x},top=${y}`;
     const detached = window.open(
       'about:blank',
       `story-blueprint-panel-${id}`,
-      `popup=yes,width=${width},height=${height}`,
+      `popup=yes,width=${width},height=${height}${positionFeatures}`,
     );
     if (!detached) {
       onCloseRef.current();
@@ -66,7 +71,7 @@ export function DetachedWindow({
       detached.removeEventListener('beforeunload', handleClose);
       if (!closingFromWindow && !detached.closed) detached.close();
     };
-  }, [height, id, title, width]);
+  }, [height, id, title, width, x, y]);
 
   return container ? createPortal(children, container) : null;
 }

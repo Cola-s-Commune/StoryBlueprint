@@ -1,9 +1,9 @@
 import styles from './Panel.module.css';
-import { PanelHeader } from './PanelHeader';
+import { PanelHeader, type PanelFloatPosition } from './PanelHeader';
 
 interface ResourceBrowserProps {
   floating?: boolean;
-  onToggleFloating?: () => void;
+  onToggleFloating?: (position?: PanelFloatPosition) => void;
 }
 
 export function ResourceBrowser({ floating, onToggleFloating }: ResourceBrowserProps) {

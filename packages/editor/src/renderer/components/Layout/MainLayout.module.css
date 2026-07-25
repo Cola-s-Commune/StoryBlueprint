@@ -13,13 +13,22 @@
 }
 
 .resizeHandle {
-  width: 4px;
   background: #2d2d2d;
   transition: background 0.15s;
-  cursor: col-resize;
 
   &:hover,
-  &[data-resize-handle-active] {
+  &:focus-visible {
     background: #007acc;
+    outline: none;
   }
+}
+
+.horizontalResizeHandle {
+  width: 6px;
+  cursor: col-resize;
+}
+
+.verticalResizeHandle {
+  height: 6px;
+  cursor: row-resize;
 }
