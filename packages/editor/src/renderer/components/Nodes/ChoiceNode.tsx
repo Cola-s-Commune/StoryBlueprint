@@ -1,13 +1,23 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { ChoiceNodeData } from '@story-blueprint/common';
+import type { CSSProperties } from 'react';
 import styles from './Node.module.css';
 
 export function ChoiceNode({ data }: NodeProps) {
   const d = data as unknown as ChoiceNodeData;
   return (
-    <div className={styles.node} style={{ borderColor: '#ff9800' }}>
-      <div className={styles.header} style={{ background: '#ff9800' }}>
-        CHOICE
+    <div
+      className={styles.node}
+      style={
+        {
+          '--node-accent': '#ffa840',
+          '--node-accent-soft': 'rgb(255 168 64 / 14%)',
+        } as CSSProperties
+      }
+    >
+      <div className={styles.header}>
+        <span className={styles.title}>Choice</span>
+        <span className={styles.typeIcon}>≡</span>
       </div>
       <div className={styles.body}>
         <div className={styles.field}>
@@ -15,23 +25,26 @@ export function ChoiceNode({ data }: NodeProps) {
           {d.prompt || 'Choose...'}
         </div>
         <div className={styles.choices}>
-          {d.options?.map((opt) => (
+          {d.options?.map((opt, index) => (
             <div key={opt.id} className={styles.choice}>
-              {opt.label}
+              <span className={styles.choiceIndex}>{index + 1}</span>
+              <span className={styles.choiceText}>{opt.label}</span>
+              <Handle
+                className={`${styles.handle} ${styles.handleOutput} ${styles.rowHandle}`}
+                type="source"
+                position={Position.Right}
+                id={opt.id}
+              />
             </div>
           ))}
         </div>
       </div>
-      <Handle type="target" position={Position.Top} id="in" />
-      {d.options?.map((opt, i) => (
-        <Handle
-          key={opt.id}
-          type="source"
-          position={Position.Bottom}
-          id={opt.id}
-          style={{ left: `${((i + 1) / (d.options.length + 1)) * 100}%` }}
-        />
-      ))}
+      <Handle
+        className={`${styles.handle} ${styles.handleInput}`}
+        type="target"
+        position={Position.Left}
+        id="in"
+      />
     </div>
   );
 }

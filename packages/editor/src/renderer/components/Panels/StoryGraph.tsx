@@ -11,6 +11,7 @@ import {
   BackgroundVariant,
   MiniMap,
   Controls,
+  ConnectionLineType,
   type Connection,
   type Edge,
   type OnConnectEnd,
@@ -294,6 +295,12 @@ export function StoryGraph() {
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
+          defaultEdgeOptions={{
+            type: 'smoothstep',
+            style: { stroke: '#aeb7c4', strokeWidth: 2.25 },
+          }}
+          connectionLineType={ConnectionLineType.SmoothStep}
+          connectionLineStyle={{ stroke: '#dbe2eb', strokeWidth: 2.25 }}
           colorMode="dark"
           fitView
           deleteKeyCode={null}

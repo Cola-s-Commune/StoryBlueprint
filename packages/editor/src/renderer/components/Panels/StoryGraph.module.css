@@ -9,7 +9,23 @@
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: #1e1e1e;
+  background: #191c21;
+}
+
+.canvas :global(.react-flow__edge-path) {
+  transition:
+    stroke 120ms ease,
+    stroke-width 120ms ease;
+}
+
+.canvas :global(.react-flow__edge:hover .react-flow__edge-path),
+.canvas :global(.react-flow__edge.selected .react-flow__edge-path) {
+  stroke: #e4eaf2 !important;
+  stroke-width: 3px !important;
+}
+
+.canvas :global(.react-flow__connection-path) {
+  stroke-dasharray: 5 4;
 }
 
 .connectionError {
