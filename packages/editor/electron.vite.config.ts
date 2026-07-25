@@ -24,6 +24,9 @@ export default defineConfig({
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src/renderer'),
+        '@story-blueprint/common': resolve(__dirname, '../common/src/index.ts'),
+        '@story-blueprint/compiler': resolve(__dirname, '../compiler/src/index.ts'),
+        '@story-blueprint/runtime': resolve(__dirname, '../runtime/src/index.ts'),
       },
     },
   },

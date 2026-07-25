@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@story-blueprint/common": "*",
+    "@story-blueprint/compiler": "*",
+    "@story-blueprint/runtime": "*",
     "@xyflow/react": "^12.10.0",
     "dockview-react": "^7.0.4"
   },

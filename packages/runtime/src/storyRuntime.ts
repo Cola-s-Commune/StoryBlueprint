@@ -1,0 +1,341 @@
+import {
+  STORY_RUNTIME_FORMAT,
+  STORY_RUNTIME_VERSION,
+  type BlockId,
+  type ChoiceInstruction,
+  type OptionId,
+  type RuntimeInstruction,
+  type RuntimeProgram,
+  type RuntimeValue,
+  type VariableId,
+} from '@story-blueprint/common';
+import { evaluateExpression, renderTextTemplate, resolveChoiceOptions } from './evaluator';
+import type { ChoiceRequest, DialogueRequest, RuntimeDiagnostic, RuntimeState } from './types';
+
+export type RuntimeInteraction =
+  { kind: 'dialogue'; request: DialogueRequest } | { kind: 'choice'; request: ChoiceRequest };
+
+export type RuntimeRunResult =
+  | { kind: 'waiting'; state: RuntimeState; interaction: RuntimeInteraction }
+  | { kind: 'completed'; state: RuntimeState }
+  | { kind: 'failed'; state: RuntimeState; diagnostic: RuntimeDiagnostic };
+
+function cloneState(state: RuntimeState): RuntimeState {
+  return {
+    ...state,
+    callStack: state.callStack.map((frame) => ({ ...frame, locals: { ...frame.locals } })),
+    storyVariables: { ...state.storyVariables },
+    pending: state.pending ? { ...state.pending } : undefined,
+  };
+}
+
+export function createRuntimeState(program: RuntimeProgram): RuntimeState {
+  return {
+    programId: program.id,
+    programContentVersion: program.contentVersion,
+    blockId: program.entryBlockId,
+    instructionIndex: 0,
+    callStack: [],
+    storyVariables: Object.fromEntries(
+      program.variables.map((variable) => [variable.id, variable.defaultValue]),
+    ),
+    status: 'running',
+  };
+}
+
+/** Engine-independent executor that runs until it reaches a user interaction or termination. */
+export class StoryRuntime {
+  private readonly program: RuntimeProgram;
+  private currentState: RuntimeState;
+  private lastDiagnostic?: RuntimeDiagnostic;
+
+  constructor(program: RuntimeProgram, restoredState?: RuntimeState) {
+    if (program.format !== STORY_RUNTIME_FORMAT || program.version !== STORY_RUNTIME_VERSION) {
+      throw new Error(`Unsupported runtime program ${program.format}@${program.version}`);
+    }
+    if (
+      restoredState &&
+      (restoredState.programId !== program.id ||
+        restoredState.programContentVersion !== program.contentVersion)
+    ) {
+      throw new Error('Runtime state does not match the program content version');
+    }
+    this.program = program;
+    this.currentState = cloneState(restoredState ?? createRuntimeState(program));
+  }
+
+  get state(): RuntimeState {
+    return cloneState(this.currentState);
+  }
+
+  get diagnostic(): RuntimeDiagnostic | undefined {
+    return this.lastDiagnostic;
+  }
+
+  runUntilPause(maxInstructions = 10_000): RuntimeRunResult {
+    if (this.currentState.status === 'completed') return this.completed();
+    if (this.currentState.status === 'failed') {
+      return this.failed(
+        this.lastDiagnostic ?? {
+          code: 'INVALID_LOCATION',
+          severity: 'error',
+          message: 'Runtime is already in a failed state',
+        },
+      );
+    }
+    if (this.currentState.status === 'waiting') {
+      const interaction = this.resolvePendingInteraction();
+      return interaction ? this.waiting(interaction) : this.failInvalidLocation();
+    }
+
+    let executed = 0;
+    try {
+      while (executed < maxInstructions) {
+        executed += 1;
+        const instruction = this.currentInstruction();
+        if (!instruction) return this.failInvalidLocation();
+        const result = this.execute(instruction);
+        if (result) return result;
+      }
+      return this.fail({
+        code: 'TIGHT_LOOP',
+        severity: 'error',
+        message: `Runtime executed ${maxInstructions} instructions without reaching a stable point`,
+        location: this.location(),
+      });
+    } catch (cause) {
+      return this.fail({
+        code: 'EXPRESSION_ERROR',
+        severity: 'error',
+        message: cause instanceof Error ? cause.message : String(cause),
+        location: this.location(),
+        instructionId: this.currentInstruction()?.id,
+        cause,
+      });
+    }
+  }
+
+  continueDialogue(): RuntimeRunResult {
+    if (this.currentState.pending?.kind !== 'dialogue') {
+      return this.fail({
+        code: 'INVALID_ADAPTER_RESULT',
+        severity: 'error',
+        message: 'Runtime is not waiting for dialogue continuation',
+        location: this.location(),
+      });
+    }
+    this.currentState.pending = undefined;
+    this.currentState.status = 'running';
+    this.currentState.instructionIndex += 1;
+    return this.runUntilPause();
+  }
+
+  choose(optionId: OptionId): RuntimeRunResult {
+    const instruction = this.currentInstruction();
+    if (this.currentState.pending?.kind !== 'choice' || instruction?.op !== 'choice') {
+      return this.fail({
+        code: 'INVALID_ADAPTER_RESULT',
+        severity: 'error',
+        message: 'Runtime is not waiting for a choice',
+        location: this.location(),
+      });
+    }
+    const option = this.resolvedOptions(instruction).find(
+      (candidate) => candidate.id === optionId && candidate.enabled,
+    );
+    if (!option) {
+      return this.fail({
+        code: 'INVALID_OPTION',
+        severity: 'error',
+        message: `Choice option ${optionId} is missing, hidden, or disabled`,
+        location: this.location(),
+        instructionId: instruction.id,
+      });
+    }
+    this.currentState.pending = undefined;
+    this.jump(option.target);
+    return this.runUntilPause();
+  }
+
+  abort(): RuntimeRunResult {
+    return this.fail({
+      code: 'ABORTED',
+      severity: 'error',
+      message: 'Runtime execution was aborted',
+      location: this.location(),
+    });
+  }
+
+  private execute(instruction: RuntimeInstruction): RuntimeRunResult | undefined {
+    switch (instruction.op) {
+      case 'dialogue': {
+        this.currentState.pending = {
+          kind: 'dialogue',
+          requestId: instruction.id,
+          instructionId: instruction.id,
+        };
+        this.currentState.status = 'waiting';
+        return this.waiting({
+          kind: 'dialogue',
+          request: {
+            requestId: instruction.id,
+            speakerId: instruction.speakerId,
+            textId: instruction.text.id,
+            defaultText: renderTextTemplate(instruction.text, this.readVariable),
+            voice: instruction.voice,
+            emotion: instruction.emotion,
+            portraitId: instruction.portraitId,
+            tags: instruction.tags,
+          },
+        });
+      }
+      case 'set-variable':
+        this.currentState.storyVariables[instruction.variableId] = evaluateExpression(
+          instruction.value,
+          this.readVariable,
+        );
+        this.currentState.instructionIndex += 1;
+        return undefined;
+      case 'branch': {
+        const condition = evaluateExpression(instruction.condition, this.readVariable);
+        if (typeof condition !== 'boolean') throw new TypeError('Branch condition must be boolean');
+        this.jump(condition ? instruction.whenTrue : instruction.whenFalse);
+        return undefined;
+      }
+      case 'jump':
+        this.jump(instruction.target);
+        return undefined;
+      case 'choice': {
+        const options = this.resolvedOptions(instruction);
+        if (options.length === 0) {
+          return this.fail({
+            code: 'INVALID_OPTION',
+            severity: 'error',
+            message: 'Choice has no visible options',
+            location: this.location(),
+            instructionId: instruction.id,
+          });
+        }
+        this.currentState.pending = {
+          kind: 'choice',
+          requestId: instruction.id,
+          instructionId: instruction.id,
+          optionIds: options.map((option) => option.id),
+        };
+        this.currentState.status = 'waiting';
+        return this.waiting(this.choiceInteraction(instruction));
+      }
+      case 'end-story':
+        this.currentState.pending = undefined;
+        this.currentState.status = 'completed';
+        return this.completed();
+      default:
+        return this.fail({
+          code: 'UNSUPPORTED_INSTRUCTION',
+          severity: 'error',
+          message: `Instruction ${instruction.op} is not supported by the core runtime yet`,
+          location: this.location(),
+          instructionId: instruction.id,
+        });
+    }
+  }
+
+  private resolvePendingInteraction(): RuntimeInteraction | undefined {
+    const instruction = this.currentInstruction();
+    if (this.currentState.pending?.kind === 'dialogue' && instruction?.op === 'dialogue') {
+      return {
+        kind: 'dialogue',
+        request: {
+          requestId: instruction.id,
+          speakerId: instruction.speakerId,
+          textId: instruction.text.id,
+          defaultText: renderTextTemplate(instruction.text, this.readVariable),
+          voice: instruction.voice,
+          emotion: instruction.emotion,
+          portraitId: instruction.portraitId,
+          tags: instruction.tags,
+        },
+      };
+    }
+    if (this.currentState.pending?.kind === 'choice' && instruction?.op === 'choice') {
+      return this.choiceInteraction(instruction);
+    }
+    return undefined;
+  }
+
+  private choiceInteraction(instruction: ChoiceInstruction): RuntimeInteraction {
+    const options = this.resolvedOptions(instruction);
+    return {
+      kind: 'choice',
+      request: {
+        requestId: instruction.id,
+        promptTextId: instruction.prompt?.id,
+        defaultPrompt: instruction.prompt
+          ? renderTextTemplate(instruction.prompt, this.readVariable)
+          : undefined,
+        options: options.map((option) => ({
+          id: option.id,
+          textId: instruction.options.find((source) => source.id === option.id)!.text.id,
+          defaultText: option.text,
+          enabled: option.enabled,
+        })),
+      },
+    };
+  }
+
+  private resolvedOptions(instruction: ChoiceInstruction) {
+    return resolveChoiceOptions(instruction, this.readVariable);
+  }
+
+  private readonly readVariable = (id: VariableId): RuntimeValue => {
+    if (!(id in this.currentState.storyVariables)) throw new TypeError(`Missing variable ${id}`);
+    return this.currentState.storyVariables[id];
+  };
+
+  private currentInstruction(): RuntimeInstruction | undefined {
+    return this.program.blocks[this.currentState.blockId]?.instructions[
+      this.currentState.instructionIndex
+    ];
+  }
+
+  private jump(target: BlockId): void {
+    this.currentState.blockId = target;
+    this.currentState.instructionIndex = 0;
+    this.currentState.status = 'running';
+  }
+
+  private location() {
+    return {
+      blockId: this.currentState.blockId,
+      instructionIndex: this.currentState.instructionIndex,
+    };
+  }
+
+  private waiting(interaction: RuntimeInteraction): RuntimeRunResult {
+    return { kind: 'waiting', state: this.state, interaction };
+  }
+
+  private completed(): RuntimeRunResult {
+    return { kind: 'completed', state: this.state };
+  }
+
+  private failed(diagnostic: RuntimeDiagnostic): RuntimeRunResult {
+    return { kind: 'failed', state: this.state, diagnostic };
+  }
+
+  private fail(diagnostic: RuntimeDiagnostic): RuntimeRunResult {
+    this.lastDiagnostic = diagnostic;
+    this.currentState.pending = undefined;
+    this.currentState.status = 'failed';
+    return this.failed(diagnostic);
+  }
+
+  private failInvalidLocation(): RuntimeRunResult {
+    return this.fail({
+      code: 'INVALID_LOCATION',
+      severity: 'error',
+      message: `No instruction at ${this.currentState.blockId}:${this.currentState.instructionIndex}`,
+      location: this.location(),
+    });
+  }
+}

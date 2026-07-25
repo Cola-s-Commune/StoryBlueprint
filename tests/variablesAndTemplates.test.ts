@@ -11,6 +11,7 @@ import {
   evaluateExpression,
   renderTextTemplate,
   resolveChoiceOptions,
+  StoryRuntime,
 } from '../packages/runtime/src';
 
 const variables: VariableDefinition[] = [
@@ -124,5 +125,103 @@ describe('variables and templates', () => {
     expect(json).not.toContain('position');
     expect(json).not.toContain('n_start');
     expect(json).toContain('playerName');
+  });
+
+  it('runs dialogue, variable mutation, branch, choice, and end as a resumable state machine', () => {
+    const source: StorySourceDocument = {
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: 's_runtime',
+      name: 'runtime',
+      displayName: 'Runtime',
+      variables,
+      characters: [],
+      assets: [],
+      events: [],
+      chapters: [],
+      root: {
+        nodes: [
+          {
+            id: 'n_start',
+            type: StoryNodeType.Start,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: { title: 'Start' },
+          },
+          {
+            id: 'n_setx',
+            type: StoryNodeType.SetVariable,
+            definitionVersion: 1,
+            position: { x: 1, y: 0 },
+            data: { variableId: 'v_gold', value: { source: 'gold + 7', bindings: {} } },
+          },
+          {
+            id: 'n_check',
+            type: StoryNodeType.Branch,
+            definitionVersion: 1,
+            position: { x: 2, y: 0 },
+            data: { condition: { source: 'gold >= 10', bindings: {} } },
+          },
+          {
+            id: 'n_talkx',
+            type: StoryNodeType.Dialogue,
+            definitionVersion: 1,
+            position: { x: 3, y: 0 },
+            data: { text: { source: 'Gold: {gold}' } },
+          },
+          {
+            id: 'n_pickx',
+            type: StoryNodeType.Choice,
+            definitionVersion: 1,
+            position: { x: 4, y: 0 },
+            data: {
+              prompt: { source: 'Continue?' },
+              options: [{ id: 'o_yesx', text: { source: 'Yes' } }],
+            },
+          },
+          {
+            id: 'n_endxx',
+            type: StoryNodeType.End,
+            definitionVersion: 1,
+            position: { x: 5, y: 0 },
+            data: { title: 'End' },
+          },
+        ],
+        edges: [
+          { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_setx', portId: 'in' } },
+          { from: { nodeId: 'n_setx', portId: 'out' }, to: { nodeId: 'n_check', portId: 'in' } },
+          { from: { nodeId: 'n_check', portId: 'true' }, to: { nodeId: 'n_talkx', portId: 'in' } },
+          { from: { nodeId: 'n_check', portId: 'false' }, to: { nodeId: 'n_endxx', portId: 'in' } },
+          { from: { nodeId: 'n_talkx', portId: 'out' }, to: { nodeId: 'n_pickx', portId: 'in' } },
+          {
+            from: { nodeId: 'n_pickx', portId: 'o_yesx' },
+            to: { nodeId: 'n_endxx', portId: 'in' },
+          },
+        ],
+      },
+    };
+    const compiled = compileStory(source, { contentVersion: 'test-runtime' });
+    expect(
+      compiled.ok,
+      compiled.ok ? undefined : JSON.stringify(compiled.diagnostics, null, 2),
+    ).toBe(true);
+    if (!compiled.ok) return;
+
+    const runtime = new StoryRuntime(compiled.program);
+    const dialogue = runtime.runUntilPause();
+    expect(dialogue.kind).toBe('waiting');
+    if (dialogue.kind !== 'waiting' || dialogue.interaction.kind !== 'dialogue') return;
+    expect(dialogue.interaction.request.defaultText).toBe('Gold: 10');
+    expect(dialogue.state.storyVariables.v_gold).toBe(10);
+
+    const choice = runtime.continueDialogue();
+    expect(choice.kind).toBe('waiting');
+    if (choice.kind !== 'waiting' || choice.interaction.kind !== 'choice') return;
+    expect(choice.interaction.request.defaultPrompt).toBe('Continue?');
+    expect(choice.interaction.request.options[0]?.defaultText).toBe('Yes');
+
+    const completed = runtime.choose('o_yesx');
+    expect(completed.kind).toBe('completed');
+    expect(completed.state.status).toBe('completed');
   });
 });

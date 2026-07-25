@@ -183,6 +183,7 @@ interface StoryDocumentInfo {
 }
 
 interface StoryGraphStoreValue {
+  source: StorySourceDocument;
   graph: EditorGraphState;
   nodes: EditorGraphNode[];
   edges: EditorGraphEdge[];
@@ -242,6 +243,22 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     displayName: 'Untitled Story',
     dirty: false,
   }));
+  const source = useMemo<StorySourceDocument>(
+    () => ({
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: document.id,
+      name: document.name,
+      displayName: document.displayName,
+      root: toSourceGraph(graph),
+      chapters: [],
+      variables,
+      characters,
+      assets,
+      events: [],
+    }),
+    [assets, characters, document.displayName, document.id, document.name, graph, variables],
+  );
 
   const markDirty = useCallback(() => {
     revisionRef.current += 1;
@@ -549,19 +566,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       try {
         const savingDocumentId = document.id;
         const savingRevision = revisionRef.current;
-        const source: StorySourceDocument = {
-          format: STORY_SOURCE_FORMAT,
-          version: STORY_SOURCE_VERSION,
-          id: document.id,
-          name: document.name,
-          displayName: document.displayName,
-          root: toSourceGraph(graph),
-          chapters: [],
-          variables,
-          characters,
-          assets,
-          events: [],
-        };
         const result = await window.electronAPI.saveStory({
           filePath: document.filePath,
           fileToken: document.fileToken,
@@ -586,11 +590,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         }));
       }
     },
-    [assets, characters, document, graph, variables],
+    [document, source],
   );
 
   const value = useMemo<StoryGraphStoreValue>(
     () => ({
+      source,
       graph,
       nodes,
       edges,
@@ -647,6 +652,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setNodes,
       openStory,
       saveStory,
+      source,
       undo,
       updateCharacter,
       updateAsset,

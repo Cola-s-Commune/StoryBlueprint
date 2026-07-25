@@ -438,11 +438,13 @@
 
 ## Preview Window
 
-- [ ] Dialogue
-- [ ] Choice
-- [ ] Branch / Condition
-- [ ] Next
-- [ ] History
+- [x] Dialogue
+- [x] Choice
+- [x] Branch / Condition
+- [x] Next
+- [x] History
+- [x] 当前变量与执行位置查看
+- [x] 编译和运行错误展示
 
 ---
 
@@ -450,16 +452,17 @@
 
 - [ ] Load `.storyc.json`
 - [x] RuntimeState / CallFrame / PendingInteraction 类型契约
-- [ ] `blockId + instructionIndex` 执行状态机
+- [x] `blockId + instructionIndex` 执行状态机
 - [ ] Async Pause / Resume / Abort
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
+- [x] Story Variable 默认值、读取与 Set Variable 集成
 - [ ] Project / Story / Chapter / Character Variables 状态机集成
 - [ ] Call Stack / Return Value
-- [ ] End Story
+- [x] End Story
 - [ ] 稳定点 Save / Load
 - [ ] Pending Choice / Event 恢复
-- [ ] Program Version 兼容性检查
-- [ ] 结构化 Runtime Diagnostics
+- [x] Program Format / Version / Content Version 检查
+- [x] 核心执行状态机结构化 Runtime Diagnostics
 
 ---
 
@@ -660,7 +663,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 保存 `.story`
 - [x] 打开 `.story`
 - [ ] 导出 `.storyc.json`
-- [ ] Runtime Preview 可以执行简单剧情
+- [x] Runtime Preview 可以执行简单剧情
 
 ---
 

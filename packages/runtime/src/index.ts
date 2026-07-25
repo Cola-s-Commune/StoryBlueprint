@@ -18,3 +18,9 @@ export {
   type VariableReader,
   type ResolvedChoiceOption,
 } from './evaluator';
+export {
+  StoryRuntime,
+  createRuntimeState,
+  type RuntimeInteraction,
+  type RuntimeRunResult,
+} from './storyRuntime';

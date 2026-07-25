@@ -19,6 +19,10 @@ npm run dev
 
 ## Current: Story Data / Compiler → Runtime Preview
 
+- Runtime Preview 已接入 Dockview，可直接编译并运行当前 Story，支持逐句继续、选项、历史、变量和执行位置查看。
+- Runtime 新增 `blockId + instructionIndex` 状态机；Dialogue / Choice 形成稳定暂停点，Branch / Set Variable / Jump 自动执行，End Story 正常终止。
+- Runtime 对非法位置、非法选项、表达式错误、未支持指令和无等待点紧密循环返回结构化诊断。
+
 ### M1 Done
 
 - Electron + React 项目骨架（npm workspaces + electron-vite + TypeScript）

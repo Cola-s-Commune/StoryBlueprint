@@ -92,6 +92,8 @@ export type RuntimeDiagnosticCode =
   | 'INVALID_ADAPTER_RESULT'
   | 'EXPRESSION_ERROR'
   | 'ADAPTER_ERROR'
+  | 'UNSUPPORTED_INSTRUCTION'
+  | 'TIGHT_LOOP'
   | 'ABORTED';
 
 export interface RuntimeDiagnostic {

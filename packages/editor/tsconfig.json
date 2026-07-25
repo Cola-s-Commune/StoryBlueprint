@@ -4,6 +4,12 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@story-blueprint/common": ["../common/src/index.ts"],
+      "@story-blueprint/compiler": ["../compiler/src/index.ts"],
+      "@story-blueprint/runtime": ["../runtime/src/index.ts"]
+    },
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

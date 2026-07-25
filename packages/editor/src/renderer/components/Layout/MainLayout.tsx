@@ -14,10 +14,11 @@ import { StoryGraph } from '../Panels/StoryGraph';
 import { Inspector } from '../Panels/Inspector';
 import { ConsolePanel } from '../Panels/Console';
 import { StoryData } from '../Panels/StoryData';
+import { RuntimePreview } from '../Panels/RuntimePreview';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v2';
+const layoutStorageKey = 'story-blueprint:dock-layout:v3';
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
@@ -25,11 +26,12 @@ const dockComponents = {
   graph: (_props: IDockviewPanelProps) => <StoryGraph />,
   inspector: (_props: IDockviewPanelProps) => <Inspector />,
   console: (_props: IDockviewPanelProps) => <ConsolePanel />,
+  preview: (_props: IDockviewPanelProps) => <RuntimePreview />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
   if (panelId === 'resources' || panelId === 'storyData') return 'left';
-  if (panelId === 'console') return 'bottom';
+  if (panelId === 'console' || panelId === 'preview') return 'bottom';
   return 'right';
 }
 
@@ -74,6 +76,13 @@ function createDefaultLayout(api: DockviewApi) {
     position: { referencePanel: 'graph', direction: 'below' },
     initialHeight: 230,
     minimumHeight: 120,
+  });
+  api.addPanel({
+    id: 'preview',
+    component: 'preview',
+    title: 'Runtime Preview',
+    position: { referencePanel: consolePanel },
+    minimumHeight: 160,
   });
 
   resources.api.group.api.setSize({ width: 240 });
@@ -140,6 +149,22 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
         minimumHeight: 120,
       });
       break;
+    case 'preview': {
+      const consolePanel = api.getPanel('console');
+      api.addPanel({
+        ...common,
+        title: 'Runtime Preview',
+        ...((consolePanel ?? graph) && {
+          position: {
+            referencePanel: consolePanel ?? graph!,
+            ...(consolePanel ? {} : { direction: 'below' as const }),
+          },
+        }),
+        initialHeight: 260,
+        minimumHeight: 160,
+      });
+      break;
+    }
   }
 }
 
@@ -223,7 +248,7 @@ export function MainLayout() {
                         api.addFloatingGroup(panel, {
                           width:
                             panel.id === 'inspector' ? 520 : panel.id === 'storyData' ? 360 : 480,
-                          height: panel.id === 'console' ? 380 : 640,
+                          height: panel.id === 'console' || panel.id === 'preview' ? 420 : 640,
                         }),
                     },
                 'separator',
