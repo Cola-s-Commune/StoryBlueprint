@@ -1,9 +1,15 @@
 import styles from './Panel.module.css';
+import { PanelHeader } from './PanelHeader';
 
-export function ConsolePanel() {
+interface ConsolePanelProps {
+  floating?: boolean;
+  onToggleFloating?: () => void;
+}
+
+export function ConsolePanel({ floating, onToggleFloating }: ConsolePanelProps) {
   return (
     <div className={styles.panel}>
-      <div className={styles.header}>Console</div>
+      <PanelHeader title="Console" floating={floating} onToggleFloating={onToggleFloating} />
       <div className={styles.body}>
         <p className={styles.placeholder}>控制台 — 待开发</p>
       </div>

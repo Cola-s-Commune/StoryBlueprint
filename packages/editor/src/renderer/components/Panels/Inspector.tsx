@@ -7,6 +7,7 @@ import {
   type StartNodeData,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { PanelHeader } from './PanelHeader';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -33,14 +34,19 @@ function PropertyField({ label, value, multiline, onFocus, onChange }: PropertyF
   );
 }
 
-export function Inspector() {
+interface InspectorProps {
+  floating?: boolean;
+  onToggleFloating?: () => void;
+}
+
+export function Inspector({ floating, onToggleFloating }: InspectorProps) {
   const { nodes, checkpoint, updateNode, updateNodeData } = useStoryGraphStore();
   const selected = nodes.filter((node) => node.selected);
 
   if (selected.length !== 1) {
     return (
       <div className={panelStyles.panel}>
-        <div className={panelStyles.header}>Inspector</div>
+        <PanelHeader title="Inspector" floating={floating} onToggleFloating={onToggleFloating} />
         <div className={panelStyles.body}>
           <p className={panelStyles.placeholder}>
             {selected.length > 1 ? `${selected.length} nodes selected` : 'Select a node to edit'}
@@ -144,7 +150,7 @@ export function Inspector() {
 
   return (
     <div className={panelStyles.panel}>
-      <div className={panelStyles.header}>Inspector</div>
+      <PanelHeader title="Inspector" floating={floating} onToggleFloating={onToggleFloating} />
       <div className={`${panelStyles.body} ${styles.body}`}>
         <section className={styles.section}>
           <div className={styles.sectionTitle}>Node</div>

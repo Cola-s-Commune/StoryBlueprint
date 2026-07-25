@@ -1,9 +1,19 @@
 import styles from './Panel.module.css';
+import { PanelHeader } from './PanelHeader';
 
-export function ResourceBrowser() {
+interface ResourceBrowserProps {
+  floating?: boolean;
+  onToggleFloating?: () => void;
+}
+
+export function ResourceBrowser({ floating, onToggleFloating }: ResourceBrowserProps) {
   return (
     <div className={styles.panel}>
-      <div className={styles.header}>Resource Browser</div>
+      <PanelHeader
+        title="Resource Browser"
+        floating={floating}
+        onToggleFloating={onToggleFloating}
+      />
       <div className={styles.body}>
         <p className={styles.placeholder}>资源管理器 — 待开发</p>
       </div>

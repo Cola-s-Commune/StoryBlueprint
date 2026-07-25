@@ -109,11 +109,30 @@ app.on('activate', () => {
 });
 
 app.on('web-contents-created', (_event, contents) => {
+  contents.on('did-create-window', (childWindow) => {
+    childWindow.setMenu(null);
+    childWindow.setBackgroundColor('#1e1e1e');
+  });
+
   contents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://') || url.startsWith('http://')) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
-    return { action: 'allow' };
+    if (url === 'about:blank') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          minWidth: 320,
+          minHeight: 240,
+          backgroundColor: '#1e1e1e',
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+          },
+        },
+      };
+    }
+    return { action: 'deny' };
   });
 });

@@ -19,6 +19,27 @@
   color: #999999;
   user-select: none;
   flex-shrink: 0;
+  justify-content: space-between;
+}
+
+.floatButton {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #8c8c8c;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  place-items: center;
+}
+
+.floatButton:hover {
+  background: #414141;
+  color: #ffffff;
 }
 
 .body {

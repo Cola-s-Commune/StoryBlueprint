@@ -1,0 +1,72 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+
+interface DetachedWindowProps {
+  id: string;
+  title: string;
+  width?: number;
+  height?: number;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+function copyStyles(target: Document): void {
+  for (const source of document.head.querySelectorAll('style, link[rel="stylesheet"]')) {
+    target.head.appendChild(source.cloneNode(true));
+  }
+}
+
+export function DetachedWindow({
+  id,
+  title,
+  width = 480,
+  height = 760,
+  onClose,
+  children,
+}: DetachedWindowProps) {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const detached = window.open(
+      'about:blank',
+      `story-blueprint-panel-${id}`,
+      `popup=yes,width=${width},height=${height}`,
+    );
+    if (!detached) {
+      onCloseRef.current();
+      return;
+    }
+
+    detached.document.title = `${title} — Story Blueprint`;
+    detached.document.documentElement.style.height = '100%';
+    detached.document.body.style.height = '100%';
+    detached.document.body.style.margin = '0';
+    detached.document.body.style.overflow = 'hidden';
+    detached.document.body.style.background = '#1e1e1e';
+    copyStyles(detached.document);
+
+    const portalRoot = detached.document.createElement('div');
+    portalRoot.style.height = '100%';
+    detached.document.body.appendChild(portalRoot);
+    setContainer(portalRoot);
+
+    let closingFromWindow = false;
+    const handleClose = () => {
+      closingFromWindow = true;
+      onCloseRef.current();
+    };
+    detached.addEventListener('beforeunload', handleClose);
+
+    return () => {
+      detached.removeEventListener('beforeunload', handleClose);
+      if (!closingFromWindow && !detached.closed) detached.close();
+    };
+  }, [height, id, title, width]);
+
+  return container ? createPortal(children, container) : null;
+}

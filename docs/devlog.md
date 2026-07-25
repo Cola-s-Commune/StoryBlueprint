@@ -50,6 +50,7 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | Inspector 默认宽度提升到 28%；Resource Browser、Inspector、Console 支持拆分为原生浮动窗口并在关闭后自动回停靠区    |
 | 2026-07-25 | 使用 `@bgotink/kdl` 实现当前基础节点的 `.story` Parse / Serialize 与稳定格式化，往返烟雾测试通过                   |
 | 2026-07-25 | 完成 New / Open / Save / Save As 文件菜单、快捷键与 Electron IPC；未保存修改在关闭、New、Open 前受到保护           |
 | 2026-07-25 | 重建原先不完整的 package-lock，并将根与 editor 的 Electron 统一固定为 31.0.0                                       |
