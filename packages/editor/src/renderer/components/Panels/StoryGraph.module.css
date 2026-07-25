@@ -19,6 +19,15 @@
   color: #999999;
   user-select: none;
   flex-shrink: 0;
+  justify-content: space-between;
+}
+
+.shortcutHint {
+  color: #6f6f6f;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .canvas {

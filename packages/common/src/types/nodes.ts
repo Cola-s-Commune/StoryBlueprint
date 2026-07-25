@@ -2,6 +2,7 @@
 // StoryBlueprint Node Type Definitions
 // ============================================================
 
+import type { OptionId } from './ids';
 import type { ValueType } from './values';
 
 /**
@@ -61,7 +62,7 @@ export interface ChoiceOption {
   /** Display text for this option */
   label: string;
   /** Unique ID matching the output port ID */
-  id: string;
+  id: OptionId;
 }
 
 /** Data for Branch node — conditional routing (engine-evaluated) */

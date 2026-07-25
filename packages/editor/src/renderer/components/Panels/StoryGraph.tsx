@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -7,7 +7,6 @@ import {
   Controls,
   useNodesState,
   useEdgesState,
-  type Node,
   type Connection,
   type Edge,
   type OnConnectEnd,
@@ -22,69 +21,79 @@ import {
   validateGraphConnection,
   type GraphEdgeLike,
   type GraphNodeLike,
+  type NodeInstance,
 } from '@story-blueprint/common';
 import { nodeTypes } from '../Nodes';
+import {
+  createGraphClipboard,
+  pasteGraphClipboard,
+  toEditorGraphNode,
+  type EditorGraphEdge,
+  type EditorGraphNode,
+  type EditorGraphState,
+  type GraphClipboard,
+} from '../../graph/editorGraph';
+import { useGraphHistory } from '../../graph/useGraphHistory';
 import styles from './StoryGraph.module.css';
 
-// Register built-in types at module level so they're available before first render
 nodeRegistry.registerBuiltins();
 
-/** Build demo initial nodes using the registry + factory */
-function buildInitialNodes(): Node[] {
-  return [
-    NodeFactory.create(NodeFactory.generateId(StoryNodeType.Start), StoryNodeType.Start, {
-      x: 250,
-      y: 50,
-    }),
-    NodeFactory.create(NodeFactory.generateId(StoryNodeType.Dialogue), StoryNodeType.Dialogue, {
-      x: 250,
-      y: 220,
-    }),
-    NodeFactory.create(NodeFactory.generateId(StoryNodeType.Choice), StoryNodeType.Choice, {
-      x: 200,
-      y: 400,
-    }),
-    NodeFactory.create(NodeFactory.generateId(StoryNodeType.Branch), StoryNodeType.Branch, {
-      x: 500,
-      y: 400,
-    }),
-    NodeFactory.create(NodeFactory.generateId(StoryNodeType.End), StoryNodeType.End, {
-      x: 200,
-      y: 600,
-    }),
-    NodeFactory.create(NodeFactory.generateId(StoryNodeType.End), StoryNodeType.End, {
-      x: 500,
-      y: 600,
-    }),
-  ].filter(Boolean) as unknown as Node[];
+function buildInitialNodes(): EditorGraphNode[] {
+  const specs = [
+    { type: StoryNodeType.Start, position: { x: 250, y: 50 } },
+    { type: StoryNodeType.Dialogue, position: { x: 250, y: 220 } },
+    { type: StoryNodeType.Choice, position: { x: 200, y: 400 } },
+    { type: StoryNodeType.Branch, position: { x: 500, y: 400 } },
+    { type: StoryNodeType.End, position: { x: 200, y: 600 } },
+    { type: StoryNodeType.End, position: { x: 500, y: 600 } },
+  ];
+
+  return specs
+    .map(({ type, position }) => NodeFactory.create(NodeFactory.generateId(type), type, position))
+    .filter((node): node is NodeInstance => node !== null)
+    .map(toEditorGraphNode);
 }
 
-function toGraphNodes(nodes: readonly Node[]): GraphNodeLike[] {
-  return nodes
-    .filter((node) => node.type && nodeRegistry.has(node.type as StoryNodeType))
-    .map((node) => ({
-      id: node.id,
-      type: node.type as StoryNodeType,
-      data: node.data as unknown as GraphNodeLike['data'],
-    }));
+function toGraphNodes(nodes: readonly EditorGraphNode[]): GraphNodeLike[] {
+  return nodes.map((node) => ({ id: node.id, type: node.type, data: node.data }));
 }
 
-function toGraphEdges(edges: readonly Edge[]): GraphEdgeLike[] {
-  return edges
-    .filter((edge) => edge.sourceHandle && edge.targetHandle)
-    .map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      sourcePortId: edge.sourceHandle as string,
-      target: edge.target,
-      targetPortId: edge.targetHandle as string,
-    }));
+function toGraphEdges(edges: readonly EditorGraphEdge[]): GraphEdgeLike[] {
+  return edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    sourcePortId: edge.sourceHandle,
+    target: edge.target,
+    targetPortId: edge.targetHandle,
+  }));
+}
+
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.tagName === 'SELECT'
+  );
 }
 
 export function StoryGraph() {
-  const [nodes, , onNodesChange] = useNodesState<Node>(buildInitialNodes());
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<EditorGraphNode>(buildInitialNodes());
+  const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const clipboard = useRef<GraphClipboard | null>(null);
+  const history = useGraphHistory();
+  const graph = useMemo<EditorGraphState>(() => ({ nodes, edges }), [edges, nodes]);
+
+  const restoreGraph = useCallback(
+    (next: EditorGraphState) => {
+      setNodes(next.nodes);
+      setEdges(next.edges);
+      setConnectionError(null);
+    },
+    [setEdges, setNodes],
+  );
 
   const validateConnection = useCallback(
     (connection: Connection | Edge) =>
@@ -109,17 +118,30 @@ export function StoryGraph() {
   const onConnect = useCallback(
     (connection: Connection) => {
       const result = validateConnection(connection);
-      if (!result.valid) {
-        setConnectionError(result.diagnostic.message);
+      if (!result.valid || !connection.sourceHandle || !connection.targetHandle) {
+        setConnectionError(
+          result.valid ? 'Connection requires source and target ports' : result.diagnostic.message,
+        );
         return;
       }
 
+      history.checkpoint(graph);
       setConnectionError(null);
       setEdges((currentEdges) =>
-        addEdge({ ...connection, id: createStableId('edge') }, currentEdges),
+        addEdge(
+          {
+            ...connection,
+            id: createStableId('edge'),
+            source: connection.source as EditorGraphEdge['source'],
+            target: connection.target as EditorGraphEdge['target'],
+            sourceHandle: connection.sourceHandle as string,
+            targetHandle: connection.targetHandle as string,
+          },
+          currentEdges,
+        ),
       );
     },
-    [setEdges, validateConnection],
+    [graph, history, setEdges, validateConnection],
   );
 
   const onConnectEnd = useCallback<OnConnectEnd>(
@@ -140,22 +162,104 @@ export function StoryGraph() {
     [validateConnection],
   );
 
+  const deleteSelection = useCallback(() => {
+    const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
+    const hasSelectedEdge = edges.some((edge) => edge.selected);
+    if (selectedNodeIds.size === 0 && !hasSelectedEdge) return;
+
+    history.checkpoint(graph);
+    setNodes((current) => current.filter((node) => !selectedNodeIds.has(node.id)));
+    setEdges((current) =>
+      current.filter(
+        (edge) =>
+          !edge.selected && !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target),
+      ),
+    );
+  }, [edges, graph, history, nodes, setEdges, setNodes]);
+
+  const copySelection = useCallback(() => {
+    clipboard.current = createGraphClipboard(graph);
+  }, [graph]);
+
+  const paste = useCallback(() => {
+    if (!clipboard.current) return;
+    history.checkpoint(graph);
+    restoreGraph(pasteGraphClipboard(graph, clipboard.current));
+  }, [graph, history, restoreGraph]);
+
+  const duplicateSelection = useCallback(() => {
+    const selected = createGraphClipboard(graph);
+    if (!selected) return;
+    history.checkpoint(graph);
+    restoreGraph(pasteGraphClipboard(graph, selected));
+  }, [graph, history, restoreGraph]);
+
+  const undo = useCallback(() => {
+    const previous = history.undo(graph);
+    if (previous) restoreGraph(previous);
+  }, [graph, history, restoreGraph]);
+
+  const redo = useCallback(() => {
+    const next = history.redo(graph);
+    if (next) restoreGraph(next);
+  }, [graph, history, restoreGraph]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTextEditingTarget(event.target)) return;
+      const modifier = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+
+      if (modifier && key === 'c') {
+        event.preventDefault();
+        copySelection();
+      } else if (modifier && key === 'v') {
+        event.preventDefault();
+        paste();
+      } else if (modifier && key === 'd') {
+        event.preventDefault();
+        duplicateSelection();
+      } else if (modifier && key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        redo();
+      } else if (modifier && key === 'z') {
+        event.preventDefault();
+        undo();
+      } else if (modifier && key === 'y') {
+        event.preventDefault();
+        redo();
+      } else if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        deleteSelection();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [copySelection, deleteSelection, duplicateSelection, paste, redo, undo]);
+
+  const onNodeDragStart = useCallback(() => history.checkpoint(graph), [graph, history]);
+
   return (
     <div className={styles.panel}>
-      <div className={styles.header}>Story Graph</div>
+      <div className={styles.header}>
+        <span>Story Graph</span>
+        <span className={styles.shortcutHint}>Ctrl+C / V / D · Ctrl+Z / Shift+Z</span>
+      </div>
       <div className={styles.canvas}>
-        <ReactFlow
+        <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeDragStart={onNodeDragStart}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
           colorMode="dark"
           fitView
-          deleteKeyCode={['Backspace', 'Delete']}
+          deleteKeyCode={null}
           multiSelectionKeyCode="Control"
           selectionKeyCode="Shift"
         >

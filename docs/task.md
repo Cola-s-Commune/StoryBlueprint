@@ -133,25 +133,27 @@
 
 ## Selection
 
-- [ ] 单选
-- [ ] 多选
-- [ ] 框选
+- [x] 单选
+- [x] 多选
+- [x] 框选
 
 ---
 
 ## Clipboard
 
-- [ ] Copy
-- [ ] Paste
-- [ ] Duplicate
+- [x] Copy
+- [x] Paste
+- [x] Duplicate
+- [x] 粘贴时重建 Node / Dynamic Port / Edge 稳定 ID
 
 ---
 
 ## Undo
 
 - [ ] Command Pattern
-- [ ] Undo
-- [ ] Redo
+- [x] Graph Snapshot Transaction
+- [x] Undo
+- [x] Redo
 
 ---
 
@@ -351,7 +353,7 @@
 - [ ] `.story` Parse / Serialize
 - [ ] 稳定格式化（确保 Git Diff 可读）
 - [ ] 注释与未知字段保留测试
-- [ ] Typed Story Graph 内存模型
+- [x] Typed Story Graph 内存模型
 - [ ] 静态端口派生、动态端口项序列化
 - [ ] Character / Variable / Asset 引用序列化
 - [x] 稳定 ID / Name / Display Name 模型

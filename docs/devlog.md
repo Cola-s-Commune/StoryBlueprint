@@ -17,7 +17,7 @@ npm run dev
 
 ---
 
-## Current: Milestone 2 + Core Contracts
+## Current: Milestone 2 → Property / Persistence
 
 ### M1 Done
 
@@ -37,12 +37,12 @@ npm run dev
 
 ### Next
 
-**[M2] Selection / Clipboard + Typed Story Graph**
+**[M3/M4] Node Creation + Inspector Properties**
 
-- 单选、多选、框选状态接入 Command History
-- Copy / Paste / Duplicate 时生成新稳定 ID
-- 将 React Flow 状态接入版本化 Source Model
-- 见 `docs/task.md` → Milestone 2
+- 右键菜单创建节点并写入 Typed Story Graph
+- Inspector 编辑节点属性并接入 Undo / Redo
+- 开始 `.story` KDL Parse / Serialize
+- 见 `docs/task.md` → Milestone 3 / 4 / 6
 
 ---
 
@@ -50,6 +50,8 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 完成单选、多选、框选、删除、Copy / Paste / Duplicate，以及节点移动和图编辑的 Undo / Redo                           |
+| 2026-07-25 | 建立 EditorGraphState → SourceGraph 转换；复制子图会重建 Node、Choice Option、Edge ID 并保持内部连接               |
 | 2026-07-25 | 完成 Typed Graph 端口解析与连线校验：方向、执行/数据类型、动态端口、重复连接和连接占用规则                         |
 | 2026-07-25 | React Flow 接入统一校验，非法连线显示错误提示，Edge 使用稳定 ID                                                    |
 | 2026-07-25 | 建立 Source Model、稳定 ID、表达式、Runtime Program/State、Adapter 类型契约与 Runtime 控制流校验                   |

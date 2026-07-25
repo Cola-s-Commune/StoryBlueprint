@@ -11,6 +11,8 @@ export interface NodeInstance {
   id: NodeId;
   /** The StoryNodeType discriminator */
   type: StoryNodeType;
+  /** Author-facing symbol name. It is independent from the stable ID. */
+  name: string;
   /** Version of the node definition used to create this instance. */
   definitionVersion: number;
   /** Canvas position */
@@ -39,6 +41,7 @@ export class NodeFactory {
     return {
       id,
       type,
+      name: `${type}_${id.slice(-8).replaceAll('-', '_')}`,
       definitionVersion: def.version,
       position,
       data: def.defaultData() as StoryNodeDataMap[StoryNodeType],

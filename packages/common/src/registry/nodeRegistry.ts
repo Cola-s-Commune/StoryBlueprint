@@ -1,4 +1,5 @@
 import { StoryNodeType, type NodeDefinition, type ChoiceOption } from '../types/nodes';
+import { createStableId } from '../types/ids';
 
 /**
  * Central registry for all node types available in the
@@ -99,8 +100,8 @@ export class NodeRegistry {
       defaultData: () => ({
         prompt: 'What will you do?',
         options: [
-          { label: 'Option A', id: 'opt-a' },
-          { label: 'Option B', id: 'opt-b' },
+          { label: 'Option A', id: createStableId('option') },
+          { label: 'Option B', id: createStableId('option') },
         ] as ChoiceOption[],
       }),
     });
