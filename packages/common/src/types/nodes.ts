@@ -7,11 +7,11 @@
  * Add new types here as the framework evolves.
  */
 export enum StoryNodeType {
-  Start = 'start',
+  Start = 'story-entry',
   Dialogue = 'dialogue',
   Choice = 'choice',
   Branch = 'branch',
-  End = 'end',
+  End = 'end-story',
 }
 
 /**
@@ -23,6 +23,9 @@ export interface NodePort {
   id: string;
   /** Display label */
   label: string;
+  /** Execution ports control flow; data ports carry typed values. */
+  kind: 'execution' | 'data';
+  direction: 'input' | 'output';
 }
 
 // ---- Per-type data interfaces ----
@@ -89,6 +92,8 @@ export interface StoryNodeDataMap {
 export interface NodeDefinition<T extends StoryNodeType = StoryNodeType> {
   /** The type discriminator */
   type: T;
+  /** Serialized node definition version used by source migrations. */
+  version: number;
   /** Human-readable label (e.g. "Dialogue") */
   label: string;
   /** Category for UI grouping */
@@ -99,6 +104,12 @@ export interface NodeDefinition<T extends StoryNodeType = StoryNodeType> {
   inputs: NodePort[];
   /** Default output ports */
   outputs: NodePort[];
+  /** Describes data-backed output ports such as Choice options. */
+  dynamicOutputs?: {
+    sourceProperty: string;
+    idProperty: string;
+    labelProperty: string;
+  };
   /** Factory: returns default data for a new node of this type */
   defaultData: () => StoryNodeDataMap[T];
 }

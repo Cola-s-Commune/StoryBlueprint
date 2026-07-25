@@ -1,7 +1,5 @@
-import {
-  type StoryNodeType,
-  type StoryNodeDataMap,
-} from '../types/nodes';
+import { type StoryNodeType, type StoryNodeDataMap } from '../types/nodes';
+import { createStableId, type NodeId } from '../types/ids';
 import { nodeRegistry } from './nodeRegistry';
 
 /**
@@ -10,9 +8,11 @@ import { nodeRegistry } from './nodeRegistry';
  */
 export interface NodeInstance {
   /** Unique instance ID (caller should generate) */
-  id: string;
+  id: NodeId;
   /** The StoryNodeType discriminator */
   type: StoryNodeType;
+  /** Version of the node definition used to create this instance. */
+  definitionVersion: number;
   /** Canvas position */
   position: { x: number; y: number };
   /** Typed data for this node type */
@@ -29,7 +29,7 @@ export class NodeFactory {
    * Returns null if the type is not registered.
    */
   static create<T extends StoryNodeType>(
-    id: string,
+    id: NodeId,
     type: T,
     position: { x: number; y: number },
   ): NodeInstance | null {
@@ -39,6 +39,7 @@ export class NodeFactory {
     return {
       id,
       type,
+      definitionVersion: def.version,
       position,
       data: def.defaultData() as StoryNodeDataMap[StoryNodeType],
     };
@@ -47,7 +48,7 @@ export class NodeFactory {
   /**
    * Generate a unique node ID with an optional prefix.
    */
-  static generateId(type: StoryNodeType): string {
-    return `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  static generateId(_type: StoryNodeType): NodeId {
+    return createStableId('node');
   }
 }

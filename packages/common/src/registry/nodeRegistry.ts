@@ -1,8 +1,4 @@
-import {
-  StoryNodeType,
-  type NodeDefinition,
-  type ChoiceOption,
-} from '../types/nodes';
+import { StoryNodeType, type NodeDefinition, type ChoiceOption } from '../types/nodes';
 
 /**
  * Central registry for all node types available in the
@@ -61,22 +57,24 @@ export class NodeRegistry {
     // Start
     this.register<StoryNodeType.Start>({
       type: StoryNodeType.Start,
-      label: 'Start',
+      version: 1,
+      label: 'Story Entry',
       category: 'flow',
       color: '#4caf50',
       inputs: [],
-      outputs: [{ id: 'out', label: 'Next' }],
+      outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
       defaultData: () => ({ title: 'New Story' }),
     });
 
     // Dialogue
     this.register<StoryNodeType.Dialogue>({
       type: StoryNodeType.Dialogue,
+      version: 1,
       label: 'Dialogue',
       category: 'narrative',
       color: '#2196f3',
-      inputs: [{ id: 'in', label: 'Prev' }],
-      outputs: [{ id: 'out', label: 'Next' }],
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
       defaultData: () => ({
         speaker: 'Character',
         text: '',
@@ -86,14 +84,17 @@ export class NodeRegistry {
     // Choice
     this.register<StoryNodeType.Choice>({
       type: StoryNodeType.Choice,
+      version: 1,
       label: 'Choice',
       category: 'narrative',
       color: '#ff9800',
-      inputs: [{ id: 'in', label: 'Prev' }],
-      outputs: [
-        { id: 'opt-a', label: 'Option A' },
-        { id: 'opt-b', label: 'Option B' },
-      ],
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [],
+      dynamicOutputs: {
+        sourceProperty: 'options',
+        idProperty: 'id',
+        labelProperty: 'label',
+      },
       defaultData: () => ({
         prompt: 'What will you do?',
         options: [
@@ -106,13 +107,14 @@ export class NodeRegistry {
     // Branch
     this.register<StoryNodeType.Branch>({
       type: StoryNodeType.Branch,
+      version: 1,
       label: 'Branch',
       category: 'logic',
       color: '#9c27b0',
-      inputs: [{ id: 'in', label: 'Prev' }],
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [
-        { id: 'true', label: 'True' },
-        { id: 'false', label: 'False' },
+        { id: 'true', label: 'True', kind: 'execution', direction: 'output' },
+        { id: 'false', label: 'False', kind: 'execution', direction: 'output' },
       ],
       defaultData: () => ({ condition: 'someCondition' }),
     });
@@ -120,10 +122,11 @@ export class NodeRegistry {
     // End
     this.register<StoryNodeType.End>({
       type: StoryNodeType.End,
-      label: 'End',
+      version: 1,
+      label: 'End Story',
       category: 'flow',
       color: '#f44336',
-      inputs: [{ id: 'in', label: 'Prev' }],
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [],
       defaultData: () => ({ title: 'The End' }),
     });

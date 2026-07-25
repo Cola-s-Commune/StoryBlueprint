@@ -161,7 +161,7 @@
 
 - [ ] Create
 - [x] Render
-- [ ] 将持久化类型统一为 `story-entry@1`
+- [x] 类型 ID 统一为 `story-entry` / `end-story`，Node Definition 使用独立版本号
 
 ---
 
@@ -347,14 +347,14 @@
 ## Serialization
 
 - [ ] 定义版本化 `.story` KDL Schema
-- [ ] 定义版本化 Node Definition Schema
+- [x] 定义版本化 Node Definition Schema
 - [ ] `.story` Parse / Serialize
 - [ ] 稳定格式化（确保 Git Diff 可读）
 - [ ] 注释与未知字段保留测试
 - [ ] Typed Story Graph 内存模型
 - [ ] 静态端口派生、动态端口项序列化
 - [ ] Character / Variable / Asset 引用序列化
-- [ ] 稳定 ID / Name / Display Name 模型
+- [x] 稳定 ID / Name / Display Name 模型
 - [ ] 格式版本迁移
 
 ---
@@ -390,7 +390,7 @@
 - [ ] 表达式字符串 → Typed Expression AST
 - [ ] 表达式稳定符号绑定与安全重命名
 - [ ] 移除坐标、端口、边和编辑器元数据
-- [ ] Block 终结指令与显式 Jump 校验
+- [x] Block 终结指令与显式 Jump 校验
 - [ ] 可选 Source Map
 
 ---
@@ -398,7 +398,7 @@
 ## Export
 
 - [ ] 导出 `.storyc.json`
-- [ ] 定义版本化 Runtime Program Schema
+- [x] 定义版本化 Runtime Program Schema
 - [ ] Compiler Backend 接口
 - [ ] 暂不实现自定义字节码
 - [ ] 暂不生成 TypeScript 剧情代码
@@ -426,6 +426,7 @@
 ## Runtime
 
 - [ ] Load `.storyc.json`
+- [x] RuntimeState / CallFrame / PendingInteraction 类型契约
 - [ ] `blockId + instructionIndex` 执行状态机
 - [ ] Async Pause / Resume / Abort
 - [ ] Project / Story / Chapter / Character Variables
@@ -440,7 +441,8 @@
 
 ## Engine Adapter
 
-- [ ] Dialogue / Choice 异步接口
+- [x] StoryAdapter TypeScript 契约
+- [x] Dialogue / Choice 异步接口
 - [ ] Event Registry 与 Typed Parameters / Result
 - [ ] Text / Voice / Asset 解析
 - [ ] External Variable 读写

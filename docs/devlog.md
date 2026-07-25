@@ -17,7 +17,7 @@ npm run dev
 
 ---
 
-## Current: Milestone 1 → Milestone 2
+## Current: Milestone 2 + Core Contracts
 
 ### M1 Done
 
@@ -37,22 +37,26 @@ npm run dev
 
 ### Next
 
-**[M2] Edge 连线系统**
+**[M2] Edge 连线系统 + Typed Story Graph**
 
 - Connection validation（类型校验，不允许非法连线）
 - Edge delete
+- 将 React Flow 状态接入版本化 Source Model
 - 见 `docs/task.md` → Milestone 2 → Edge
 
 ---
 
 ## Recent changes
 
-| Date | What |
-|------|------|
+| Date       | What                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 建立 Source Model、稳定 ID、表达式、Runtime Program/State、Adapter 类型契约与 Runtime 控制流校验                   |
+| 2026-07-25 | 节点持久化类型统一为 `story-entry/end-story`，静态端口由 Node Definition 派生，Choice 输出声明为动态端口           |
+| 2026-07-25 | 补齐 common → compiler/runtime/sdk 的 TypeScript project references                                                |
 | 2026-07-23 | 修复 tsc 泄漏产物导致节点消失：清理 src 中 .d.ts/.d.ts.map/.js/.js.map，registerBuiltins 从 useEffect 提到模块顶层 |
-| 2026-07-23 | 修复 tsc 在 src/renderer 中生成 .js 文件导致 Vite esbuild JSX 解析错误 |
-| 2026-07-23 | M2 节点系统：NodeRegistry + NodeFactory + 5 种自定义节点组件 |
-| 2026-07-23 | M1 StoryGraph 画布：React Flow 集成、背景网格、MiniMap、测试节点 |
-| 2026-07-23 | 从 pnpm 切换到 npm（pnpm 的嵌套 node_modules 导致 Electron 模块遮蔽问题） |
-| 2026-07-23 | M1 布局框架完成，Electron 可在外部终端正常启动 |
-| 2026-07-23 | M0 项目初始化完成：workspace、TS、ESLint、Prettier、Electron + React 骨架 |
+| 2026-07-23 | 修复 tsc 在 src/renderer 中生成 .js 文件导致 Vite esbuild JSX 解析错误                                             |
+| 2026-07-23 | M2 节点系统：NodeRegistry + NodeFactory + 5 种自定义节点组件                                                       |
+| 2026-07-23 | M1 StoryGraph 画布：React Flow 集成、背景网格、MiniMap、测试节点                                                   |
+| 2026-07-23 | 从 pnpm 切换到 npm（pnpm 的嵌套 node_modules 导致 Electron 模块遮蔽问题）                                          |
+| 2026-07-23 | M1 布局框架完成，Electron 可在外部终端正常启动                                                                     |
+| 2026-07-23 | M0 项目初始化完成：workspace、TS、ESLint、Prettier、Electron + React 骨架                                          |

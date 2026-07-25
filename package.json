@@ -10,7 +10,7 @@
     "dev": "npm run dev --workspace @story-blueprint/editor",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run build --workspace @story-blueprint/common && npm run typecheck --workspaces"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",
