@@ -71,6 +71,7 @@ export function StoryGraph() {
     onNodesChange,
     onEdgesChange,
     checkpoint,
+    markDirty,
     restoreGraph,
     undo,
     redo,
@@ -133,8 +134,9 @@ export function StoryGraph() {
           currentEdges,
         ),
       );
+      markDirty();
     },
-    [checkpoint, setEdges, validateConnection],
+    [checkpoint, markDirty, setEdges, validateConnection],
   );
 
   const onConnectEnd = useCallback<OnConnectEnd>(
@@ -168,7 +170,8 @@ export function StoryGraph() {
           !edge.selected && !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target),
       ),
     );
-  }, [checkpoint, edges, nodes, setEdges, setNodes]);
+    markDirty();
+  }, [checkpoint, edges, markDirty, nodes, setEdges, setNodes]);
 
   const copySelection = useCallback(() => {
     clipboard.current = createGraphClipboard(graph);
@@ -178,14 +181,16 @@ export function StoryGraph() {
     if (!clipboard.current) return;
     checkpoint();
     restoreGraph(pasteGraphClipboard(graph, clipboard.current));
-  }, [checkpoint, graph, restoreGraph]);
+    markDirty();
+  }, [checkpoint, graph, markDirty, restoreGraph]);
 
   const duplicateSelection = useCallback(() => {
     const selected = createGraphClipboard(graph);
     if (!selected) return;
     checkpoint();
     restoreGraph(pasteGraphClipboard(graph, selected));
-  }, [checkpoint, graph, restoreGraph]);
+    markDirty();
+  }, [checkpoint, graph, markDirty, restoreGraph]);
 
   const openContextMenu = useCallback(
     (event: globalThis.MouseEvent | ReactMouseEvent) => {
@@ -249,6 +254,7 @@ export function StoryGraph() {
   }, [copySelection, deleteSelection, duplicateSelection, paste, redo, undo]);
 
   const onNodeDragStart = useCallback(() => checkpoint(), [checkpoint]);
+  const onNodeDragStop = useCallback(() => markDirty(), [markDirty]);
   const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
 
   return (
@@ -264,6 +270,7 @@ export function StoryGraph() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStart={onNodeDragStart}
+          onNodeDragStop={onNodeDragStop}
           onInit={setFlowInstance}
           onPaneClick={() => setContextMenu(null)}
           onPaneContextMenu={openContextMenu}

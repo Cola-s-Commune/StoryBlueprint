@@ -11,5 +11,7 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },
-  "devDependencies": {}
+  "dependencies": {
+    "@bgotink/kdl": "^0.4.0"
+  }
 }

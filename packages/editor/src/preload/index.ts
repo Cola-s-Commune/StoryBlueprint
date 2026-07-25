@@ -17,4 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     ipcRenderer.on(channel, (_event, ...args) => callback(...args));
   },
+  openStory: () => ipcRenderer.invoke('story:open'),
+  saveStory: (request: { filePath?: string; content: string; saveAs?: boolean }) =>
+    ipcRenderer.invoke('story:save', request),
+  setStoryDirty: (dirty: boolean) => ipcRenderer.send('story:set-dirty', dirty),
 });

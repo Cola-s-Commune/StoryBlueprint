@@ -341,19 +341,19 @@
 
 ## Story Asset
 
-- [ ] New
-- [ ] Open
-- [ ] Save
-- [ ] Save As
+- [x] New
+- [x] Open
+- [x] Save
+- [x] Save As
 
 ---
 
 ## Serialization
 
-- [ ] 定义版本化 `.story` KDL Schema
+- [x] 定义版本化 `.story` KDL Schema（当前五种基础节点）
 - [x] 定义版本化 Node Definition Schema
-- [ ] `.story` Parse / Serialize
-- [ ] 稳定格式化（确保 Git Diff 可读）
+- [x] `.story` Parse / Serialize
+- [x] 稳定格式化（确保 Git Diff 可读）
 - [ ] 注释与未知字段保留测试
 - [x] Typed Story Graph 内存模型
 - [ ] 静态端口派生、动态端口项序列化
@@ -482,12 +482,15 @@
 
 ## Shortcut
 
-- [ ] Ctrl + S
-- [ ] Ctrl + Z
-- [ ] Ctrl + Shift + Z
-- [ ] Ctrl + C
-- [ ] Ctrl + V
-- [ ] Delete
+- [x] Ctrl + N
+- [x] Ctrl + O
+- [x] Ctrl + S
+- [x] Ctrl + Shift + S
+- [x] Ctrl + Z
+- [x] Ctrl + Shift + Z
+- [x] Ctrl + C
+- [x] Ctrl + V
+- [x] Delete
 - [ ] F
 
 ---
@@ -634,8 +637,8 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [ ] 创建 End Story Node
 - [ ] 节点连线
 - [ ] Inspector 可编辑属性
-- [ ] 保存 `.story`
-- [ ] 打开 `.story`
+- [x] 保存 `.story`
+- [x] 打开 `.story`
 - [ ] 导出 `.storyc.json`
 - [ ] Runtime Preview 可以执行简单剧情
 

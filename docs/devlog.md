@@ -17,7 +17,7 @@ npm run dev
 
 ---
 
-## Current: Milestone 3/4 → Persistence
+## Current: Milestone 6 → Compiler / Preview
 
 ### M1 Done
 
@@ -37,12 +37,12 @@ npm run dev
 
 ### Next
 
-**[M6] `.story` Persistence**
+**[M7/M8] Compiler + Runtime Preview**
 
-- 定义第一版 KDL 映射并接入 Parser
-- 实现 SourceGraph Parse / Serialize 和稳定格式化
-- 通过 Electron IPC 实现 New / Open / Save / Save As
-- 见 `docs/task.md` → Milestone 6
+- 把 Typed Story Graph 编译为 Runtime Program
+- 实现 Dialogue / Choice / Branch / End 的最小执行器
+- 编辑器内运行当前 Story
+- 见 `docs/task.md` → Milestone 7 / 8
 
 ---
 
@@ -50,6 +50,9 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 使用 `@bgotink/kdl` 实现当前基础节点的 `.story` Parse / Serialize 与稳定格式化，往返烟雾测试通过                   |
+| 2026-07-25 | 完成 New / Open / Save / Save As 文件菜单、快捷键与 Electron IPC；未保存修改在关闭、New、Open 前受到保护           |
+| 2026-07-25 | 重建原先不完整的 package-lock，并将根与 editor 的 Electron 统一固定为 31.0.0                                       |
 | 2026-07-25 | 图状态提升到 StoryGraph Store，StoryGraph 与 Inspector 共享同一个 EditorGraphState                                 |
 | 2026-07-25 | 完成右键节点创建菜单；Story Entry 保持单实例，创建操作进入 Undo / Redo                                             |
 | 2026-07-25 | Inspector 支持节点名称、Dialogue、Choice、Branch、Start、End 属性双向编辑，编辑事务可撤销                          |

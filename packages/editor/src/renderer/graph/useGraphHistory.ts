@@ -32,5 +32,10 @@ export function useGraphHistory(limit = 100) {
     return cloneGraph(next);
   }, []);
 
-  return { checkpoint, undo, redo };
+  const clear = useCallback(() => {
+    past.current = [];
+    future.current = [];
+  }, []);
+
+  return { checkpoint, undo, redo, clear };
 }

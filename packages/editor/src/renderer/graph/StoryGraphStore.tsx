@@ -3,6 +3,8 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useState,
+  useEffect,
   type Dispatch,
   type PropsWithChildren,
   type SetStateAction,
@@ -16,14 +18,23 @@ import {
 } from '@xyflow/react';
 import {
   NodeFactory,
+  parseStorySource,
+  serializeStorySource,
+  STORY_SOURCE_FORMAT,
+  STORY_SOURCE_VERSION,
   StoryNodeType,
+  createStableId,
   nodeRegistry,
   type NodeId,
   type NodeInstance,
   type StoryNodeDataMap,
+  type StoryId,
+  type StorySourceDocument,
 } from '@story-blueprint/common';
 import {
+  fromSourceGraph,
   toEditorGraphNode,
+  toSourceGraph,
   type EditorGraphEdge,
   type EditorGraphNode,
   type EditorGraphState,
@@ -48,6 +59,27 @@ function createInitialNodes(): EditorGraphNode[] {
     .map(toEditorGraphNode);
 }
 
+function createNewGraph(): EditorGraphState {
+  const instance = NodeFactory.create(
+    NodeFactory.generateId(StoryNodeType.Start),
+    StoryNodeType.Start,
+    {
+      x: 160,
+      y: 120,
+    },
+  );
+  return { nodes: instance ? [{ ...toEditorGraphNode(instance), selected: true }] : [], edges: [] };
+}
+
+interface StoryDocumentInfo {
+  id: StoryId;
+  name: string;
+  displayName: string;
+  filePath?: string;
+  dirty: boolean;
+  error?: string;
+}
+
 interface StoryGraphStoreValue {
   graph: EditorGraphState;
   nodes: EditorGraphNode[];
@@ -67,6 +99,11 @@ interface StoryGraphStoreValue {
     type: T,
     update: Partial<StoryNodeDataMap[T]>,
   ) => void;
+  document: StoryDocumentInfo;
+  markDirty: () => void;
+  newStory: () => void;
+  openStory: () => Promise<void>;
+  saveStory: (saveAs?: boolean) => Promise<void>;
 }
 
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
@@ -77,6 +114,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>([]);
   const graph = useMemo<EditorGraphState>(() => ({ nodes, edges }), [edges, nodes]);
   const history = useGraphHistory();
+  const [document, setDocument] = useState<StoryDocumentInfo>(() => ({
+    id: createStableId('story'),
+    name: 'untitled',
+    displayName: 'Untitled Story',
+    dirty: false,
+  }));
+
+  const markDirty = useCallback(() => {
+    setDocument((current) => ({ ...current, dirty: true, error: undefined }));
+  }, []);
+
+  useEffect(() => {
+    window.electronAPI?.setStoryDirty(document.dirty);
+  }, [document.dirty]);
 
   const checkpoint = useCallback(() => history.checkpoint(graph), [graph, history]);
 
@@ -90,13 +141,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const undo = useCallback(() => {
     const previous = history.undo(graph);
-    if (previous) restoreGraph(previous);
-  }, [graph, history, restoreGraph]);
+    if (previous) {
+      restoreGraph(previous);
+      markDirty();
+    }
+  }, [graph, history, markDirty, restoreGraph]);
 
   const redo = useCallback(() => {
     const next = history.redo(graph);
-    if (next) restoreGraph(next);
-  }, [graph, history, restoreGraph]);
+    if (next) {
+      restoreGraph(next);
+      markDirty();
+    }
+  }, [graph, history, markDirty, restoreGraph]);
 
   const addNode = useCallback(
     (type: StoryNodeType, position: XYPosition): NodeId | null => {
@@ -111,9 +168,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         node,
       ]);
       setEdges((current) => current.map((edge) => ({ ...edge, selected: false })));
+      markDirty();
       return node.id;
     },
-    [checkpoint, nodes, setEdges, setNodes],
+    [checkpoint, markDirty, nodes, setEdges, setNodes],
   );
 
   const updateNode = useCallback(
@@ -121,8 +179,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setNodes((current) =>
         current.map((node) => (node.id === id ? { ...node, ...update } : node)),
       );
+      markDirty();
     },
-    [setNodes],
+    [markDirty, setNodes],
   );
 
   const updateNodeData = useCallback(
@@ -134,8 +193,88 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             : node,
         ),
       );
+      markDirty();
     },
-    [setNodes],
+    [markDirty, setNodes],
+  );
+
+  const confirmDiscardChanges = useCallback(
+    () => !document.dirty || window.confirm('Discard unsaved story changes?'),
+    [document.dirty],
+  );
+
+  const newStory = useCallback(() => {
+    if (!confirmDiscardChanges()) return;
+    restoreGraph(createNewGraph());
+    history.clear();
+    setDocument({
+      id: createStableId('story'),
+      name: 'untitled',
+      displayName: 'Untitled Story',
+      dirty: false,
+    });
+  }, [confirmDiscardChanges, history, restoreGraph]);
+
+  const openStory = useCallback(async () => {
+    if (!confirmDiscardChanges() || !window.electronAPI) return;
+    try {
+      const result = await window.electronAPI.openStory();
+      if (result.canceled) return;
+      const source = parseStorySource(result.content);
+      restoreGraph(fromSourceGraph(source.root));
+      history.clear();
+      setDocument({
+        id: source.id,
+        name: source.name,
+        displayName: source.displayName,
+        filePath: result.filePath,
+        dirty: false,
+      });
+    } catch (error) {
+      setDocument((current) => ({
+        ...current,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, [confirmDiscardChanges, history, restoreGraph]);
+
+  const saveStory = useCallback(
+    async (saveAs = false) => {
+      if (!window.electronAPI) return;
+      try {
+        const source: StorySourceDocument = {
+          format: STORY_SOURCE_FORMAT,
+          version: STORY_SOURCE_VERSION,
+          id: document.id,
+          name: document.name,
+          displayName: document.displayName,
+          root: toSourceGraph(graph),
+          chapters: [],
+          variables: [],
+          characters: [],
+          assets: [],
+          events: [],
+        };
+        const result = await window.electronAPI.saveStory({
+          filePath: document.filePath,
+          content: serializeStorySource(source),
+          saveAs,
+        });
+        if (result.canceled) return;
+        setDocument((current) => ({
+          ...current,
+          filePath: result.filePath,
+          dirty: false,
+          error: undefined,
+        }));
+      } catch (error) {
+        setDocument((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
+    },
+    [document, graph],
   );
 
   const value = useMemo<StoryGraphStoreValue>(
@@ -154,19 +293,29 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addNode,
       updateNode,
       updateNodeData,
+      document,
+      markDirty,
+      newStory,
+      openStory,
+      saveStory,
     }),
     [
       addNode,
       checkpoint,
+      document,
       edges,
       graph,
       nodes,
+      markDirty,
+      newStory,
       onEdgesChange,
       onNodesChange,
       redo,
       restoreGraph,
       setEdges,
       setNodes,
+      openStory,
+      saveStory,
       undo,
       updateNode,
       updateNodeData,

@@ -30,6 +30,9 @@ export {
   type ConnectionValidationResult,
 } from './graph/connectionValidation';
 
+// ---- .story KDL serialization ----
+export { StoryFormatError, serializeStorySource, parseStorySource } from './serialization/storyKdl';
+
 // ---- Stable IDs ----
 export {
   createStableId,

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import styles from './MenuBar.module.css';
 
 type MenuItem = {
@@ -7,27 +8,33 @@ type MenuItem = {
 };
 
 type SubMenuItem =
-  | { type: 'item'; label: string; shortcut?: string; disabled?: boolean }
+  | {
+      type: 'item';
+      label: string;
+      shortcut?: string;
+      disabled?: boolean;
+      action?: 'new' | 'open' | 'save' | 'save-as' | 'exit' | 'undo' | 'redo';
+    }
   | { type: 'separator' };
 
 const menuItems: MenuItem[] = [
   {
     label: 'File',
     submenu: [
-      { type: 'item', label: 'New Story', shortcut: 'Ctrl+N' },
-      { type: 'item', label: 'Open Story...', shortcut: 'Ctrl+O' },
+      { type: 'item', label: 'New Story', shortcut: 'Ctrl+N', action: 'new' },
+      { type: 'item', label: 'Open Story...', shortcut: 'Ctrl+O', action: 'open' },
       { type: 'separator' },
-      { type: 'item', label: 'Save', shortcut: 'Ctrl+S' },
-      { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S' },
+      { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
+      { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
       { type: 'separator' },
-      { type: 'item', label: 'Exit', shortcut: 'Alt+F4' },
+      { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
     ],
   },
   {
     label: 'Edit',
     submenu: [
-      { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z' },
-      { type: 'item', label: 'Redo', shortcut: 'Ctrl+Shift+Z' },
+      { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: 'undo' },
+      { type: 'item', label: 'Redo', shortcut: 'Ctrl+Shift+Z', action: 'redo' },
       { type: 'separator' },
       { type: 'item', label: 'Cut', shortcut: 'Ctrl+X' },
       { type: 'item', label: 'Copy', shortcut: 'Ctrl+C' },
@@ -49,13 +56,12 @@ const menuItems: MenuItem[] = [
   },
   {
     label: 'Help',
-    submenu: [
-      { type: 'item', label: 'About Story Blueprint' },
-    ],
+    submenu: [{ type: 'item', label: 'About Story Blueprint' }],
   },
 ];
 
 export function MenuBar() {
+  const { newStory, openStory, saveStory, undo, redo } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +74,53 @@ export function MenuBar() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'n') {
+        event.preventDefault();
+        newStory();
+      } else if (key === 'o') {
+        event.preventDefault();
+        void openStory();
+      } else if (key === 's') {
+        event.preventDefault();
+        void saveStory(event.shiftKey);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [newStory, openStory, saveStory]);
+
+  const runAction = (
+    action: Exclude<Extract<SubMenuItem, { type: 'item' }>['action'], undefined>,
+  ) => {
+    switch (action) {
+      case 'new':
+        newStory();
+        break;
+      case 'open':
+        void openStory();
+        break;
+      case 'save':
+        void saveStory();
+        break;
+      case 'save-as':
+        void saveStory(true);
+        break;
+      case 'undo':
+        undo();
+        break;
+      case 'redo':
+        redo();
+        break;
+      case 'exit':
+        window.close();
+        break;
+    }
+  };
 
   return (
     <div className={styles.bar} ref={menuRef}>
@@ -96,12 +149,11 @@ export function MenuBar() {
                     onMouseDown={(e) => {
                       e.stopPropagation();
                       setOpenMenu(null);
+                      if (!sub.disabled && sub.action) runAction(sub.action);
                     }}
                   >
                     <span>{sub.label}</span>
-                    {sub.shortcut && (
-                      <span className={styles.shortcut}>{sub.shortcut}</span>
-                    )}
+                    {sub.shortcut && <span className={styles.shortcut}>{sub.shortcut}</span>}
                   </div>
                 ),
               )}

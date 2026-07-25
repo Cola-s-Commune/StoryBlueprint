@@ -3,6 +3,7 @@ import {
   createStableId,
   nodeRegistry,
   StoryNodeType,
+  validateGraphConnection,
   type ChoiceNodeData,
   type EdgeId,
   type NodeId,
@@ -73,6 +74,54 @@ export function toSourceGraph(graph: EditorGraphState): SourceGraph {
       to: { nodeId: edge.target, portId: edge.targetHandle },
     })),
   };
+}
+
+export function fromSourceGraph(source: SourceGraph): EditorGraphState {
+  const nodes: EditorGraphNode[] = source.nodes.map((node) => {
+    if (!nodeRegistry.has(node.type as StoryNodeType)) {
+      throw new Error(`Unsupported node type: ${node.type}`);
+    }
+    return {
+      id: node.id,
+      name: node.name,
+      type: node.type as StoryNodeType,
+      definitionVersion: node.definitionVersion,
+      position: { ...node.position },
+      data: structuredClone(node.data) as EditorNodeData,
+      selected: false,
+    };
+  });
+
+  const edges: EditorGraphEdge[] = [];
+  for (const edge of source.edges) {
+    const candidate = {
+      source: edge.from.nodeId,
+      sourcePortId: edge.from.portId,
+      target: edge.to.nodeId,
+      targetPortId: edge.to.portId,
+    };
+    const result = validateGraphConnection(
+      candidate,
+      nodes.map((node) => ({ id: node.id, type: node.type, data: node.data })),
+      edges.map((existing) => ({
+        id: existing.id,
+        source: existing.source,
+        sourcePortId: existing.sourceHandle,
+        target: existing.target,
+        targetPortId: existing.targetHandle,
+      })),
+    );
+    if (!result.valid) throw new Error(`Invalid edge ${edge.id}: ${result.diagnostic.message}`);
+    edges.push({
+      id: edge.id,
+      source: edge.from.nodeId,
+      sourceHandle: edge.from.portId,
+      target: edge.to.nodeId,
+      targetHandle: edge.to.portId,
+      selected: false,
+    });
+  }
+  return { nodes, edges };
 }
 
 export function createGraphClipboard(graph: EditorGraphState): GraphClipboard | null {
