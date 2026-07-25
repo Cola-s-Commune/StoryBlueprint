@@ -17,7 +17,7 @@ npm run dev
 
 ---
 
-## Current: Milestone 2 → Property / Persistence
+## Current: Milestone 3/4 → Persistence
 
 ### M1 Done
 
@@ -37,12 +37,12 @@ npm run dev
 
 ### Next
 
-**[M3/M4] Node Creation + Inspector Properties**
+**[M6] `.story` Persistence**
 
-- 右键菜单创建节点并写入 Typed Story Graph
-- Inspector 编辑节点属性并接入 Undo / Redo
-- 开始 `.story` KDL Parse / Serialize
-- 见 `docs/task.md` → Milestone 3 / 4 / 6
+- 定义第一版 KDL 映射并接入 Parser
+- 实现 SourceGraph Parse / Serialize 和稳定格式化
+- 通过 Electron IPC 实现 New / Open / Save / Save As
+- 见 `docs/task.md` → Milestone 6
 
 ---
 
@@ -50,6 +50,9 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-25 | 图状态提升到 StoryGraph Store，StoryGraph 与 Inspector 共享同一个 EditorGraphState                                 |
+| 2026-07-25 | 完成右键节点创建菜单；Story Entry 保持单实例，创建操作进入 Undo / Redo                                             |
+| 2026-07-25 | Inspector 支持节点名称、Dialogue、Choice、Branch、Start、End 属性双向编辑，编辑事务可撤销                          |
 | 2026-07-25 | 完成单选、多选、框选、删除、Copy / Paste / Duplicate，以及节点移动和图编辑的 Undo / Redo                           |
 | 2026-07-25 | 建立 EditorGraphState → SourceGraph 转换；复制子图会重建 Node、Choice Option、Edge ID 并保持内部连接               |
 | 2026-07-25 | 完成 Typed Graph 端口解析与连线校验：方向、执行/数据类型、动态端口、重复连接和连接占用规则                         |

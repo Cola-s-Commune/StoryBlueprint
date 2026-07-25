@@ -99,9 +99,9 @@
 
 ### Inspector
 
-- [ ] Property Panel
-- [ ] 自动刷新
-- [ ] Property Group
+- [x] Property Panel
+- [x] 自动刷新
+- [x] Property Group
 
 ---
 
@@ -161,7 +161,7 @@
 
 ## Story Entry Node（当前实现名：Start）
 
-- [ ] Create
+- [x] Create
 - [x] Render
 - [x] 类型 ID 统一为 `story-entry` / `end-story`，Node Definition 使用独立版本号
 
@@ -269,7 +269,7 @@
 
 ## Property Renderer
 
-- [ ] String
+- [x] String / Multiline String
 - [ ] Number
 - [ ] Boolean
 - [ ] Enum
@@ -280,9 +280,11 @@
 
 ## Inspector
 
-- [ ] 双向绑定
-- [ ] Undo 支持
-- [ ] 自动刷新
+- [x] 双向绑定
+- [x] Undo 支持
+- [x] 自动刷新
+- [x] Node Name / Type / Stable ID
+- [x] Start / Dialogue / Choice / Branch / End 基础属性
 
 ---
 
@@ -472,7 +474,7 @@
 
 ## Context Menu
 
-- [ ] Create Node
+- [x] Create Node
 - [ ] Delete
 - [ ] Rename
 

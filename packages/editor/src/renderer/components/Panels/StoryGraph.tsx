@@ -1,58 +1,41 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import {
   ReactFlow,
   Background,
   BackgroundVariant,
   MiniMap,
   Controls,
-  useNodesState,
-  useEdgesState,
   type Connection,
   type Edge,
   type OnConnectEnd,
+  type ReactFlowInstance,
   addEdge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
   StoryNodeType,
   nodeRegistry,
-  NodeFactory,
   createStableId,
   validateGraphConnection,
   type GraphEdgeLike,
   type GraphNodeLike,
-  type NodeInstance,
 } from '@story-blueprint/common';
 import { nodeTypes } from '../Nodes';
 import {
   createGraphClipboard,
   pasteGraphClipboard,
-  toEditorGraphNode,
   type EditorGraphEdge,
   type EditorGraphNode,
-  type EditorGraphState,
   type GraphClipboard,
 } from '../../graph/editorGraph';
-import { useGraphHistory } from '../../graph/useGraphHistory';
+import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import styles from './StoryGraph.module.css';
-
-nodeRegistry.registerBuiltins();
-
-function buildInitialNodes(): EditorGraphNode[] {
-  const specs = [
-    { type: StoryNodeType.Start, position: { x: 250, y: 50 } },
-    { type: StoryNodeType.Dialogue, position: { x: 250, y: 220 } },
-    { type: StoryNodeType.Choice, position: { x: 200, y: 400 } },
-    { type: StoryNodeType.Branch, position: { x: 500, y: 400 } },
-    { type: StoryNodeType.End, position: { x: 200, y: 600 } },
-    { type: StoryNodeType.End, position: { x: 500, y: 600 } },
-  ];
-
-  return specs
-    .map(({ type, position }) => NodeFactory.create(NodeFactory.generateId(type), type, position))
-    .filter((node): node is NodeInstance => node !== null)
-    .map(toEditorGraphNode);
-}
 
 function toGraphNodes(nodes: readonly EditorGraphNode[]): GraphNodeLike[] {
   return nodes.map((node) => ({ id: node.id, type: node.type, data: node.data }));
@@ -79,21 +62,31 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 export function StoryGraph() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<EditorGraphNode>(buildInitialNodes());
-  const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>([]);
+  const {
+    graph,
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    onNodesChange,
+    onEdgesChange,
+    checkpoint,
+    restoreGraph,
+    undo,
+    redo,
+    addNode,
+  } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [flowInstance, setFlowInstance] = useState<
+    ReactFlowInstance<EditorGraphNode, EditorGraphEdge> | undefined
+  >();
+  const [contextMenu, setContextMenu] = useState<{
+    left: number;
+    top: number;
+    flowPosition: { x: number; y: number };
+  } | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
-  const history = useGraphHistory();
-  const graph = useMemo<EditorGraphState>(() => ({ nodes, edges }), [edges, nodes]);
-
-  const restoreGraph = useCallback(
-    (next: EditorGraphState) => {
-      setNodes(next.nodes);
-      setEdges(next.edges);
-      setConnectionError(null);
-    },
-    [setEdges, setNodes],
-  );
 
   const validateConnection = useCallback(
     (connection: Connection | Edge) =>
@@ -125,7 +118,7 @@ export function StoryGraph() {
         return;
       }
 
-      history.checkpoint(graph);
+      checkpoint();
       setConnectionError(null);
       setEdges((currentEdges) =>
         addEdge(
@@ -141,7 +134,7 @@ export function StoryGraph() {
         ),
       );
     },
-    [graph, history, setEdges, validateConnection],
+    [checkpoint, setEdges, validateConnection],
   );
 
   const onConnectEnd = useCallback<OnConnectEnd>(
@@ -167,7 +160,7 @@ export function StoryGraph() {
     const hasSelectedEdge = edges.some((edge) => edge.selected);
     if (selectedNodeIds.size === 0 && !hasSelectedEdge) return;
 
-    history.checkpoint(graph);
+    checkpoint();
     setNodes((current) => current.filter((node) => !selectedNodeIds.has(node.id)));
     setEdges((current) =>
       current.filter(
@@ -175,7 +168,7 @@ export function StoryGraph() {
           !edge.selected && !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target),
       ),
     );
-  }, [edges, graph, history, nodes, setEdges, setNodes]);
+  }, [checkpoint, edges, nodes, setEdges, setNodes]);
 
   const copySelection = useCallback(() => {
     clipboard.current = createGraphClipboard(graph);
@@ -183,32 +176,47 @@ export function StoryGraph() {
 
   const paste = useCallback(() => {
     if (!clipboard.current) return;
-    history.checkpoint(graph);
+    checkpoint();
     restoreGraph(pasteGraphClipboard(graph, clipboard.current));
-  }, [graph, history, restoreGraph]);
+  }, [checkpoint, graph, restoreGraph]);
 
   const duplicateSelection = useCallback(() => {
     const selected = createGraphClipboard(graph);
     if (!selected) return;
-    history.checkpoint(graph);
+    checkpoint();
     restoreGraph(pasteGraphClipboard(graph, selected));
-  }, [graph, history, restoreGraph]);
+  }, [checkpoint, graph, restoreGraph]);
 
-  const undo = useCallback(() => {
-    const previous = history.undo(graph);
-    if (previous) restoreGraph(previous);
-  }, [graph, history, restoreGraph]);
+  const openContextMenu = useCallback(
+    (event: globalThis.MouseEvent | ReactMouseEvent) => {
+      event.preventDefault();
+      if (!flowInstance || !canvasRef.current) return;
+      const bounds = canvasRef.current.getBoundingClientRect();
+      setContextMenu({
+        left: Math.max(4, Math.min(event.clientX - bounds.left, bounds.width - 200)),
+        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - 260)),
+        flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+      });
+    },
+    [flowInstance],
+  );
 
-  const redo = useCallback(() => {
-    const next = history.redo(graph);
-    if (next) restoreGraph(next);
-  }, [graph, history, restoreGraph]);
+  const createNode = useCallback(
+    (type: StoryNodeType) => {
+      if (!contextMenu) return;
+      addNode(type, contextMenu.flowPosition);
+      setContextMenu(null);
+    },
+    [addNode, contextMenu],
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isTextEditingTarget(event.target)) return;
       const modifier = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
+      const editingText = isTextEditingTarget(event.target);
+      const isHistoryShortcut = modifier && (key === 'z' || key === 'y');
+      if (editingText && !isHistoryShortcut) return;
 
       if (modifier && key === 'c') {
         event.preventDefault();
@@ -231,6 +239,8 @@ export function StoryGraph() {
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
         deleteSelection();
+      } else if (event.key === 'Escape') {
+        setContextMenu(null);
       }
     };
 
@@ -238,7 +248,8 @@ export function StoryGraph() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [copySelection, deleteSelection, duplicateSelection, paste, redo, undo]);
 
-  const onNodeDragStart = useCallback(() => history.checkpoint(graph), [graph, history]);
+  const onNodeDragStart = useCallback(() => checkpoint(), [checkpoint]);
+  const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
 
   return (
     <div className={styles.panel}>
@@ -246,13 +257,16 @@ export function StoryGraph() {
         <span>Story Graph</span>
         <span className={styles.shortcutHint}>Ctrl+C / V / D · Ctrl+Z / Shift+Z</span>
       </div>
-      <div className={styles.canvas}>
+      <div className={styles.canvas} ref={canvasRef}>
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStart={onNodeDragStart}
+          onInit={setFlowInstance}
+          onPaneClick={() => setContextMenu(null)}
+          onPaneContextMenu={openContextMenu}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
@@ -267,6 +281,28 @@ export function StoryGraph() {
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" />
           <Controls />
         </ReactFlow>
+        {contextMenu && (
+          <div
+            className={styles.contextMenu}
+            style={{ left: contextMenu.left, top: contextMenu.top }}
+          >
+            <div className={styles.contextMenuTitle}>Create Node</div>
+            {nodeRegistry.list().map((definition) => (
+              <button
+                key={definition.type}
+                type="button"
+                disabled={definition.type === StoryNodeType.Start && hasStoryEntry}
+                onClick={() => createNode(definition.type)}
+              >
+                <span
+                  className={styles.contextMenuColor}
+                  style={{ background: definition.color }}
+                />
+                {definition.label}
+              </button>
+            ))}
+          </div>
+        )}
         {connectionError && <div className={styles.connectionError}>{connectionError}</div>}
       </div>
     </div>

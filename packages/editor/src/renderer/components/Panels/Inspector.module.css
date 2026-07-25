@@ -1,0 +1,80 @@
+.body {
+  padding: 0;
+}
+
+.section {
+  padding: 12px;
+  border-bottom: 1px solid #2d2d2d;
+}
+
+.sectionTitle,
+.groupLabel {
+  margin-bottom: 10px;
+  color: #858585;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.groupLabel {
+  margin-top: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 11px;
+  color: #a8a8a8;
+  font-size: 11px;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #414141;
+  border-radius: 3px;
+  outline: none;
+  background: #252525;
+  color: #e2e2e2;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.field textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: #4778a8;
+  box-shadow: 0 0 0 1px #4778a8;
+}
+
+.readonlyField {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  color: #777777;
+  font-size: 11px;
+}
+
+.readonlyField code {
+  overflow: hidden;
+  padding: 6px 7px;
+  border-radius: 3px;
+  background: #242424;
+  color: #9c9c9c;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning {
+  margin: -5px 0 10px;
+  color: #e89b63;
+  font-size: 11px;
+}
