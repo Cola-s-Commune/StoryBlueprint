@@ -1,22 +1,30 @@
-import { useState } from 'react';
-import { StoryNodeType, type ChapterId } from '@story-blueprint/common';
+import { useEffect, useState } from 'react';
+import { StoryNodeType, type ChapterId, type StoryId } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import panelStyles from './Panel.module.css';
 import styles from './ResourceBrowser.module.css';
 
 export function ResourceBrowser() {
   const {
-    document,
-    chapters,
+    stories,
+    activeStoryId,
     activeGraphId,
     nodes,
-    switchGraph,
+    newStory,
+    openStory,
+    switchStory,
+    closeStory,
+    updateStory,
     addSubstory,
     updateSubstory,
     removeSubstory,
     extractSelectionToSubstory,
   } = useStoryGraphStore();
-  const [editingId, setEditingId] = useState<ChapterId>();
+  const [expandedStories, setExpandedStories] = useState<Set<StoryId>>(
+    () => new Set([activeStoryId]),
+  );
+  const [editingStoryId, setEditingStoryId] = useState<StoryId>();
+  const [editingChapterId, setEditingChapterId] = useState<ChapterId>();
   const [message, setMessage] = useState<string>();
   const selectedCount = nodes.filter((node) => node.selected).length;
   const extractableSelection =
@@ -30,6 +38,19 @@ export function ResourceBrowser() {
           node.type !== StoryNodeType.Return,
       );
 
+  useEffect(() => {
+    setExpandedStories((current) => new Set(current).add(activeStoryId));
+  }, [activeStoryId]);
+
+  const toggleStory = (id: StoryId) => {
+    setExpandedStories((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const remove = (id: ChapterId) => {
     const error = removeSubstory(id);
     setMessage(error);
@@ -40,85 +61,177 @@ export function ResourceBrowser() {
       <div className={`${panelStyles.body} ${styles.body}`}>
         <div className={styles.header}>
           <div>
-            <div className={styles.eyebrow}>Story Asset</div>
-            <div className={styles.storyName}>{document.displayName}</div>
+            <div className={styles.eyebrow}>Project Resources</div>
+            <div className={styles.storyName}>{stories.length} Stories</div>
           </div>
-          <button
-            type="button"
-            className={styles.iconButton}
-            title="Add Substory"
-            onClick={() => {
-              setMessage(undefined);
-              addSubstory();
-            }}
-          >
-            +
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.iconButton}
+              title="Open Story"
+              onClick={() => void openStory()}
+            >
+              ▱
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              title="New Story"
+              onClick={newStory}
+            >
+              +
+            </button>
+          </div>
         </div>
 
-        <div className={styles.sectionTitle}>Blueprints</div>
-        <button
-          type="button"
-          className={`${styles.resourceRow} ${activeGraphId === 'root' ? styles.active : ''}`}
-          onClick={() => switchGraph('root')}
-        >
-          <span className={styles.graphIcon}>◆</span>
-          <span className={styles.resourceText}>
-            <strong>Main Story</strong>
-            <small>Root Blueprint</small>
-          </span>
-        </button>
+        <div className={styles.sectionTitle}>Stories</div>
+        <div className={styles.storyTree}>
+          {stories.map((story) => {
+            const storyId = story.document.id;
+            const isActiveStory = storyId === activeStoryId;
+            const expanded = expandedStories.has(storyId);
+            return (
+              <div key={storyId} className={styles.storyGroup}>
+                <div className={`${styles.storyRow} ${isActiveStory ? styles.activeStory : ''}`}>
+                  <button
+                    type="button"
+                    className={styles.disclosure}
+                    aria-label={expanded ? 'Collapse story' : 'Expand story'}
+                    onClick={() => toggleStory(storyId)}
+                  >
+                    {expanded ? '▾' : '▸'}
+                  </button>
+                  <div
+                    className={styles.storySelect}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => switchStory(storyId)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') switchStory(storyId);
+                    }}
+                  >
+                    <span className={styles.storyIcon}>▰</span>
+                    {editingStoryId === storyId && isActiveStory ? (
+                      <input
+                        autoFocus
+                        value={story.document.displayName}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => updateStory({ displayName: event.target.value })}
+                        onBlur={() => setEditingStoryId(undefined)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === 'Escape') {
+                            setEditingStoryId(undefined);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span className={styles.resourceText}>
+                        <strong>{story.document.displayName}</strong>
+                        <small>{story.document.filePath ?? 'Unsaved story'}</small>
+                      </span>
+                    )}
+                    {story.document.dirty && <span className={styles.dirtyDot} title="Unsaved" />}
+                  </div>
+                  <span className={styles.rowActions}>
+                    <button
+                      type="button"
+                      title="Rename"
+                      onClick={() => {
+                        switchStory(storyId);
+                        setEditingStoryId(storyId);
+                      }}
+                    >
+                      ✎
+                    </button>
+                    {isActiveStory && (
+                      <button type="button" title="Add Substory" onClick={() => addSubstory()}>
+                        +
+                      </button>
+                    )}
+                    <button type="button" title="Close Story" onClick={() => closeStory(storyId)}>
+                      ×
+                    </button>
+                  </span>
+                </div>
 
-        {chapters.map((chapter) => (
-          <div
-            key={chapter.id}
-            className={`${styles.resourceRow} ${activeGraphId === chapter.id ? styles.active : ''}`}
-            onClick={() => switchGraph(chapter.id)}
-          >
-            <span className={styles.subgraphIcon}>◇</span>
-            {editingId === chapter.id ? (
-              <input
-                autoFocus
-                value={chapter.displayName}
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  updateSubstory(chapter.id, { displayName: event.target.value })
-                }
-                onBlur={() => setEditingId(undefined)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === 'Escape') setEditingId(undefined);
-                }}
-              />
-            ) : (
-              <span className={styles.resourceText}>
-                <strong>{chapter.displayName}</strong>
-                <small>{chapter.name}</small>
-              </span>
-            )}
-            <span className={styles.rowActions}>
-              <button
-                type="button"
-                title="Rename"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setEditingId(chapter.id);
-                }}
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                title="Delete"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  remove(chapter.id);
-                }}
-              >
-                ×
-              </button>
-            </span>
-          </div>
-        ))}
+                {expanded && (
+                  <div className={styles.blueprintTree}>
+                    <button
+                      type="button"
+                      className={`${styles.resourceRow} ${
+                        isActiveStory && activeGraphId === 'root' ? styles.active : ''
+                      }`}
+                      onClick={() => switchStory(storyId, 'root')}
+                    >
+                      <span className={styles.graphIcon}>◆</span>
+                      <span className={styles.resourceText}>
+                        <strong>Main Story</strong>
+                        <small>Root Blueprint</small>
+                      </span>
+                    </button>
+
+                    {story.chapters.map((chapter) => (
+                      <div
+                        key={chapter.id}
+                        className={`${styles.resourceRow} ${
+                          isActiveStory && activeGraphId === chapter.id ? styles.active : ''
+                        }`}
+                        onClick={() => switchStory(storyId, chapter.id)}
+                      >
+                        <span className={styles.subgraphIcon}>◇</span>
+                        {editingChapterId === chapter.id && isActiveStory ? (
+                          <input
+                            autoFocus
+                            value={chapter.displayName}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              updateSubstory(chapter.id, { displayName: event.target.value })
+                            }
+                            onBlur={() => setEditingChapterId(undefined)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === 'Escape') {
+                                setEditingChapterId(undefined);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className={styles.resourceText}>
+                            <strong>{chapter.displayName}</strong>
+                            <small>{chapter.name}</small>
+                          </span>
+                        )}
+                        {isActiveStory && (
+                          <span className={styles.rowActions}>
+                            <button
+                              type="button"
+                              title="Rename"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingChapterId(chapter.id);
+                              }}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                remove(chapter.id);
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
         <div className={styles.actions}>
           <button
@@ -134,7 +247,7 @@ export function ResourceBrowser() {
             Extract Selection to Substory
           </button>
           <small>
-            {selectedCount} selected node{selectedCount === 1 ? '' : 's'}
+            {selectedCount} selected node{selectedCount === 1 ? '' : 's'} in active story
           </small>
         </div>
 

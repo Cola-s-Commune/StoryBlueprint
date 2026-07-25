@@ -15,7 +15,7 @@ import type { SaveStoryRequest } from '../shared/electronApi';
 
 let mainWindow: BrowserWindow | null = null;
 let storyDirty = false;
-let currentStoryFile: { path: string; token: string } | undefined;
+const storyFileTokens = new Map<string, Set<string>>();
 
 const MAX_STORY_BYTES = 64 * 1024 * 1024;
 
@@ -55,7 +55,9 @@ function registerStoryFileHandlers(): void {
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf8');
     const fileToken = randomUUID();
-    currentStoryFile = { path: filePath, token: fileToken };
+    const tokens = storyFileTokens.get(filePath) ?? new Set<string>();
+    tokens.add(fileToken);
+    storyFileTokens.set(filePath, tokens);
     return { canceled: false, filePath, fileToken, content };
   });
 
@@ -65,10 +67,10 @@ function registerStoryFileHandlers(): void {
 
     let filePath =
       !request.saveAs &&
-      currentStoryFile &&
-      request.filePath === currentStoryFile.path &&
-      request.fileToken === currentStoryFile.token
-        ? currentStoryFile.path
+      request.filePath &&
+      request.fileToken &&
+      storyFileTokens.get(request.filePath)?.has(request.fileToken)
+        ? request.filePath
         : undefined;
     if (!filePath) {
       const result = await dialog.showSaveDialog(mainWindow, {
@@ -81,7 +83,9 @@ function registerStoryFileHandlers(): void {
     }
     await writeFile(filePath, request.content, 'utf8');
     const fileToken = randomUUID();
-    currentStoryFile = { path: filePath, token: fileToken };
+    const tokens = storyFileTokens.get(filePath) ?? new Set<string>();
+    tokens.add(fileToken);
+    storyFileTokens.set(filePath, tokens);
     return { canceled: false, filePath, fileToken };
   });
 }
@@ -117,9 +121,9 @@ function createWindow(): void {
     event.preventDefault();
     const choice = dialog.showMessageBoxSync(mainWindow!, {
       type: 'warning',
-      title: 'Unsaved Story',
+      title: 'Unsaved Stories',
       message: 'Discard unsaved story changes?',
-      detail: 'Your latest graph edits have not been saved.',
+      detail: 'One or more open stories contain edits that have not been saved.',
       buttons: ['Cancel', 'Discard'],
       defaultId: 0,
       cancelId: 0,

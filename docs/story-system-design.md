@@ -737,9 +737,11 @@ Runtime 不负责：
 
 ## 13. 文件职责总结
 
+编辑器工作区可以同时打开多个独立的 Story 资源。每个 `*.story` 仍是独立权威源，包含自己的 Main Story、Substory、变量、角色与资源；在尚未创建 `*.storyproject` 前，多 Story 工作区只是编辑会话，不会把多个 Story 强行合并进一个源文件。
+
 | 文件                | 格式                 | 是否权威源 | 用途                   |
 | ------------------- | -------------------- | ---------: | ---------------------- |
-| `*.story`           | KDL 2.0              |         是 | 编辑器完整工程数据     |
+| `*.story`           | KDL 2.0              |         是 | 单个 Story 完整源数据  |
 | `*.storyc.json`     | JSON Runtime Program |         否 | Runtime 执行逻辑       |
 | `*.storyc.json.map` | JSON                 |         否 | 可选调试映射           |
 | `*.ink`             | Ink                  |         否 | 导入、导出与 Ink Block |

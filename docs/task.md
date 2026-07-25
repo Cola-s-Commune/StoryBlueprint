@@ -89,6 +89,10 @@
 
 ### Resource Browser
 
+- [x] 同一编辑工作区管理多个独立 Story 资源
+- [x] Story → Main Story / Substory 分层资源树
+- [x] 新建、打开、切换、重命名和关闭 Story
+- [x] 每个 Story 独立保留图、变量、角色、资源与未保存状态
 - [x] Story 内 Main Story / Substory 蓝图列表
 - [x] 新建、重命名、切换和安全删除 Substory
 - [x] 多选节点提取为单入口、单出口 Substory
@@ -367,6 +371,9 @@
 - [x] Open
 - [x] Save
 - [x] Save As
+- [x] 多 Story 同时打开与分别保存
+- [ ] Save All
+- [ ] `.storyproject` 项目清单与最近打开 Story 恢复
 
 ---
 

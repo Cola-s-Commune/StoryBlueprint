@@ -208,7 +208,7 @@ function createNewSubstoryGraph(): EditorGraphState {
   };
 }
 
-interface StoryDocumentInfo {
+export interface StoryDocumentInfo {
   id: StoryId;
   name: string;
   displayName: string;
@@ -220,6 +220,19 @@ interface StoryDocumentInfo {
 
 export interface EditorChapter extends Omit<ChapterSource, 'graph'> {
   graph: EditorGraphState;
+}
+
+export interface EditorStoryResource {
+  document: StoryDocumentInfo;
+  chapters: EditorChapter[];
+}
+
+interface EditorStoryWorkspaceItem extends EditorStoryResource {
+  rootGraph: EditorGraphState;
+  variables: VariableDefinition[];
+  characters: CharacterSource[];
+  assets: AssetSource[];
+  revision: number;
 }
 
 export type ActiveGraphId = 'root' | ChapterId;
@@ -249,6 +262,8 @@ interface StoryGraphStoreValue {
     update: Partial<StoryNodeDataMap[T]>,
   ) => void;
   document: StoryDocumentInfo;
+  stories: EditorStoryResource[];
+  activeStoryId: StoryId;
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -273,12 +288,24 @@ interface StoryGraphStoreValue {
   newStory: () => void;
   openStory: () => Promise<void>;
   saveStory: (saveAs?: boolean) => Promise<void>;
+  switchStory: (id: StoryId, graphId?: ActiveGraphId) => void;
+  closeStory: (id: StoryId) => void;
+  updateStory: (update: { name?: string; displayName?: string }) => void;
 }
 
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
 
 export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const initialGraph = useMemo(createNewGraph, []);
+  const initialDocument = useMemo<StoryDocumentInfo>(
+    () => ({
+      id: createStableId('story'),
+      name: 'untitled',
+      displayName: 'Untitled Story',
+      dirty: false,
+    }),
+    [],
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<EditorGraphNode>(initialGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>(initialGraph.edges);
   const graph = useMemo<EditorGraphState>(() => ({ nodes, edges }), [edges, nodes]);
@@ -290,12 +317,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [chapters, setChapters] = useState<EditorChapter[]>([]);
   const [activeGraphId, setActiveGraphId] = useState<ActiveGraphId>('root');
   const revisionRef = useRef(0);
-  const [document, setDocument] = useState<StoryDocumentInfo>(() => ({
-    id: createStableId('story'),
-    name: 'untitled',
-    displayName: 'Untitled Story',
-    dirty: false,
-  }));
+  const [document, setDocument] = useState<StoryDocumentInfo>(initialDocument);
+  const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>(() => [
+    {
+      document: initialDocument,
+      rootGraph: structuredClone(initialGraph),
+      chapters: [],
+      variables: [],
+      characters: [],
+      assets: [],
+      revision: 0,
+    },
+  ]);
   const source = useMemo<StorySourceDocument>(
     () => ({
       format: STORY_SOURCE_FORMAT,
@@ -332,9 +365,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     setDocument((current) => ({ ...current, dirty: true, error: undefined }));
   }, []);
 
+  const stories = useMemo<EditorStoryResource[]>(
+    () =>
+      workspaceStories.map((story) =>
+        story.document.id === document.id ? { document, chapters } : story,
+      ),
+    [chapters, document, workspaceStories],
+  );
+
   useEffect(() => {
-    window.electronAPI?.setStoryDirty(document.dirty);
-  }, [document.dirty]);
+    window.electronAPI?.setStoryDirty(
+      document.dirty || workspaceStories.some((story) => story.document.dirty),
+    );
+  }, [document.dirty, workspaceStories]);
 
   const checkpoint = useCallback(
     (snapshot?: EditorGraphState) => history.checkpoint(snapshot ?? graph),
@@ -743,64 +786,188 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [markDirty, setNodes],
   );
 
-  const confirmDiscardChanges = useCallback(
-    () => !document.dirty || window.confirm('Discard unsaved story changes?'),
-    [document.dirty],
+  const captureActiveStory = useCallback(
+    (): EditorStoryWorkspaceItem => ({
+      document: { ...document },
+      rootGraph: structuredClone(activeGraphId === 'root' ? graph : rootGraphRef.current),
+      chapters: chapters.map((chapter) => ({
+        ...chapter,
+        graph: structuredClone(activeGraphId === chapter.id ? graph : chapter.graph),
+      })),
+      variables: structuredClone(variables),
+      characters: structuredClone(characters),
+      assets: structuredClone(assets),
+      revision: revisionRef.current,
+    }),
+    [activeGraphId, assets, chapters, characters, document, graph, variables],
+  );
+
+  const loadStory = useCallback(
+    (story: EditorStoryWorkspaceItem, graphId: ActiveGraphId = 'root') => {
+      const targetGraph =
+        graphId === 'root'
+          ? story.rootGraph
+          : story.chapters.find((chapter) => chapter.id === graphId)?.graph;
+      if (!targetGraph) return;
+      rootGraphRef.current = structuredClone(story.rootGraph);
+      restoreGraph(structuredClone(targetGraph));
+      setChapters(structuredClone(story.chapters));
+      setActiveGraphId(graphId);
+      setVariables(structuredClone(story.variables));
+      setCharacters(structuredClone(story.characters));
+      setAssets(structuredClone(story.assets));
+      setDocument({ ...story.document });
+      revisionRef.current = story.revision;
+      history.clear();
+    },
+    [history, restoreGraph],
+  );
+
+  const switchStory = useCallback(
+    (id: StoryId, graphId: ActiveGraphId = 'root') => {
+      if (id === document.id) {
+        switchGraph(graphId);
+        return;
+      }
+      const target = workspaceStories.find((story) => story.document.id === id);
+      if (!target) return;
+      const current = captureActiveStory();
+      setWorkspaceStories((items) =>
+        items.map((story) => (story.document.id === current.document.id ? current : story)),
+      );
+      loadStory(target, graphId);
+    },
+    [captureActiveStory, document.id, loadStory, switchGraph, workspaceStories],
   );
 
   const newStory = useCallback(() => {
-    if (!confirmDiscardChanges()) return;
     const nextGraph = createNewGraph();
-    rootGraphRef.current = structuredClone(nextGraph);
-    restoreGraph(nextGraph);
-    setChapters([]);
-    setActiveGraphId('root');
-    setVariables([]);
-    setCharacters([]);
-    setAssets([]);
-    history.clear();
-    revisionRef.current = 0;
-    setDocument({
-      id: createStableId('story'),
-      name: 'untitled',
-      displayName: 'Untitled Story',
-      dirty: false,
-    });
-  }, [confirmDiscardChanges, history, restoreGraph]);
+    const current = captureActiveStory();
+    const usedNames = new Set(workspaceStories.map((story) => story.document.name));
+    let untitledIndex = 1;
+    let name = 'untitled';
+    while (usedNames.has(name)) name = `untitled-${++untitledIndex}`;
+    const next: EditorStoryWorkspaceItem = {
+      document: {
+        id: createStableId('story'),
+        name,
+        displayName: `Untitled Story${untitledIndex === 1 ? '' : ` ${untitledIndex}`}`,
+        dirty: false,
+      },
+      rootGraph: structuredClone(nextGraph),
+      chapters: [],
+      variables: [],
+      characters: [],
+      assets: [],
+      revision: 0,
+    };
+    setWorkspaceStories((items) => [
+      ...items.map((story) => (story.document.id === current.document.id ? current : story)),
+      next,
+    ]);
+    loadStory(next);
+  }, [captureActiveStory, loadStory, workspaceStories]);
 
   const openStory = useCallback(async () => {
-    if (!confirmDiscardChanges() || !window.electronAPI) return;
+    if (!window.electronAPI) return;
     try {
       const result = await window.electronAPI.openStory();
       if (result.canceled) return;
       const source = parseStorySource(result.content);
       const rootGraph = fromSourceGraph(source.root);
-      rootGraphRef.current = structuredClone(rootGraph);
-      restoreGraph(rootGraph);
-      setChapters(
-        source.chapters.map((chapter) => ({ ...chapter, graph: fromSourceGraph(chapter.graph) })),
-      );
-      setActiveGraphId('root');
-      setVariables([...source.variables]);
-      setCharacters([...source.characters]);
-      setAssets([...source.assets]);
-      history.clear();
-      revisionRef.current = 0;
-      setDocument({
-        id: source.id,
-        name: source.name,
-        displayName: source.displayName,
-        filePath: result.filePath,
-        fileToken: result.fileToken,
-        dirty: false,
+      const current = captureActiveStory();
+      const opened: EditorStoryWorkspaceItem = {
+        document: {
+          id: source.id,
+          name: source.name,
+          displayName: source.displayName,
+          filePath: result.filePath,
+          fileToken: result.fileToken,
+          dirty: false,
+        },
+        rootGraph,
+        chapters: source.chapters.map((chapter) => ({
+          ...chapter,
+          graph: fromSourceGraph(chapter.graph),
+        })),
+        variables: [...source.variables],
+        characters: [...source.characters],
+        assets: [...source.assets],
+        revision: 0,
+      };
+      setWorkspaceStories((items) => {
+        const withoutOpened = items.filter(
+          (story) =>
+            story.document.id !== opened.document.id &&
+            story.document.filePath !== opened.document.filePath,
+        );
+        return [
+          ...withoutOpened.map((story) =>
+            story.document.id === current.document.id ? current : story,
+          ),
+          opened,
+        ];
       });
+      loadStory(opened);
     } catch (error) {
       setDocument((current) => ({
         ...current,
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, [confirmDiscardChanges, history, restoreGraph]);
+  }, [captureActiveStory, loadStory]);
+
+  const closeStory = useCallback(
+    (id: StoryId) => {
+      const target =
+        id === document.id
+          ? { ...captureActiveStory(), document }
+          : workspaceStories.find((story) => story.document.id === id);
+      if (!target) return;
+      if (
+        target.document.dirty &&
+        !window.confirm(`Discard changes to ${target.document.displayName}?`)
+      ) {
+        return;
+      }
+      const remaining = workspaceStories.filter((story) => story.document.id !== id);
+      if (id !== document.id) {
+        setWorkspaceStories(remaining);
+        return;
+      }
+      if (remaining.length > 0) {
+        setWorkspaceStories(remaining);
+        loadStory(remaining[0]);
+        return;
+      }
+      const nextGraph = createNewGraph();
+      const next: EditorStoryWorkspaceItem = {
+        document: {
+          id: createStableId('story'),
+          name: 'untitled',
+          displayName: 'Untitled Story',
+          dirty: false,
+        },
+        rootGraph: nextGraph,
+        chapters: [],
+        variables: [],
+        characters: [],
+        assets: [],
+        revision: 0,
+      };
+      setWorkspaceStories([next]);
+      loadStory(next);
+    },
+    [captureActiveStory, document, loadStory, workspaceStories],
+  );
+
+  const updateStory = useCallback(
+    (update: { name?: string; displayName?: string }) => {
+      setDocument((current) => ({ ...current, ...update, id: current.id }));
+      markDirty();
+    },
+    [markDirty],
+  );
 
   const saveStory = useCallback(
     async (saveAs = false) => {
@@ -872,10 +1039,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateAsset,
       removeAsset,
       document,
+      stories,
+      activeStoryId: document.id,
       markDirty,
       newStory,
       openStory,
       saveStory,
+      switchStory,
+      closeStory,
+      updateStory,
     }),
     [
       addNode,
@@ -887,6 +1059,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       characters,
       chapters,
       document,
+      stories,
       edges,
       graph,
       activeGraphId,
@@ -905,6 +1078,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setNodes,
       openStory,
       saveStory,
+      switchStory,
+      closeStory,
+      updateStory,
       source,
       switchGraph,
       undo,

@@ -47,6 +47,12 @@
   cursor: pointer;
 }
 
+.headerActions,
+.rowActions {
+  display: flex;
+  gap: 3px;
+}
+
 .iconButton:hover,
 .rowActions button:hover {
   border-color: #5d83a9;
@@ -55,6 +61,91 @@
 
 .sectionTitle {
   padding: 12px 10px 6px;
+}
+
+.storyTree {
+  display: grid;
+}
+
+.storyGroup {
+  min-width: 0;
+}
+
+.storyRow {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  padding: 2px 6px 2px 4px;
+  border-left: 2px solid transparent;
+}
+
+.storyRow:hover {
+  background: #252a31;
+}
+
+.storyRow.activeStory {
+  border-left-color: #d49a4a;
+  background: #292b2c;
+}
+
+.disclosure,
+.storySelect {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.disclosure {
+  width: 20px;
+  flex: 0 0 20px;
+  padding: 0;
+  color: #858d97;
+  font-size: 10px;
+}
+
+.storySelect {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 2px;
+  text-align: left;
+}
+
+.storySelect input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #9b733e;
+  border-radius: 3px;
+  outline: none;
+  background: #27231e;
+  color: #e6ddd0;
+  padding: 4px 5px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.storyIcon {
+  color: #d49a4a;
+  font-size: 11px;
+}
+
+.dirtyDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #e6aa55;
+}
+
+.blueprintTree {
+  position: relative;
+  margin-left: 15px;
+  padding-left: 8px;
+  border-left: 1px solid #343941;
 }
 
 .resourceRow {
@@ -131,13 +222,15 @@
   font-size: 11px;
 }
 
-.rowActions {
+.resourceRow .rowActions,
+.storyRow .rowActions {
   display: none;
-  gap: 3px;
 }
 
 .resourceRow:hover .rowActions,
-.resourceRow.active .rowActions {
+.resourceRow.active .rowActions,
+.storyRow:hover .rowActions,
+.storyRow.activeStory .rowActions {
   display: flex;
 }
 
