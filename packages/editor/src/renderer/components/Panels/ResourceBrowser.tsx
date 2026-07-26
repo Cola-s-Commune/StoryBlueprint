@@ -322,20 +322,12 @@ export function ResourceBrowser() {
       const resource = workspace?.characterResources.find(
         (candidate) => candidate.relativePath === entry.relativePath,
       );
-      if (
-        resource &&
-        window.confirm(
-          `Delete character "${resource.character.displayName}"? This cannot be undone.`,
-        )
-      ) {
+      if (resource) {
         removeCharacter(resource.character.id);
-      } else if (
-        !resource &&
-        window.confirm(`Delete character file "${entry.name}"? This cannot be undone.`)
-      ) {
+      } else if (!resource && window.electronAPI) {
         void window.electronAPI
-          ?.deleteProjectCharacter(entry.relativePath)
-          .then(() => refreshWorkspace())
+          .deleteProjectCharacter(entry.relativePath)
+          .then((result) => (result.canceled ? undefined : refreshWorkspace()))
           .catch((error: unknown) =>
             setMessage(error instanceof Error ? error.message : String(error)),
           );

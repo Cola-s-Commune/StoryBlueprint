@@ -90,6 +90,36 @@ describe('story KDL v2', () => {
     expect(serialized).not.toContain('edge_');
   });
 
+  it('preserves project-level character and asset references without embedding definitions', () => {
+    const source = sourceDocument();
+    source.characters = [];
+    source.assets = [];
+    source.root = {
+      ...source.root,
+      nodes: source.root.nodes.map((node) =>
+        node.id === 'n_talk'
+          ? {
+              ...node,
+              data: {
+                ...(node.data as Record<string, unknown>),
+                speakerId: 'c_projectcharacter',
+                voiceId: 'a_projectvoice',
+              },
+            }
+          : node,
+      ),
+    };
+
+    const parsed = parseStorySource(serializeStorySource(source));
+    const dialogue = parsed.root.nodes.find((node) => node.id === 'n_talk');
+    expect(dialogue?.data).toEqual(
+      expect.objectContaining({
+        speakerId: 'c_projectcharacter',
+        voiceId: 'a_projectvoice',
+      }),
+    );
+  });
+
   it('rejects unknown fields instead of silently dropping them', () => {
     const serialized = serializeStorySource(sourceDocument()).replace(
       'display-name="Test Story"',

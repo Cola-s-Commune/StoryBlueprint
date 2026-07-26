@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CharacterSource,
   AssetId,
@@ -20,6 +20,56 @@ function defaultForType(kind: ScalarKind): RuntimeValue {
   return '';
 }
 
+function ScriptNameInput({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const beforeEdit = useRef(value);
+  const editing = useRef(false);
+  const canceling = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
+
+  const finishEditing = () => {
+    editing.current = false;
+    if (canceling.current) {
+      canceling.current = false;
+      setDraft(beforeEdit.current);
+      return;
+    }
+    if (!draft) {
+      setDraft(beforeEdit.current);
+      return;
+    }
+    if (draft !== value) onCommit(draft);
+  };
+
+  return (
+    <input
+      value={draft}
+      onFocus={() => {
+        beforeEdit.current = value;
+        editing.current = true;
+      }}
+      onChange={(event) => setDraft(event.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+      onBlur={finishEditing}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          canceling.current = true;
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 function VariableEditor({ variable }: { variable: VariableDefinition }) {
   const { variables, updateVariable, removeVariable } = useStoryGraphStore();
   const duplicate = variables.some(
@@ -31,13 +81,9 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       <div className={styles.detailsTitle}>Variable</div>
       <label>
         <span>Name</span>
-        <input
+        <ScriptNameInput
           value={variable.name}
-          onChange={(event) =>
-            updateVariable(variable.id, {
-              name: event.target.value.replace(/[^a-zA-Z0-9_]/g, ''),
-            })
-          }
+          onCommit={(name) => updateVariable(variable.id, { name, displayName: name })}
         />
       </label>
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
@@ -132,12 +178,9 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       <div className={styles.detailsTitle}>Character</div>
       <label>
         <span>Name</span>
-        <input
+        <ScriptNameInput
           value={character.name}
-          onChange={(event) => {
-            const name = event.target.value.replace(/[^a-zA-Z0-9_]/g, '');
-            if (name) updateCharacter(character.id, { name, displayName: name });
-          }}
+          onCommit={(name) => updateCharacter(character.id, { name, displayName: name })}
         />
       </label>
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
@@ -202,11 +245,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         <button
           className={styles.dangerButton}
           type="button"
-          onClick={() => {
-            if (window.confirm(`Delete character ${character.displayName}?`)) {
-              removeCharacter(character.id);
-            }
-          }}
+          onClick={() => removeCharacter(character.id)}
         >
           Delete Character
         </button>
@@ -228,12 +267,7 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
       <div className={styles.detailsTitle}>Asset</div>
       <label>
         <span>Name</span>
-        <input
-          value={asset.name}
-          onChange={(event) =>
-            updateAsset(asset.id, { name: event.target.value.replace(/[^a-zA-Z0-9_]/g, '') })
-          }
-        />
+        <ScriptNameInput value={asset.name} onCommit={(name) => updateAsset(asset.id, { name })} />
       </label>
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
       <label>

@@ -7,7 +7,7 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, realpath, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { is } from '@electron-toolkit/utils';
@@ -1118,20 +1118,18 @@ function registerStoryFileHandlers(): void {
       const character = value as CharacterSource;
       if (character.id !== previous.id) throw new Error('Character ID cannot be changed');
       await validateCharacterResourceWrite(character, relativePath);
-      const nextFilePath = join(
-        dirname(filePath),
-        `${character.name}-${character.id.slice(-6)}.character`,
-      );
-      if (nextFilePath.toLowerCase() !== filePath.toLowerCase()) {
-        await rename(filePath, nextFilePath);
-      }
-      await writeFile(nextFilePath, serializeCharacterResource(character), 'utf8');
+      await writeFile(filePath, serializeCharacterResource(character), 'utf8');
       return syncWorkspaceProject();
     },
   );
 
   ipcMain.handle('workspace:delete-character', async (event, relativePath: unknown) => {
-    if (!isTrustedSender(event) || typeof relativePath !== 'string' || !workspaceProjectFile) {
+    if (
+      !isTrustedSender(event) ||
+      !mainWindow ||
+      typeof relativePath !== 'string' ||
+      !workspaceProjectFile
+    ) {
       throw new Error('Invalid character delete');
     }
     const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
@@ -1141,8 +1139,21 @@ function registerStoryFileHandlers(): void {
     }
     const filePath = await resolveExistingWorkspacePath(relativePath);
     if (!filePath.toLowerCase().endsWith('.character')) throw new Error('Not a character file');
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Delete Character',
+      message: `Delete character "${reference?.displayName ?? basename(filePath, extname(filePath))}"?`,
+      detail: 'The character file will be permanently deleted. This cannot be undone.',
+      buttons: ['Delete', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (confirmation.response !== 0) {
+      return { canceled: true, workspace: (await readWorkspace())! };
+    }
     await unlink(filePath);
-    return syncWorkspaceProject();
+    return { canceled: false, workspace: await syncWorkspaceProject() };
   });
 
   ipcMain.handle('workspace:create-asset', async (event, value: unknown) => {

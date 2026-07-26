@@ -42,6 +42,11 @@ export interface CreatedWorkspaceProject {
   initialStory: Exclude<OpenStoryResult, { canceled: true }>;
 }
 
+export interface DeleteProjectResourceResult {
+  canceled: boolean;
+  workspace: WorkspaceInfo;
+}
+
 export interface RecentProject {
   name: string;
   filePath: string;
@@ -123,7 +128,7 @@ export interface ElectronAPI {
     relativePath: string,
     character: CharacterSource,
   ) => Promise<WorkspaceInfo>;
-  deleteProjectCharacter: (relativePath: string) => Promise<WorkspaceInfo>;
+  deleteProjectCharacter: (relativePath: string) => Promise<DeleteProjectResourceResult>;
   createProjectAsset: (asset: AssetSource) => Promise<WorkspaceInfo>;
   updateProjectAsset: (relativePath: string, asset: AssetSource) => Promise<WorkspaceInfo>;
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;

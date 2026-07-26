@@ -25,8 +25,12 @@ npm run dev
 - 工作区同步与 Compiler 会诊断重复资源、悬空 Speaker/Voice/Portrait 引用和错误资产类型；构建时仅合并各 Story 实际使用的项目资源。
 - Explorer 与 Story Data 支持定位项目、Story、角色和资产文件；删除与关闭 Story 明确分离，删除项目文件不会连带删除项目内容。
 - 通过欢迎页或现有工作区新建项目时，会自动创建、设为入口并打开默认 Main Story。
-- Story Data 保留左侧列表，变量、角色和资产表单移入右侧 Inspector；角色 Name 会同步 Display Name 和 `.character` 文件名。
+- Story Data 保留左侧列表，变量、角色和资产表单移入右侧 Inspector；角色 Name 会同步 Display Name，但 `.character` 创建后的文件路径保持稳定。
 - 项目资源删除从“任意 Story dirty 即禁止”改为真实引用检查：保存内容查项目索引，未保存内容查已打开内存图。
+- 角色删除改为主进程统一的原生 Delete / Cancel 确认，取消后保留角色文件和当前 Inspector 状态。
+- 变量、角色和资产 Name 改为草稿提交；编辑时允许清空，空值失焦、Enter 或 Esc 会恢复原名。
+- 变量 Name 与角色一致：确认重命名后同步更新 Display Name，并继续安全改写表达式和模板引用。
+- 修复项目角色引用导致 `.story` 保存和恢复快照崩溃：KDL 保留外部资源 ID，完整存在性检查移至项目同步与 Compiler。
 - 启动流程改为空会话欢迎页，不再自动打开 Untitled Story；支持原生 New/Open/Save Project 和 Open Story。
 - 关闭 Story、退出软件或切换项目时统一提供 Save / Don't Save / Cancel；保存会覆盖所有已修改的 Story 标签。
 - 成功切换项目后会清空旧项目的标签和编辑状态，避免跨项目资源混用。

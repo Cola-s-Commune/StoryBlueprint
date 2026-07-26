@@ -277,8 +277,6 @@ function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined
 function validateStoryReferences(source: StorySourceDocument): void {
   const chapterIds = new Set(source.chapters.map((chapter) => chapter.id));
   const variableIds = new Set(source.variables.map((variable) => variable.id));
-  const characterIds = new Set(source.characters.map((character) => character.id));
-  const assetIds = new Set(source.assets.map((asset) => asset.id));
   const allNodeIds = new Set<string>();
   const graphs = [source.root, ...source.chapters.map((chapter) => chapter.graph)];
   for (const graph of graphs) {
@@ -294,15 +292,6 @@ function validateStoryReferences(source: StorySourceDocument): void {
     }
   }
   for (const node of graphs.flatMap((graph) => graph.nodes)) {
-    if (node.type === StoryNodeType.Dialogue) {
-      const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Dialogue];
-      if (data.speakerId && !characterIds.has(data.speakerId)) {
-        throw new StoryFormatError(`${node.id} references missing character ${data.speakerId}`);
-      }
-      if (data.voiceId && !assetIds.has(data.voiceId)) {
-        throw new StoryFormatError(`${node.id} references missing voice asset ${data.voiceId}`);
-      }
-    }
     if (node.type === StoryNodeType.GetVariable || node.type === StoryNodeType.SetVariable) {
       const data = node.data as unknown as
         StoryNodeDataMap[StoryNodeType.GetVariable] | StoryNodeDataMap[StoryNodeType.SetVariable];
@@ -314,16 +303,6 @@ function validateStoryReferences(source: StorySourceDocument): void {
       const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
       if (!data.chapterId || !chapterIds.has(data.chapterId)) {
         throw new StoryFormatError(`${node.id} references a missing substory`);
-      }
-    }
-  }
-  for (const character of source.characters) {
-    if (character.defaultPortraitId && !assetIds.has(character.defaultPortraitId)) {
-      throw new StoryFormatError(`${character.id} references a missing portrait asset`);
-    }
-    for (const emotion of Object.values(character.emotions)) {
-      if (emotion.portraitId && !assetIds.has(emotion.portraitId)) {
-        throw new StoryFormatError(`${character.id} emotion references a missing portrait asset`);
       }
     }
   }

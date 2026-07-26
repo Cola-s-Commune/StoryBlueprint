@@ -246,6 +246,27 @@ export type StoryDataSelection =
   | { kind: 'character'; id: CharacterId }
   | { kind: 'asset'; id: AssetId };
 
+function collectOpenResourceUsage(items: readonly EditorStoryWorkspaceItem[]) {
+  const characterIds = new Set<CharacterId>();
+  const assetIds = new Set<AssetId>();
+  for (const story of items) {
+    const graphs = [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)];
+    for (const candidate of graphs.flatMap((candidate) => candidate.nodes)) {
+      if (candidate.type !== StoryNodeType.Dialogue) continue;
+      const dialogue = candidate.data as DialogueNodeData;
+      if (dialogue.speakerId) characterIds.add(dialogue.speakerId);
+      if (dialogue.voiceId) assetIds.add(dialogue.voiceId);
+    }
+    for (const character of story.characters) {
+      if (character.defaultPortraitId) assetIds.add(character.defaultPortraitId);
+      for (const emotion of Object.values(character.emotions)) {
+        if (emotion.portraitId) assetIds.add(emotion.portraitId);
+      }
+    }
+  }
+  return { characterIds, assetIds };
+}
+
 export type ActiveGraphId = 'root' | ChapterId;
 
 interface StoryGraphStoreValue {
@@ -373,10 +394,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [sessionReady, setSessionReady] = useState(false);
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
-  const openResourceUsageRef = useRef({
-    characterIds: new Set<CharacterId>(),
-    assetIds: new Set<AssetId>(),
-  });
+  const currentStoryItemsRef = useRef<() => EditorStoryWorkspaceItem[]>(() => []);
   const [projectResourcesDirty, setProjectResourcesDirty] = useState(false);
   const source = useMemo<StorySourceDocument>(
     () => ({
@@ -699,20 +717,26 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const updateVariable = useCallback(
     (id: VariableId, update: Partial<VariableDefinition>) => {
+      const nextUpdate =
+        update.name !== undefined && update.displayName === undefined
+          ? { ...update, displayName: update.name }
+          : update;
       const previous = variables.find((variable) => variable.id === id);
-      if (previous && update.name && update.name !== previous.name) {
+      if (previous && nextUpdate.name && nextUpdate.name !== previous.name) {
         setNodes((current) =>
-          current.map((node) => renameVariableInNode(node, previous.name, update.name!)),
+          current.map((node) => renameVariableInNode(node, previous.name, nextUpdate.name!)),
         );
         updateInactiveGraphs((candidate) => ({
           ...candidate,
           nodes: candidate.nodes.map((node) =>
-            renameVariableInNode(node, previous.name, update.name!),
+            renameVariableInNode(node, previous.name, nextUpdate.name!),
           ),
         }));
       }
       setVariables((current) =>
-        current.map((variable) => (variable.id === id ? { ...variable, ...update, id } : variable)),
+        current.map((variable) =>
+          variable.id === id ? { ...variable, ...nextUpdate, id } : variable,
+        ),
       );
       markDirty();
     },
@@ -815,16 +839,26 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         (candidate) => candidate.character.id === id,
       );
       if (resource && window.electronAPI) {
-        if (openResourceUsageRef.current.characterIds.has(id)) {
+        if (collectOpenResourceUsage(currentStoryItemsRef.current()).characterIds.has(id)) {
           setWorkspaceError('Character is used by an open Story. Remove its references first.');
           return;
         }
-        setStoryDataSelection((current) =>
-          current?.kind === 'character' && current.id === id ? undefined : current,
-        );
-        queueProjectResourceWrite(() =>
-          window.electronAPI!.deleteProjectCharacter(resource.relativePath),
-        );
+        queueProjectResourceWrite(async () => {
+          const result = await window.electronAPI!.deleteProjectCharacter(resource.relativePath);
+          if (!result.canceled) {
+            setStoryDataSelection((current) =>
+              current?.kind === 'character' && current.id === id ? undefined : current,
+            );
+          }
+          return result.workspace;
+        });
+        return;
+      }
+      const character = characters.find((candidate) => candidate.id === id);
+      if (
+        character &&
+        !window.confirm(`Delete character "${character.displayName}"? This cannot be undone.`)
+      ) {
         return;
       }
       setStoryDataSelection((current) =>
@@ -853,6 +887,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       queueProjectResourceWrite,
       setNodes,
       updateInactiveGraphs,
+      characters,
       workspace?.characterResources,
     ],
   );
@@ -910,7 +945,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (id: AssetId) => {
       const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
       if (resource && window.electronAPI) {
-        if (openResourceUsageRef.current.assetIds.has(id)) {
+        if (collectOpenResourceUsage(currentStoryItemsRef.current()).assetIds.has(id)) {
           setWorkspaceError('Asset is used by an open Story. Remove its references first.');
           return;
         }
@@ -1031,27 +1066,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       active && story.document.id === active.document.id ? active : story,
     );
   }, [captureActiveStory, hasActiveStory, workspaceStories]);
-
-  useEffect(() => {
-    const characterIds = new Set<CharacterId>();
-    const assetIds = new Set<AssetId>();
-    for (const story of currentStoryItems()) {
-      const graphs = [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)];
-      for (const candidate of graphs.flatMap((candidate) => candidate.nodes)) {
-        if (candidate.type !== StoryNodeType.Dialogue) continue;
-        const dialogue = candidate.data as DialogueNodeData;
-        if (dialogue.speakerId) characterIds.add(dialogue.speakerId);
-        if (dialogue.voiceId) assetIds.add(dialogue.voiceId);
-      }
-      for (const character of story.characters) {
-        if (character.defaultPortraitId) assetIds.add(character.defaultPortraitId);
-        for (const emotion of Object.values(character.emotions)) {
-          if (emotion.portraitId) assetIds.add(emotion.portraitId);
-        }
-      }
-    }
-    openResourceUsageRef.current = { characterIds, assetIds };
-  }, [currentStoryItems]);
+  currentStoryItemsRef.current = currentStoryItems;
 
   const saveStoryItems = useCallback(
     async (items: EditorStoryWorkspaceItem[]): Promise<EditorStoryWorkspaceItem[] | undefined> => {
@@ -1835,21 +1850,25 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!sessionReady || !window.electronAPI) return;
     const timer = window.setTimeout(() => {
-      const savedAt = new Date().toISOString();
-      const snapshots = currentStoryItems()
-        .filter((item) => item.document.dirty)
-        .map((item) => ({
-          storyId: item.document.id,
-          displayName: item.document.displayName,
-          filePath: item.document.filePath,
-          content: serializeStorySource(storyItemToSource(item)),
-          savedAt,
-        }));
-      void window.electronAPI
-        ?.writeRecoverySnapshots(snapshots)
-        .catch((error: unknown) =>
-          setWorkspaceError(error instanceof Error ? error.message : String(error)),
-        );
+      try {
+        const savedAt = new Date().toISOString();
+        const snapshots = currentStoryItems()
+          .filter((item) => item.document.dirty)
+          .map((item) => ({
+            storyId: item.document.id,
+            displayName: item.document.displayName,
+            filePath: item.document.filePath,
+            content: serializeStorySource(storyItemToSource(item)),
+            savedAt,
+          }));
+        void window.electronAPI
+          ?.writeRecoverySnapshots(snapshots)
+          .catch((error: unknown) =>
+            setWorkspaceError(error instanceof Error ? error.message : String(error)),
+          );
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
     }, 1_500);
     return () => window.clearTimeout(timer);
   }, [currentStoryItems, sessionReady, storyItemToSource]);

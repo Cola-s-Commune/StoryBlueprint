@@ -325,7 +325,7 @@
 
 - [x] Story Data Character List
 - [x] 稳定 ID / Name / Display Name
-- [x] Character Name 修改时同步 Display Name 与独立资源文件名
+- [x] Character Name 修改时同步 Display Name，独立资源文件路径保持稳定
 - [x] Emotion 名称配置
 - [x] Portrait 资源选择器
 
@@ -357,6 +357,8 @@
 
 - [x] Story Data Variable List
 - [x] 变量、角色与资产详细编辑统一显示在右侧 Inspector
+- [x] 资源 Name 使用草稿提交，允许暂时清空，空值确认时恢复原名
+- [x] Variable Name 确认修改时同步 Display Name
 - [x] Story / Chapter / Local Scope
 - [x] Boolean / Number / String
 - [ ] Project / Character 外部 Scope
@@ -396,7 +398,9 @@
 - [x] 新建项目自动创建并打开默认 Main Story
 - [x] 项目级共享角色与资产独立资源文件
 - [x] 独立资源的稳定 ID、重复定义与悬空引用校验
+- [x] `.story` KDL 允许引用项目级角色和资产，存在性由项目同步与 Compiler 校验
 - [x] 删除角色或资产前执行跨 Story 与肖像引用检查
+- [x] 角色删除统一使用可取消的原生确认流程
 - [x] 未保存 Story 按实际资源引用阻止删除，不再因全局 dirty 状态误拦截
 - [x] 项目、Story、角色与资产支持删除和在文件管理器中显示
 

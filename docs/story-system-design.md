@@ -250,6 +250,8 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 
 Story Data 左侧只负责资源列表、搜索和拖拽；点击变量、角色或资产后，其详细编辑表单显示在右侧 Inspector，与节点属性共用统一的属性编辑区域。选择资源时清除当前节点选择，选择节点后 Inspector 优先显示节点属性。
 
+变量、角色和资产的脚本 Name 采用草稿编辑：输入过程中可以暂时为空，只有 Enter 或失焦时才提交；最终为空或按 Esc 时恢复进入编辑前的名称，不产生无效资源状态，也不触发文件重命名。变量和角色的 Name 确认修改时，Display Name 默认同步为新名称，之后仍可单独编辑展示名称。
+
 面板管理：
 
 - Characters
@@ -311,7 +313,7 @@ interface CharacterDefinition {
 }
 ```
 
-修改角色脚本 Name 时，编辑器默认让 Display Name 同步变化；作者仍可随后单独修改 Display Name。项目模式下角色文件名也同步为 `<name>-<id-suffix>.character`，稳定 ID 和所有 Story 引用保持不变。
+修改角色脚本 Name 时，编辑器默认让 Display Name 同步变化；作者仍可随后单独修改 Display Name。项目模式下角色文件在创建时采用 `<initial-name>-<id-suffix>.character`，之后修改 Name 或 Display Name 都不移动文件。稳定 ID、项目索引路径和所有 Story 引用保持不变；未来需要整理磁盘名称时，通过独立的 Rename File 操作完成。
 
 对话中的说话人既可以是固定 CharacterRef，也可以由表达式动态决定。
 
@@ -766,9 +768,13 @@ Runtime 不负责：
 
 独立资源和内嵌资源共享同一套稳定 ID 语义。同步时拒绝重复 ID、重复脚本名称、路径逃逸、缺失的说话人或语音、指向非 Portrait 资产的肖像，以及独立定义和 Story 内嵌定义的冲突。删除共享资源前，主进程通过项目索引检查已保存 Story，编辑器同时扫描所有已打开 Story 的当前内存图检查未保存引用；未保存但无关的修改不会阻止删除。
 
+`.story` KDL 结构层允许 Dialogue 和 Character 保存未内嵌定义的 Character/Asset ID，因为这些定义可能来自 `.storyproject` 注册的独立资源。资源是否真实存在、类型是否正确由项目同步和 Compiler 在拥有完整项目上下文时诊断；变量与 Substory 属于 Story 内部定义，仍在 KDL 读写时执行严格引用校验。
+
 编辑器中的项目资源修改按顺序即时落盘，Save All 与项目切换会等待资源写入结束。编译项目时只把项目索引判定为该 Story 实际使用的共享资源合并进编译输入；编译产物仍只包含 Runtime 所需的角色、资产和逻辑，不包含资源文件路径或编辑器节点信息。
 
 Explorer 为项目、Story、角色和资产提供“在文件管理器中显示”与显式删除操作。关闭 Story 只关闭编辑标签，不删除文件；删除 Story 会同时关闭对应标签。删除 `.storyproject` 只移除项目索引，保留目录中的 Story、角色和资产。所有删除都需要确认，角色与资产仍必须通过引用检查。
+
+项目角色删除由主进程统一显示原生 `Delete / Cancel` 确认框，Inspector 与 Explorer 不各自实现文件删除。取消不会进入删除队列的后续步骤，不清除当前角色选择，也不修改项目文件。
 
 渲染进程不直接访问文件系统。目录扫描、按相对路径打开、新建文件夹和新建 Story 均通过主进程 IPC，并在解析路径及符号链接后校验目标仍位于当前工作目录内。
 
