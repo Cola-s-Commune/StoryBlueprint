@@ -18,10 +18,13 @@ import {
   parseCharacterResource,
   parseAssetResource,
   serializeStoryProject,
+  serializeStorySource,
   serializeCharacterResource,
   serializeAssetResource,
   STORY_PROJECT_FORMAT,
   STORY_PROJECT_VERSION,
+  STORY_SOURCE_FORMAT,
+  STORY_SOURCE_VERSION,
   STORY_COMPILED_PROJECT_FORMAT,
   STORY_COMPILED_PROJECT_VERSION,
   StoryNodeType,
@@ -30,6 +33,7 @@ import {
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type StoryProjectDocument,
+  type StorySourceDocument,
 } from '@story-blueprint/common';
 import type {
   CreateWorkspaceProjectRequest,
@@ -587,6 +591,49 @@ async function openStoryFile(filePath: string) {
   return { canceled: false as const, filePath, fileToken, content };
 }
 
+async function createInitialStoryFile(rootPath: string): Promise<{
+  source: StorySourceDocument;
+  opened: Exclude<Awaited<ReturnType<typeof openStoryFile>>, { canceled: true }>;
+}> {
+  const source: StorySourceDocument = {
+    format: STORY_SOURCE_FORMAT,
+    version: STORY_SOURCE_VERSION,
+    id: createStableId('story'),
+    name: 'main',
+    displayName: 'Main Story',
+    root: {
+      nodes: [
+        {
+          id: createStableId('node'),
+          type: StoryNodeType.Start,
+          definitionVersion: 1,
+          position: { x: 160, y: 120 },
+          data: { title: 'Story Entry' },
+        },
+      ],
+      edges: [],
+    },
+    chapters: [],
+    variables: [],
+    characters: [],
+    assets: [],
+    events: [],
+  };
+  for (let index = 1; index <= MAX_WORKSPACE_ENTRIES; index += 1) {
+    const fileName = index === 1 ? 'main.story' : `main-${index}.story`;
+    source.name = index === 1 ? 'main' : `main-${index}`;
+    source.displayName = index === 1 ? 'Main Story' : `Main Story ${index}`;
+    const filePath = join(rootPath, fileName);
+    try {
+      await writeFile(filePath, serializeStorySource(source), { encoding: 'utf8', flag: 'wx' });
+      return { source, opened: await openStoryFile(filePath) };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
+  throw new Error('Cannot allocate a file name for the initial Story');
+}
+
 function requireAuthorizedStoryFile(filePath: unknown, fileToken: unknown): string {
   if (
     typeof filePath !== 'string' ||
@@ -880,8 +927,19 @@ function registerStoryFileHandlers(): void {
       assets: [],
     };
     await writeFile(projectFile, serializeStoryProject(project), 'utf8');
+    const initialStory = await createInitialStoryFile(rootPath);
     await activateWorkspace(rootPath, projectFile);
-    return { canceled: false, workspace: await syncWorkspaceProject() };
+    const synced = await syncWorkspaceProject();
+    await writeFile(
+      projectFile,
+      serializeStoryProject({ ...synced.project!, entryStoryId: initialStory.source.id }),
+      'utf8',
+    );
+    return {
+      canceled: false,
+      workspace: (await readWorkspace())!,
+      initialStory: initialStory.opened,
+    };
   });
 
   ipcMain.handle('workspace:refresh', async (event) => {
@@ -981,7 +1039,14 @@ function registerStoryFileHandlers(): void {
       : `${candidate.fileName}.storyproject`;
     workspaceProjectFile = join(workspaceRoot!, fileName);
     await writeFile(workspaceProjectFile, candidate.content, { encoding: 'utf8', flag: 'wx' });
-    return syncWorkspaceProject();
+    const initialStory = await createInitialStoryFile(workspaceRoot!);
+    const synced = await syncWorkspaceProject();
+    await writeFile(
+      workspaceProjectFile,
+      serializeStoryProject({ ...synced.project!, entryStoryId: initialStory.source.id }),
+      'utf8',
+    );
+    return { workspace: (await readWorkspace())!, initialStory: initialStory.opened };
   });
 
   ipcMain.handle('workspace:sync-project', async (event) => {

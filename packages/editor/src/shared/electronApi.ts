@@ -30,7 +30,17 @@ export interface WorkspaceInfo {
 }
 
 export type OpenWorkspaceResult =
-  { canceled: true } | { canceled: false; workspace: WorkspaceInfo };
+  | { canceled: true }
+  | {
+      canceled: false;
+      workspace: WorkspaceInfo;
+      initialStory?: Exclude<OpenStoryResult, { canceled: true }>;
+    };
+
+export interface CreatedWorkspaceProject {
+  workspace: WorkspaceInfo;
+  initialStory: Exclude<OpenStoryResult, { canceled: true }>;
+}
 
 export interface RecentProject {
   name: string;
@@ -124,7 +134,9 @@ export interface ElectronAPI {
   openWorkspaceStory: (relativePath: string) => Promise<OpenStoryResult>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<WorkspaceInfo>;
   createWorkspaceStory: (request: CreateWorkspaceStoryRequest) => Promise<OpenStoryResult>;
-  createWorkspaceProject: (request: CreateWorkspaceProjectRequest) => Promise<WorkspaceInfo>;
+  createWorkspaceProject: (
+    request: CreateWorkspaceProjectRequest,
+  ) => Promise<CreatedWorkspaceProject>;
   syncWorkspaceProject: () => Promise<WorkspaceInfo>;
   setStoryDirty: (dirty: boolean) => void;
   onSaveBeforeClose: (listener: () => void) => () => void;

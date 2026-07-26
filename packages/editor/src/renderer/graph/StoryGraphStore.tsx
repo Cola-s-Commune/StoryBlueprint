@@ -1163,10 +1163,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (
       result: Exclude<OpenStoryResult, { canceled: true }>,
       recovered: { dirty?: boolean; filePath?: string; fileToken?: string } = {},
+      replaceSession = false,
     ) => {
       const source = parseStorySource(result.content);
       const rootGraph = fromSourceGraph(source.root);
-      const current = hasActiveStory ? captureActiveStory() : undefined;
+      const current = !replaceSession && hasActiveStory ? captureActiveStory() : undefined;
       const opened: EditorStoryWorkspaceItem = {
         document: {
           id: source.id,
@@ -1187,6 +1188,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         revision: recovered.dirty ? 1 : 0,
       };
       setWorkspaceStories((items) => {
+        if (replaceSession) return [opened];
         const withoutOpened = items.filter(
           (story) =>
             story.document.id !== opened.document.id &&
@@ -1325,10 +1327,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const result = await window.electronAPI.newProject();
       if (result.canceled) return;
       await acceptWorkspaceChange(result.workspace);
+      if (result.initialStory) acceptOpenedStory(result.initialStory, {}, true);
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : String(error));
     }
-  }, [acceptWorkspaceChange, confirmWorkspaceChange]);
+  }, [acceptOpenedStory, acceptWorkspaceChange, confirmWorkspaceChange]);
 
   const openWorkspaceStory = useCallback(
     async (relativePath: string) => {
@@ -1397,18 +1400,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [acceptOpenedStory],
   );
 
-  const createWorkspaceProject = useCallback(async (displayName: string) => {
-    if (!window.electronAPI) return;
-    const trimmedName = displayName.trim();
-    if (!trimmedName) return;
-    try {
-      const name =
-        trimmedName
-          .toLowerCase()
-          .replace(/[^a-z0-9_-]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'project';
-      setWorkspace(
-        await window.electronAPI.createWorkspaceProject({
+  const createWorkspaceProject = useCallback(
+    async (displayName: string) => {
+      if (!window.electronAPI) return;
+      const trimmedName = displayName.trim();
+      if (!trimmedName) return;
+      try {
+        const name =
+          trimmedName
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'project';
+        const result = await window.electronAPI.createWorkspaceProject({
           fileName: name,
           content: serializeStoryProject({
             format: STORY_PROJECT_FORMAT,
@@ -1420,13 +1423,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             characters: [],
             assets: [],
           }),
-        }),
-      );
-      setWorkspaceError(undefined);
-    } catch (error) {
-      setWorkspaceError(error instanceof Error ? error.message : String(error));
-    }
-  }, []);
+        });
+        setWorkspace(result.workspace);
+        acceptOpenedStory(result.initialStory);
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [acceptOpenedStory],
+  );
 
   const syncWorkspaceProject = useCallback(async () => {
     if (!window.electronAPI) return;
