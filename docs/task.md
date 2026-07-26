@@ -201,7 +201,7 @@
 - [x] Speaker / Text 可编辑属性
 - [x] Voice Asset ID 基础字段
 - [x] Character Emotion 选择
-- [ ] Voice / Portrait 资源选择器与按语言覆盖
+- [x] Voice / Portrait 资源选择器与按语言覆盖
 - [ ] 稳定 Text ID
 
 ---
@@ -326,7 +326,7 @@
 - [x] Story Data Character List
 - [x] 稳定 ID / Name / Display Name
 - [x] Emotion 名称配置
-- [ ] Portrait 资源选择器
+- [x] Portrait 资源选择器
 
 ---
 
@@ -334,8 +334,8 @@
 
 - [x] Story Data Asset List 与 Voice / Portrait / Other 类型
 - [x] Dialogue Voice Asset 引用
-- [ ] Search
-- [ ] Locale Voice Mapping
+- [x] Search
+- [x] Locale Voice Mapping
 
 ---
 
@@ -391,7 +391,9 @@
 - [x] 项目级 Story 路径、角色与资产使用索引
 - [x] 创建与手动同步项目索引，保存/新增 Story 后自动同步
 - [x] 原生文件对话框新建、打开和保存项目
-- [ ] 项目级共享角色与资产独立资源文件
+- [x] 项目级共享角色与资产独立资源文件
+- [x] 独立资源的稳定 ID、重复定义与悬空引用校验
+- [x] 删除角色或资产前执行跨 Story 与肖像引用检查
 
 ---
 

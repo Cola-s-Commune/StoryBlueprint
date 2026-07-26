@@ -103,6 +103,11 @@ describe('project compilation', () => {
     const invalid = story();
     invalid.root = {
       ...invalid.root,
+      nodes: invalid.root.nodes.map((node) =>
+        node.id === 'n_projectdialogue'
+          ? { ...node, data: { text: { source: 'Hello' }, speakerId: 'c_missing' } }
+          : node,
+      ),
       edges: [
         {
           from: { nodeId: 'n_projectstart', portId: 'missing' },
@@ -118,6 +123,7 @@ describe('project compilation', () => {
       expect.arrayContaining([
         expect.objectContaining({ code: 'DANGLING_EDGE', storyId: 's_projectstory' }),
         expect.objectContaining({ code: 'UNREACHABLE_NODE', sourceNodeId: 'n_projectdialogue' }),
+        expect.objectContaining({ code: 'INVALID_NODE', sourceNodeId: 'n_projectdialogue' }),
       ]),
     );
   });

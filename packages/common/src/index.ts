@@ -37,6 +37,16 @@ export {
 // ---- .story KDL serialization ----
 export { StoryFormatError, serializeStorySource, parseStorySource } from './serialization/storyKdl';
 export { serializeStoryProject, parseStoryProject } from './serialization/projectKdl';
+export {
+  STORY_CHARACTER_FORMAT,
+  STORY_CHARACTER_VERSION,
+  STORY_ASSET_FORMAT,
+  STORY_ASSET_VERSION,
+  serializeCharacterResource,
+  parseCharacterResource,
+  serializeAssetResource,
+  parseAssetResource,
+} from './serialization/resourceKdl';
 
 // ---- Stable IDs ----
 export {

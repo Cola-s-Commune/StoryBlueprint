@@ -3,6 +3,27 @@
   background: #1b1e23;
 }
 
+.resourceSearch {
+  padding: 8px 8px 0;
+}
+
+.resourceSearch input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border: 1px solid #38424d;
+  border-radius: 4px;
+  outline: none;
+  background: #22272e;
+  color: #d2d8df;
+  font: inherit;
+  font-size: 10px;
+}
+
+.resourceSearch input:focus {
+  border-color: #4f789c;
+}
+
 .section {
   padding: 8px 7px 9px;
   border-bottom: 1px solid #2d323a;
@@ -146,7 +167,8 @@
 }
 
 .details input,
-.details select {
+.details select,
+.details textarea {
   min-width: 0;
   width: 100%;
   border: 1px solid #3c434d;
@@ -160,7 +182,8 @@
 }
 
 .details input:focus,
-.details select:focus {
+.details select:focus,
+.details textarea:focus {
   border-color: #477f9e;
 }
 

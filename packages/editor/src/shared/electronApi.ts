@@ -12,7 +12,7 @@ export type SaveStoryResult =
   { canceled: true } | { canceled: false; filePath: string; fileToken: string };
 
 export interface WorkspaceEntry {
-  kind: 'directory' | 'story' | 'project';
+  kind: 'directory' | 'story' | 'project' | 'character' | 'asset';
   name: string;
   relativePath: string;
   children?: WorkspaceEntry[];
@@ -24,6 +24,9 @@ export interface WorkspaceInfo {
   entries: WorkspaceEntry[];
   project?: StoryProjectDocument;
   projectError?: string;
+  characterResources: { relativePath: string; character: CharacterSource }[];
+  assetResources: { relativePath: string; asset: AssetSource }[];
+  resourceErrors: { relativePath: string; message: string }[];
 }
 
 export type OpenWorkspaceResult =
@@ -105,6 +108,12 @@ export interface ElectronAPI {
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
+  createProjectCharacter: (character: CharacterSource) => Promise<WorkspaceInfo>;
+  updateProjectCharacter: (relativePath: string, character: CharacterSource) => Promise<WorkspaceInfo>;
+  deleteProjectCharacter: (relativePath: string) => Promise<WorkspaceInfo>;
+  createProjectAsset: (asset: AssetSource) => Promise<WorkspaceInfo>;
+  updateProjectAsset: (relativePath: string, asset: AssetSource) => Promise<WorkspaceInfo>;
+  deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
   openWorkspaceStory: (relativePath: string) => Promise<OpenStoryResult>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<WorkspaceInfo>;
@@ -115,4 +124,4 @@ export interface ElectronAPI {
   onSaveBeforeClose: (listener: () => void) => () => void;
   finishClose: (saved: boolean) => void;
 }
-import type { StoryProjectDocument } from '@story-blueprint/common';
+import type { AssetSource, CharacterSource, StoryProjectDocument } from '@story-blueprint/common';

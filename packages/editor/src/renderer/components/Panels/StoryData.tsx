@@ -124,7 +124,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
 }
 
 function CharacterEditor({ character }: { character: CharacterSource }) {
-  const { characters, updateCharacter, removeCharacter } = useStoryGraphStore();
+  const { characters, assets, updateCharacter, removeCharacter } = useStoryGraphStore();
   const duplicate = characters.some(
     (candidate) => candidate.id !== character.id && candidate.name === character.name,
   );
@@ -150,6 +150,24 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           value={character.displayName}
           onChange={(event) => updateCharacter(character.id, { displayName: event.target.value })}
         />
+      </label>
+      <label>
+        <span>Default Portrait</span>
+        <select
+          value={character.defaultPortraitId ?? ''}
+          onChange={(event) =>
+            updateCharacter(character.id, {
+              defaultPortraitId: (event.target.value || undefined) as AssetId | undefined,
+            })
+          }
+        >
+          <option value="">None</option>
+          {assets
+            .filter((asset) => asset.kind === 'portrait')
+            .map((asset) => (
+              <option value={asset.id} key={asset.id}>{asset.displayName}</option>
+            ))}
+        </select>
       </label>
       <label>
         <span>Emotions</span>
@@ -226,14 +244,23 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
         </select>
       </label>
       <label>
-        <span>Default Path / ID</span>
-        <input
-          value={asset.locales?.default ?? ''}
-          onChange={(event) =>
-            updateAsset(asset.id, {
-              locales: { ...asset.locales, default: event.target.value },
-            })
-          }
+        <span>Locale Paths</span>
+        <textarea
+          rows={4}
+          value={Object.entries(asset.locales ?? {})
+            .map(([locale, path]) => `${locale}=${path}`)
+            .join('\n')}
+          placeholder={'default=Audio/voice.wav\nzh-CN=Audio/voice.zh-CN.wav'}
+          onChange={(event) => {
+            const locales = Object.fromEntries(
+              event.target.value
+                .split('\n')
+                .map((line) => line.split('='))
+                .filter((parts) => parts.length >= 2 && parts[0].trim())
+                .map(([locale, ...path]) => [locale.trim(), path.join('=').trim()]),
+            );
+            updateAsset(asset.id, { locales });
+          }}
         />
       </label>
       <button
@@ -250,9 +277,34 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
 }
 
 export function StoryData() {
-  const { hasActiveStory, variables, characters, assets, addVariable, addCharacter, addAsset } =
-    useStoryGraphStore();
+  const {
+    hasActiveStory,
+    workspace,
+    variables,
+    characters,
+    assets,
+    addVariable,
+    addCharacter,
+    addAsset,
+  } = useStoryGraphStore();
   const [selection, setSelection] = useState<Selection>();
+  const [resourceSearch, setResourceSearch] = useState('');
+  const filteredCharacters = useMemo(() => {
+    const query = resourceSearch.trim().toLowerCase();
+    return query
+      ? characters.filter((item) =>
+          `${item.name} ${item.displayName}`.toLowerCase().includes(query),
+        )
+      : characters;
+  }, [characters, resourceSearch]);
+  const filteredAssets = useMemo(() => {
+    const query = resourceSearch.trim().toLowerCase();
+    return query
+      ? assets.filter((item) =>
+          `${item.name} ${item.displayName} ${item.kind}`.toLowerCase().includes(query),
+        )
+      : assets;
+  }, [assets, resourceSearch]);
   const selected = useMemo(() => {
     if (!selection) return undefined;
     if (selection.kind === 'variable') return variables.find((item) => item.id === selection.id);
@@ -260,7 +312,7 @@ export function StoryData() {
     return assets.find((item) => item.id === selection.id);
   }, [assets, characters, selection, variables]);
 
-  if (!hasActiveStory) {
+  if (!hasActiveStory && !workspace?.project) {
     return (
       <div className={panelStyles.panel}>
         <div className={panelStyles.body}>
@@ -273,7 +325,16 @@ export function StoryData() {
   return (
     <div className={panelStyles.panel}>
       <div className={`${panelStyles.body} ${styles.body}`}>
-        <section className={styles.section}>
+        {workspace?.project && (
+          <div className={styles.resourceSearch}>
+            <input
+              value={resourceSearch}
+              placeholder="Search project resources…"
+              onChange={(event) => setResourceSearch(event.target.value)}
+            />
+          </div>
+        )}
+        {hasActiveStory && <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <span>Variables</span>
             <button
@@ -312,11 +373,11 @@ export function StoryData() {
               </span>
             </div>
           ))}
-        </section>
+        </section>}
 
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
-            <span>Assets</span>
+            <span>{workspace?.project ? 'Project Assets' : 'Assets'}</span>
             <button
               type="button"
               title="Add asset"
@@ -326,7 +387,7 @@ export function StoryData() {
             </button>
           </div>
           {assets.length === 0 && <div className={styles.empty}>No assets</div>}
-          {assets.map((asset) => (
+          {filteredAssets.map((asset) => (
             <div
               key={asset.id}
               className={`${styles.item} ${selection?.kind === 'asset' && selection.id === asset.id ? styles.selected : ''}`}
@@ -343,7 +404,7 @@ export function StoryData() {
 
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
-            <span>Characters</span>
+            <span>{workspace?.project ? 'Project Characters' : 'Characters'}</span>
             <button
               type="button"
               title="Add character"
@@ -353,7 +414,7 @@ export function StoryData() {
             </button>
           </div>
           {characters.length === 0 && <div className={styles.empty}>No characters</div>}
-          {characters.map((character) => (
+          {filteredCharacters.map((character) => (
             <div
               key={character.id}
               className={`${styles.item} ${selection?.kind === 'character' && selection.id === character.id ? styles.selected : ''}`}

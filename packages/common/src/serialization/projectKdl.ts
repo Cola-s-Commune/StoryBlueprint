@@ -89,6 +89,8 @@ function validateProject(project: StoryProjectDocument): void {
     throw new StoryFormatError(`Invalid project output directory ${project.outputDirectory}`);
   }
   const characterIds = new Set<string>();
+  const characterNames = new Set<string>();
+  const resourcePaths = new Set<string>();
   for (const character of project.characters) {
     if (!isStableId(character.id, 'character')) {
       throw new StoryFormatError(`Invalid character ID ${character.id}`);
@@ -97,6 +99,22 @@ function validateProject(project: StoryProjectDocument): void {
       throw new StoryFormatError(`Duplicate character ID ${character.id}`);
     }
     characterIds.add(character.id);
+    if (characterNames.has(character.name)) {
+      throw new StoryFormatError(`Duplicate character name ${character.name}`);
+    }
+    characterNames.add(character.name);
+    if (character.path) {
+      if (
+        !character.path.toLowerCase().endsWith('.character') ||
+        character.path.startsWith('/') ||
+        /^[a-z]:[\\/]/i.test(character.path) ||
+        character.path.split(/[\\/]/).includes('..') ||
+        resourcePaths.has(character.path)
+      ) {
+        throw new StoryFormatError(`Invalid project character path ${character.path}`);
+      }
+      resourcePaths.add(character.path);
+    }
     for (const storyId of character.storyIds) {
       if (!storyIds.has(storyId)) {
         throw new StoryFormatError(`Character ${character.id} references missing story ${storyId}`);
@@ -104,10 +122,25 @@ function validateProject(project: StoryProjectDocument): void {
     }
   }
   const assetIds = new Set<string>();
+  const assetNames = new Set<string>();
   for (const asset of project.assets) {
     if (!isStableId(asset.id, 'asset')) throw new StoryFormatError(`Invalid asset ID ${asset.id}`);
     if (assetIds.has(asset.id)) throw new StoryFormatError(`Duplicate asset ID ${asset.id}`);
     assetIds.add(asset.id);
+    if (assetNames.has(asset.name)) throw new StoryFormatError(`Duplicate asset name ${asset.name}`);
+    assetNames.add(asset.name);
+    if (asset.path) {
+      if (
+        !asset.path.toLowerCase().endsWith('.asset') ||
+        asset.path.startsWith('/') ||
+        /^[a-z]:[\\/]/i.test(asset.path) ||
+        asset.path.split(/[\\/]/).includes('..') ||
+        resourcePaths.has(asset.path)
+      ) {
+        throw new StoryFormatError(`Invalid project asset path ${asset.path}`);
+      }
+      resourcePaths.add(asset.path);
+    }
     for (const storyId of asset.storyIds) {
       if (!storyIds.has(storyId)) {
         throw new StoryFormatError(`Asset ${asset.id} references missing story ${storyId}`);
@@ -160,6 +193,7 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       node.addArgument(character.id);
       node.setProperty('name', character.name);
       node.setProperty('display-name', character.displayName);
+      if (character.path) node.setProperty('path', character.path);
       appendUsage(node, character.storyIds);
       characters.appendNode(node);
     }
@@ -176,6 +210,7 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       node.setProperty('name', asset.name);
       node.setProperty('display-name', asset.displayName);
       node.setProperty('kind', asset.kind);
+      if (asset.path) node.setProperty('path', asset.path);
       for (const [locale, path] of Object.entries(asset.locales).sort(([left], [right]) =>
         left.localeCompare(right),
       )) {
@@ -270,12 +305,16 @@ export function parseStoryProject(text: string): StoryProjectDocument {
   ).map((node, index) => {
     const path = `characters[${index}]`;
     assertArguments(node, path, 1);
-    assertProperties(node, path, ['name', 'display-name']);
+    assertProperties(node, path, ['name', 'display-name', 'path']);
     assertChildren(node, path, ['used-by']);
     return {
       id: requiredId(node.getArgument(0), 'character', `${path}.id`),
       name: requiredString(node.getProperty('name'), `${path}.name`),
       displayName: requiredString(node.getProperty('display-name'), `${path}.display-name`),
+      path:
+        node.getProperty('path') === undefined
+          ? undefined
+          : requiredString(node.getProperty('path'), `${path}.path`),
       storyIds: parseUsage(node, path),
     };
   });
@@ -290,7 +329,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     (node, index) => {
       const path = `assets[${index}]`;
       assertArguments(node, path, 1);
-      assertProperties(node, path, ['name', 'display-name', 'kind']);
+      assertProperties(node, path, ['name', 'display-name', 'kind', 'path']);
       assertChildren(node, path, ['locale', 'used-by']);
       const kind = requiredString(node.getProperty('kind'), `${path}.kind`);
       if (!['audio', 'portrait', 'other'].includes(kind)) {
@@ -301,6 +340,10 @@ export function parseStoryProject(text: string): StoryProjectDocument {
         name: requiredString(node.getProperty('name'), `${path}.name`),
         displayName: requiredString(node.getProperty('display-name'), `${path}.display-name`),
         kind: kind as ProjectAssetReference['kind'],
+        path:
+          node.getProperty('path') === undefined
+            ? undefined
+            : requiredString(node.getProperty('path'), `${path}.path`),
         locales: Object.fromEntries(
           node.findNodesByName('locale').map((locale, localeIndex) => {
             const localePath = `${path}.locale[${localeIndex}]`;

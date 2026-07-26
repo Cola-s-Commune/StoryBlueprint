@@ -358,6 +358,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [sessionReady, setSessionReady] = useState(false);
   const restoredSessionRef = useRef(false);
+  const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
+  const [projectResourcesDirty, setProjectResourcesDirty] = useState(false);
   const source = useMemo<StorySourceDocument>(
     () => ({
       format: STORY_SOURCE_FORMAT,
@@ -387,6 +389,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
     ],
   );
+  const resolvedCharacters = useMemo(() => {
+    const external = workspace?.characterResources.map((resource) => resource.character) ?? [];
+    const externalIds = new Set(external.map((character) => character.id));
+    return [...external, ...characters.filter((character) => !externalIds.has(character.id))];
+  }, [characters, workspace?.characterResources]);
+  const resolvedAssets = useMemo(() => {
+    const external = workspace?.assetResources.map((resource) => resource.asset) ?? [];
+    const externalIds = new Set(external.map((asset) => asset.id));
+    return [...external, ...assets.filter((asset) => !externalIds.has(asset.id))];
+  }, [assets, workspace?.assetResources]);
 
   const markDirty = useCallback(() => {
     if (!hasActiveStory) return;
@@ -405,9 +417,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     window.electronAPI?.setStoryDirty(
-      (hasActiveStory && document.dirty) || workspaceStories.some((story) => story.document.dirty),
+      projectResourcesDirty ||
+        (hasActiveStory && document.dirty) ||
+        workspaceStories.some((story) => story.document.dirty),
     );
-  }, [document.dirty, hasActiveStory, workspaceStories]);
+  }, [document.dirty, hasActiveStory, projectResourcesDirty, workspaceStories]);
+
+  const queueProjectResourceWrite = useCallback(
+    (write: () => Promise<WorkspaceInfo>) => {
+      const key = 'project-resources';
+      const previous = projectResourceWritesRef.current.get(key);
+      const operation = (previous ?? Promise.resolve(undefined))
+        .catch(() => undefined)
+        .then(write);
+      projectResourceWritesRef.current.set(key, operation);
+      setProjectResourcesDirty(true);
+      void operation
+        .then((nextWorkspace) => {
+          if (projectResourceWritesRef.current.get(key) !== operation) return;
+          projectResourceWritesRef.current.delete(key);
+          setWorkspace(nextWorkspace);
+          setWorkspaceError(undefined);
+          setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
+        })
+        .catch((error: unknown) => {
+          if (projectResourceWritesRef.current.get(key) === operation) {
+            projectResourceWritesRef.current.delete(key);
+            setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
+          }
+          setWorkspaceError(error instanceof Error ? error.message : String(error));
+          void window.electronAPI?.refreshWorkspace().then(setWorkspace).catch(() => undefined);
+        });
+    },
+    [],
+  );
 
   useEffect(() => {
     void window.electronAPI
@@ -683,24 +726,48 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const addCharacter = useCallback((): CharacterId => {
     const id = createStableId('character');
+    const index = resolvedCharacters.length + 1;
+    const character: CharacterSource = {
+      id,
+      name: `character${index}`,
+      displayName: `Character ${index}`,
+      emotions: { neutral: { displayName: 'Neutral' } },
+    };
+    if (workspace?.project && window.electronAPI) {
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.createProjectCharacter(character),
+      );
+      return id;
+    }
     setCharacters((current) => {
-      const index = current.length + 1;
-      return [
-        ...current,
-        {
-          id,
-          name: `character${index}`,
-          displayName: `Character ${index}`,
-          emotions: { neutral: { displayName: 'Neutral' } },
-        },
-      ];
+      return [...current, character];
     });
     markDirty();
     return id;
-  }, [markDirty]);
+  }, [markDirty, queueProjectResourceWrite, resolvedCharacters.length, workspace?.project]);
 
   const updateCharacter = useCallback(
     (id: CharacterId, update: Partial<CharacterSource>) => {
+      const resource = workspace?.characterResources.find(
+        (candidate) => candidate.character.id === id,
+      );
+      if (resource && window.electronAPI) {
+        const character = { ...resource.character, ...update, id };
+        setWorkspace((current) =>
+          current
+            ? {
+                ...current,
+                characterResources: current.characterResources.map((candidate) =>
+                  candidate.character.id === id ? { ...candidate, character } : candidate,
+                ),
+              }
+            : current,
+        );
+        queueProjectResourceWrite(() =>
+          window.electronAPI!.updateProjectCharacter(resource.relativePath, character),
+        );
+        return;
+      }
       setCharacters((current) =>
         current.map((character) =>
           character.id === id ? { ...character, ...update, id } : character,
@@ -708,11 +775,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty],
+    [markDirty, queueProjectResourceWrite, workspace?.characterResources],
   );
 
   const removeCharacter = useCallback(
     (id: CharacterId) => {
+      const resource = workspace?.characterResources.find(
+        (candidate) => candidate.character.id === id,
+      );
+      if (resource && window.electronAPI) {
+        queueProjectResourceWrite(() =>
+          window.electronAPI!.deleteProjectCharacter(resource.relativePath),
+        );
+        return;
+      }
       setCharacters((current) => current.filter((character) => character.id !== id));
       setNodes((current) =>
         current.map((node) =>
@@ -731,40 +807,75 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }));
       markDirty();
     },
-    [markDirty, setNodes, updateInactiveGraphs],
+    [
+      markDirty,
+      queueProjectResourceWrite,
+      setNodes,
+      updateInactiveGraphs,
+      workspace?.characterResources,
+    ],
   );
 
   const addAsset = useCallback((): AssetId => {
     const id = createStableId('asset');
+    const index = resolvedAssets.length + 1;
+    const asset: AssetSource = {
+      id,
+      name: `voice${index}`,
+      displayName: `Voice ${index}`,
+      kind: 'audio',
+      locales: { default: '' },
+    };
+    if (workspace?.project && window.electronAPI) {
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.createProjectAsset(asset),
+      );
+      return id;
+    }
     setAssets((current) => {
-      const index = current.length + 1;
-      return [
-        ...current,
-        {
-          id,
-          name: `voice${index}`,
-          displayName: `Voice ${index}`,
-          kind: 'audio',
-          locales: { default: '' },
-        },
-      ];
+      return [...current, asset];
     });
     markDirty();
     return id;
-  }, [markDirty]);
+  }, [markDirty, queueProjectResourceWrite, resolvedAssets.length, workspace?.project]);
 
   const updateAsset = useCallback(
     (id: AssetId, update: Partial<AssetSource>) => {
+      const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
+      if (resource && window.electronAPI) {
+        const asset = { ...resource.asset, ...update, id };
+        setWorkspace((current) =>
+          current
+            ? {
+                ...current,
+                assetResources: current.assetResources.map((candidate) =>
+                  candidate.asset.id === id ? { ...candidate, asset } : candidate,
+                ),
+              }
+            : current,
+        );
+        queueProjectResourceWrite(() =>
+          window.electronAPI!.updateProjectAsset(resource.relativePath, asset),
+        );
+        return;
+      }
       setAssets((current) =>
         current.map((asset) => (asset.id === id ? { ...asset, ...update, id } : asset)),
       );
       markDirty();
     },
-    [markDirty],
+    [markDirty, queueProjectResourceWrite, workspace?.assetResources],
   );
 
   const removeAsset = useCallback(
     (id: AssetId) => {
+      const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
+      if (resource && window.electronAPI) {
+        queueProjectResourceWrite(() =>
+          window.electronAPI!.deleteProjectAsset(resource.relativePath),
+        );
+        return;
+      }
       setAssets((current) => current.filter((asset) => asset.id !== id));
       setNodes((current) =>
         current.map((node) =>
@@ -796,7 +907,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty, setNodes, updateInactiveGraphs],
+    [
+      markDirty,
+      queueProjectResourceWrite,
+      setNodes,
+      updateInactiveGraphs,
+      workspace?.assetResources,
+    ],
   );
 
   const updateNode = useCallback(
@@ -910,6 +1027,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const saveAllDirtyStories = useCallback(async (): Promise<boolean> => {
     try {
+      while (projectResourceWritesRef.current.size > 0) {
+        await Promise.all([...projectResourceWritesRef.current.values()]);
+      }
+      setProjectResourcesDirty(false);
       const saved = await saveStoryItems(currentStoryItems());
       if (!saved) return false;
       setWorkspaceStories(saved);
@@ -933,7 +1054,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     async (action: string): Promise<boolean> => {
       if (!window.electronAPI) return false;
       const dirty = currentStoryItems().filter((item) => item.document.dirty);
-      if (dirty.length === 0) return true;
+      if (dirty.length === 0) return projectResourcesDirty ? saveAllDirtyStories() : true;
       const choice = await window.electronAPI.confirmUnsavedStories(
         dirty.map((item) => item.document.displayName),
         action,
@@ -941,7 +1062,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (choice === 'cancel') return false;
       return choice === 'discard' ? true : saveAllDirtyStories();
     },
-    [currentStoryItems, saveAllDirtyStories],
+    [currentStoryItems, projectResourcesDirty, saveAllDirtyStories],
   );
 
   const clearStorySession = useCallback(() => {
@@ -1310,9 +1431,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setWorkspace(nextWorkspace);
       if (!nextWorkspace.project) throw new Error('Project index is unavailable');
       const files = await window.electronAPI.readWorkspaceProjectStories();
+      const projectSources = files.map((file) => {
+        const source = parseStorySource(file.content);
+        const externalCharacters = nextWorkspace.project!.characters.flatMap((reference) => {
+          if (!reference.path || !reference.storyIds.includes(source.id)) return [];
+          const resource = nextWorkspace.characterResources.find(
+            (candidate) => candidate.relativePath === reference.path,
+          );
+          return resource ? [resource.character] : [];
+        });
+        const externalAssets = nextWorkspace.project!.assets.flatMap((reference) => {
+          if (!reference.path || !reference.storyIds.includes(source.id)) return [];
+          const resource = nextWorkspace.assetResources.find(
+            (candidate) => candidate.relativePath === reference.path,
+          );
+          return resource ? [resource.asset] : [];
+        });
+        return {
+          path: file.path,
+          source: {
+            ...source,
+            characters: [...source.characters, ...externalCharacters],
+            assets: [...source.assets, ...externalAssets],
+          },
+        };
+      });
       const result = compileProject(
         nextWorkspace.project,
-        files.map((file) => ({ path: file.path, source: parseStorySource(file.content) })),
+        projectSources,
       );
       setProblems(result.diagnostics);
       if (!result.ok) return;
@@ -1575,8 +1721,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateNode,
       updateNodeData,
       variables,
-      characters,
-      assets,
+      characters: resolvedCharacters,
+      assets: resolvedAssets,
       chapters,
       activeGraphId,
       switchGraph,
@@ -1633,6 +1779,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addSubstory,
       checkpoint,
       characters,
+      resolvedCharacters,
+      resolvedAssets,
       chapters,
       document,
       stories,

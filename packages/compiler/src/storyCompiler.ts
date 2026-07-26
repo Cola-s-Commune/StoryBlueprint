@@ -105,6 +105,21 @@ export class DefaultStoryCompiler implements StoryCompiler {
         });
       }
     }
+    for (const character of source.characters) {
+      const portraitIds = [
+        character.defaultPortraitId,
+        ...Object.values(character.emotions).map((emotion) => emotion.portraitId),
+      ].filter(Boolean);
+      for (const portraitId of portraitIds) {
+        if (!source.assets.some((asset) => asset.id === portraitId && asset.kind === 'portrait')) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Character ${character.displayName} references missing portrait ${portraitId}`,
+          });
+        }
+      }
+    }
 
     const blocks: Record<string, RuntimeBlock> = {};
     const compileGraph = (graph: SourceGraph, chapterId?: ChapterId) => {
@@ -145,6 +160,33 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.Dialogue: {
             const data = node.data as unknown as DialogueNodeData;
+            const speaker = data.speakerId
+              ? source.characters.find((character) => character.id === data.speakerId)
+              : undefined;
+            if (data.speakerId && !speaker) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: `Dialogue references missing character ${data.speakerId}`,
+                sourceNodeId: node.id,
+              });
+            }
+            if (data.emotion && speaker && !speaker.emotions[data.emotion]) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'warning',
+                message: `Character ${speaker.displayName} has no ${data.emotion} emotion`,
+                sourceNodeId: node.id,
+              });
+            }
+            if (data.voiceId && !source.assets.some((asset) => asset.id === data.voiceId)) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: `Dialogue references missing voice asset ${data.voiceId}`,
+                sourceNodeId: node.id,
+              });
+            }
             const text = compileSafe(node, () =>
               compileTextTemplate(data.text.source, textId(node.id), source.variables),
             );

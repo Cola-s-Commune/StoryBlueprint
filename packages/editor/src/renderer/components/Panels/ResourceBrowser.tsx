@@ -92,6 +92,22 @@ function WorkspaceTree({
       );
     }
 
+    if (entry.kind === 'character' || entry.kind === 'asset') {
+      return (
+        <div
+          key={entry.relativePath}
+          className={styles.fileRow}
+          style={{ paddingLeft: 26 + depth * 13 }}
+          title={entry.kind === 'character' ? 'Project character resource' : 'Project asset resource'}
+        >
+          <span className={entry.kind === 'character' ? styles.characterFileIcon : styles.assetFileIcon}>
+            {entry.kind === 'character' ? 'C' : 'A'}
+          </span>
+          <span className={styles.fileName}>{entry.name}</span>
+        </div>
+      );
+    }
+
     const isActive = filePath === activeFilePath;
     return (
       <button
@@ -632,9 +648,12 @@ export function ResourceBrowser() {
           </small>
         </div>
 
-        {(message || workspaceError || workspace?.projectError) && (
+        {(message || workspaceError || workspace?.projectError || workspace?.resourceErrors[0]) && (
           <div className={styles.message}>
-            {workspaceError ?? workspace?.projectError ?? message}
+            {workspaceError ??
+              workspace?.projectError ??
+              workspace?.resourceErrors[0]?.message ??
+              message}
           </div>
         )}
       </div>

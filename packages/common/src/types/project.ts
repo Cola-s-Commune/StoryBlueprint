@@ -14,6 +14,7 @@ export interface ProjectCharacterReference {
   id: CharacterId;
   name: string;
   displayName: string;
+  path?: string;
   storyIds: readonly StoryId[];
 }
 
@@ -22,6 +23,7 @@ export interface ProjectAssetReference {
   name: string;
   displayName: string;
   kind: 'audio' | 'portrait' | 'other';
+  path?: string;
   locales: Readonly<Record<string, string>>;
   storyIds: readonly StoryId[];
 }

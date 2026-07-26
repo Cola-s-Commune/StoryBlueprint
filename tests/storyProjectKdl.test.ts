@@ -21,7 +21,13 @@ function projectDocument(): StoryProjectDocument {
       { id: 's_quest', path: 'quests/trader.story', name: 'trader', displayName: 'Trader Quest' },
     ],
     characters: [
-      { id: 'c_trader', name: 'trader', displayName: 'Trader', storyIds: ['s_intro', 's_quest'] },
+      {
+        id: 'c_trader',
+        name: 'trader',
+        displayName: 'Trader',
+        path: 'Characters/trader.character',
+        storyIds: ['s_intro', 's_quest'],
+      },
     ],
     assets: [
       {
@@ -29,6 +35,7 @@ function projectDocument(): StoryProjectDocument {
         name: 'trader-voice',
         displayName: 'Trader Voice',
         kind: 'audio',
+        path: 'Assets/trader-voice.asset',
         locales: { default: 'audio/trader.wav' },
         storyIds: ['s_quest'],
       },
@@ -44,6 +51,7 @@ describe('story project KDL', () => {
     expect(serialized).toContain('used-by s_quest');
     expect(serialized).toContain('entry-story=s_intro');
     expect(serialized).toContain('output-directory="Build/Stories"');
+    expect(serialized).toContain('path="Characters/trader.character"');
   });
 
   it('rejects paths outside the project and dangling resource usage', () => {

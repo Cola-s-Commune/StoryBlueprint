@@ -32,7 +32,7 @@ function valueLabel(value: RuntimeValue): string {
 }
 
 export function RuntimePreview() {
-  const { hasActiveStory, source, characters, variables } = useStoryGraphStore();
+  const { hasActiveStory, source, characters, assets, variables } = useStoryGraphStore();
   const [session, setSession] = useState<PreviewSession>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly CompilerDiagnostic[]>([]);
@@ -82,7 +82,10 @@ export function RuntimePreview() {
   }, [characters, variables]);
 
   const start = useCallback(() => {
-    const compiled = compileStory(source, { contentVersion: 'editor-preview' });
+    const compiled = compileStory(
+      { ...source, characters, assets },
+      { contentVersion: 'editor-preview' },
+    );
     setHistory([]);
     setDiagnostics(compiled.diagnostics);
     if (!compiled.ok) {
@@ -96,7 +99,7 @@ export function RuntimePreview() {
       characters,
       variables,
     });
-  }, [characters, source, variables]);
+  }, [assets, characters, source, variables]);
 
   const openCompiled = useCallback(async () => {
     if (!window.electronAPI) return;

@@ -21,6 +21,15 @@ const electronAPI = {
   exportCompiledProject: (content) => ipcRenderer.invoke('workspace:export-compiled', content),
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
   updateProjectSettings: (settings) => ipcRenderer.invoke('workspace:update-project-settings', settings),
+  createProjectCharacter: (character) => ipcRenderer.invoke('workspace:create-character', character),
+  updateProjectCharacter: (relativePath, character) =>
+    ipcRenderer.invoke('workspace:update-character', relativePath, character),
+  deleteProjectCharacter: (relativePath) =>
+    ipcRenderer.invoke('workspace:delete-character', relativePath),
+  createProjectAsset: (asset) => ipcRenderer.invoke('workspace:create-asset', asset),
+  updateProjectAsset: (relativePath, asset) =>
+    ipcRenderer.invoke('workspace:update-asset', relativePath, asset),
+  deleteProjectAsset: (relativePath) => ipcRenderer.invoke('workspace:delete-asset', relativePath),
   refreshWorkspace: () => ipcRenderer.invoke('workspace:refresh'),
   openWorkspaceStory: (relativePath) => ipcRenderer.invoke('workspace:open-story', relativePath),
   createWorkspaceDirectory: (parent, name) =>

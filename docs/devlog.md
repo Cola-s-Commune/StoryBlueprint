@@ -19,6 +19,10 @@ npm run dev
 
 ## Current: Workspace Explorer / Runtime Preview
 
+- 项目角色和资产已拆分为 `Characters/*.character` 与 `Assets/*.asset`；`.storyproject` 保存资源路径和跨 Story 使用索引。
+- Story Data 在项目模式下直接管理共享资源，支持搜索、角色默认/情绪肖像选择，以及资产按 Locale 配置资源路径。
+- 共享资源修改会排队即时保存；Save All 和切换项目等待写入完成，删除前检查所有 Story 引用、未保存状态和角色肖像依赖。
+- 工作区同步与 Compiler 会诊断重复资源、悬空 Speaker/Voice/Portrait 引用和错误资产类型；构建时仅合并各 Story 实际使用的项目资源。
 - 启动流程改为空会话欢迎页，不再自动打开 Untitled Story；支持原生 New/Open/Save Project 和 Open Story。
 - 关闭 Story、退出软件或切换项目时统一提供 Save / Don't Save / Cancel；保存会覆盖所有已修改的 Story 标签。
 - 成功切换项目后会清空旧项目的标签和编辑状态，避免跨项目资源混用。

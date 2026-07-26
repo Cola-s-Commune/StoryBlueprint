@@ -445,6 +445,27 @@
   font-weight: 700;
 }
 
+.characterFileIcon,
+.assetFileIcon {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  place-items: center;
+  border-radius: 2px;
+  color: #edf4f7;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.characterFileIcon {
+  background: #66518b;
+}
+
+.assetFileIcon {
+  background: #397b72;
+}
+
 .openMarker {
   padding-right: 7px;
   color: #6fa5d4;
