@@ -192,6 +192,22 @@
   font-size: 10px;
 }
 
+.detailActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.secondaryButton {
+  padding: 6px 8px;
+  border: 1px solid #465563;
+  border-radius: 4px;
+  background: #27333e;
+  color: #b9c8d5;
+  cursor: pointer;
+  font-size: 10px;
+}
+
 .dangerButton {
   padding: 6px 8px;
   border: 1px solid #704044;

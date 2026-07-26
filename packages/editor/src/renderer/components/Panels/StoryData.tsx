@@ -124,7 +124,11 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
 }
 
 function CharacterEditor({ character }: { character: CharacterSource }) {
-  const { characters, assets, updateCharacter, removeCharacter } = useStoryGraphStore();
+  const { characters, assets, workspace, updateCharacter, removeCharacter, revealWorkspaceItem } =
+    useStoryGraphStore();
+  const resourcePath = workspace?.characterResources.find(
+    (candidate) => candidate.character.id === character.id,
+  )?.relativePath;
   const duplicate = characters.some(
     (candidate) => candidate.id !== character.id && candidate.name === character.name,
   );
@@ -165,7 +169,9 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           {assets
             .filter((asset) => asset.kind === 'portrait')
             .map((asset) => (
-              <option value={asset.id} key={asset.id}>{asset.displayName}</option>
+              <option value={asset.id} key={asset.id}>
+                {asset.displayName}
+              </option>
             ))}
         </select>
       </label>
@@ -190,23 +196,37 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           }}
         />
       </label>
-      <button
-        className={styles.dangerButton}
-        type="button"
-        onClick={() => {
-          if (window.confirm(`Delete character ${character.displayName}?`)) {
-            removeCharacter(character.id);
-          }
-        }}
-      >
-        Delete Character
-      </button>
+      <div className={styles.detailActions}>
+        {resourcePath && (
+          <button
+            className={styles.secondaryButton}
+            type="button"
+            onClick={() => void revealWorkspaceItem(resourcePath)}
+          >
+            Show in File Explorer
+          </button>
+        )}
+        <button
+          className={styles.dangerButton}
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Delete character ${character.displayName}?`)) {
+              removeCharacter(character.id);
+            }
+          }}
+        >
+          Delete Character
+        </button>
+      </div>
     </div>
   );
 }
 
 function AssetEditor({ asset }: { asset: AssetSource }) {
-  const { assets, updateAsset, removeAsset } = useStoryGraphStore();
+  const { assets, workspace, updateAsset, removeAsset, revealWorkspaceItem } = useStoryGraphStore();
+  const resourcePath = workspace?.assetResources.find(
+    (candidate) => candidate.asset.id === asset.id,
+  )?.relativePath;
   const duplicate = assets.some(
     (candidate) => candidate.id !== asset.id && candidate.name === asset.name,
   );
@@ -263,15 +283,26 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
           }}
         />
       </label>
-      <button
-        className={styles.dangerButton}
-        type="button"
-        onClick={() => {
-          if (window.confirm(`Delete asset ${asset.displayName}?`)) removeAsset(asset.id);
-        }}
-      >
-        Delete Asset
-      </button>
+      <div className={styles.detailActions}>
+        {resourcePath && (
+          <button
+            className={styles.secondaryButton}
+            type="button"
+            onClick={() => void revealWorkspaceItem(resourcePath)}
+          >
+            Show in File Explorer
+          </button>
+        )}
+        <button
+          className={styles.dangerButton}
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Delete asset ${asset.displayName}?`)) removeAsset(asset.id);
+          }}
+        >
+          Delete Asset
+        </button>
+      </div>
     </div>
   );
 }
@@ -334,46 +365,48 @@ export function StoryData() {
             />
           </div>
         )}
-        {hasActiveStory && <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <span>Variables</span>
-            <button
-              type="button"
-              title="Add variable"
-              onClick={() => setSelection({ kind: 'variable', id: addVariable() })}
-            >
-              +
-            </button>
-          </div>
-          {variables.length === 0 && <div className={styles.empty}>No variables</div>}
-          {variables.map((variable) => (
-            <div
-              key={variable.id}
-              className={`${styles.item} ${selection?.kind === 'variable' && selection.id === variable.id ? styles.selected : ''}`}
-              draggable
-              onClick={() => setSelection({ kind: 'variable', id: variable.id })}
-              onDragStart={(event) =>
-                writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
-              }
-            >
-              <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
-              <span className={styles.itemName}>{variable.name}</span>
-              <span className={styles.itemType}>{variable.valueType.kind}</span>
-              <span
-                className={styles.setDrag}
-                draggable
-                title="Drag to create Set Variable"
-                onClick={(event) => event.stopPropagation()}
-                onDragStart={(event) => {
-                  event.stopPropagation();
-                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' });
-                }}
+        {hasActiveStory && (
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span>Variables</span>
+              <button
+                type="button"
+                title="Add variable"
+                onClick={() => setSelection({ kind: 'variable', id: addVariable() })}
               >
-                S
-              </span>
+                +
+              </button>
             </div>
-          ))}
-        </section>}
+            {variables.length === 0 && <div className={styles.empty}>No variables</div>}
+            {variables.map((variable) => (
+              <div
+                key={variable.id}
+                className={`${styles.item} ${selection?.kind === 'variable' && selection.id === variable.id ? styles.selected : ''}`}
+                draggable
+                onClick={() => setSelection({ kind: 'variable', id: variable.id })}
+                onDragStart={(event) =>
+                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                }
+              >
+                <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
+                <span className={styles.itemName}>{variable.name}</span>
+                <span className={styles.itemType}>{variable.valueType.kind}</span>
+                <span
+                  className={styles.setDrag}
+                  draggable
+                  title="Drag to create Set Variable"
+                  onClick={(event) => event.stopPropagation()}
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' });
+                  }}
+                >
+                  S
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
 
         <section className={styles.section}>
           <div className={styles.sectionHeader}>

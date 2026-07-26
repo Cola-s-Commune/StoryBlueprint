@@ -66,12 +66,10 @@ export interface ProjectStoryFile {
 }
 
 export type ExportCompiledProjectResult =
-  | { canceled: true }
-  | { canceled: false; filePath: string };
+  { canceled: true } | { canceled: false; filePath: string };
 
 export type OpenCompiledProjectResult =
-  | { canceled: true }
-  | { canceled: false; filePath: string; content: string };
+  { canceled: true } | { canceled: false; filePath: string; content: string };
 
 export interface CreateWorkspaceStoryRequest {
   directory: string;
@@ -94,6 +92,8 @@ export interface ElectronAPI {
   isElectron: true;
   openStory: () => Promise<OpenStoryResult>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
+  revealStory: (filePath: string, fileToken: string) => Promise<void>;
+  deleteStory: (filePath: string, fileToken: string) => Promise<WorkspaceInfo | undefined>;
   openWorkspace: () => Promise<OpenWorkspaceResult>;
   openProject: () => Promise<OpenWorkspaceResult>;
   openRecentProject: (filePath: string) => Promise<OpenWorkspaceResult>;
@@ -109,12 +109,18 @@ export interface ElectronAPI {
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
   createProjectCharacter: (character: CharacterSource) => Promise<WorkspaceInfo>;
-  updateProjectCharacter: (relativePath: string, character: CharacterSource) => Promise<WorkspaceInfo>;
+  updateProjectCharacter: (
+    relativePath: string,
+    character: CharacterSource,
+  ) => Promise<WorkspaceInfo>;
   deleteProjectCharacter: (relativePath: string) => Promise<WorkspaceInfo>;
   createProjectAsset: (asset: AssetSource) => Promise<WorkspaceInfo>;
   updateProjectAsset: (relativePath: string, asset: AssetSource) => Promise<WorkspaceInfo>;
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
+  revealWorkspaceItem: (relativePath: string) => Promise<void>;
+  deleteWorkspaceStory: (relativePath: string) => Promise<WorkspaceInfo>;
+  deleteWorkspaceProject: (relativePath: string) => Promise<WorkspaceInfo>;
   openWorkspaceStory: (relativePath: string) => Promise<OpenStoryResult>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<WorkspaceInfo>;
   createWorkspaceStory: (request: CreateWorkspaceStoryRequest) => Promise<OpenStoryResult>;

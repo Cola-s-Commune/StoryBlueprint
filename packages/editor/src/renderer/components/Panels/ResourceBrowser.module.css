@@ -360,9 +360,23 @@
 }
 
 .workspaceRoot {
-  gap: 6px;
   padding: 0 8px;
   text-transform: uppercase;
+}
+
+.workspaceRootSelect {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
   cursor: pointer;
 }
 
@@ -385,6 +399,54 @@
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+.fileOpen {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileActions {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-right: 4px;
+}
+
+.fileRow:hover .fileActions,
+.workspaceRoot:hover .fileActions {
+  display: flex;
+}
+
+.fileActions button {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #89919b;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.fileActions button:hover {
+  background: #39414a;
+  color: #eef3f8;
 }
 
 .fileDisclosure {

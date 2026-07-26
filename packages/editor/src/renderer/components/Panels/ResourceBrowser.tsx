@@ -16,6 +16,8 @@ interface WorkspaceTreeProps {
   onToggleDirectory: (relativePath: string) => void;
   onSelectDirectory: (relativePath: string) => void;
   onOpenStory: (relativePath: string) => void;
+  onReveal: (relativePath: string) => void;
+  onDelete: (entry: WorkspaceEntry) => void;
 }
 
 function WorkspaceTree({
@@ -29,6 +31,8 @@ function WorkspaceTree({
   onToggleDirectory,
   onSelectDirectory,
   onOpenStory,
+  onReveal,
+  onDelete,
 }: WorkspaceTreeProps) {
   return entries.map((entry) => {
     const filePath = resolveFilePath(entry.relativePath);
@@ -59,6 +63,15 @@ function WorkspaceTree({
               <span className={styles.folderIcon}>{isExpanded ? '▾' : '▸'}</span>
               <span>{entry.name}</span>
             </button>
+            <span className={styles.fileActions}>
+              <button
+                type="button"
+                title="Show in File Explorer"
+                onClick={() => onReveal(entry.relativePath)}
+              >
+                ◎
+              </button>
+            </span>
           </div>
           {isExpanded && entry.children && (
             <WorkspaceTree
@@ -72,6 +85,8 @@ function WorkspaceTree({
               onToggleDirectory={onToggleDirectory}
               onSelectDirectory={onSelectDirectory}
               onOpenStory={onOpenStory}
+              onReveal={onReveal}
+              onDelete={onDelete}
             />
           )}
         </div>
@@ -88,6 +103,18 @@ function WorkspaceTree({
         >
           <span className={styles.projectFileIcon}>P</span>
           <span className={styles.fileName}>{entry.name}</span>
+          <span className={styles.fileActions}>
+            <button
+              type="button"
+              title="Show in File Explorer"
+              onClick={() => onReveal(entry.relativePath)}
+            >
+              ◎
+            </button>
+            <button type="button" title="Delete Project File" onClick={() => onDelete(entry)}>
+              ×
+            </button>
+          </span>
         </div>
       );
     }
@@ -98,29 +125,65 @@ function WorkspaceTree({
           key={entry.relativePath}
           className={styles.fileRow}
           style={{ paddingLeft: 26 + depth * 13 }}
-          title={entry.kind === 'character' ? 'Project character resource' : 'Project asset resource'}
+          title={
+            entry.kind === 'character' ? 'Project character resource' : 'Project asset resource'
+          }
         >
-          <span className={entry.kind === 'character' ? styles.characterFileIcon : styles.assetFileIcon}>
+          <span
+            className={entry.kind === 'character' ? styles.characterFileIcon : styles.assetFileIcon}
+          >
             {entry.kind === 'character' ? 'C' : 'A'}
           </span>
           <span className={styles.fileName}>{entry.name}</span>
+          <span className={styles.fileActions}>
+            <button
+              type="button"
+              title="Show in File Explorer"
+              onClick={() => onReveal(entry.relativePath)}
+            >
+              ◎
+            </button>
+            <button
+              type="button"
+              title={`Delete ${entry.kind === 'character' ? 'Character' : 'Asset'}`}
+              onClick={() => onDelete(entry)}
+            >
+              ×
+            </button>
+          </span>
         </div>
       );
     }
 
     const isActive = filePath === activeFilePath;
     return (
-      <button
+      <div
         key={entry.relativePath}
-        type="button"
         className={`${styles.fileRow} ${isActive ? styles.activeFile : ''}`}
         style={{ paddingLeft: 26 + depth * 13 }}
-        onClick={() => onOpenStory(entry.relativePath)}
       >
-        <span className={styles.storyFileIcon}>S</span>
-        <span className={styles.fileName}>{entry.name}</span>
-        {loadedFilePaths.has(filePath) && <span className={styles.openMarker}>●</span>}
-      </button>
+        <button
+          type="button"
+          className={styles.fileOpen}
+          onClick={() => onOpenStory(entry.relativePath)}
+        >
+          <span className={styles.storyFileIcon}>S</span>
+          <span className={styles.fileName}>{entry.name}</span>
+          {loadedFilePaths.has(filePath) && <span className={styles.openMarker}>●</span>}
+        </button>
+        <span className={styles.fileActions}>
+          <button
+            type="button"
+            title="Show in File Explorer"
+            onClick={() => onReveal(entry.relativePath)}
+          >
+            ◎
+          </button>
+          <button type="button" title="Delete Story File" onClick={() => onDelete(entry)}>
+            ×
+          </button>
+        </span>
+      </div>
     );
   });
 }
@@ -141,7 +204,11 @@ export function ResourceBrowser() {
     openStory,
     switchStory,
     closeStory,
+    revealStoryFile,
+    deleteStoryFile,
     updateStory,
+    removeCharacter,
+    removeAsset,
     addSubstory,
     updateSubstory,
     removeSubstory,
@@ -150,6 +217,9 @@ export function ResourceBrowser() {
     openProject,
     newProject,
     refreshWorkspace,
+    revealWorkspaceItem,
+    deleteWorkspaceStory,
+    deleteWorkspaceProject,
     openWorkspaceStory,
     createWorkspaceDirectory,
     createWorkspaceStory,
@@ -235,6 +305,64 @@ export function ResourceBrowser() {
     const loadedStoryId = loadedByPath.get(resolveFilePath(relativePath));
     if (loadedStoryId) switchStory(loadedStoryId);
     else void openWorkspaceStory(relativePath);
+  };
+
+  const deleteWorkspaceEntry = (entry: WorkspaceEntry) => {
+    if (entry.kind === 'story') {
+      const loadedStoryId = loadedByPath.get(resolveFilePath(entry.relativePath));
+      if (loadedStoryId) void deleteStoryFile(loadedStoryId);
+      else void deleteWorkspaceStory(entry.relativePath);
+      return;
+    }
+    if (entry.kind === 'project') {
+      void deleteWorkspaceProject(entry.relativePath);
+      return;
+    }
+    if (entry.kind === 'character') {
+      const resource = workspace?.characterResources.find(
+        (candidate) => candidate.relativePath === entry.relativePath,
+      );
+      if (
+        resource &&
+        window.confirm(
+          `Delete character "${resource.character.displayName}"? This cannot be undone.`,
+        )
+      ) {
+        removeCharacter(resource.character.id);
+      } else if (
+        !resource &&
+        window.confirm(`Delete character file "${entry.name}"? This cannot be undone.`)
+      ) {
+        void window.electronAPI
+          ?.deleteProjectCharacter(entry.relativePath)
+          .then(() => refreshWorkspace())
+          .catch((error: unknown) =>
+            setMessage(error instanceof Error ? error.message : String(error)),
+          );
+      }
+      return;
+    }
+    if (entry.kind === 'asset') {
+      const resource = workspace?.assetResources.find(
+        (candidate) => candidate.relativePath === entry.relativePath,
+      );
+      if (
+        resource &&
+        window.confirm(`Delete asset "${resource.asset.displayName}"? This cannot be undone.`)
+      ) {
+        removeAsset(resource.asset.id);
+      } else if (
+        !resource &&
+        window.confirm(`Delete asset file "${entry.name}"? This cannot be undone.`)
+      ) {
+        void window.electronAPI
+          ?.deleteProjectAsset(entry.relativePath)
+          .then(() => refreshWorkspace())
+          .catch((error: unknown) =>
+            setMessage(error instanceof Error ? error.message : String(error)),
+          );
+      }
+    }
   };
 
   const addFolder = () => {
@@ -337,7 +465,9 @@ export function ResourceBrowser() {
                   }
                 >
                   {workspace.project.stories.map((story) => (
-                    <option value={story.id} key={story.id}>{story.displayName}</option>
+                    <option value={story.id} key={story.id}>
+                      {story.displayName}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -437,6 +567,24 @@ export function ResourceBrowser() {
                       <button type="button" title="Add Substory" onClick={() => addSubstory()}>
                         +
                       </button>
+                    )}
+                    {story.document.filePath && story.document.fileToken && (
+                      <>
+                        <button
+                          type="button"
+                          title="Show in File Explorer"
+                          onClick={() => void revealStoryFile(storyId)}
+                        >
+                          ◎
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete Story File"
+                          onClick={() => void deleteStoryFile(storyId)}
+                        >
+                          ⌫
+                        </button>
+                      </>
                     )}
                     <button type="button" title="Close Story" onClick={() => closeStory(storyId)}>
                       ×
@@ -597,16 +745,29 @@ export function ResourceBrowser() {
         )}
         {workspace ? (
           <div className={styles.workspaceTree}>
-            <button
-              type="button"
+            <div
               className={`${styles.workspaceRoot} ${
                 selectedDirectory === '' ? styles.selectedFile : ''
               }`}
-              onClick={() => setSelectedDirectory('')}
             >
-              <span className={styles.folderIcon}>▾</span>
-              <strong>{workspace.name}</strong>
-            </button>
+              <button
+                type="button"
+                className={styles.workspaceRootSelect}
+                onClick={() => setSelectedDirectory('')}
+              >
+                <span className={styles.folderIcon}>▾</span>
+                <strong>{workspace.name}</strong>
+              </button>
+              <span className={styles.fileActions}>
+                <button
+                  type="button"
+                  title="Show Workspace in File Explorer"
+                  onClick={() => void revealWorkspaceItem('')}
+                >
+                  ◎
+                </button>
+              </span>
+            </div>
             <WorkspaceTree
               entries={workspace.entries}
               depth={0}
@@ -618,6 +779,8 @@ export function ResourceBrowser() {
               onToggleDirectory={toggleDirectory}
               onSelectDirectory={setSelectedDirectory}
               onOpenStory={openWorkspaceFile}
+              onReveal={(relativePath) => void revealWorkspaceItem(relativePath)}
+              onDelete={deleteWorkspaceEntry}
             />
           </div>
         ) : (

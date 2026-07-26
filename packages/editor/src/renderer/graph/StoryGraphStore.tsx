@@ -303,6 +303,8 @@ interface StoryGraphStoreValue {
   saveAllStories: () => Promise<void>;
   switchStory: (id: StoryId, graphId?: ActiveGraphId) => void;
   closeStory: (id: StoryId) => Promise<void>;
+  revealStoryFile: (id: StoryId) => Promise<void>;
+  deleteStoryFile: (id: StoryId) => Promise<void>;
   updateStory: (update: { name?: string; displayName?: string }) => void;
   openWorkspace: () => Promise<void>;
   openProject: () => Promise<void>;
@@ -310,6 +312,9 @@ interface StoryGraphStoreValue {
   removeRecentProject: (filePath: string) => Promise<void>;
   newProject: () => Promise<void>;
   refreshWorkspace: () => Promise<void>;
+  revealWorkspaceItem: (relativePath: string) => Promise<void>;
+  deleteWorkspaceStory: (relativePath: string) => Promise<void>;
+  deleteWorkspaceProject: (relativePath: string) => Promise<void>;
   openWorkspaceStory: (relativePath: string) => Promise<void>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<void>;
   createWorkspaceStory: (directory: string, displayName: string) => Promise<void>;
@@ -423,34 +428,32 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     );
   }, [document.dirty, hasActiveStory, projectResourcesDirty, workspaceStories]);
 
-  const queueProjectResourceWrite = useCallback(
-    (write: () => Promise<WorkspaceInfo>) => {
-      const key = 'project-resources';
-      const previous = projectResourceWritesRef.current.get(key);
-      const operation = (previous ?? Promise.resolve(undefined))
-        .catch(() => undefined)
-        .then(write);
-      projectResourceWritesRef.current.set(key, operation);
-      setProjectResourcesDirty(true);
-      void operation
-        .then((nextWorkspace) => {
-          if (projectResourceWritesRef.current.get(key) !== operation) return;
+  const queueProjectResourceWrite = useCallback((write: () => Promise<WorkspaceInfo>) => {
+    const key = 'project-resources';
+    const previous = projectResourceWritesRef.current.get(key);
+    const operation = (previous ?? Promise.resolve(undefined)).catch(() => undefined).then(write);
+    projectResourceWritesRef.current.set(key, operation);
+    setProjectResourcesDirty(true);
+    void operation
+      .then((nextWorkspace) => {
+        if (projectResourceWritesRef.current.get(key) !== operation) return;
+        projectResourceWritesRef.current.delete(key);
+        setWorkspace(nextWorkspace);
+        setWorkspaceError(undefined);
+        setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
+      })
+      .catch((error: unknown) => {
+        if (projectResourceWritesRef.current.get(key) === operation) {
           projectResourceWritesRef.current.delete(key);
-          setWorkspace(nextWorkspace);
-          setWorkspaceError(undefined);
           setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
-        })
-        .catch((error: unknown) => {
-          if (projectResourceWritesRef.current.get(key) === operation) {
-            projectResourceWritesRef.current.delete(key);
-            setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
-          }
-          setWorkspaceError(error instanceof Error ? error.message : String(error));
-          void window.electronAPI?.refreshWorkspace().then(setWorkspace).catch(() => undefined);
-        });
-    },
-    [],
-  );
+        }
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+        void window.electronAPI
+          ?.refreshWorkspace()
+          .then(setWorkspace)
+          .catch(() => undefined);
+      });
+  }, []);
 
   useEffect(() => {
     void window.electronAPI
@@ -734,9 +737,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       emotions: { neutral: { displayName: 'Neutral' } },
     };
     if (workspace?.project && window.electronAPI) {
-      queueProjectResourceWrite(() =>
-        window.electronAPI!.createProjectCharacter(character),
-      );
+      queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
       return id;
     }
     setCharacters((current) => {
@@ -827,9 +828,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       locales: { default: '' },
     };
     if (workspace?.project && window.electronAPI) {
-      queueProjectResourceWrite(() =>
-        window.electronAPI!.createProjectAsset(asset),
-      );
+      queueProjectResourceWrite(() => window.electronAPI!.createProjectAsset(asset));
       return id;
     }
     setAssets((current) => {
@@ -984,9 +983,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, [captureActiveStory, hasActiveStory, workspaceStories]);
 
   const saveStoryItems = useCallback(
-    async (
-      items: EditorStoryWorkspaceItem[],
-    ): Promise<EditorStoryWorkspaceItem[] | undefined> => {
+    async (items: EditorStoryWorkspaceItem[]): Promise<EditorStoryWorkspaceItem[] | undefined> => {
       if (!window.electronAPI) return undefined;
       const saved: EditorStoryWorkspaceItem[] = [];
       for (const item of items) {
@@ -1232,6 +1229,50 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const revealWorkspaceItem = useCallback(async (relativePath: string) => {
+    if (!window.electronAPI) return;
+    try {
+      await window.electronAPI.revealWorkspaceItem(relativePath);
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const deleteWorkspaceStory = useCallback(async (relativePath: string) => {
+    if (!window.electronAPI) return;
+    if (!window.confirm(`Delete Story file "${relativePath}"? This cannot be undone.`)) return;
+    try {
+      setWorkspace(await window.electronAPI.deleteWorkspaceStory(relativePath));
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const deleteWorkspaceProject = useCallback(async (relativePath: string) => {
+    if (!window.electronAPI) return;
+    if (
+      !window.confirm(
+        `Delete project file "${relativePath}"? Story, character, and asset files will be kept.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      while (projectResourceWritesRef.current.size > 0) {
+        await Promise.all([...projectResourceWritesRef.current.values()]);
+      }
+      setWorkspace(await window.electronAPI.deleteWorkspaceProject(relativePath));
+      setRecentProjects(await window.electronAPI.getRecentProjects());
+      setProblems([]);
+      setLastBuildPath(undefined);
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
   const openWorkspace = useCallback(async () => {
     if (!window.electronAPI) return;
     try {
@@ -1456,10 +1497,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           },
         };
       });
-      const result = compileProject(
-        nextWorkspace.project,
-        projectSources,
-      );
+      const result = compileProject(nextWorkspace.project, projectSources);
       setProblems(result.diagnostics);
       if (!result.ok) return;
       const exported = await window.electronAPI.exportCompiledProject(
@@ -1549,14 +1587,56 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       clearStorySession();
     },
-    [
-      captureActiveStory,
-      document,
-      clearStorySession,
-      loadStory,
-      saveStoryItems,
-      workspaceStories,
-    ],
+    [captureActiveStory, document, clearStorySession, loadStory, saveStoryItems, workspaceStories],
+  );
+
+  const revealStoryFile = useCallback(
+    async (id: StoryId) => {
+      if (!window.electronAPI) return;
+      const target = currentStoryItems().find((story) => story.document.id === id);
+      if (!target?.document.filePath || !target.document.fileToken) return;
+      try {
+        await window.electronAPI.revealStory(target.document.filePath, target.document.fileToken);
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [currentStoryItems],
+  );
+
+  const deleteStoryFile = useCallback(
+    async (id: StoryId) => {
+      if (!window.electronAPI) return;
+      const items = currentStoryItems();
+      const target = items.find((story) => story.document.id === id);
+      if (!target?.document.filePath || !target.document.fileToken) return;
+      const dirtyWarning = target.document.dirty ? ' Unsaved changes will also be lost.' : '';
+      if (
+        !window.confirm(
+          `Delete Story file "${target.document.displayName}"?${dirtyWarning} This cannot be undone.`,
+        )
+      ) {
+        return;
+      }
+      try {
+        const nextWorkspace = await window.electronAPI.deleteStory(
+          target.document.filePath,
+          target.document.fileToken,
+        );
+        if (nextWorkspace) setWorkspace(nextWorkspace);
+        const remaining = items.filter((story) => story.document.id !== id);
+        setWorkspaceStories(remaining);
+        if (id === document.id) {
+          if (remaining.length > 0) loadStory(remaining[0]);
+          else clearStorySession();
+        }
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [clearStorySession, currentStoryItems, document.id, loadStory],
   );
 
   const updateStory = useCallback(
@@ -1755,6 +1835,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       saveAllStories,
       switchStory,
       closeStory,
+      revealStoryFile,
+      deleteStoryFile,
       updateStory,
       openWorkspace,
       openProject,
@@ -1762,6 +1844,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeRecentProject,
       newProject,
       refreshWorkspace,
+      revealWorkspaceItem,
+      deleteWorkspaceStory,
+      deleteWorkspaceProject,
       openWorkspaceStory,
       createWorkspaceDirectory,
       createWorkspaceStory,
@@ -1812,6 +1897,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       saveAllStories,
       switchStory,
       closeStory,
+      revealStoryFile,
+      deleteStoryFile,
       updateStory,
       openWorkspace,
       openProject,
@@ -1819,6 +1906,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeRecentProject,
       newProject,
       refreshWorkspace,
+      revealWorkspaceItem,
+      deleteWorkspaceStory,
+      deleteWorkspaceProject,
       openWorkspaceStory,
       createWorkspaceDirectory,
       createWorkspaceStory,

@@ -88,8 +88,7 @@ function isEditorSessionState(value: unknown): value is EditorSessionState {
     session.storyFilePaths.length <= MAX_SESSION_STORIES &&
     session.storyFilePaths.every((filePath) => typeof filePath === 'string') &&
     (session.workspaceRoot === undefined || typeof session.workspaceRoot === 'string') &&
-    (session.activeStoryFilePath === undefined ||
-      typeof session.activeStoryFilePath === 'string')
+    (session.activeStoryFilePath === undefined || typeof session.activeStoryFilePath === 'string')
   );
 }
 
@@ -151,10 +150,12 @@ async function rememberProject(filePath: string): Promise<void> {
   const recent = (await readRecentProjects()).filter(
     (item) => item.filePath.toLowerCase() !== resolvedPath.toLowerCase(),
   );
-  await writeRecentProjects([
-    { name, filePath: resolvedPath, lastOpenedAt: new Date().toISOString() },
-    ...recent,
-  ].slice(0, MAX_RECENT_PROJECTS));
+  await writeRecentProjects(
+    [{ name, filePath: resolvedPath, lastOpenedAt: new Date().toISOString() }, ...recent].slice(
+      0,
+      MAX_RECENT_PROJECTS,
+    ),
+  );
 }
 
 function ensureStoryExtension(filePath: string): string {
@@ -393,7 +394,9 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
     });
   }
   for (const entry of collectEntries(entries, 'asset')) {
-    const asset = parseAssetResource(await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'));
+    const asset = parseAssetResource(
+      await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'),
+    );
     if (assets.has(asset.id)) throw new Error(`Duplicate asset ID ${asset.id}`);
     assets.set(asset.id, {
       id: asset.id,
@@ -486,10 +489,15 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
 
   const externalCharacters = new Map(
     await Promise.all(
-      collectEntries(entries, 'character').map(async (entry) => [
-        entry.relativePath,
-        parseCharacterResource(await readFile(resolveWorkspacePath(entry.relativePath), 'utf8')),
-      ] as const),
+      collectEntries(entries, 'character').map(
+        async (entry) =>
+          [
+            entry.relativePath,
+            parseCharacterResource(
+              await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'),
+            ),
+          ] as const,
+      ),
     ),
   );
   for (const reference of characters.values()) {
@@ -546,12 +554,16 @@ async function validateCharacterResourceWrite(
   }
 }
 
-async function validateAssetResourceWrite(asset: AssetSource, relativePath?: string): Promise<void> {
+async function validateAssetResourceWrite(
+  asset: AssetSource,
+  relativePath?: string,
+): Promise<void> {
   if (!workspaceProjectFile) throw new Error('Open a project first');
   const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
   const conflict = project.assets.find(
     (candidate) =>
-      candidate.path !== relativePath && (candidate.id === asset.id || candidate.name === asset.name),
+      candidate.path !== relativePath &&
+      (candidate.id === asset.id || candidate.name === asset.name),
   );
   if (conflict) throw new Error(`Asset conflicts with ${conflict.displayName}`);
   if (asset.kind !== 'portrait') {
@@ -573,6 +585,27 @@ async function openStoryFile(filePath: string) {
   tokens.add(fileToken);
   storyFileTokens.set(filePath, tokens);
   return { canceled: false as const, filePath, fileToken, content };
+}
+
+function requireAuthorizedStoryFile(filePath: unknown, fileToken: unknown): string {
+  if (
+    typeof filePath !== 'string' ||
+    typeof fileToken !== 'string' ||
+    !storyFileTokens.get(filePath)?.has(fileToken) ||
+    !filePath.toLowerCase().endsWith('.story')
+  ) {
+    throw new Error('Story file is not authorized');
+  }
+  return filePath;
+}
+
+function isPathInsideWorkspace(filePath: string): boolean {
+  if (!workspaceRoot) return false;
+  const fromRoot = relative(workspaceRoot, filePath);
+  return (
+    fromRoot === '' ||
+    (!isAbsolute(fromRoot) && fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`))
+  );
 }
 
 async function activateWorkspace(rootPath: string, projectFile?: string): Promise<WorkspaceInfo> {
@@ -635,6 +668,20 @@ function registerStoryFileHandlers(): void {
     tokens.add(fileToken);
     storyFileTokens.set(filePath, tokens);
     return { canceled: false, filePath, fileToken };
+  });
+
+  ipcMain.handle('story:reveal', async (event, filePath: unknown, fileToken: unknown) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    shell.showItemInFolder(requireAuthorizedStoryFile(filePath, fileToken));
+  });
+
+  ipcMain.handle('story:delete', async (event, filePath: unknown, fileToken: unknown) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    const authorizedPath = requireAuthorizedStoryFile(filePath, fileToken);
+    await unlink(authorizedPath);
+    storyFileTokens.delete(authorizedPath);
+    if (!isPathInsideWorkspace(authorizedPath)) return undefined;
+    return workspaceProjectFile ? syncWorkspaceProject() : readWorkspace();
   });
 
   ipcMain.handle('workspace:open', async (event) => {
@@ -754,8 +801,10 @@ function registerStoryFileHandlers(): void {
       if (right === session.activeStoryFilePath) return -1;
       return 0;
     });
-    const restoredStories: Exclude<Awaited<ReturnType<typeof openStoryFile>>, { canceled: true }>[] =
-      [];
+    const restoredStories: Exclude<
+      Awaited<ReturnType<typeof openStoryFile>>,
+      { canceled: true }
+    >[] = [];
     for (const filePath of storyPaths) {
       try {
         const resolvedPath = await realpath(filePath);
@@ -838,6 +887,42 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('workspace:refresh', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readWorkspace();
+  });
+
+  ipcMain.handle('workspace:reveal-item', async (event, relativePath: unknown) => {
+    if (!isTrustedSender(event) || typeof relativePath !== 'string') {
+      throw new Error('Invalid workspace item request');
+    }
+    shell.showItemInFolder(await resolveExistingWorkspacePath(relativePath));
+  });
+
+  ipcMain.handle('workspace:delete-story', async (event, relativePath: unknown) => {
+    if (!isTrustedSender(event) || typeof relativePath !== 'string') {
+      throw new Error('Invalid workspace Story delete');
+    }
+    const filePath = await resolveExistingWorkspacePath(relativePath);
+    if (!filePath.toLowerCase().endsWith('.story')) throw new Error('Not a Story file');
+    await unlink(filePath);
+    storyFileTokens.delete(filePath);
+    return workspaceProjectFile ? syncWorkspaceProject() : (await readWorkspace())!;
+  });
+
+  ipcMain.handle('workspace:delete-project', async (event, relativePath: unknown) => {
+    if (!isTrustedSender(event) || typeof relativePath !== 'string') {
+      throw new Error('Invalid workspace project delete');
+    }
+    const filePath = await resolveExistingWorkspacePath(relativePath);
+    if (!filePath.toLowerCase().endsWith('.storyproject')) throw new Error('Not a project file');
+    await unlink(filePath);
+    if (workspaceProjectFile && filePath.toLowerCase() === workspaceProjectFile.toLowerCase()) {
+      workspaceProjectFile = undefined;
+    }
+    await writeRecentProjects(
+      (await readRecentProjects()).filter(
+        (project) => project.filePath.toLowerCase() !== filePath.toLowerCase(),
+      ),
+    );
+    return (await readWorkspace())!;
   });
 
   ipcMain.handle('workspace:open-story', async (event, relativePath: unknown) => {
@@ -1001,22 +1086,19 @@ function registerStoryFileHandlers(): void {
     return syncWorkspaceProject();
   });
 
-  ipcMain.handle(
-    'workspace:update-asset',
-    async (event, relativePath: unknown, value: unknown) => {
-      if (!isTrustedSender(event) || typeof relativePath !== 'string') {
-        throw new Error('Invalid asset update');
-      }
-      const filePath = await resolveExistingWorkspacePath(relativePath);
-      if (!filePath.toLowerCase().endsWith('.asset')) throw new Error('Not an asset file');
-      const previous = parseAssetResource(await readFile(filePath, 'utf8'));
-      const asset = value as AssetSource;
-      if (asset.id !== previous.id) throw new Error('Asset ID cannot be changed');
-      await validateAssetResourceWrite(asset, relativePath);
-      await writeFile(filePath, serializeAssetResource(asset), 'utf8');
-      return syncWorkspaceProject();
-    },
-  );
+  ipcMain.handle('workspace:update-asset', async (event, relativePath: unknown, value: unknown) => {
+    if (!isTrustedSender(event) || typeof relativePath !== 'string') {
+      throw new Error('Invalid asset update');
+    }
+    const filePath = await resolveExistingWorkspacePath(relativePath);
+    if (!filePath.toLowerCase().endsWith('.asset')) throw new Error('Not an asset file');
+    const previous = parseAssetResource(await readFile(filePath, 'utf8'));
+    const asset = value as AssetSource;
+    if (asset.id !== previous.id) throw new Error('Asset ID cannot be changed');
+    await validateAssetResourceWrite(asset, relativePath);
+    await writeFile(filePath, serializeAssetResource(asset), 'utf8');
+    return syncWorkspaceProject();
+  });
 
   ipcMain.handle('workspace:delete-asset', async (event, relativePath: unknown) => {
     if (!isTrustedSender(event) || typeof relativePath !== 'string' || !workspaceProjectFile) {
@@ -1029,12 +1111,14 @@ function registerStoryFileHandlers(): void {
       throw new Error(`Asset is used by ${reference.storyIds.length} Story file(s)`);
     }
     const workspace = await readWorkspace();
-    const character = workspace?.characterResources.find(({ character }) =>
-      [
-        character.defaultPortraitId,
-        ...Object.values(character.emotions).map((emotion) => emotion.portraitId),
-      ].includes(reference?.id),
-    );
+    const character = reference
+      ? workspace?.characterResources.find(({ character }) =>
+          [
+            character.defaultPortraitId,
+            ...Object.values(character.emotions).map((emotion) => emotion.portraitId),
+          ].includes(reference.id),
+        )
+      : undefined;
     if (character) throw new Error(`Asset is used by character ${character.character.displayName}`);
     const filePath = await resolveExistingWorkspacePath(relativePath);
     if (!filePath.toLowerCase().endsWith('.asset')) throw new Error('Not an asset file');
