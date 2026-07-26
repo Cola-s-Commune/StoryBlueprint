@@ -739,14 +739,27 @@ Runtime 不负责：
 
 编辑器工作区可以同时打开多个独立的 Story 资源。每个 `*.story` 仍是独立权威源，包含自己的 Main Story、Substory、变量、角色与资源；在尚未创建 `*.storyproject` 前，多 Story 工作区只是编辑会话，不会把多个 Story 强行合并进一个源文件。
 
-| 文件                | 格式                 | 是否权威源 | 用途                   |
-| ------------------- | -------------------- | ---------: | ---------------------- |
-| `*.story`           | KDL 2.0              |         是 | 单个 Story 完整源数据  |
-| `*.storyc.json`     | JSON Runtime Program |         否 | Runtime 执行逻辑       |
-| `*.storyc.json.map` | JSON                 |         否 | 可选调试映射           |
-| `*.ink`             | Ink                  |         否 | 导入、导出与 Ink Block |
-| `*.character`       | KDL 2.0              |         是 | 可选独立角色资源       |
-| `*.storyproject`    | KDL 2.0              |         是 | 项目级配置与资源索引   |
+编辑器采用类似 VS Code 的目录工作区：用户选择一个真实文件夹作为根目录，Explorer 递归展示其中的子目录与 `*.story`，Open Stories 单独表示已经加载到编辑会话的资源。工作区根目录可以包含一个 `*.storyproject`，作为项目稳定身份和语义索引；没有项目文件的普通目录仍可临时打开，但不能提供完整的跨 Story 资源视图。
+
+`*.storyproject` 当前保存：
+
+- 项目稳定 ID、Name 与 Display Name。
+- 所有 Story 的稳定 ID、相对路径、Name 与 Display Name。
+- 角色和资产的跨 Story 汇总目录，以及每项资源被哪些 Story 使用。
+- Asset 的类型、语言映射与资源路径。
+
+项目索引可由编辑器重新扫描并稳定生成；新增或保存 Story 后自动同步，也可在 Explorer 中手动同步。相同角色或资产 ID 在不同 Story 中出现时必须具有一致的定义，否则同步返回冲突诊断。当前角色与资产定义仍保存在各自 `.story` 中；后续再引入独立共享资源文件，使项目文件从“索引”升级为共享资源注册表。
+
+渲染进程不直接访问文件系统。目录扫描、按相对路径打开、新建文件夹和新建 Story 均通过主进程 IPC，并在解析路径及符号链接后校验目标仍位于当前工作目录内。
+
+| 文件                | 格式                 | 是否权威源 | 用途                                    |
+| ------------------- | -------------------- | ---------: | --------------------------------------- |
+| `*.story`           | KDL 2.0              |         是 | 单个 Story 完整源数据                   |
+| `*.storyc.json`     | JSON Runtime Program |         否 | Runtime 执行逻辑                        |
+| `*.storyc.json.map` | JSON                 |         否 | 可选调试映射                            |
+| `*.ink`             | Ink                  |         否 | 导入、导出与 Ink Block                  |
+| `*.character`       | KDL 2.0              |         是 | 可选独立角色资源                        |
+| `*.storyproject`    | KDL 2.0              |         是 | 项目身份、Story 清单与跨 Story 资源索引 |
 
 ---
 

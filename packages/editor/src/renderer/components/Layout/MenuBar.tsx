@@ -13,7 +13,16 @@ type SubMenuItem =
       label: string;
       shortcut?: string;
       disabled?: boolean;
-      action?: 'new' | 'open' | 'save' | 'save-as' | 'exit' | 'undo' | 'redo' | 'reset-layout';
+      action?:
+        | 'new'
+        | 'open'
+        | 'open-folder'
+        | 'save'
+        | 'save-as'
+        | 'exit'
+        | 'undo'
+        | 'redo'
+        | 'reset-layout';
       panelId?: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview';
     }
   | { type: 'separator' };
@@ -24,6 +33,7 @@ const menuItems: MenuItem[] = [
     submenu: [
       { type: 'item', label: 'New Story', shortcut: 'Ctrl+N', action: 'new' },
       { type: 'item', label: 'Open Story...', shortcut: 'Ctrl+O', action: 'open' },
+      { type: 'item', label: 'Open Folder...', action: 'open-folder' },
       { type: 'separator' },
       { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
       { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
@@ -76,7 +86,7 @@ interface MenuBarProps {
 }
 
 export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
-  const { newStory, openStory, saveStory, undo, redo } = useStoryGraphStore();
+  const { newStory, openStory, openWorkspace, saveStory, undo, redo } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -118,6 +128,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         break;
       case 'open':
         void openStory();
+        break;
+      case 'open-folder':
+        void openWorkspace();
         break;
       case 'save':
         void saveStory();

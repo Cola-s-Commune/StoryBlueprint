@@ -1,4 +1,5 @@
 const stableIdPrefixes = {
+  project: 'prj',
   story: 's',
   chapter: 'ch',
   node: 'n',
@@ -18,6 +19,7 @@ export type StableIdKind = keyof typeof stableIdPrefixes;
 export type StableId<Kind extends StableIdKind> = `${(typeof stableIdPrefixes)[Kind]}_${string}`;
 
 export type StoryId = StableId<'story'>;
+export type ProjectId = StableId<'project'>;
 export type ChapterId = StableId<'chapter'>;
 export type NodeId = StableId<'node'>;
 export type EdgeId = StableId<'edge'>;

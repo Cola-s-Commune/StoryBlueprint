@@ -17,8 +17,12 @@ npm run dev
 
 ---
 
-## Current: Multi-Story Resources / Runtime Preview
+## Current: Workspace Explorer / Runtime Preview
 
+- 工作区可创建版本化 `.storyproject`，同步 Story 相对路径、角色、资产及跨 Story 使用关系。
+- 项目索引具有路径逃逸、重复 ID、悬空资源使用与跨 Story 定义冲突校验。
+- Resource Browser 现分为 Open Stories 与 Explorer；可选择真实工作目录、浏览嵌套文件夹，并从目录树按需加载 `.story`。
+- 支持在选中目录中新建文件夹和 Story，刷新磁盘树；文件 IPC 会阻止相对路径或符号链接逃逸工作区。
 - Resource Browser 采用 Story → Main Story / Substory 层级，可同时新建、打开、切换、重命名和关闭多个 Story。
 - 每个 Story 独立保留图、变量、角色、资源、文件路径和 dirty 状态；文件授权也支持分别保存多个已打开 Story。
 - Resource Browser 已支持 Main Story 与多个 Substory 的创建、重命名、切换和引用安全删除。

@@ -93,10 +93,13 @@
 - [x] Story → Main Story / Substory 分层资源树
 - [x] 新建、打开、切换、重命名和关闭 Story
 - [x] 每个 Story 独立保留图、变量、角色、资源与未保存状态
+- [x] VS Code 风格 Open Stories + Explorer 双层资源管理
+- [x] 选择真实工作目录并递归展示子文件夹与 `.story` 文件
+- [x] 在选中目录中新建文件夹和 Story
 - [x] Story 内 Main Story / Substory 蓝图列表
 - [x] 新建、重命名、切换和安全删除 Substory
 - [x] 多选节点提取为单入口、单出口 Substory
-- [ ] 文件系统 TreeView
+- [x] 文件系统 TreeView
 - [ ] Search
 - [ ] Context Menu
 - [ ] Drag Support
@@ -372,8 +375,14 @@
 - [x] Save
 - [x] Save As
 - [x] 多 Story 同时打开与分别保存
+- [x] 工作目录选择、刷新和目录内 Story 打开
+- [x] 所有目录 IPC 执行工作区边界校验
 - [ ] Save All
-- [ ] `.storyproject` 项目清单与最近打开 Story 恢复
+- [ ] 工作目录与 Open Stories 会话恢复
+- [x] 版本化 `.storyproject` 项目清单
+- [x] 项目级 Story 路径、角色与资产使用索引
+- [x] 创建与手动同步项目索引，保存/新增 Story 后自动同步
+- [ ] 项目级共享角色与资产独立资源文件
 
 ---
 

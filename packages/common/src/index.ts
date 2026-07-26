@@ -36,6 +36,7 @@ export {
 
 // ---- .story KDL serialization ----
 export { StoryFormatError, serializeStorySource, parseStorySource } from './serialization/storyKdl';
+export { serializeStoryProject, parseStoryProject } from './serialization/projectKdl';
 
 // ---- Stable IDs ----
 export {
@@ -44,6 +45,7 @@ export {
   type StableId,
   type StableIdKind,
   type StoryId,
+  type ProjectId,
   type ChapterId,
   type NodeId,
   type EdgeId,
@@ -95,6 +97,15 @@ export {
   type StorySourceDocument,
   type BoundExpressionSource,
 } from './types/source';
+
+export {
+  STORY_PROJECT_FORMAT,
+  STORY_PROJECT_VERSION,
+  type ProjectStoryReference,
+  type ProjectCharacterReference,
+  type ProjectAssetReference,
+  type StoryProjectDocument,
+} from './types/project';
 
 // ---- Runtime program contract ----
 export {

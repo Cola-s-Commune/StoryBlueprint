@@ -53,14 +53,53 @@
   gap: 3px;
 }
 
+.projectSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 9px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #2e3339;
+  background: #1d2126;
+  color: #858e99;
+  font-size: 9px;
+}
+
 .iconButton:hover,
 .rowActions button:hover {
   border-color: #5d83a9;
   color: #e3e9ef;
 }
 
-.sectionTitle {
-  padding: 12px 10px 6px;
+.sectionHeader {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 7px 3px 10px;
+  border-top: 1px solid #2b2f35;
+}
+
+.sectionActions {
+  display: flex;
+  gap: 2px;
+}
+
+.sectionActions button {
+  min-width: 19px;
+  height: 19px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #89919b;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.sectionActions button:hover {
+  background: #30363e;
+  color: #e1e5ea;
 }
 
 .storyTree {
@@ -240,6 +279,182 @@
   border: 0;
   background: transparent;
   font-size: 11px;
+}
+
+.workspaceTree {
+  padding-bottom: 6px;
+}
+
+.workspaceRoot,
+.fileRow {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  box-sizing: border-box;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: #bac0c8;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+}
+
+.workspaceRoot {
+  gap: 6px;
+  padding: 0 8px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fileRow:hover,
+.workspaceRoot:hover,
+.selectedFile {
+  background: #272c33;
+}
+
+.fileRow.activeFile {
+  background: #293847;
+  color: #e4ebf2;
+}
+
+.fileDisclosure,
+.fileSelect {
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fileDisclosure {
+  width: 17px;
+  flex: 0 0 17px;
+  padding: 0;
+  color: #7d858f;
+  font-size: 9px;
+}
+
+.fileSelect {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 0 5px 0 0;
+  text-align: left;
+}
+
+.fileSelect span:last-child,
+.fileName {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folderIcon {
+  color: #cfaa62;
+  font-size: 9px;
+}
+
+.storyFileIcon {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  place-items: center;
+  border-radius: 2px;
+  background: #4c7094;
+  color: #e5eef7;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.projectFileIcon {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  place-items: center;
+  border-radius: 2px;
+  background: #8b663e;
+  color: #fff1d8;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.openMarker {
+  padding-right: 7px;
+  color: #6fa5d4;
+  font-size: 6px;
+}
+
+.openFolderCallout {
+  display: block;
+  margin: 8px auto 12px;
+  padding: 6px 12px;
+  border: 1px solid #4b5968;
+  border-radius: 3px;
+  background: #2a333d;
+  color: #c9d3dd;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.openFolderCallout:hover {
+  border-color: #6088ad;
+  background: #303c48;
+}
+
+.creationRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 7px 5px;
+  padding: 5px 6px;
+  border: 1px solid #3f566d;
+  border-radius: 3px;
+  background: #202832;
+}
+
+.creationRow input {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 5px;
+  border: 1px solid #527ca5;
+  border-radius: 2px;
+  outline: none;
+  background: #171d23;
+  color: #e1e7ed;
+  font: inherit;
+  font-size: 10px;
+}
+
+.creationRow button {
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: #aab4be;
+  font: inherit;
+  cursor: pointer;
+}
+
+.creationRow button:hover:not(:disabled) {
+  background: #354250;
+  color: #fff;
+}
+
+.creationRow button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .actions {

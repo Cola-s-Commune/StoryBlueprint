@@ -21,6 +21,9 @@ import {
   NodeFactory,
   parseStorySource,
   serializeStorySource,
+  serializeStoryProject,
+  STORY_PROJECT_FORMAT,
+  STORY_PROJECT_VERSION,
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
   StoryNodeType,
@@ -49,6 +52,7 @@ import {
   type EditorGraphState,
 } from './editorGraph';
 import { useGraphHistory } from './useGraphHistory';
+import type { OpenStoryResult, WorkspaceInfo } from '../../shared/electronApi';
 
 nodeRegistry.registerBuiltins();
 
@@ -264,6 +268,8 @@ interface StoryGraphStoreValue {
   document: StoryDocumentInfo;
   stories: EditorStoryResource[];
   activeStoryId: StoryId;
+  workspace?: WorkspaceInfo;
+  workspaceError?: string;
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -291,6 +297,13 @@ interface StoryGraphStoreValue {
   switchStory: (id: StoryId, graphId?: ActiveGraphId) => void;
   closeStory: (id: StoryId) => void;
   updateStory: (update: { name?: string; displayName?: string }) => void;
+  openWorkspace: () => Promise<void>;
+  refreshWorkspace: () => Promise<void>;
+  openWorkspaceStory: (relativePath: string) => Promise<void>;
+  createWorkspaceDirectory: (parent: string, name: string) => Promise<void>;
+  createWorkspaceStory: (directory: string, displayName: string) => Promise<void>;
+  createWorkspaceProject: (displayName: string) => Promise<void>;
+  syncWorkspaceProject: () => Promise<void>;
 }
 
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
@@ -318,6 +331,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [activeGraphId, setActiveGraphId] = useState<ActiveGraphId>('root');
   const revisionRef = useRef(0);
   const [document, setDocument] = useState<StoryDocumentInfo>(initialDocument);
+  const [workspace, setWorkspace] = useState<WorkspaceInfo>();
+  const [workspaceError, setWorkspaceError] = useState<string>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>(() => [
     {
       document: initialDocument,
@@ -868,11 +883,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     loadStory(next);
   }, [captureActiveStory, loadStory, workspaceStories]);
 
-  const openStory = useCallback(async () => {
-    if (!window.electronAPI) return;
-    try {
-      const result = await window.electronAPI.openStory();
-      if (result.canceled) return;
+  const acceptOpenedStory = useCallback(
+    (result: Exclude<OpenStoryResult, { canceled: true }>) => {
       const source = parseStorySource(result.content);
       const rootGraph = fromSourceGraph(source.root);
       const current = captureActiveStory();
@@ -909,13 +921,153 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         ];
       });
       loadStory(opened);
+    },
+    [captureActiveStory, loadStory],
+  );
+
+  const openStory = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      const result = await window.electronAPI.openStory();
+      if (result.canceled) return;
+      acceptOpenedStory(result);
     } catch (error) {
       setDocument((current) => ({
         ...current,
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, [captureActiveStory, loadStory]);
+  }, [acceptOpenedStory]);
+
+  const refreshWorkspace = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      setWorkspace(await window.electronAPI.refreshWorkspace());
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const openWorkspace = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      const result = await window.electronAPI.openWorkspace();
+      if (result.canceled) return;
+      setWorkspace(result.workspace);
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const openWorkspaceStory = useCallback(
+    async (relativePath: string) => {
+      if (!window.electronAPI) return;
+      try {
+        const result = await window.electronAPI.openWorkspaceStory(relativePath);
+        if (result.canceled) return;
+        acceptOpenedStory(result);
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [acceptOpenedStory],
+  );
+
+  const createWorkspaceDirectory = useCallback(async (parent: string, name: string) => {
+    if (!window.electronAPI) return;
+    try {
+      setWorkspace(await window.electronAPI.createWorkspaceDirectory(parent, name));
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const createWorkspaceStory = useCallback(
+    async (directory: string, displayName: string) => {
+      if (!window.electronAPI) return;
+      const trimmedName = displayName.trim();
+      if (!trimmedName) return;
+      try {
+        const id = createStableId('story');
+        const rootGraph = createNewGraph();
+        const name =
+          trimmedName
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'story';
+        const createdSource: StorySourceDocument = {
+          format: STORY_SOURCE_FORMAT,
+          version: STORY_SOURCE_VERSION,
+          id,
+          name,
+          displayName: trimmedName,
+          root: toSourceGraph(rootGraph),
+          chapters: [],
+          variables: [],
+          characters: [],
+          assets: [],
+          events: [],
+        };
+        const result = await window.electronAPI.createWorkspaceStory({
+          directory,
+          name: trimmedName,
+          content: serializeStorySource(createdSource),
+        });
+        if (result.canceled) return;
+        acceptOpenedStory(result);
+        setWorkspace(await window.electronAPI.refreshWorkspace());
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [acceptOpenedStory],
+  );
+
+  const createWorkspaceProject = useCallback(async (displayName: string) => {
+    if (!window.electronAPI) return;
+    const trimmedName = displayName.trim();
+    if (!trimmedName) return;
+    try {
+      const name =
+        trimmedName
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'project';
+      setWorkspace(
+        await window.electronAPI.createWorkspaceProject({
+          fileName: name,
+          content: serializeStoryProject({
+            format: STORY_PROJECT_FORMAT,
+            version: STORY_PROJECT_VERSION,
+            id: createStableId('project'),
+            name,
+            displayName: trimmedName,
+            stories: [],
+            characters: [],
+            assets: [],
+          }),
+        }),
+      );
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const syncWorkspaceProject = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      setWorkspace(await window.electronAPI.syncWorkspaceProject());
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
 
   const closeStory = useCallback(
     (id: StoryId) => {
@@ -992,6 +1144,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             error: undefined,
           };
         });
+        if (workspace) {
+          try {
+            setWorkspace(
+              workspace.project
+                ? await window.electronAPI.syncWorkspaceProject()
+                : await window.electronAPI.refreshWorkspace(),
+            );
+            setWorkspaceError(undefined);
+          } catch (error) {
+            setWorkspaceError(error instanceof Error ? error.message : String(error));
+          }
+        }
       } catch (error) {
         setDocument((current) => ({
           ...current,
@@ -999,7 +1163,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         }));
       }
     },
-    [document, source],
+    [document, source, workspace],
   );
 
   const value = useMemo<StoryGraphStoreValue>(
@@ -1041,6 +1205,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       document,
       stories,
       activeStoryId: document.id,
+      workspace,
+      workspaceError,
       markDirty,
       newStory,
       openStory,
@@ -1048,6 +1214,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       switchStory,
       closeStory,
       updateStory,
+      openWorkspace,
+      refreshWorkspace,
+      openWorkspaceStory,
+      createWorkspaceDirectory,
+      createWorkspaceStory,
+      createWorkspaceProject,
+      syncWorkspaceProject,
     }),
     [
       addNode,
@@ -1060,6 +1233,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       chapters,
       document,
       stories,
+      workspace,
+      workspaceError,
       edges,
       graph,
       activeGraphId,
@@ -1081,6 +1256,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       switchStory,
       closeStory,
       updateStory,
+      openWorkspace,
+      refreshWorkspace,
+      openWorkspaceStory,
+      createWorkspaceDirectory,
+      createWorkspaceStory,
+      createWorkspaceProject,
+      syncWorkspaceProject,
       source,
       switchGraph,
       undo,

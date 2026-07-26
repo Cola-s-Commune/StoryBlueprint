@@ -5,7 +5,9 @@
   "description": "Story Blueprint Editor - Electron + React",
   "main": "./.output/main/index.js",
   "scripts": {
+    "predev": "npm run build --workspace @story-blueprint/common",
     "dev": "node scripts/dev.cjs",
+    "prebuild": "npm run build --workspace @story-blueprint/common",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "lint": "eslint src --ext .ts,.tsx",
