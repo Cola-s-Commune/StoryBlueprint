@@ -12,6 +12,7 @@ import {
   MiniMap,
   Controls,
   ConnectionLineType,
+  SelectionMode,
   type Connection,
   type Edge,
   type OnConnectEnd,
@@ -30,11 +31,14 @@ import {
 import { nodeTypes } from '../Nodes';
 import {
   createGraphClipboard,
+  disconnectGraphPinConnections,
+  moveGraphPinConnections,
   pasteGraphClipboard,
   type EditorGraphEdge,
   type EditorGraphNode,
   type EditorGraphState,
   type GraphClipboard,
+  type GraphPinReference,
 } from '../../graph/editorGraph';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag, storyDataMime } from '../../graph/storyDataDrag';
@@ -55,6 +59,12 @@ function toGraphEdges(edges: readonly EditorGraphEdge[]): GraphEdgeLike[] {
   }));
 }
 
+function replacesExistingExecutionEdge(
+  result: ReturnType<typeof validateGraphConnection>,
+): boolean {
+  return !result.valid && result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED';
+}
+
 function isTextEditingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
@@ -63,6 +73,27 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
     target.tagName === 'TEXTAREA' ||
     target.tagName === 'SELECT'
   );
+}
+
+function graphPinFromTarget(target: EventTarget | null): GraphPinReference | undefined {
+  if (!(target instanceof Element)) return undefined;
+  const handle = target.closest<HTMLElement>('.react-flow__handle');
+  const nodeId = handle?.dataset.nodeid;
+  const handleId = handle?.dataset.handleid;
+  if (!handle || !nodeId || !handleId) return undefined;
+  return {
+    nodeId,
+    handleId,
+    direction: handle.classList.contains('source') ? 'source' : 'target',
+  };
+}
+
+type GraphControlMode = 'blueprint' | 'standard';
+const graphControlModeStorageKey = 'story-blueprint.graph-control-mode';
+
+function initialGraphControlMode(): GraphControlMode {
+  const saved = window.localStorage.getItem(graphControlModeStorageKey);
+  return saved === 'standard' ? 'standard' : 'blueprint';
 }
 
 export function StoryGraph() {
@@ -95,6 +126,12 @@ export function StoryGraph() {
     problemFocus,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [controlMode, setControlMode] = useState<GraphControlMode>(initialGraphControlMode);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [transferPreview, setTransferPreview] = useState<{
+    fixedPoints: readonly { x: number; y: number }[];
+    pointer: { x: number; y: number };
+  }>();
   const [flowInstance, setFlowInstance] = useState<
     ReactFlowInstance<EditorGraphNode, EditorGraphEdge> | undefined
   >();
@@ -105,6 +142,13 @@ export function StoryGraph() {
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
+  const rightDragRef = useRef<{ x: number; y: number; moved: boolean }>();
+  const connectionTransferRef = useRef<{
+    origin: GraphPinReference;
+    fixedPoints: readonly { x: number; y: number }[];
+  }>();
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
   const dragSnapshot = useRef<EditorGraphState | null>(null);
 
   const validateConnection = useCallback(
@@ -123,14 +167,22 @@ export function StoryGraph() {
   );
 
   const isValidConnection = useCallback(
-    (connection: Connection | Edge) => validateConnection(connection).valid,
+    (connection: Connection | Edge) => {
+      const result = validateConnection(connection);
+      return result.valid || replacesExistingExecutionEdge(result);
+    },
     [validateConnection],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
       const result = validateConnection(connection);
-      if (!result.valid || !connection.sourceHandle || !connection.targetHandle) {
+      const replacesExisting = replacesExistingExecutionEdge(result);
+      if (
+        (!result.valid && !replacesExisting) ||
+        !connection.sourceHandle ||
+        !connection.targetHandle
+      ) {
         setConnectionError(
           result.valid ? 'Connection requires source and target ports' : result.diagnostic.message,
         );
@@ -139,8 +191,14 @@ export function StoryGraph() {
 
       checkpoint();
       setConnectionError(null);
-      setEdges((currentEdges) =>
-        addEdge(
+      setEdges((currentEdges) => {
+        const availableEdges = replacesExisting
+          ? currentEdges.filter(
+              (edge) =>
+                edge.source !== connection.source || edge.sourceHandle !== connection.sourceHandle,
+            )
+          : currentEdges;
+        return addEdge(
           {
             ...connection,
             id: createStableId('edge'),
@@ -149,9 +207,9 @@ export function StoryGraph() {
             sourceHandle: connection.sourceHandle as string,
             targetHandle: connection.targetHandle as string,
           },
-          currentEdges,
-        ),
-      );
+          availableEdges,
+        );
+      });
       markDirty();
     },
     [checkpoint, markDirty, setEdges, validateConnection],
@@ -170,9 +228,24 @@ export function StoryGraph() {
         target: targetHandle.nodeId,
         targetHandle: targetHandle.id ?? null,
       });
-      if (!result.valid) setConnectionError(result.diagnostic.message);
+      if (!result.valid && !replacesExistingExecutionEdge(result)) {
+        setConnectionError(result.diagnostic.message);
+      }
     },
     [validateConnection],
+  );
+
+  const onEdgeClick = useCallback(
+    (event: ReactMouseEvent, edge: EditorGraphEdge) => {
+      if (!event.altKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      checkpoint();
+      setEdges((current) => current.filter((candidate) => candidate.id !== edge.id));
+      setConnectionError(null);
+      markDirty();
+    },
+    [checkpoint, markDirty, setEdges],
   );
 
   const deleteSelection = useCallback(() => {
@@ -213,6 +286,11 @@ export function StoryGraph() {
   const openContextMenu = useCallback(
     (event: globalThis.MouseEvent | ReactMouseEvent) => {
       event.preventDefault();
+      if (controlMode === 'blueprint' && rightDragRef.current?.moved) {
+        rightDragRef.current = undefined;
+        return;
+      }
+      rightDragRef.current = undefined;
       if (!flowInstance || !canvasRef.current) return;
       const bounds = canvasRef.current.getBoundingClientRect();
       setContextMenu({
@@ -221,7 +299,115 @@ export function StoryGraph() {
         flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
       });
     },
-    [flowInstance],
+    [controlMode, flowInstance],
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem(graphControlModeStorageKey, controlMode);
+    rightDragRef.current = undefined;
+    setContextMenu(null);
+  }, [controlMode]);
+
+  useEffect(() => {
+    const cancelTransfer = () => {
+      connectionTransferRef.current = undefined;
+      setTransferPreview(undefined);
+    };
+    const handleMouseMove = (event: MouseEvent) => {
+      const transfer = connectionTransferRef.current;
+      const bounds = canvasRef.current?.getBoundingClientRect();
+      if (!transfer || !bounds) return;
+      setTransferPreview({
+        fixedPoints: transfer.fixedPoints,
+        pointer: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+      });
+    };
+    const handleMouseUp = (event: MouseEvent) => {
+      const transfer = connectionTransferRef.current;
+      if (!transfer) return;
+      const destination = graphPinFromTarget(
+        document.elementFromPoint(event.clientX, event.clientY),
+      );
+      cancelTransfer();
+      if (!destination) return;
+      const result = moveGraphPinConnections(graphRef.current, transfer.origin, destination);
+      if (!result.ok) {
+        setConnectionError(result.message);
+        return;
+      }
+      checkpoint();
+      setEdges(result.graph.edges);
+      setConnectionError(null);
+      markDirty();
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('blur', cancelTransfer);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('blur', cancelTransfer);
+    };
+  }, [checkpoint, markDirty, setEdges]);
+
+  const handleCanvasMouseDown = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const pin = graphPinFromTarget(event.target);
+      if (pin && event.button === 0 && event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        const result = disconnectGraphPinConnections(graphRef.current, pin);
+        if (result.removedEdgeIds.length === 0) return;
+        checkpoint();
+        setEdges(result.graph.edges);
+        setConnectionError(null);
+        markDirty();
+        return;
+      }
+
+      if (pin && event.button === 0 && event.ctrlKey) {
+        const connectedEdges = edges.filter((edge) =>
+          pin.direction === 'source'
+            ? edge.source === pin.nodeId && edge.sourceHandle === pin.handleId
+            : edge.target === pin.nodeId && edge.targetHandle === pin.handleId,
+        );
+        if (connectedEdges.length > 0 && canvasRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          const bounds = canvasRef.current.getBoundingClientRect();
+          const handles = Array.from(
+            canvasRef.current.querySelectorAll<HTMLElement>('.react-flow__handle'),
+          );
+          const fixedPoints = connectedEdges.flatMap((edge) => {
+            const nodeId = pin.direction === 'source' ? edge.target : edge.source;
+            const handleId = pin.direction === 'source' ? edge.targetHandle : edge.sourceHandle;
+            const handle = handles.find(
+              (candidate) =>
+                candidate.dataset.nodeid === nodeId && candidate.dataset.handleid === handleId,
+            );
+            if (!handle) return [];
+            const handleBounds = handle.getBoundingClientRect();
+            return [
+              {
+                x: handleBounds.left + handleBounds.width / 2 - bounds.left,
+                y: handleBounds.top + handleBounds.height / 2 - bounds.top,
+              },
+            ];
+          });
+          connectionTransferRef.current = { origin: pin, fixedPoints };
+          setTransferPreview({
+            fixedPoints,
+            pointer: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+          });
+          return;
+        }
+      }
+
+      if (controlMode === 'blueprint' && event.button === 2) {
+        rightDragRef.current = { x: event.clientX, y: event.clientY, moved: false };
+      }
+    },
+    [checkpoint, controlMode, edges, markDirty, setEdges],
   );
 
   const createNode = useCallback(
@@ -265,6 +451,9 @@ export function StoryGraph() {
         event.preventDefault();
         deleteSelection();
       } else if (event.key === 'Escape') {
+        connectionTransferRef.current = undefined;
+        setTransferPreview(undefined);
+        setShowShortcuts(false);
         setContextMenu(null);
       }
     };
@@ -402,6 +591,14 @@ export function StoryGraph() {
       <div
         className={styles.canvas}
         ref={canvasRef}
+        onMouseDownCapture={handleCanvasMouseDown}
+        onMouseMoveCapture={(event) => {
+          const drag = rightDragRef.current;
+          if (!drag || !(event.buttons & 2)) return;
+          if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 4) {
+            drag.moved = true;
+          }
+        }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes(storyDataMime)) {
             event.preventDefault();
@@ -432,14 +629,39 @@ export function StoryGraph() {
         }}
       >
         <div className={styles.graphBadge}>
-          <span>{activeGraphId === 'root' ? 'Root Blueprint' : 'Substory'}</span>
-          {activeName}
+          <div className={styles.graphIdentity}>
+            <span>{activeGraphId === 'root' ? 'Root Blueprint' : 'Substory'}</span>
+            {activeName}
+          </div>
+          <label className={styles.controlMode}>
+            <span>Controls</span>
+            <select
+              value={controlMode}
+              title={
+                controlMode === 'blueprint'
+                  ? 'Left drag selects; right drag pans'
+                  : 'Left drag pans; Shift + left drag selects'
+              }
+              onChange={(event) => setControlMode(event.target.value as GraphControlMode)}
+            >
+              <option value="blueprint">Blueprint</option>
+              <option value="standard">Standard</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className={styles.shortcutsButton}
+            onClick={() => setShowShortcuts((current) => !current)}
+          >
+            Shortcuts
+          </button>
         </div>
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onEdgeClick={onEdgeClick}
           onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
           onInit={setFlowInstance}
@@ -459,12 +681,66 @@ export function StoryGraph() {
           fitView
           deleteKeyCode={null}
           multiSelectionKeyCode="Control"
-          selectionKeyCode="Shift"
+          selectionKeyCode={controlMode === 'blueprint' ? null : 'Shift'}
+          selectionOnDrag={controlMode === 'blueprint'}
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={controlMode === 'blueprint' ? [2] : [0, 1]}
+          panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" />
           <Controls />
         </ReactFlow>
+        {transferPreview && (
+          <svg className={styles.transferPreview} aria-hidden="true">
+            {transferPreview.fixedPoints.map((point, index) => {
+              const middle = (point.x + transferPreview.pointer.x) / 2;
+              return (
+                <path
+                  key={index}
+                  d={`M ${point.x} ${point.y} C ${middle} ${point.y}, ${middle} ${transferPreview.pointer.y}, ${transferPreview.pointer.x} ${transferPreview.pointer.y}`}
+                />
+              );
+            })}
+          </svg>
+        )}
+        {showShortcuts && (
+          <aside className={styles.shortcutsPanel}>
+            <header>
+              <strong>Graph Shortcuts</strong>
+              <button type="button" onClick={() => setShowShortcuts(false)}>
+                ×
+              </button>
+            </header>
+            <dl>
+              <dt>Alt + Left-click Pin</dt>
+              <dd>Break every connection on the pin</dd>
+              <dt>Alt + Left-click Wire</dt>
+              <dd>Break only the clicked connection</dd>
+              <dt>Ctrl + Left-drag Pin</dt>
+              <dd>Move all wires to a compatible pin in the same direction</dd>
+              <dt>Right-click</dt>
+              <dd>Open the graph action menu</dd>
+              <dt>Delete</dt>
+              <dd>Delete selected nodes and wires</dd>
+              <dt>Ctrl + C / V / D</dt>
+              <dd>Copy, paste, or duplicate selected nodes</dd>
+              <dt>Ctrl + Z / Y</dt>
+              <dd>Undo or redo</dd>
+              <dt>
+                {controlMode === 'blueprint'
+                  ? 'Left-drag / Right-drag'
+                  : 'Left-drag / Shift + Left-drag'}
+              </dt>
+              <dd>
+                {controlMode === 'blueprint'
+                  ? 'Marquee select / pan the graph'
+                  : 'Pan the graph / marquee select'}
+              </dd>
+            </dl>
+            <small>Pin gestures follow Unreal Engine Blueprint conventions.</small>
+          </aside>
+        )}
         {contextMenu && (
           <div
             className={styles.contextMenu}

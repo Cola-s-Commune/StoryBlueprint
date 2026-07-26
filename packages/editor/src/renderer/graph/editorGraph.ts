@@ -40,6 +40,113 @@ export interface GraphClipboard {
   edges: EditorGraphEdge[];
 }
 
+export interface GraphPinReference {
+  nodeId: string;
+  handleId: string;
+  direction: 'source' | 'target';
+}
+
+export type MoveGraphPinConnectionsResult =
+  | { ok: true; graph: EditorGraphState; movedEdgeIds: readonly EdgeId[] }
+  | { ok: false; message: string };
+
+export function disconnectGraphPinConnections(
+  graph: EditorGraphState,
+  pin: GraphPinReference,
+): { graph: EditorGraphState; removedEdgeIds: readonly EdgeId[] } {
+  const removedEdges = graph.edges.filter((edge) =>
+    pin.direction === 'source'
+      ? edge.source === pin.nodeId && edge.sourceHandle === pin.handleId
+      : edge.target === pin.nodeId && edge.targetHandle === pin.handleId,
+  );
+  if (removedEdges.length === 0) return { graph, removedEdgeIds: [] };
+  const removedIds = new Set(removedEdges.map((edge) => edge.id));
+  return {
+    graph: { nodes: graph.nodes, edges: graph.edges.filter((edge) => !removedIds.has(edge.id)) },
+    removedEdgeIds: [...removedIds],
+  };
+}
+
+function graphNodeLikes(nodes: readonly EditorGraphNode[]) {
+  return nodes.map((node) => ({ id: node.id, type: node.type, data: node.data }));
+}
+
+function graphEdgeLikes(edges: readonly EditorGraphEdge[]) {
+  return edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    sourcePortId: edge.sourceHandle,
+    target: edge.target,
+    targetPortId: edge.targetHandle,
+  }));
+}
+
+/** Moves every wire attached to one pin onto another same-direction pin. */
+export function moveGraphPinConnections(
+  graph: EditorGraphState,
+  origin: GraphPinReference,
+  destination: GraphPinReference,
+): MoveGraphPinConnectionsResult {
+  if (origin.direction !== destination.direction) {
+    return { ok: false, message: 'Connections can only move between pins in the same direction' };
+  }
+  if (origin.nodeId === destination.nodeId && origin.handleId === destination.handleId) {
+    return { ok: false, message: 'Choose a different pin' };
+  }
+
+  const movingEdges = graph.edges.filter((edge) =>
+    origin.direction === 'source'
+      ? edge.source === origin.nodeId && edge.sourceHandle === origin.handleId
+      : edge.target === origin.nodeId && edge.targetHandle === origin.handleId,
+  );
+  if (movingEdges.length === 0) return { ok: false, message: 'This pin has no connections' };
+
+  let nextEdges = graph.edges.filter((edge) => !movingEdges.includes(edge));
+  const movedEdges: EditorGraphEdge[] = [];
+  for (const edge of movingEdges) {
+    const moved = {
+      ...edge,
+      ...(origin.direction === 'source'
+        ? { source: destination.nodeId as NodeId, sourceHandle: destination.handleId }
+        : { target: destination.nodeId as NodeId, targetHandle: destination.handleId }),
+    };
+    let result = validateGraphConnection(
+      {
+        source: moved.source,
+        sourcePortId: moved.sourceHandle,
+        target: moved.target,
+        targetPortId: moved.targetHandle,
+      },
+      graphNodeLikes(graph.nodes),
+      graphEdgeLikes([...nextEdges, ...movedEdges]),
+    );
+    if (!result.valid && result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED') {
+      nextEdges = nextEdges.filter(
+        (candidate) =>
+          candidate.source !== moved.source || candidate.sourceHandle !== moved.sourceHandle,
+      );
+      result = validateGraphConnection(
+        {
+          source: moved.source,
+          sourcePortId: moved.sourceHandle,
+          target: moved.target,
+          targetPortId: moved.targetHandle,
+        },
+        graphNodeLikes(graph.nodes),
+        graphEdgeLikes([...nextEdges, ...movedEdges]),
+      );
+    }
+    if (!result.valid) return { ok: false, message: result.diagnostic.message };
+    movedEdges.push(moved);
+  }
+
+  return {
+    ok: true,
+    graph: { nodes: graph.nodes, edges: [...nextEdges, ...movedEdges] },
+    movedEdgeIds: movedEdges.map((edge) => edge.id),
+  };
+}
+
 export type ExtractSelectionResult =
   | {
       ok: true;

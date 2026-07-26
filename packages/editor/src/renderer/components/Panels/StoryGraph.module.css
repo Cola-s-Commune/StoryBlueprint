@@ -284,8 +284,9 @@
   z-index: 5;
   top: 10px;
   left: 10px;
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 6px 9px;
   border: 1px solid #3d4652;
   border-radius: 4px;
@@ -293,14 +294,137 @@
   color: #d5dbe3;
   font-size: 11px;
   font-weight: 600;
-  pointer-events: none;
 }
 
-.graphBadge span {
+.graphIdentity {
+  display: grid;
+  gap: 2px;
+}
+
+.graphBadge span,
+.controlMode span {
   color: #737e8c;
   font-size: 8px;
   letter-spacing: 0.55px;
   text-transform: uppercase;
+}
+
+.controlMode {
+  display: grid;
+  gap: 2px;
+  padding-left: 9px;
+  border-left: 1px solid #3d4652;
+}
+
+.controlMode select {
+  min-width: 86px;
+  padding: 2px 18px 2px 5px;
+  border: 1px solid #46505c;
+  border-radius: 3px;
+  background: #242a31;
+  color: #c8d0da;
+  font: inherit;
+  font-size: 9px;
+  outline: none;
+}
+
+.controlMode select:focus {
+  border-color: #6389ae;
+}
+
+.shortcutsButton,
+.shortcutsPanel button {
+  border: 1px solid #46505c;
+  border-radius: 3px;
+  background: #242a31;
+  color: #c8d0da;
+  font: inherit;
+  cursor: pointer;
+}
+
+.shortcutsButton {
+  align-self: end;
+  padding: 3px 6px;
+  font-size: 9px;
+}
+
+.shortcutsButton:hover,
+.shortcutsPanel button:hover {
+  border-color: #6389ae;
+  color: #f0f5fa;
+}
+
+.transferPreview {
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.transferPreview path {
+  fill: none;
+  stroke: #e8eef5;
+  stroke-width: 2.5;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 3px rgb(126 178 226 / 70%));
+}
+
+.shortcutsPanel {
+  position: absolute;
+  z-index: 12;
+  top: 62px;
+  left: 10px;
+  width: min(330px, calc(100% - 20px));
+  padding: 11px 12px;
+  border: 1px solid #46515e;
+  border-radius: 5px;
+  background: rgb(28 32 38 / 97%);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 38%);
+  color: #cbd3dc;
+  font-size: 10px;
+}
+
+.shortcutsPanel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+  color: #e5ebf2;
+  font-size: 11px;
+}
+
+.shortcutsPanel header button {
+  width: 23px;
+  height: 21px;
+}
+
+.shortcutsPanel dl {
+  display: grid;
+  grid-template-columns: minmax(105px, auto) 1fr;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.shortcutsPanel dt {
+  color: #8eb8dd;
+  font-weight: 600;
+}
+
+.shortcutsPanel dd {
+  margin: 0;
+  color: #9ca6b1;
+}
+
+.shortcutsPanel small {
+  display: block;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #3a424c;
+  color: #6f7b87;
+  font-size: 9px;
 }
 
 .contextMenuDivider {

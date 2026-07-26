@@ -119,6 +119,7 @@
 - [x] 平移
 - [x] MiniMap
 - [x] Background Grid
+- [x] 画布可选择并记住 Blueprint / Standard 操作模式；Blueprint 左键框选、右键平移，Standard 左键平移、Shift+左键框选
 
 ---
 
@@ -156,6 +157,10 @@
 - [x] Connection
 - [x] Validation
 - [x] Delete
+- [x] 单后继执行输出重新连线时直接替换旧连线
+- [x] UE 风格 Pin 快捷操作：Alt+左键断开全部连线，Ctrl+左键拖动整体转移连线
+- [x] Alt+左键点击连线，断开被点击的单条连线
+- [x] 画布内 Graph Shortcuts 帮助面板
 
 ---
 

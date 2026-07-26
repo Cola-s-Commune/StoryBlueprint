@@ -19,6 +19,10 @@ npm run dev
 
 ## Current: Workspace Explorer / Runtime Preview
 
+- Alt+左键点击 Wire 可直接断开单条连线；Alt+点击 Pin 仍断开该 Pin 的全部连线。
+- 新增 UE 风格 Pin 操作：Alt+左键点击断开该 Pin 全部连线，Ctrl+左键拖到同方向兼容 Pin 整体转移连线；拖动期间显示连线预览，并在画布左上提供 Shortcuts 说明。
+- 普通执行输出重新连接到新节点时自动替换旧连线，不再显示“只能连接一个后继”；其他端口方向、类型和占用错误仍照常诊断。
+- Story Graph 左上可选择并持久化 Blueprint / Standard 操作模式；前者左键框选、右键平移，后者左键平移、Shift+左键框选。
 - Set Variable 写入 String 时提供 Text / Expression 模式；Text 直接填写普通文本并自动安全编码，不再要求作者手写表达式引号。
 - 编辑器主要错误入口支持直接复制：Problems 可复制全部结构化诊断，运行预览、工作区、画布临时错误和状态栏错误提供就近 Copy，正文仍可鼠标选择。
 - 项目角色和资产已拆分为 `Characters/*.character` 与 `Assets/*.asset`；`.storyproject` 保存资源路径和跨 Story 使用索引。
