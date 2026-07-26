@@ -18,6 +18,8 @@ import {
   serializeStoryProject,
   STORY_PROJECT_FORMAT,
   STORY_PROJECT_VERSION,
+  STORY_COMPILED_PROJECT_FORMAT,
+  STORY_COMPILED_PROJECT_VERSION,
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type StoryProjectDocument,
@@ -28,6 +30,7 @@ import type {
   EditorSessionState,
   RecoverySnapshot,
   SaveStoryRequest,
+  UpdateProjectSettingsRequest,
   RecentProject,
   WorkspaceEntry,
   WorkspaceInfo,
@@ -48,6 +51,7 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git', 'node_modules']);
 const MAX_RECENT_PROJECTS = 10;
 const MAX_SESSION_STORIES = 50;
 const MAX_RECOVERY_BYTES = 128 * 1024 * 1024;
+const MAX_COMPILED_PROJECT_BYTES = 128 * 1024 * 1024;
 
 function recentProjectsFile(): string {
   return join(app.getPath('userData'), 'recent-projects.json');
@@ -357,6 +361,10 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
 
   const next: StoryProjectDocument = {
     ...current,
+    entryStoryId:
+      current.entryStoryId && stories.some((story) => story.id === current.entryStoryId)
+        ? current.entryStoryId
+        : stories[0]?.id,
     stories,
     characters: [...characters.values()] as ProjectCharacterReference[],
     assets: [...assets.values()] as ProjectAssetReference[],
@@ -701,6 +709,114 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('workspace:sync-project', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return syncWorkspaceProject();
+  });
+
+  ipcMain.handle('workspace:read-project-stories', async (event) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile) {
+      throw new Error('Open a Story project first');
+    }
+    const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+    return Promise.all(
+      project.stories.map(async (story) => {
+        const filePath = await resolveExistingWorkspacePath(story.path);
+        if (!filePath.toLowerCase().endsWith('.story')) throw new Error('Not a Story file');
+        const content = await readFile(filePath, 'utf8');
+        const source = parseStorySource(content);
+        if (source.id !== story.id) {
+          throw new Error(`Story ID does not match project index: ${story.path}`);
+        }
+        return { path: story.path, content };
+      }),
+    );
+  });
+
+  ipcMain.handle('workspace:update-project-settings', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile || typeof value !== 'object' || !value) {
+      throw new Error('Invalid project settings');
+    }
+    const settings = value as Partial<UpdateProjectSettingsRequest>;
+    if (
+      (settings.entryStoryId !== undefined && typeof settings.entryStoryId !== 'string') ||
+      (settings.outputDirectory !== undefined && typeof settings.outputDirectory !== 'string')
+    ) {
+      throw new Error('Invalid project settings');
+    }
+    const current = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+    const next: StoryProjectDocument = {
+      ...current,
+      entryStoryId: settings.entryStoryId as StoryProjectDocument['entryStoryId'],
+      outputDirectory: settings.outputDirectory?.trim() || undefined,
+    };
+    await writeFile(workspaceProjectFile, serializeStoryProject(next), 'utf8');
+    return (await readWorkspace())!;
+  });
+
+  ipcMain.handle('workspace:export-compiled', async (event, content: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      !mainWindow ||
+      !workspaceProjectFile ||
+      typeof content !== 'string' ||
+      Buffer.byteLength(content, 'utf8') > MAX_COMPILED_PROJECT_BYTES
+    ) {
+      throw new Error('Invalid compiled project export');
+    }
+    const value: unknown = JSON.parse(content);
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      (value as { format?: unknown }).format !== STORY_COMPILED_PROJECT_FORMAT ||
+      (value as { version?: unknown }).version !== STORY_COMPILED_PROJECT_VERSION
+    ) {
+      throw new Error('Unsupported compiled project format');
+    }
+    const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+    if (project.outputDirectory) {
+      const outputDirectory = await resolveExistingWorkspacePath(project.outputDirectory);
+      const filePath = join(outputDirectory, `${project.name}.storyc.json`);
+      await writeFile(filePath, content, 'utf8');
+      return { canceled: false, filePath };
+    }
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Compiled Story Project',
+      defaultPath: join(workspaceRoot ?? app.getPath('documents'), `${project.name}.storyc.json`),
+      filters: [{ name: 'Compiled Story Project', extensions: ['storyc.json'] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const filePath = result.filePath.toLowerCase().endsWith('.storyc.json')
+      ? result.filePath
+      : `${result.filePath}.storyc.json`;
+    await writeFile(filePath, content, 'utf8');
+    return { canceled: false, filePath };
+  });
+
+  ipcMain.handle('workspace:open-compiled', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open Compiled Story Project',
+      defaultPath: workspaceRoot ?? app.getPath('documents'),
+      properties: ['openFile'],
+      filters: [{ name: 'Compiled Story Project', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const filePath = result.filePaths[0];
+    if (!filePath.toLowerCase().endsWith('.storyc.json')) {
+      throw new Error('Choose a .storyc.json file');
+    }
+    const content = await readFile(filePath, 'utf8');
+    if (Buffer.byteLength(content, 'utf8') > MAX_COMPILED_PROJECT_BYTES) {
+      throw new Error('Compiled project is too large');
+    }
+    const value: unknown = JSON.parse(content);
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      (value as { format?: unknown }).format !== STORY_COMPILED_PROJECT_FORMAT ||
+      (value as { version?: unknown }).version !== STORY_COMPILED_PROJECT_VERSION
+    ) {
+      throw new Error('Unsupported compiled project format');
+    }
+    return { canceled: false, filePath, content };
   });
 }
 

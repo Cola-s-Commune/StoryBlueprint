@@ -57,6 +57,19 @@ export interface RestoredEditorSession {
   recoveries: RecoverySnapshot[];
 }
 
+export interface ProjectStoryFile {
+  path: string;
+  content: string;
+}
+
+export type ExportCompiledProjectResult =
+  | { canceled: true }
+  | { canceled: false; filePath: string };
+
+export type OpenCompiledProjectResult =
+  | { canceled: true }
+  | { canceled: false; filePath: string; content: string };
+
 export interface CreateWorkspaceStoryRequest {
   directory: string;
   name: string;
@@ -66,6 +79,11 @@ export interface CreateWorkspaceStoryRequest {
 export interface CreateWorkspaceProjectRequest {
   fileName: string;
   content: string;
+}
+
+export interface UpdateProjectSettingsRequest {
+  entryStoryId?: string;
+  outputDirectory?: string;
 }
 
 export interface ElectronAPI {
@@ -83,6 +101,10 @@ export interface ElectronAPI {
   restoreEditorSession: () => Promise<RestoredEditorSession>;
   updateEditorSession: (session: EditorSessionState) => Promise<void>;
   writeRecoverySnapshots: (snapshots: RecoverySnapshot[]) => Promise<void>;
+  readWorkspaceProjectStories: () => Promise<ProjectStoryFile[]>;
+  exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
+  openCompiledProject: () => Promise<OpenCompiledProjectResult>;
+  updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
   openWorkspaceStory: (relativePath: string) => Promise<OpenStoryResult>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<WorkspaceInfo>;

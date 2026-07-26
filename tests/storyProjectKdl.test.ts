@@ -14,6 +14,8 @@ function projectDocument(): StoryProjectDocument {
     id: 'prj_test',
     name: 'raft-survival',
     displayName: 'Raft Survival',
+    entryStoryId: 's_intro',
+    outputDirectory: 'Build/Stories',
     stories: [
       { id: 's_intro', path: 'main/intro.story', name: 'intro', displayName: 'Intro' },
       { id: 's_quest', path: 'quests/trader.story', name: 'trader', displayName: 'Trader Quest' },
@@ -40,6 +42,8 @@ describe('story project KDL', () => {
     expect(serializeStoryProject(parseStoryProject(serialized))).toBe(serialized);
     expect(serialized).toContain('story s_intro path="main/intro.story"');
     expect(serialized).toContain('used-by s_quest');
+    expect(serialized).toContain('entry-story=s_intro');
+    expect(serialized).toContain('output-directory="Build/Stories"');
   });
 
   it('rejects paths outside the project and dangling resource usage', () => {

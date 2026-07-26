@@ -91,6 +91,7 @@ export function StoryGraph() {
     openRecentProject,
     removeRecentProject,
     openStory,
+    problemFocus,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [flowInstance, setFlowInstance] = useState<
@@ -277,6 +278,19 @@ export function StoryGraph() {
     });
     return () => cancelAnimationFrame(frame);
   }, [activeGraphId, flowInstance]);
+
+  useEffect(() => {
+    if (!flowInstance || !problemFocus) return;
+    const frame = requestAnimationFrame(() => {
+      void flowInstance.fitView({
+        nodes: [{ id: problemFocus.nodeId }],
+        padding: 0.45,
+        duration: 220,
+        maxZoom: 1.25,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [flowInstance, problemFocus]);
 
   const onNodeDragStart = useCallback(() => {
     dragSnapshot.current = structuredClone(graph);

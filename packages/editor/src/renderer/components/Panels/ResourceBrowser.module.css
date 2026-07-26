@@ -64,6 +64,64 @@
   font-size: 9px;
 }
 
+.projectBlock {
+  border-bottom: 1px solid #2e3339;
+  background: #1d2126;
+}
+
+.projectBlock .projectSummary {
+  border-bottom: 0;
+}
+
+.projectSettings {
+  display: grid;
+  gap: 5px;
+  padding: 0 10px 8px;
+}
+
+.projectSettings label {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: #78828d;
+  font-size: 9px;
+}
+
+.projectSettings select,
+.projectSettings input {
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid #39434d;
+  border-radius: 3px;
+  outline: none;
+  background: #20262c;
+  color: #c5cdd6;
+  font: inherit;
+  font-size: 9px;
+}
+
+.projectSettings select:focus,
+.projectSettings input:focus {
+  border-color: #547da3;
+}
+
+.projectSummary button {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid #465563;
+  border-radius: 3px;
+  background: #27333e;
+  color: #b9c8d5;
+  font: inherit;
+  cursor: pointer;
+}
+
+.projectSummary button:hover {
+  border-color: #6389ad;
+  color: #eef5fb;
+}
+
 .iconButton:hover,
 .rowActions button:hover {
   border-color: #5d83a9;

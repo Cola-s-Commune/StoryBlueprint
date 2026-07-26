@@ -76,6 +76,18 @@ function validateProject(project: StoryProjectDocument): void {
     storyIds.add(story.id);
     storyPaths.add(story.path);
   }
+  if (project.entryStoryId && !storyIds.has(project.entryStoryId)) {
+    throw new StoryFormatError(`Project entry Story does not exist: ${project.entryStoryId}`);
+  }
+  if (
+    project.outputDirectory !== undefined &&
+    (project.outputDirectory.length === 0 ||
+      project.outputDirectory.startsWith('/') ||
+      /^[a-z]:[\\/]/i.test(project.outputDirectory) ||
+      project.outputDirectory.split(/[\\/]/).includes('..'))
+  ) {
+    throw new StoryFormatError(`Invalid project output directory ${project.outputDirectory}`);
+  }
   const characterIds = new Set<string>();
   for (const character of project.characters) {
     if (!isStableId(character.id, 'character')) {
@@ -123,6 +135,8 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
   root.setProperty('version', project.version);
   root.setProperty('name', project.name);
   if (project.displayName !== project.name) root.setProperty('display-name', project.displayName);
+  if (project.entryStoryId) root.setProperty('entry-story', project.entryStoryId);
+  if (project.outputDirectory) root.setProperty('output-directory', project.outputDirectory);
 
   const stories = Node.create('stories');
   for (const story of [...project.stories].sort((left, right) =>
@@ -200,7 +214,14 @@ export function parseStoryProject(text: string): StoryProjectDocument {
   }
   const root = document.nodes[0];
   assertArguments(root, 'project', 1);
-  assertProperties(root, 'project', ['format', 'version', 'name', 'display-name']);
+  assertProperties(root, 'project', [
+    'format',
+    'version',
+    'name',
+    'display-name',
+    'entry-story',
+    'output-directory',
+  ]);
   assertChildren(root, 'project', ['stories', 'characters', 'assets']);
   for (const section of ['stories', 'characters', 'assets']) {
     if (root.findNodesByName(section).length > 1) {
@@ -303,6 +324,13 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     id: requiredId(root.getArgument(0), 'project', 'project.id'),
     name,
     displayName: (root.getProperty('display-name') as string | undefined) ?? name,
+    entryStoryId: root.getProperty('entry-story')
+      ? requiredId(root.getProperty('entry-story'), 'story', 'project.entry-story')
+      : undefined,
+    outputDirectory:
+      root.getProperty('output-directory') === undefined
+        ? undefined
+        : requiredString(root.getProperty('output-directory'), 'project.output-directory'),
     stories,
     characters,
     assets,

@@ -23,11 +23,19 @@ type SubMenuItem =
         | 'save'
         | 'save-all'
         | 'save-as'
+        | 'build-project'
         | 'exit'
         | 'undo'
         | 'redo'
         | 'reset-layout';
-      panelId?: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview';
+      panelId?:
+        | 'resources'
+        | 'storyData'
+        | 'graph'
+        | 'inspector'
+        | 'console'
+        | 'preview'
+        | 'problems';
     }
   | { type: 'separator' };
 
@@ -46,6 +54,8 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Save All', shortcut: 'Ctrl+Alt+S', action: 'save-all' },
       { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
       { type: 'item', label: 'Save Project', action: 'save-project' },
+      { type: 'separator' },
+      { type: 'item', label: 'Build Project...', shortcut: 'Ctrl+Shift+B', action: 'build-project' },
       { type: 'separator' },
       { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
     ],
@@ -73,6 +83,7 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Inspector', panelId: 'inspector' },
       { type: 'item', label: 'Console', panelId: 'console' },
       { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
+      { type: 'item', label: 'Problems', panelId: 'problems' },
       { type: 'separator' },
       { type: 'item', label: 'Reset Layout', action: 'reset-layout' },
       { type: 'separator' },
@@ -90,7 +101,14 @@ const menuItems: MenuItem[] = [
 interface MenuBarProps {
   onResetLayout: () => void;
   onShowPanel: (
-    panelId: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview',
+    panelId:
+      | 'resources'
+      | 'storyData'
+      | 'graph'
+      | 'inspector'
+      | 'console'
+      | 'preview'
+      | 'problems',
   ) => void;
 }
 
@@ -106,6 +124,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     syncWorkspaceProject,
     saveStory,
     saveAllStories,
+    buildProject,
     undo,
     redo,
   } = useStoryGraphStore();
@@ -132,6 +151,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
       } else if (key === 'o') {
         event.preventDefault();
         void openStory();
+      } else if (key === 'b' && event.shiftKey) {
+        event.preventDefault();
+        void buildProject();
       } else if (key === 's') {
         event.preventDefault();
         if (event.altKey) void saveAllStories();
@@ -143,6 +165,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     hasActiveStory,
+    buildProject,
     newStory,
     openStory,
     saveAllStories,
@@ -181,6 +204,10 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         break;
       case 'save-as':
         void saveStory(true);
+        break;
+      case 'build-project':
+        onShowPanel('problems');
+        void buildProject();
         break;
       case 'undo':
         undo();

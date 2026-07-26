@@ -24,3 +24,4 @@ export {
   type RuntimeInteraction,
   type RuntimeRunResult,
 } from './storyRuntime';
+export { parseCompiledStoryProject, createRuntimeFromCompiledProject } from './compiledProject';

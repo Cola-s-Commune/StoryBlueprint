@@ -134,3 +134,10 @@ export {
   type RuntimeChapterDefinition,
   type RuntimeProgram,
 } from './types/runtimeProgram';
+
+export {
+  STORY_COMPILED_PROJECT_FORMAT,
+  STORY_COMPILED_PROJECT_VERSION,
+  type CompiledStoryProgram,
+  type CompiledStoryProject,
+} from './types/compiledProject';

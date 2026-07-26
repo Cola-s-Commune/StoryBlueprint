@@ -15,10 +15,11 @@ import { Inspector } from '../Panels/Inspector';
 import { ConsolePanel } from '../Panels/Console';
 import { StoryData } from '../Panels/StoryData';
 import { RuntimePreview } from '../Panels/RuntimePreview';
+import { Problems } from '../Panels/Problems';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v3';
+const layoutStorageKey = 'story-blueprint:dock-layout:v4';
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
@@ -27,6 +28,7 @@ const dockComponents = {
   inspector: (_props: IDockviewPanelProps) => <Inspector />,
   console: (_props: IDockviewPanelProps) => <ConsolePanel />,
   preview: (_props: IDockviewPanelProps) => <RuntimePreview />,
+  problems: (_props: IDockviewPanelProps) => <Problems />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
@@ -83,6 +85,13 @@ function createDefaultLayout(api: DockviewApi) {
     title: 'Runtime Preview',
     position: { referencePanel: consolePanel },
     minimumHeight: 160,
+  });
+  api.addPanel({
+    id: 'problems',
+    component: 'problems',
+    title: 'Problems',
+    position: { referencePanel: consolePanel },
+    minimumHeight: 120,
   });
 
   resources.api.group.api.setSize({ width: 240 });
@@ -162,6 +171,22 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
         }),
         initialHeight: 260,
         minimumHeight: 160,
+      });
+      break;
+    }
+    case 'problems': {
+      const consolePanel = api.getPanel('console');
+      api.addPanel({
+        ...common,
+        title: 'Problems',
+        ...((consolePanel ?? graph) && {
+          position: {
+            referencePanel: consolePanel ?? graph!,
+            ...(consolePanel ? {} : { direction: 'below' as const }),
+          },
+        }),
+        initialHeight: 230,
+        minimumHeight: 120,
       });
       break;
     }
@@ -248,7 +273,12 @@ export function MainLayout() {
                         api.addFloatingGroup(panel, {
                           width:
                             panel.id === 'inspector' ? 520 : panel.id === 'storyData' ? 360 : 480,
-                          height: panel.id === 'console' || panel.id === 'preview' ? 420 : 640,
+                          height:
+                            panel.id === 'console' ||
+                            panel.id === 'preview' ||
+                            panel.id === 'problems'
+                              ? 420
+                              : 640,
                         }),
                     },
                 'separator',

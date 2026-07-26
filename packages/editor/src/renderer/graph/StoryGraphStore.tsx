@@ -42,6 +42,7 @@ import {
   type StoryId,
   type StorySourceDocument,
 } from '@story-blueprint/common';
+import { compileProject, type ProjectCompilerDiagnostic } from '@story-blueprint/compiler';
 import {
   fromSourceGraph,
   extractSelectionToSubstory as extractGraphSelection,
@@ -272,6 +273,9 @@ interface StoryGraphStoreValue {
   workspace?: WorkspaceInfo;
   workspaceError?: string;
   recentProjects: RecentProject[];
+  problems: readonly ProjectCompilerDiagnostic[];
+  lastBuildPath?: string;
+  problemFocus?: { nodeId: NodeId; nonce: number };
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -311,6 +315,12 @@ interface StoryGraphStoreValue {
   createWorkspaceStory: (directory: string, displayName: string) => Promise<void>;
   createWorkspaceProject: (displayName: string) => Promise<void>;
   syncWorkspaceProject: () => Promise<void>;
+  buildProject: () => Promise<void>;
+  focusProblem: (problem: ProjectCompilerDiagnostic) => Promise<void>;
+  updateProjectSettings: (settings: {
+    entryStoryId?: StoryId;
+    outputDirectory?: string;
+  }) => Promise<void>;
 }
 
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
@@ -342,6 +352,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
+  const [problems, setProblems] = useState<readonly ProjectCompilerDiagnostic[]>([]);
+  const [lastBuildPath, setLastBuildPath] = useState<string>();
+  const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [sessionReady, setSessionReady] = useState(false);
   const restoredSessionRef = useRef(false);
@@ -1069,6 +1082,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         ];
       });
       loadStory(opened);
+      return opened;
     },
     [captureActiveStory, hasActiveStory, loadStory],
   );
@@ -1261,6 +1275,103 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setWorkspaceError(error instanceof Error ? error.message : String(error));
     }
   }, []);
+
+  const updateProjectSettings = useCallback(
+    async (settings: { entryStoryId?: StoryId; outputDirectory?: string }) => {
+      if (!window.electronAPI || !workspace?.project) return;
+      try {
+        setWorkspace(
+          await window.electronAPI.updateProjectSettings({
+            entryStoryId: settings.entryStoryId ?? workspace.project.entryStoryId,
+            outputDirectory:
+              settings.outputDirectory === undefined
+                ? workspace.project.outputDirectory
+                : settings.outputDirectory,
+          }),
+        );
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [workspace?.project],
+  );
+
+  const buildProject = useCallback(async () => {
+    if (!window.electronAPI || !workspace?.project) {
+      setWorkspaceError('Open or create a Story project before building.');
+      return;
+    }
+    setLastBuildPath(undefined);
+    setProblems([]);
+    if (!(await saveAllDirtyStories())) return;
+    try {
+      const nextWorkspace = await window.electronAPI.syncWorkspaceProject();
+      setWorkspace(nextWorkspace);
+      if (!nextWorkspace.project) throw new Error('Project index is unavailable');
+      const files = await window.electronAPI.readWorkspaceProjectStories();
+      const result = compileProject(
+        nextWorkspace.project,
+        files.map((file) => ({ path: file.path, source: parseStorySource(file.content) })),
+      );
+      setProblems(result.diagnostics);
+      if (!result.ok) return;
+      const exported = await window.electronAPI.exportCompiledProject(
+        `${JSON.stringify(result.project, null, 2)}\n`,
+      );
+      if (!exported.canceled) setLastBuildPath(exported.filePath);
+      setWorkspaceError(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setProblems([{ code: 'PROJECT_ERROR', severity: 'error', message }]);
+      setWorkspaceError(message);
+    }
+  }, [saveAllDirtyStories, workspace?.project]);
+
+  const focusProblem = useCallback(
+    async (problem: ProjectCompilerDiagnostic) => {
+      if (!problem.storyId) return;
+      let target = currentStoryItems().find((story) => story.document.id === problem.storyId);
+      if (!target && problem.storyPath && window.electronAPI) {
+        const opened = await window.electronAPI.openWorkspaceStory(problem.storyPath);
+        if (opened.canceled) return;
+        target = acceptOpenedStory(opened);
+      }
+      if (!target) return;
+      let graphId: ActiveGraphId = problem.sourceChapterId ?? 'root';
+      if (problem.sourceNodeId && !problem.sourceChapterId) {
+        const chapter = target.chapters.find((item) =>
+          item.graph.nodes.some((node) => node.id === problem.sourceNodeId),
+        );
+        if (chapter) graphId = chapter.id;
+      }
+      if (problem.sourceNodeId) {
+        const selectNode = (candidate: EditorGraphState): EditorGraphState => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) => ({
+            ...node,
+            selected: node.id === problem.sourceNodeId,
+          })),
+          edges: candidate.edges.map((edge) => ({ ...edge, selected: false })),
+        });
+        target = {
+          ...target,
+          rootGraph: graphId === 'root' ? selectNode(target.rootGraph) : target.rootGraph,
+          chapters: target.chapters.map((chapter) =>
+            chapter.id === graphId ? { ...chapter, graph: selectNode(chapter.graph) } : chapter,
+          ),
+        };
+      }
+      setWorkspaceStories((items) =>
+        items.map((story) => (story.document.id === target!.document.id ? target! : story)),
+      );
+      loadStory(target, graphId);
+      if (problem.sourceNodeId) {
+        setProblemFocus({ nodeId: problem.sourceNodeId, nonce: Date.now() });
+      }
+    },
+    [acceptOpenedStory, currentStoryItems, loadStory],
+  );
 
   const closeStory = useCallback(
     async (id: StoryId) => {
@@ -1488,6 +1599,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       workspace,
       workspaceError,
       recentProjects,
+      problems,
+      lastBuildPath,
+      problemFocus,
       markDirty,
       newStory,
       openStory,
@@ -1507,6 +1621,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       createWorkspaceStory,
       createWorkspaceProject,
       syncWorkspaceProject,
+      buildProject,
+      focusProblem,
+      updateProjectSettings,
     }),
     [
       addNode,
@@ -1523,6 +1640,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       workspace,
       workspaceError,
       recentProjects,
+      problems,
+      lastBuildPath,
+      problemFocus,
       edges,
       graph,
       activeGraphId,
@@ -1556,6 +1676,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       createWorkspaceStory,
       createWorkspaceProject,
       syncWorkspaceProject,
+      buildProject,
+      focusProblem,
+      updateProjectSettings,
       source,
       switchGraph,
       undo,

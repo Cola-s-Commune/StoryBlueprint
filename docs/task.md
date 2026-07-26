@@ -423,15 +423,16 @@
 
 ## Graph Validation
 
-- [ ] Dead Node
+- [x] Dead / Unreachable Node
 - [x] Missing Connection
-- [ ] Invalid Chapter
-- [ ] Duplicate ID
-- [ ] 悬空 Node / Port / Resource 引用
-- [ ] Entry / End / Return 上下文与终结路径
+- [x] Invalid Chapter
+- [x] Duplicate ID（源文件与项目解析阶段）
+- [x] 悬空 Node / Port 引用
+- [ ] 悬空 Character / Asset 引用
+- [x] Entry / End / Return 上下文与终结路径
 - [ ] Chapter 参数和返回值类型
 - [x] 根蓝图与 Substory 编译、Call / Return 降级
-- [ ] 无等待点的紧密死循环
+- [x] 无等待点的紧密死循环
 
 ---
 
@@ -450,7 +451,9 @@
 
 ## Export
 
-- [ ] 导出 `.storyc.json`
+- [x] 导出项目级 `.storyc.json`
+- [x] Problems 面板与 Story / Substory / Node 定位
+- [x] 项目默认入口 Story 与编译输出目录
 - [x] 定义版本化 Runtime Program Schema
 - [x] Compiler Backend 接口与默认实现
 - [ ] 暂不实现自定义字节码
@@ -480,7 +483,7 @@
 
 ## Runtime
 
-- [ ] Load `.storyc.json`
+- [x] Load `.storyc.json`
 - [x] RuntimeState / CallFrame / PendingInteraction 类型契约
 - [x] `blockId + instructionIndex` 执行状态机
 - [ ] Async Pause / Resume / Abort
@@ -693,7 +696,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Inspector 可编辑属性
 - [x] 保存 `.story`
 - [x] 打开 `.story`
-- [ ] 导出 `.storyc.json`
+- [x] 导出 `.storyc.json`
 - [x] Runtime Preview 可以执行简单剧情
 
 ---

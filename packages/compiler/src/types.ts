@@ -1,4 +1,12 @@
-import type { NodeId, RuntimeProgram, StorySourceDocument } from '@story-blueprint/common';
+import type {
+  ChapterId,
+  CompiledStoryProject,
+  NodeId,
+  RuntimeProgram,
+  StoryId,
+  StoryProjectDocument,
+  StorySourceDocument,
+} from '@story-blueprint/common';
 
 export type CompilerDiagnosticSeverity = 'warning' | 'error';
 
@@ -15,7 +23,14 @@ export type CompilerDiagnosticCode =
   | 'DUPLICATE_OPTION_ID'
   | 'MISSING_CONNECTION'
   | 'EXPRESSION_ERROR'
-  | 'INVALID_NODE';
+  | 'INVALID_NODE'
+  | 'DANGLING_EDGE'
+  | 'UNREACHABLE_NODE'
+  | 'MULTIPLE_ENTRY_NODES'
+  | 'INVALID_END_LOCATION'
+  | 'TIGHT_LOOP'
+  | 'MISSING_STORY'
+  | 'PROJECT_ERROR';
 
 export interface CompilerDiagnostic {
   code: CompilerDiagnosticCode;
@@ -36,4 +51,36 @@ export type CompileResult =
 
 export interface StoryCompiler {
   compile(source: StorySourceDocument, options?: CompileOptions): CompileResult;
+}
+
+export interface ProjectStorySource {
+  path: string;
+  source: StorySourceDocument;
+}
+
+export interface ProjectCompilerDiagnostic extends CompilerDiagnostic {
+  storyId?: StoryId;
+  storyPath?: string;
+  storyName?: string;
+  sourceChapterId?: ChapterId;
+}
+
+export interface CompileProjectOptions extends CompileOptions {
+  entryStoryId?: StoryId;
+}
+
+export type CompileProjectResult =
+  | {
+      ok: true;
+      project: CompiledStoryProject;
+      diagnostics: readonly ProjectCompilerDiagnostic[];
+    }
+  | { ok: false; diagnostics: readonly ProjectCompilerDiagnostic[] };
+
+export interface ProjectCompiler {
+  compile(
+    project: StoryProjectDocument,
+    stories: readonly ProjectStorySource[],
+    options?: CompileProjectOptions,
+  ): CompileProjectResult;
 }

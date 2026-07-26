@@ -540,14 +540,18 @@ Compiler 负责：
 
 编译产物不是“JSON 版本的节点图”。它只包含 Runtime 所需的逻辑程序。
 
-建议扩展名：
+项目构建产物使用扩展名：
 
 ```text
-intro.storyc.json
-intro.storyc.json.map
+my-project.storyc.json
+my-project.storyc.json.map
 ```
 
 当前阶段固定使用 JSON，不实现自定义字节码，也不生成 TypeScript 剧情代码。原因是 JSON 更容易检查、测试、迁移和被 AI 工具理解；剧情执行性能由实际测量决定，未来可以在保持同一 Runtime Program 语义的前提下增加 CBOR 或字节码 Backend。
+
+当前 `.storyc.json` 是版本化的项目容器，记录项目 ID、稳定内容版本、默认入口 Story 与 Story → Runtime Program 表。每个 Runtime Program 仍然是无节点、无坐标、无编辑器状态的纯逻辑；项目容器额外携带运行时解析说话人、语音和肖像所需的角色与资产表。Runtime 可从 JSON 解析整个项目，再按默认入口或指定 Story 创建执行器。
+
+项目构建前会保存脏 Story、同步项目索引，并检查断裂连线、不可达节点、多入口、End / Return 上下文、无暂停点循环及现有表达式和 Runtime Program 约束。Diagnostics 保留 Story、Substory 和源节点定位，但这些定位信息只存在于编辑器 Problems 结果中，不写入默认运行产物。
 
 运行数据示例：
 

@@ -1,0 +1,105 @@
+.root {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.toolbar {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border-bottom: 1px solid #303030;
+}
+
+.toolbar button {
+  padding: 4px 9px;
+  border: 1px solid #4a5967;
+  border-radius: 3px;
+  background: #293641;
+  color: #dbe7f1;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.summary,
+.buildPath {
+  color: #858585;
+  font-size: 10px;
+}
+
+.buildPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list {
+  flex: 1;
+  overflow: auto;
+  padding: 5px 0;
+}
+
+.empty {
+  padding: 26px 14px;
+  color: #707070;
+  font-size: 12px;
+  text-align: center;
+}
+
+.problem {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.problem {
+  cursor: pointer;
+}
+
+button.problem:hover {
+  background: #2a2d2e;
+}
+
+.problem[data-severity='error'] .icon {
+  color: #f48771;
+}
+
+.problem[data-severity='warning'] .icon {
+  color: #cca700;
+}
+
+.message {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.message small {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: #777;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code {
+  color: #717b85;
+  font-size: 9px;
+}

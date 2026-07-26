@@ -27,6 +27,10 @@ npm run dev
 - File 菜单和 Open Stories 工具栏新增 Save All，可依次保存所有脏 Story，并在取消任一保存时保留已完成结果。
 - 编辑器会持久记录工作目录、已打开 Story 和活动 Story；重启后恢复同一工作会话，缺失文件会安全跳过。
 - 脏 Story 会延迟写入用户数据目录中的恢复快照，不直接覆盖源文件；异常退出后的下次启动可选择恢复或丢弃。
+- Project Compiler 可构建整个 `.storyproject` 并导出版本化、无节点信息的 `.storyc.json` 项目包；内容版本由源数据稳定计算。
+- Problems Dock 面板汇总跨 Story 编译错误与警告，点击可打开对应 Story、切换 Substory、选中并聚焦源节点。
+- 项目设置可选择默认入口 Story 和工作区内的编译输出目录；未配置目录时使用原生导出窗口。
+- Runtime 新增 `.storyc.json` 解析和入口执行 API，Runtime Preview 可直接打开编译产物验证实际运行行为。
 - 关闭最后一个 Story 后回到欢迎页，Story Data、Inspector 与 Runtime Preview 显示相应空状态。
 - 工作区可创建版本化 `.storyproject`，同步 Story 相对路径、角色、资产及跨 Story 使用关系。
 - 项目索引具有路径逃逸、重复 ID、悬空资源使用与跨 Story 定义冲突校验。

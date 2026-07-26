@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { compileStory, type CompilerDiagnostic } from '@story-blueprint/compiler';
 import {
+  createRuntimeFromCompiledProject,
+  parseCompiledStoryProject,
   StoryRuntime,
   type RuntimeInteraction,
   type RuntimeRunResult,
 } from '@story-blueprint/runtime';
-import type { OptionId, RuntimeValue } from '@story-blueprint/common';
+import type {
+  CharacterSource,
+  OptionId,
+  RuntimeValue,
+  VariableDefinition,
+} from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import styles from './RuntimePreview.module.css';
 
@@ -16,6 +23,8 @@ type HistoryItem =
 interface PreviewSession {
   runtime: StoryRuntime;
   result: RuntimeRunResult;
+  characters: readonly CharacterSource[];
+  variables: readonly VariableDefinition[];
 }
 
 function valueLabel(value: RuntimeValue): string {
@@ -35,8 +44,14 @@ export function RuntimePreview() {
   }, [source]);
 
   const characterNames = useMemo(
-    () => new Map(characters.map((character) => [character.id, character.displayName])),
-    [characters],
+    () =>
+      new Map(
+        (session?.characters ?? characters).map((character) => [
+          character.id,
+          character.displayName,
+        ]),
+      ),
+    [characters, session?.characters],
   );
 
   const appendDialogue = useCallback(
@@ -58,8 +73,13 @@ export function RuntimePreview() {
   );
 
   const acceptResult = useCallback((runtime: StoryRuntime, result: RuntimeRunResult) => {
-    setSession({ runtime, result });
-  }, []);
+    setSession((current) => ({
+      runtime,
+      result,
+      characters: current?.runtime === runtime ? current.characters : characters,
+      variables: current?.runtime === runtime ? current.variables : variables,
+    }));
+  }, [characters, variables]);
 
   const start = useCallback(() => {
     const compiled = compileStory(source, { contentVersion: 'editor-preview' });
@@ -70,8 +90,41 @@ export function RuntimePreview() {
       return;
     }
     const runtime = new StoryRuntime(compiled.program);
-    acceptResult(runtime, runtime.runUntilPause());
-  }, [acceptResult, source]);
+    setSession({
+      runtime,
+      result: runtime.runUntilPause(),
+      characters,
+      variables,
+    });
+  }, [characters, source, variables]);
+
+  const openCompiled = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      const opened = await window.electronAPI.openCompiledProject();
+      if (opened.canceled) return;
+      const project = parseCompiledStoryProject(opened.content);
+      const entry = project.stories[project.entryStoryId];
+      const runtime = createRuntimeFromCompiledProject(project);
+      setHistory([]);
+      setDiagnostics([]);
+      setSession({
+        runtime,
+        result: runtime.runUntilPause(),
+        characters: entry.characters,
+        variables: entry.program.variables,
+      });
+    } catch (error) {
+      setSession(undefined);
+      setDiagnostics([
+        {
+          code: 'PROJECT_ERROR',
+          severity: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ]);
+    }
+  }, []);
 
   const continueDialogue = useCallback(() => {
     if (!session) return;
@@ -102,6 +155,9 @@ export function RuntimePreview() {
           onClick={start}
         >
           {session ? 'Restart' : 'Run Current Story'}
+        </button>
+        <button type="button" className={styles.secondaryButton} onClick={() => void openCompiled()}>
+          Run .storyc.json…
         </button>
         {session && (
           <button
@@ -207,8 +263,10 @@ export function RuntimePreview() {
 
         <aside className={styles.variables}>
           <div className={styles.asideTitle}>Runtime Variables</div>
-          {variables.length === 0 && <div className={styles.muted}>No variables</div>}
-          {variables.map((variable) => (
+          {(session?.variables ?? variables).length === 0 && (
+            <div className={styles.muted}>No variables</div>
+          )}
+          {(session?.variables ?? variables).map((variable) => (
             <div key={variable.id} className={styles.variableRow}>
               <span>{variable.displayName}</span>
               <code>{valueLabel(state?.storyVariables[variable.id] ?? variable.defaultValue)}</code>

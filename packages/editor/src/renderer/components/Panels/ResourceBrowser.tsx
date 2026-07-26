@@ -140,6 +140,8 @@ export function ResourceBrowser() {
     createWorkspaceProject,
     syncWorkspaceProject,
     saveAllStories,
+    buildProject,
+    updateProjectSettings,
   } = useStoryGraphStore();
   const [expandedStories, setExpandedStories] = useState<Set<StoryId>>(
     () => new Set(activeStoryId ? [activeStoryId] : []),
@@ -153,6 +155,7 @@ export function ResourceBrowser() {
     name: string;
   }>();
   const [message, setMessage] = useState<string>();
+  const [outputDirectory, setOutputDirectory] = useState('');
   const selectedCount = nodes.filter((node) => node.selected).length;
   const activeStory = stories.find((story) => story.document.id === activeStoryId);
   const hasProjectFile = Boolean(workspace?.project || workspace?.projectError);
@@ -186,6 +189,10 @@ export function ResourceBrowser() {
     setSelectedDirectory('');
     setExpandedDirectories(new Set());
   }, [workspace?.rootPath]);
+
+  useEffect(() => {
+    setOutputDirectory(workspace?.project?.outputDirectory ?? '');
+  }, [workspace?.project?.outputDirectory]);
 
   const resolveFilePath = (relativePath: string) =>
     normalizePath(`${workspace?.rootPath ?? ''}/${relativePath}`) ?? '';
@@ -295,10 +302,46 @@ export function ResourceBrowser() {
           </div>
         </div>
         {workspace?.project && (
-          <div className={styles.projectSummary}>
-            <span>{workspace.project.stories.length} Stories</span>
-            <span>{workspace.project.characters.length} Characters</span>
-            <span>{workspace.project.assets.length} Assets</span>
+          <div className={styles.projectBlock}>
+            <div className={styles.projectSummary}>
+              <span>{workspace.project.stories.length} Stories</span>
+              <span>{workspace.project.characters.length} Characters</span>
+              <span>{workspace.project.assets.length} Assets</span>
+              <button type="button" title="Build Project" onClick={() => void buildProject()}>
+                Build
+              </button>
+            </div>
+            <div className={styles.projectSettings}>
+              <label>
+                <span>Entry</span>
+                <select
+                  value={workspace.project.entryStoryId ?? workspace.project.stories[0]?.id ?? ''}
+                  onChange={(event) =>
+                    void updateProjectSettings({ entryStoryId: event.target.value as StoryId })
+                  }
+                >
+                  {workspace.project.stories.map((story) => (
+                    <option value={story.id} key={story.id}>{story.displayName}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Output</span>
+                <input
+                  value={outputDirectory}
+                  placeholder="Choose on build"
+                  onChange={(event) => setOutputDirectory(event.target.value)}
+                  onBlur={() => {
+                    if (outputDirectory !== (workspace.project?.outputDirectory ?? '')) {
+                      void updateProjectSettings({ outputDirectory });
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+              </label>
+            </div>
           </div>
         )}
 

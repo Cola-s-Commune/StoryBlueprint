@@ -1,0 +1,286 @@
+import {
+  STORY_COMPILED_PROJECT_FORMAT,
+  STORY_COMPILED_PROJECT_VERSION,
+  StoryNodeType,
+  nodeRegistry,
+  resolveNodePorts,
+  validateGraphConnection,
+  type ChapterId,
+  type CompiledStoryProgram,
+  type GraphNodeLike,
+  type NodeId,
+  type SourceGraph,
+  type SourceNode,
+  type StoryProjectDocument,
+} from '@story-blueprint/common';
+import { compileStory } from './storyCompiler';
+import type {
+  CompileProjectOptions,
+  CompileProjectResult,
+  ProjectCompiler,
+  ProjectCompilerDiagnostic,
+  ProjectStorySource,
+} from './types';
+
+nodeRegistry.registerBuiltins();
+
+function contentHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `content-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function graphDiagnostics(
+  graph: SourceGraph,
+  story: ProjectStorySource,
+  chapterId?: ChapterId,
+): ProjectCompilerDiagnostic[] {
+  const diagnostics: ProjectCompilerDiagnostic[] = [];
+  const decorate = (
+    diagnostic: Omit<ProjectCompilerDiagnostic, 'storyId' | 'storyPath' | 'storyName'>,
+  ): ProjectCompilerDiagnostic => ({
+    ...diagnostic,
+    storyId: story.source.id,
+    storyPath: story.path,
+    storyName: story.source.displayName,
+    sourceChapterId: chapterId,
+  });
+  const entries = graph.nodes.filter((node) => node.type === StoryNodeType.Start);
+  if (entries.length > 1) {
+    diagnostics.push(
+      decorate({
+        code: 'MULTIPLE_ENTRY_NODES',
+        severity: 'error',
+        message: `${chapterId ? 'Substory' : 'Story'} contains multiple entry nodes`,
+        sourceNodeId: entries[1].id,
+      }),
+    );
+  }
+
+  const graphNodes: GraphNodeLike[] = graph.nodes.map((node) => ({
+    id: node.id,
+    type: node.type as StoryNodeType,
+    data: node.data as GraphNodeLike['data'],
+  }));
+  const validExecutionEdges: { source: string; target: string }[] = [];
+  const acceptedEdges: {
+    id: string;
+    source: string;
+    sourcePortId: string;
+    target: string;
+    targetPortId: string;
+  }[] = [];
+  for (const [edgeIndex, edge] of graph.edges.entries()) {
+    const candidate = {
+      source: edge.from.nodeId,
+      sourcePortId: edge.from.portId,
+      target: edge.to.nodeId,
+      targetPortId: edge.to.portId,
+    };
+    const validation = validateGraphConnection(candidate, graphNodes, acceptedEdges);
+    if (!validation.valid) {
+      diagnostics.push(
+        decorate({
+          code: 'DANGLING_EDGE',
+          severity: 'error',
+          message: validation.diagnostic.message,
+          sourceNodeId: edge.from.nodeId,
+        }),
+      );
+      continue;
+    }
+    acceptedEdges.push({ id: `source-edge-${edgeIndex}`, ...candidate });
+    const sourceNode = graphNodes.find((node) => node.id === candidate.source);
+    const sourcePort = sourceNode
+      ? resolveNodePorts(sourceNode).ports.find((port) => port.id === candidate.sourcePortId)
+      : undefined;
+    if (sourcePort?.kind === 'execution') {
+      validExecutionEdges.push({ source: candidate.source, target: candidate.target });
+    }
+  }
+
+  const reachable = new Set<string>();
+  const visit = (nodeId: string) => {
+    if (reachable.has(nodeId)) return;
+    reachable.add(nodeId);
+    for (const edge of validExecutionEdges) if (edge.source === nodeId) visit(edge.target);
+  };
+  if (entries[0]) visit(entries[0].id);
+  for (const node of graph.nodes) {
+    if (node.type !== StoryNodeType.GetVariable && !reachable.has(node.id)) {
+      diagnostics.push(
+        decorate({
+          code: 'UNREACHABLE_NODE',
+          severity: 'warning',
+          message: `${node.type} is not reachable from the entry node`,
+          sourceNodeId: node.id,
+        }),
+      );
+    }
+    if (chapterId && node.type === StoryNodeType.End) {
+      diagnostics.push(
+        decorate({
+          code: 'INVALID_END_LOCATION',
+          severity: 'warning',
+          message: 'End Story inside a substory terminates the entire Story; use Return if intended',
+          sourceNodeId: node.id,
+        }),
+      );
+    }
+  }
+
+  const indices = new Map<string, number>();
+  const lowLinks = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  let nextIndex = 0;
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const successors = (id: string) =>
+    validExecutionEdges.filter((edge) => edge.source === id).map((edge) => edge.target);
+  const strongConnect = (nodeId: string) => {
+    indices.set(nodeId, nextIndex);
+    lowLinks.set(nodeId, nextIndex);
+    nextIndex += 1;
+    stack.push(nodeId);
+    onStack.add(nodeId);
+    for (const target of successors(nodeId)) {
+      if (!indices.has(target)) {
+        strongConnect(target);
+        lowLinks.set(nodeId, Math.min(lowLinks.get(nodeId)!, lowLinks.get(target)!));
+      } else if (onStack.has(target)) {
+        lowLinks.set(nodeId, Math.min(lowLinks.get(nodeId)!, indices.get(target)!));
+      }
+    }
+    if (lowLinks.get(nodeId) !== indices.get(nodeId)) return;
+    const component: string[] = [];
+    let current: string | undefined;
+    do {
+      current = stack.pop();
+      if (!current) break;
+      onStack.delete(current);
+      component.push(current);
+    } while (current !== nodeId);
+    const cyclic =
+      component.length > 1 ||
+      (component.length === 1 && successors(component[0]).includes(component[0] as NodeId));
+    const hasPause = component.some((id) => {
+      const type = nodesById.get(id as NodeId)?.type;
+      return type === StoryNodeType.Dialogue || type === StoryNodeType.Choice;
+    });
+    if (cyclic && !hasPause) {
+      diagnostics.push(
+        decorate({
+          code: 'TIGHT_LOOP',
+          severity: 'error',
+          message: 'Execution cycle has no dialogue or choice pause point',
+          sourceNodeId: component[0] as SourceNode['id'],
+        }),
+      );
+    }
+  };
+  for (const nodeId of reachable) if (!indices.has(nodeId)) strongConnect(nodeId);
+  return diagnostics;
+}
+
+export class DefaultProjectCompiler implements ProjectCompiler {
+  compile(
+    project: StoryProjectDocument,
+    stories: readonly ProjectStorySource[],
+    options: CompileProjectOptions = {},
+  ): CompileProjectResult {
+    const diagnostics: ProjectCompilerDiagnostic[] = [];
+    const sourcesById = new Map(stories.map((story) => [story.source.id, story]));
+    const programs: Record<string, CompiledStoryProgram> = {};
+    const entryStoryId = options.entryStoryId ?? project.entryStoryId ?? project.stories[0]?.id;
+    if (!entryStoryId || !project.stories.some((story) => story.id === entryStoryId)) {
+      diagnostics.push({
+        code: 'PROJECT_ERROR',
+        severity: 'error',
+        message: 'Project has no valid entry Story',
+      });
+    }
+
+    for (const reference of project.stories) {
+      const story = sourcesById.get(reference.id);
+      if (!story) {
+        diagnostics.push({
+          code: 'MISSING_STORY',
+          severity: 'error',
+          message: `Project Story is missing: ${reference.path}`,
+          storyId: reference.id,
+          storyPath: reference.path,
+          storyName: reference.displayName,
+        });
+        continue;
+      }
+      diagnostics.push(...graphDiagnostics(story.source.root, story));
+      for (const chapter of story.source.chapters) {
+        diagnostics.push(...graphDiagnostics(chapter.graph, story, chapter.id));
+      }
+      const compiled = compileStory(story.source, {
+        ...options,
+        contentVersion: options.contentVersion ?? 'project-build',
+      });
+      diagnostics.push(
+        ...compiled.diagnostics.map((diagnostic) => {
+          const sourceChapterId = diagnostic.sourceNodeId
+            ? story.source.chapters.find((chapter) =>
+                chapter.graph.nodes.some((node) => node.id === diagnostic.sourceNodeId),
+              )?.id
+            : undefined;
+          return {
+            ...diagnostic,
+            storyId: story.source.id,
+            storyPath: story.path,
+            storyName: story.source.displayName,
+            sourceChapterId,
+          };
+        }),
+      );
+      if (compiled.ok) {
+        programs[story.source.id] = {
+          storyId: story.source.id,
+          name: story.source.name,
+          displayName: story.source.displayName,
+          program: compiled.program,
+          characters: story.source.characters,
+          assets: story.source.assets,
+        };
+      }
+    }
+    if (!entryStoryId || diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+      return { ok: false, diagnostics };
+    }
+    const contentVersion =
+      options.contentVersion ??
+      contentHash(JSON.stringify(stories.map((story) => [story.path, story.source])));
+    for (const compiled of Object.values(programs)) {
+      compiled.program = { ...compiled.program, contentVersion };
+    }
+    return {
+      ok: true,
+      project: {
+        format: STORY_COMPILED_PROJECT_FORMAT,
+        version: STORY_COMPILED_PROJECT_VERSION,
+        projectId: project.id,
+        name: project.name,
+        displayName: project.displayName,
+        contentVersion,
+        entryStoryId,
+        stories: programs,
+      },
+      diagnostics,
+    };
+  }
+}
+
+export function compileProject(
+  project: StoryProjectDocument,
+  stories: readonly ProjectStorySource[],
+  options?: CompileProjectOptions,
+): CompileProjectResult {
+  return new DefaultProjectCompiler().compile(project, stories, options);
+}
