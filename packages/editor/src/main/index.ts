@@ -9,12 +9,15 @@ import {
 } from 'electron';
 import { mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { is } from '@electron-toolkit/utils';
 import {
+  createStableId,
   parseStoryProject,
   parseStorySource,
   serializeStoryProject,
+  STORY_PROJECT_FORMAT,
+  STORY_PROJECT_VERSION,
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type StoryProjectDocument,
@@ -23,6 +26,7 @@ import type {
   CreateWorkspaceProjectRequest,
   CreateWorkspaceStoryRequest,
   SaveStoryRequest,
+  RecentProject,
   WorkspaceEntry,
   WorkspaceInfo,
 } from '../shared/electronApi';
@@ -32,11 +36,57 @@ let storyDirty = false;
 const storyFileTokens = new Map<string, Set<string>>();
 let workspaceRoot: string | undefined;
 let workspaceProjectFile: string | undefined;
+let closeAfterSave = false;
+let closeSavePending = false;
 
 const MAX_STORY_BYTES = 64 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES = 10_000;
 const MAX_WORKSPACE_DEPTH = 32;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git', 'node_modules']);
+const MAX_RECENT_PROJECTS = 10;
+
+function recentProjectsFile(): string {
+  return join(app.getPath('userData'), 'recent-projects.json');
+}
+
+async function readRecentProjects(): Promise<RecentProject[]> {
+  try {
+    const value: unknown = JSON.parse(await readFile(recentProjectsFile(), 'utf8'));
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (item): item is RecentProject =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof item.name === 'string' &&
+        typeof item.filePath === 'string' &&
+        typeof item.lastOpenedAt === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function writeRecentProjects(projects: RecentProject[]): Promise<void> {
+  await mkdir(app.getPath('userData'), { recursive: true });
+  await writeFile(recentProjectsFile(), `${JSON.stringify(projects, null, 2)}\n`, 'utf8');
+}
+
+async function rememberProject(filePath: string): Promise<void> {
+  const resolvedPath = resolve(filePath);
+  let name = basename(resolvedPath, extname(resolvedPath));
+  try {
+    name = parseStoryProject(await readFile(resolvedPath, 'utf8')).displayName;
+  } catch {
+    // The project parser will surface invalid files when the workspace is read.
+  }
+  const recent = (await readRecentProjects()).filter(
+    (item) => item.filePath.toLowerCase() !== resolvedPath.toLowerCase(),
+  );
+  await writeRecentProjects([
+    { name, filePath: resolvedPath, lastOpenedAt: new Date().toISOString() },
+    ...recent,
+  ].slice(0, MAX_RECENT_PROJECTS));
+}
 
 function ensureStoryExtension(filePath: string): string {
   return filePath.toLowerCase().endsWith('.story') ? filePath : `${filePath}.story`;
@@ -266,6 +316,22 @@ async function openStoryFile(filePath: string) {
   return { canceled: false as const, filePath, fileToken, content };
 }
 
+async function activateWorkspace(rootPath: string, projectFile?: string): Promise<WorkspaceInfo> {
+  workspaceRoot = await realpath(resolve(rootPath));
+  if (projectFile) {
+    workspaceProjectFile = ensureWithinWorkspace(await realpath(projectFile));
+  } else {
+    const rootEntries = await readdir(workspaceRoot, { withFileTypes: true });
+    const projectFiles = rootEntries.filter(
+      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.storyproject'),
+    );
+    if (projectFiles.length > 1) throw new Error('Workspace root contains multiple project files');
+    workspaceProjectFile = projectFiles[0] ? join(workspaceRoot, projectFiles[0].name) : undefined;
+  }
+  if (workspaceProjectFile) await rememberProject(workspaceProjectFile);
+  return (await readWorkspace())!;
+}
+
 function registerStoryFileHandlers(): void {
   ipcMain.on('story:set-dirty', (event, dirty: unknown) => {
     if (!isTrustedSender(event) || typeof dirty !== 'boolean') return;
@@ -275,6 +341,7 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Open Story',
+      defaultPath: app.getPath('documents'),
       properties: ['openFile'],
       filters: [{ name: 'Story Blueprint', extensions: ['story'] }],
     });
@@ -297,7 +364,7 @@ function registerStoryFileHandlers(): void {
     if (!filePath) {
       const result = await dialog.showSaveDialog(mainWindow, {
         title: 'Save Story',
-        defaultPath: request.filePath ?? 'untitled.story',
+        defaultPath: request.filePath ?? join(app.getPath('documents'), 'untitled.story'),
         filters: [{ name: 'Story Blueprint', extensions: ['story'] }],
       });
       if (result.canceled || !result.filePath) return { canceled: true };
@@ -315,17 +382,125 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Open Story Workspace',
+      defaultPath: app.getPath('documents'),
       properties: ['openDirectory'],
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
-    workspaceRoot = await realpath(resolve(result.filePaths[0]));
-    const rootEntries = await readdir(workspaceRoot, { withFileTypes: true });
-    const projectFiles = rootEntries.filter(
-      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.storyproject'),
+    return { canceled: false, workspace: await activateWorkspace(result.filePaths[0]) };
+  });
+
+  ipcMain.handle('workspace:open-project', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open Story Project',
+      defaultPath: app.getPath('documents'),
+      properties: ['openFile'],
+      filters: [{ name: 'Story Blueprint Project', extensions: ['storyproject'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const projectFile = result.filePaths[0];
+    return {
+      canceled: false,
+      workspace: await activateWorkspace(dirname(projectFile), projectFile),
+    };
+  });
+
+  ipcMain.handle('workspace:open-recent-project', async (event, filePath: unknown) => {
+    if (!isTrustedSender(event) || typeof filePath !== 'string') {
+      throw new Error('Invalid recent project request');
+    }
+    const projectFile = await realpath(filePath);
+    if (!projectFile.toLowerCase().endsWith('.storyproject')) {
+      throw new Error('Not a Story project file');
+    }
+    return {
+      canceled: false,
+      workspace: await activateWorkspace(dirname(projectFile), projectFile),
+    };
+  });
+
+  ipcMain.handle('workspace:get-recent-projects', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return readRecentProjects();
+  });
+
+  ipcMain.handle('workspace:remove-recent-project', async (event, filePath: unknown) => {
+    if (!isTrustedSender(event) || typeof filePath !== 'string') {
+      throw new Error('Invalid recent project request');
+    }
+    const next = (await readRecentProjects()).filter(
+      (item) => item.filePath.toLowerCase() !== filePath.toLowerCase(),
     );
-    if (projectFiles.length > 1) throw new Error('Workspace root contains multiple project files');
-    workspaceProjectFile = projectFiles[0] ? join(workspaceRoot, projectFiles[0].name) : undefined;
-    return { canceled: false, workspace: (await readWorkspace())! };
+    await writeRecentProjects(next);
+    return next;
+  });
+
+  ipcMain.handle('story:confirm-unsaved', async (event, names: unknown, action: unknown) => {
+    if (!isTrustedSender(event) || !mainWindow || !Array.isArray(names)) {
+      throw new Error('Invalid unsaved stories request');
+    }
+    const storyNames = names.filter((name): name is string => typeof name === 'string');
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Unsaved Stories',
+      message: `${storyNames.length === 1 ? storyNames[0] : `${storyNames.length} Stories`} has unsaved changes.`,
+      detail: `Save your changes before ${typeof action === 'string' ? action : 'continuing'}?`,
+      buttons: ['Save', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    });
+    return result.response === 0 ? 'save' : result.response === 1 ? 'discard' : 'cancel';
+  });
+
+  ipcMain.on('app:finish-close', (event, saved: unknown) => {
+    if (!isTrustedSender(event) || !closeSavePending) return;
+    closeSavePending = false;
+    if (saved !== true) return;
+    storyDirty = false;
+    closeAfterSave = true;
+    mainWindow?.close();
+  });
+
+  ipcMain.handle('workspace:new-project', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'New Story Project',
+      defaultPath: join(app.getPath('documents'), 'untitled.storyproject'),
+      filters: [{ name: 'Story Blueprint Project', extensions: ['storyproject'] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const projectFile = result.filePath.toLowerCase().endsWith('.storyproject')
+      ? result.filePath
+      : `${result.filePath}.storyproject`;
+    const rootPath = dirname(projectFile);
+    const rootEntries = await readdir(rootPath, { withFileTypes: true });
+    const otherProject = rootEntries.find(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.toLowerCase().endsWith('.storyproject') &&
+        join(rootPath, entry.name).toLowerCase() !== projectFile.toLowerCase(),
+    );
+    if (otherProject) throw new Error('Target folder already contains a Story project');
+    const fileStem = basename(projectFile, extname(projectFile));
+    const name =
+      fileStem
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'project';
+    const project: StoryProjectDocument = {
+      format: STORY_PROJECT_FORMAT,
+      version: STORY_PROJECT_VERSION,
+      id: createStableId('project'),
+      name,
+      displayName: fileStem,
+      stories: [],
+      characters: [],
+      assets: [],
+    };
+    await writeFile(projectFile, serializeStoryProject(project), 'utf8');
+    await activateWorkspace(rootPath, projectFile);
+    return { canceled: false, workspace: await syncWorkspaceProject() };
   });
 
   ipcMain.handle('workspace:refresh', async (event) => {
@@ -399,6 +574,8 @@ function registerStoryFileHandlers(): void {
 }
 
 function createWindow(): void {
+  closeAfterSave = false;
+  closeSavePending = false;
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -425,19 +602,24 @@ function createWindow(): void {
   });
 
   mainWindow.on('close', (event) => {
-    if (!storyDirty) return;
+    if (!storyDirty || closeAfterSave) return;
     event.preventDefault();
     const choice = dialog.showMessageBoxSync(mainWindow!, {
       type: 'warning',
       title: 'Unsaved Stories',
-      message: 'Discard unsaved story changes?',
+      message: 'Save unsaved story changes?',
       detail: 'One or more open stories contain edits that have not been saved.',
-      buttons: ['Cancel', 'Discard'],
+      buttons: ['Save', "Don't Save", 'Cancel'],
       defaultId: 0,
-      cancelId: 0,
+      cancelId: 2,
+      noLink: true,
     });
-    if (choice === 1) {
+    if (choice === 0 && !closeSavePending) {
+      closeSavePending = true;
+      mainWindow?.webContents.send('app:save-before-close');
+    } else if (choice === 1) {
       storyDirty = false;
+      closeAfterSave = true;
       mainWindow?.close();
     }
   });

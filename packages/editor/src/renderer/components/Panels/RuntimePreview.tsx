@@ -23,7 +23,7 @@ function valueLabel(value: RuntimeValue): string {
 }
 
 export function RuntimePreview() {
-  const { source, characters, variables } = useStoryGraphStore();
+  const { hasActiveStory, source, characters, variables } = useStoryGraphStore();
   const [session, setSession] = useState<PreviewSession>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly CompilerDiagnostic[]>([]);
@@ -95,7 +95,12 @@ export function RuntimePreview() {
   return (
     <div className={styles.root}>
       <header className={styles.toolbar}>
-        <button type="button" className={styles.primaryButton} onClick={start}>
+        <button
+          type="button"
+          className={styles.primaryButton}
+          disabled={!hasActiveStory}
+          onClick={start}
+        >
           {session ? 'Restart' : 'Run Current Story'}
         </button>
         {session && (
@@ -119,7 +124,11 @@ export function RuntimePreview() {
       <div className={styles.content}>
         <section className={styles.stage}>
           {!session && diagnostics.length === 0 && (
-            <div className={styles.empty}>运行当前蓝图，在这里预览对话、选项和变量变化。</div>
+            <div className={styles.empty}>
+              {hasActiveStory
+                ? '运行当前蓝图，在这里预览对话、选项和变量变化。'
+                : '打开一个 Story 后可以在这里运行预览。'}
+            </div>
           )}
 
           {history.length > 0 && (

@@ -31,6 +31,11 @@
 - [x] 配置 IPC
 - [x] 配置 热更新（Hot Reload）
 - [ ] 配置 Release Build
+- [x] 启动时显示项目/文件欢迎页，不自动创建 Untitled Story
+- [x] 支持原生新建、打开与保存项目
+- [x] 关闭、退出及切换项目时提供 Save / Don't Save / Cancel 未保存保护
+- [x] 成功切换项目后清理旧项目的 Story 标签和编辑状态
+- [x] 持久化最近项目，并支持从欢迎页重新打开或移除
 
 ---
 
@@ -370,6 +375,9 @@
 
 ## Story Asset
 
+- [x] 启动进入空会话，不自动创建 Untitled Story
+- [x] 欢迎页提供 New Project / Open Project / Open Story
+- [x] 关闭最后一个 Story 后返回空会话
 - [x] New
 - [x] Open
 - [x] Save
@@ -382,6 +390,7 @@
 - [x] 版本化 `.storyproject` 项目清单
 - [x] 项目级 Story 路径、角色与资产使用索引
 - [x] 创建与手动同步项目索引，保存/新增 Story 后自动同步
+- [x] 原生文件对话框新建、打开和保存项目
 - [ ] 项目级共享角色与资产独立资源文件
 
 ---

@@ -2,7 +2,24 @@ import styles from './StatusBar.module.css';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 
 export function StatusBar() {
-  const { document, nodes, edges, chapters, activeGraphId } = useStoryGraphStore();
+  const { hasActiveStory, workspace, document, nodes, edges, chapters, activeGraphId } =
+    useStoryGraphStore();
+  if (!hasActiveStory) {
+    return (
+      <div className={styles.bar}>
+        <div className={styles.left}>
+          <span className={styles.item}>Ready</span>
+          <span className={styles.item}>
+            {workspace?.project?.displayName ?? workspace?.name ?? 'No project open'}
+          </span>
+          <span className={styles.item}>No Story Open</span>
+        </div>
+        <div className={styles.right}>
+          <span className={styles.item}>Story Blueprint v0.1.0</span>
+        </div>
+      </div>
+    );
+  }
   const fileName = document.filePath?.split(/[\\/]/).pop() ?? 'Untitled';
   const graphName =
     activeGraphId === 'root'

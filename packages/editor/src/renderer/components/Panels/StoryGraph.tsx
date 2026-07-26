@@ -82,6 +82,15 @@ export function StoryGraph() {
     activeGraphId,
     chapters,
     extractSelectionToSubstory,
+    hasActiveStory,
+    workspace,
+    workspaceError,
+    recentProjects,
+    newProject,
+    openProject,
+    openRecentProject,
+    removeRecentProject,
+    openStory,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [flowInstance, setFlowInstance] = useState<
@@ -224,6 +233,7 @@ export function StoryGraph() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!hasActiveStory) return;
       const modifier = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       const editingText = isTextEditingTarget(event.target);
@@ -258,7 +268,7 @@ export function StoryGraph() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [copySelection, deleteSelection, duplicateSelection, paste, redo, undo]);
+  }, [copySelection, deleteSelection, duplicateSelection, hasActiveStory, paste, redo, undo]);
 
   useEffect(() => {
     if (!flowInstance) return;
@@ -303,6 +313,68 @@ export function StoryGraph() {
       ? 'Main Story'
       : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
   const selectedCount = nodes.filter((node) => node.selected).length;
+
+  if (!hasActiveStory) {
+    return (
+      <div className={styles.welcome}>
+        <div className={styles.welcomeCard}>
+          <div className={styles.welcomeMark}>SB</div>
+          <h1>Story Blueprint</h1>
+          <p>
+            {workspace
+              ? `${workspace.project?.displayName ?? workspace.name} is open. Choose a Story from Explorer or create one there.`
+              : 'Open a project or a Story file to begin.'}
+          </p>
+          <div className={styles.welcomeActions}>
+            <button
+              type="button"
+              className={styles.primaryAction}
+              onClick={() => void newProject()}
+            >
+              New Project
+            </button>
+            <button type="button" onClick={() => void openProject()}>
+              Open Project…
+            </button>
+            <button type="button" onClick={() => void openStory()}>
+              Open Story…
+            </button>
+          </div>
+          {workspaceError && <div className={styles.welcomeError}>{workspaceError}</div>}
+          {!workspace && recentProjects.length > 0 && (
+            <div className={styles.recentProjects}>
+              <h2>Recent Projects</h2>
+              {recentProjects.map((project) => (
+                <div className={styles.recentProject} key={project.filePath}>
+                  <button
+                    type="button"
+                    className={styles.recentProjectOpen}
+                    title={project.filePath}
+                    onClick={() => void openRecentProject(project.filePath)}
+                  >
+                    <strong>{project.name}</strong>
+                    <span>{project.filePath}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.recentProjectRemove}
+                    title="Remove from Recent Projects"
+                    aria-label={`Remove ${project.name} from recent projects`}
+                    onClick={() => void removeRecentProject(project.filePath)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <small>
+            Projects use a .storyproject file. Individual Stories remain separate .story files.
+          </small>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.panel}>

@@ -19,6 +19,12 @@ npm run dev
 
 ## Current: Workspace Explorer / Runtime Preview
 
+- 启动流程改为空会话欢迎页，不再自动打开 Untitled Story；支持原生 New/Open/Save Project 和 Open Story。
+- 关闭 Story、退出软件或切换项目时统一提供 Save / Don't Save / Cancel；保存会覆盖所有已修改的 Story 标签。
+- 成功切换项目后会清空旧项目的标签和编辑状态，避免跨项目资源混用。
+- 欢迎页会持久显示最近打开的项目，支持一键重新打开或从列表移除。
+- 新建/打开项目、工作目录和 Story 的原生文件窗口默认从系统“文档”目录开始。
+- 关闭最后一个 Story 后回到欢迎页，Story Data、Inspector 与 Runtime Preview 显示相应空状态。
 - 工作区可创建版本化 `.storyproject`，同步 Story 相对路径、角色、资产及跨 Story 使用关系。
 - 项目索引具有路径逃逸、重复 ID、悬空资源使用与跨 Story 定义冲突校验。
 - Resource Browser 现分为 Open Stories 与 Explorer；可选择真实工作目录、浏览嵌套文件夹，并从目录树按需加载 `.story`。

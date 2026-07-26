@@ -131,6 +131,8 @@ export function ResourceBrowser() {
     removeSubstory,
     extractSelectionToSubstory,
     openWorkspace,
+    openProject,
+    newProject,
     refreshWorkspace,
     openWorkspaceStory,
     createWorkspaceDirectory,
@@ -139,7 +141,7 @@ export function ResourceBrowser() {
     syncWorkspaceProject,
   } = useStoryGraphStore();
   const [expandedStories, setExpandedStories] = useState<Set<StoryId>>(
-    () => new Set([activeStoryId]),
+    () => new Set(activeStoryId ? [activeStoryId] : []),
   );
   const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(new Set());
   const [selectedDirectory, setSelectedDirectory] = useState('');
@@ -176,7 +178,7 @@ export function ResourceBrowser() {
       );
 
   useEffect(() => {
-    setExpandedStories((current) => new Set(current).add(activeStoryId));
+    if (activeStoryId) setExpandedStories((current) => new Set(current).add(activeStoryId));
   }, [activeStoryId]);
 
   useEffect(() => {
@@ -255,6 +257,22 @@ export function ResourceBrowser() {
             </div>
           </div>
           <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.iconButton}
+              title="New Project"
+              onClick={() => void newProject()}
+            >
+              P+
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              title="Open Project"
+              onClick={() => void openProject()}
+            >
+              P
+            </button>
             {workspace && (
               <button
                 type="button"

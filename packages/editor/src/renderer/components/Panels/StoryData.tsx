@@ -250,7 +250,7 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
 }
 
 export function StoryData() {
-  const { variables, characters, assets, addVariable, addCharacter, addAsset } =
+  const { hasActiveStory, variables, characters, assets, addVariable, addCharacter, addAsset } =
     useStoryGraphStore();
   const [selection, setSelection] = useState<Selection>();
   const selected = useMemo(() => {
@@ -259,6 +259,16 @@ export function StoryData() {
     if (selection.kind === 'character') return characters.find((item) => item.id === selection.id);
     return assets.find((item) => item.id === selection.id);
   }, [assets, characters, selection, variables]);
+
+  if (!hasActiveStory) {
+    return (
+      <div className={panelStyles.panel}>
+        <div className={panelStyles.body}>
+          <p className={panelStyles.placeholder}>Open a Story to edit its data</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={panelStyles.panel}>

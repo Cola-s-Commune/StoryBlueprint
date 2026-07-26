@@ -52,7 +52,7 @@ import {
   type EditorGraphState,
 } from './editorGraph';
 import { useGraphHistory } from './useGraphHistory';
-import type { OpenStoryResult, WorkspaceInfo } from '../../shared/electronApi';
+import type { OpenStoryResult, RecentProject, WorkspaceInfo } from '../../shared/electronApi';
 
 nodeRegistry.registerBuiltins();
 
@@ -267,9 +267,11 @@ interface StoryGraphStoreValue {
   ) => void;
   document: StoryDocumentInfo;
   stories: EditorStoryResource[];
-  activeStoryId: StoryId;
+  hasActiveStory: boolean;
+  activeStoryId?: StoryId;
   workspace?: WorkspaceInfo;
   workspaceError?: string;
+  recentProjects: RecentProject[];
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -295,9 +297,13 @@ interface StoryGraphStoreValue {
   openStory: () => Promise<void>;
   saveStory: (saveAs?: boolean) => Promise<void>;
   switchStory: (id: StoryId, graphId?: ActiveGraphId) => void;
-  closeStory: (id: StoryId) => void;
+  closeStory: (id: StoryId) => Promise<void>;
   updateStory: (update: { name?: string; displayName?: string }) => void;
   openWorkspace: () => Promise<void>;
+  openProject: () => Promise<void>;
+  openRecentProject: (filePath: string) => Promise<void>;
+  removeRecentProject: (filePath: string) => Promise<void>;
+  newProject: () => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   openWorkspaceStory: (relativePath: string) => Promise<void>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<void>;
@@ -309,12 +315,12 @@ interface StoryGraphStoreValue {
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
 
 export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
-  const initialGraph = useMemo(createNewGraph, []);
+  const initialGraph = useMemo<EditorGraphState>(() => ({ nodes: [], edges: [] }), []);
   const initialDocument = useMemo<StoryDocumentInfo>(
     () => ({
       id: createStableId('story'),
-      name: 'untitled',
-      displayName: 'Untitled Story',
+      name: 'no-story',
+      displayName: 'No Story Open',
       dirty: false,
     }),
     [],
@@ -331,19 +337,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [activeGraphId, setActiveGraphId] = useState<ActiveGraphId>('root');
   const revisionRef = useRef(0);
   const [document, setDocument] = useState<StoryDocumentInfo>(initialDocument);
+  const [hasActiveStory, setHasActiveStory] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceError, setWorkspaceError] = useState<string>();
-  const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>(() => [
-    {
-      document: initialDocument,
-      rootGraph: structuredClone(initialGraph),
-      chapters: [],
-      variables: [],
-      characters: [],
-      assets: [],
-      revision: 0,
-    },
-  ]);
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
+  const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const source = useMemo<StorySourceDocument>(
     () => ({
       format: STORY_SOURCE_FORMAT,
@@ -375,24 +373,32 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const markDirty = useCallback(() => {
+    if (!hasActiveStory) return;
     revisionRef.current += 1;
     window.electronAPI?.setStoryDirty(true);
     setDocument((current) => ({ ...current, dirty: true, error: undefined }));
-  }, []);
+  }, [hasActiveStory]);
 
   const stories = useMemo<EditorStoryResource[]>(
     () =>
       workspaceStories.map((story) =>
-        story.document.id === document.id ? { document, chapters } : story,
+        hasActiveStory && story.document.id === document.id ? { document, chapters } : story,
       ),
-    [chapters, document, workspaceStories],
+    [chapters, document, hasActiveStory, workspaceStories],
   );
 
   useEffect(() => {
     window.electronAPI?.setStoryDirty(
-      document.dirty || workspaceStories.some((story) => story.document.dirty),
+      (hasActiveStory && document.dirty) || workspaceStories.some((story) => story.document.dirty),
     );
-  }, [document.dirty, workspaceStories]);
+  }, [document.dirty, hasActiveStory, workspaceStories]);
+
+  useEffect(() => {
+    void window.electronAPI
+      ?.getRecentProjects()
+      .then(setRecentProjects)
+      .catch(() => setRecentProjects([]));
+  }, []);
 
   const checkpoint = useCallback(
     (snapshot?: EditorGraphState) => history.checkpoint(snapshot ?? graph),
@@ -817,6 +823,137 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [activeGraphId, assets, chapters, characters, document, graph, variables],
   );
 
+  const storyItemToSource = useCallback(
+    (story: EditorStoryWorkspaceItem): StorySourceDocument => ({
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: story.document.id,
+      name: story.document.name,
+      displayName: story.document.displayName,
+      root: toSourceGraph(story.rootGraph),
+      chapters: story.chapters.map((chapter) => ({
+        ...chapter,
+        graph: toSourceGraph(chapter.graph),
+      })),
+      variables: story.variables,
+      characters: story.characters,
+      assets: story.assets,
+      events: [],
+    }),
+    [],
+  );
+
+  const currentStoryItems = useCallback((): EditorStoryWorkspaceItem[] => {
+    const active = hasActiveStory ? captureActiveStory() : undefined;
+    return workspaceStories.map((story) =>
+      active && story.document.id === active.document.id ? active : story,
+    );
+  }, [captureActiveStory, hasActiveStory, workspaceStories]);
+
+  const saveStoryItems = useCallback(
+    async (
+      items: EditorStoryWorkspaceItem[],
+    ): Promise<EditorStoryWorkspaceItem[] | undefined> => {
+      if (!window.electronAPI) return undefined;
+      const saved: EditorStoryWorkspaceItem[] = [];
+      for (const item of items) {
+        if (!item.document.dirty) {
+          saved.push(item);
+          continue;
+        }
+        const result = await window.electronAPI.saveStory({
+          filePath: item.document.filePath,
+          fileToken: item.document.fileToken,
+          content: serializeStorySource(storyItemToSource(item)),
+        });
+        if (result.canceled) return undefined;
+        const savedItem: EditorStoryWorkspaceItem = {
+          ...item,
+          document: {
+            ...item.document,
+            filePath: result.filePath,
+            fileToken: result.fileToken,
+            dirty: false,
+            error: undefined,
+          },
+        };
+        saved.push(savedItem);
+        setWorkspaceStories((current) =>
+          current.map((candidate) =>
+            candidate.document.id === savedItem.document.id ? savedItem : candidate,
+          ),
+        );
+        setDocument((current) =>
+          current.id === savedItem.document.id ? savedItem.document : current,
+        );
+      }
+      return saved;
+    },
+    [storyItemToSource],
+  );
+
+  const saveAllDirtyStories = useCallback(async (): Promise<boolean> => {
+    try {
+      const saved = await saveStoryItems(currentStoryItems());
+      if (!saved) return false;
+      setWorkspaceStories(saved);
+      const active = saved.find((item) => item.document.id === document.id);
+      if (active) setDocument(active.document);
+      if (workspace) {
+        setWorkspace(
+          workspace.project
+            ? await window.electronAPI!.syncWorkspaceProject()
+            : await window.electronAPI!.refreshWorkspace(),
+        );
+      }
+      return true;
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [currentStoryItems, document.id, saveStoryItems, workspace]);
+
+  const confirmWorkspaceChange = useCallback(
+    async (action: string): Promise<boolean> => {
+      if (!window.electronAPI) return false;
+      const dirty = currentStoryItems().filter((item) => item.document.dirty);
+      if (dirty.length === 0) return true;
+      const choice = await window.electronAPI.confirmUnsavedStories(
+        dirty.map((item) => item.document.displayName),
+        action,
+      );
+      if (choice === 'cancel') return false;
+      return choice === 'discard' ? true : saveAllDirtyStories();
+    },
+    [currentStoryItems, saveAllDirtyStories],
+  );
+
+  const clearStorySession = useCallback(() => {
+    const emptyGraph: EditorGraphState = { nodes: [], edges: [] };
+    rootGraphRef.current = emptyGraph;
+    restoreGraph(emptyGraph);
+    setWorkspaceStories([]);
+    setChapters([]);
+    setVariables([]);
+    setCharacters([]);
+    setAssets([]);
+    setActiveGraphId('root');
+    setDocument(initialDocument);
+    setHasActiveStory(false);
+    revisionRef.current = 0;
+    history.clear();
+  }, [history, initialDocument, restoreGraph]);
+
+  const acceptWorkspaceChange = useCallback(
+    async (nextWorkspace: WorkspaceInfo) => {
+      clearStorySession();
+      setWorkspace(nextWorkspace);
+      setWorkspaceError(undefined);
+      setRecentProjects(await window.electronAPI!.getRecentProjects());
+    },
+    [clearStorySession],
+  );
+
   const loadStory = useCallback(
     (story: EditorStoryWorkspaceItem, graphId: ActiveGraphId = 'root') => {
       const targetGraph =
@@ -832,6 +969,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setCharacters(structuredClone(story.characters));
       setAssets(structuredClone(story.assets));
       setDocument({ ...story.document });
+      setHasActiveStory(true);
       revisionRef.current = story.revision;
       history.clear();
     },
@@ -840,24 +978,26 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const switchStory = useCallback(
     (id: StoryId, graphId: ActiveGraphId = 'root') => {
-      if (id === document.id) {
+      if (hasActiveStory && id === document.id) {
         switchGraph(graphId);
         return;
       }
       const target = workspaceStories.find((story) => story.document.id === id);
       if (!target) return;
-      const current = captureActiveStory();
+      const current = hasActiveStory ? captureActiveStory() : undefined;
       setWorkspaceStories((items) =>
-        items.map((story) => (story.document.id === current.document.id ? current : story)),
+        items.map((story) =>
+          current && story.document.id === current.document.id ? current : story,
+        ),
       );
       loadStory(target, graphId);
     },
-    [captureActiveStory, document.id, loadStory, switchGraph, workspaceStories],
+    [captureActiveStory, document.id, hasActiveStory, loadStory, switchGraph, workspaceStories],
   );
 
   const newStory = useCallback(() => {
     const nextGraph = createNewGraph();
-    const current = captureActiveStory();
+    const current = hasActiveStory ? captureActiveStory() : undefined;
     const usedNames = new Set(workspaceStories.map((story) => story.document.name));
     let untitledIndex = 1;
     let name = 'untitled';
@@ -877,17 +1017,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       revision: 0,
     };
     setWorkspaceStories((items) => [
-      ...items.map((story) => (story.document.id === current.document.id ? current : story)),
+      ...items.map((story) =>
+        current && story.document.id === current.document.id ? current : story,
+      ),
       next,
     ]);
     loadStory(next);
-  }, [captureActiveStory, loadStory, workspaceStories]);
+  }, [captureActiveStory, hasActiveStory, loadStory, workspaceStories]);
 
   const acceptOpenedStory = useCallback(
     (result: Exclude<OpenStoryResult, { canceled: true }>) => {
       const source = parseStorySource(result.content);
       const rootGraph = fromSourceGraph(source.root);
-      const current = captureActiveStory();
+      const current = hasActiveStory ? captureActiveStory() : undefined;
       const opened: EditorStoryWorkspaceItem = {
         document: {
           id: source.id,
@@ -915,14 +1057,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         );
         return [
           ...withoutOpened.map((story) =>
-            story.document.id === current.document.id ? current : story,
+            current && story.document.id === current.document.id ? current : story,
           ),
           opened,
         ];
       });
       loadStory(opened);
     },
-    [captureActiveStory, loadStory],
+    [captureActiveStory, hasActiveStory, loadStory],
   );
 
   const openStory = useCallback(async () => {
@@ -952,14 +1094,59 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const openWorkspace = useCallback(async () => {
     if (!window.electronAPI) return;
     try {
+      if (!(await confirmWorkspaceChange('opening another workspace'))) return;
       const result = await window.electronAPI.openWorkspace();
       if (result.canceled) return;
-      setWorkspace(result.workspace);
-      setWorkspaceError(undefined);
+      await acceptWorkspaceChange(result.workspace);
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : String(error));
     }
+  }, [acceptWorkspaceChange, confirmWorkspaceChange]);
+
+  const openProject = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      if (!(await confirmWorkspaceChange('opening another project'))) return;
+      const result = await window.electronAPI.openProject();
+      if (result.canceled) return;
+      await acceptWorkspaceChange(result.workspace);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, [acceptWorkspaceChange, confirmWorkspaceChange]);
+
+  const openRecentProject = useCallback(
+    async (filePath: string) => {
+      if (!window.electronAPI) return;
+      try {
+        if (!(await confirmWorkspaceChange('opening another project'))) return;
+        const result = await window.electronAPI.openRecentProject(filePath);
+        if (result.canceled) return;
+        await acceptWorkspaceChange(result.workspace);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+        setRecentProjects(await window.electronAPI.getRecentProjects());
+      }
+    },
+    [acceptWorkspaceChange, confirmWorkspaceChange],
+  );
+
+  const removeRecentProject = useCallback(async (filePath: string) => {
+    if (!window.electronAPI) return;
+    setRecentProjects(await window.electronAPI.removeRecentProject(filePath));
   }, []);
+
+  const newProject = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      if (!(await confirmWorkspaceChange('creating another project'))) return;
+      const result = await window.electronAPI.newProject();
+      if (result.canceled) return;
+      await acceptWorkspaceChange(result.workspace);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, [acceptWorkspaceChange, confirmWorkspaceChange]);
 
   const openWorkspaceStory = useCallback(
     async (relativePath: string) => {
@@ -1070,17 +1257,22 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, []);
 
   const closeStory = useCallback(
-    (id: StoryId) => {
+    async (id: StoryId) => {
       const target =
         id === document.id
           ? { ...captureActiveStory(), document }
           : workspaceStories.find((story) => story.document.id === id);
       if (!target) return;
-      if (
-        target.document.dirty &&
-        !window.confirm(`Discard changes to ${target.document.displayName}?`)
-      ) {
-        return;
+      if (target.document.dirty && window.electronAPI) {
+        const choice = await window.electronAPI.confirmUnsavedStories(
+          [target.document.displayName],
+          'closing it',
+        );
+        if (choice === 'cancel') return;
+        if (choice === 'save') {
+          const saved = await saveStoryItems([target]);
+          if (!saved) return;
+        }
       }
       const remaining = workspaceStories.filter((story) => story.document.id !== id);
       if (id !== document.id) {
@@ -1092,38 +1284,30 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         loadStory(remaining[0]);
         return;
       }
-      const nextGraph = createNewGraph();
-      const next: EditorStoryWorkspaceItem = {
-        document: {
-          id: createStableId('story'),
-          name: 'untitled',
-          displayName: 'Untitled Story',
-          dirty: false,
-        },
-        rootGraph: nextGraph,
-        chapters: [],
-        variables: [],
-        characters: [],
-        assets: [],
-        revision: 0,
-      };
-      setWorkspaceStories([next]);
-      loadStory(next);
+      clearStorySession();
     },
-    [captureActiveStory, document, loadStory, workspaceStories],
+    [
+      captureActiveStory,
+      document,
+      clearStorySession,
+      loadStory,
+      saveStoryItems,
+      workspaceStories,
+    ],
   );
 
   const updateStory = useCallback(
     (update: { name?: string; displayName?: string }) => {
+      if (!hasActiveStory) return;
       setDocument((current) => ({ ...current, ...update, id: current.id }));
       markDirty();
     },
-    [markDirty],
+    [hasActiveStory, markDirty],
   );
 
   const saveStory = useCallback(
     async (saveAs = false) => {
-      if (!window.electronAPI) return;
+      if (!hasActiveStory || !window.electronAPI) return;
       try {
         const savingDocumentId = document.id;
         const savingRevision = revisionRef.current;
@@ -1163,8 +1347,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         }));
       }
     },
-    [document, source, workspace],
+    [document, hasActiveStory, source, workspace],
   );
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onSaveBeforeClose(() => {
+      void saveAllDirtyStories().then((saved) => window.electronAPI?.finishClose(saved));
+    });
+    return unsubscribe;
+  }, [saveAllDirtyStories]);
 
   const value = useMemo<StoryGraphStoreValue>(
     () => ({
@@ -1204,9 +1395,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeAsset,
       document,
       stories,
-      activeStoryId: document.id,
+      hasActiveStory,
+      activeStoryId: hasActiveStory ? document.id : undefined,
       workspace,
       workspaceError,
+      recentProjects,
       markDirty,
       newStory,
       openStory,
@@ -1215,6 +1408,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       closeStory,
       updateStory,
       openWorkspace,
+      openProject,
+      openRecentProject,
+      removeRecentProject,
+      newProject,
       refreshWorkspace,
       openWorkspaceStory,
       createWorkspaceDirectory,
@@ -1233,8 +1430,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       chapters,
       document,
       stories,
+      hasActiveStory,
       workspace,
       workspaceError,
+      recentProjects,
       edges,
       graph,
       activeGraphId,
@@ -1257,6 +1456,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       closeStory,
       updateStory,
       openWorkspace,
+      openProject,
+      openRecentProject,
+      removeRecentProject,
+      newProject,
       refreshWorkspace,
       openWorkspaceStory,
       createWorkspaceDirectory,

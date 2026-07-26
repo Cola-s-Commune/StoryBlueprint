@@ -115,6 +115,7 @@ function VariableSelect({
 
 export function Inspector() {
   const {
+    hasActiveStory,
     nodes,
     variables,
     characters,
@@ -132,7 +133,11 @@ export function Inspector() {
       <div className={panelStyles.panel}>
         <div className={panelStyles.body}>
           <p className={panelStyles.placeholder}>
-            {selected.length > 1 ? `${selected.length} nodes selected` : 'Select a node to edit'}
+            {!hasActiveStory
+              ? 'Open a Story to inspect nodes'
+              : selected.length > 1
+                ? `${selected.length} nodes selected`
+                : 'Select a node to edit'}
           </p>
         </div>
       </div>

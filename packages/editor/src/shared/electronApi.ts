@@ -29,6 +29,14 @@ export interface WorkspaceInfo {
 export type OpenWorkspaceResult =
   { canceled: true } | { canceled: false; workspace: WorkspaceInfo };
 
+export interface RecentProject {
+  name: string;
+  filePath: string;
+  lastOpenedAt: string;
+}
+
+export type UnsavedChoice = 'save' | 'discard' | 'cancel';
+
 export interface CreateWorkspaceStoryRequest {
   directory: string;
   name: string;
@@ -46,6 +54,12 @@ export interface ElectronAPI {
   openStory: () => Promise<OpenStoryResult>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
   openWorkspace: () => Promise<OpenWorkspaceResult>;
+  openProject: () => Promise<OpenWorkspaceResult>;
+  openRecentProject: (filePath: string) => Promise<OpenWorkspaceResult>;
+  newProject: () => Promise<OpenWorkspaceResult>;
+  getRecentProjects: () => Promise<RecentProject[]>;
+  removeRecentProject: (filePath: string) => Promise<RecentProject[]>;
+  confirmUnsavedStories: (storyNames: string[], action: string) => Promise<UnsavedChoice>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
   openWorkspaceStory: (relativePath: string) => Promise<OpenStoryResult>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<WorkspaceInfo>;
@@ -53,5 +67,7 @@ export interface ElectronAPI {
   createWorkspaceProject: (request: CreateWorkspaceProjectRequest) => Promise<WorkspaceInfo>;
   syncWorkspaceProject: () => Promise<WorkspaceInfo>;
   setStoryDirty: (dirty: boolean) => void;
+  onSaveBeforeClose: (listener: () => void) => () => void;
+  finishClose: (saved: boolean) => void;
 }
 import type { StoryProjectDocument } from '@story-blueprint/common';

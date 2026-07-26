@@ -17,6 +17,9 @@ type SubMenuItem =
         | 'new'
         | 'open'
         | 'open-folder'
+        | 'new-project'
+        | 'open-project'
+        | 'save-project'
         | 'save'
         | 'save-as'
         | 'exit'
@@ -31,12 +34,16 @@ const menuItems: MenuItem[] = [
   {
     label: 'File',
     submenu: [
+      { type: 'item', label: 'New Project...', action: 'new-project' },
+      { type: 'item', label: 'Open Project...', action: 'open-project' },
+      { type: 'separator' },
       { type: 'item', label: 'New Story', shortcut: 'Ctrl+N', action: 'new' },
       { type: 'item', label: 'Open Story...', shortcut: 'Ctrl+O', action: 'open' },
       { type: 'item', label: 'Open Folder...', action: 'open-folder' },
       { type: 'separator' },
       { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
       { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
+      { type: 'item', label: 'Save Project', action: 'save-project' },
       { type: 'separator' },
       { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
     ],
@@ -86,7 +93,19 @@ interface MenuBarProps {
 }
 
 export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
-  const { newStory, openStory, openWorkspace, saveStory, undo, redo } = useStoryGraphStore();
+  const {
+    hasActiveStory,
+    workspace,
+    newStory,
+    openStory,
+    openWorkspace,
+    newProject,
+    openProject,
+    syncWorkspaceProject,
+    saveStory,
+    undo,
+    redo,
+  } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -112,12 +131,13 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         void openStory();
       } else if (key === 's') {
         event.preventDefault();
-        void saveStory(event.shiftKey);
+        if (hasActiveStory) void saveStory(event.shiftKey);
+        else if (workspace?.project) void syncWorkspaceProject();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [newStory, openStory, saveStory]);
+  }, [hasActiveStory, newStory, openStory, saveStory, syncWorkspaceProject, workspace?.project]);
 
   const runAction = (
     action: Exclude<Extract<SubMenuItem, { type: 'item' }>['action'], undefined>,
@@ -131,6 +151,15 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         break;
       case 'open-folder':
         void openWorkspace();
+        break;
+      case 'new-project':
+        void newProject();
+        break;
+      case 'open-project':
+        void openProject();
+        break;
+      case 'save-project':
+        void syncWorkspaceProject();
         break;
       case 'save':
         void saveStory();
