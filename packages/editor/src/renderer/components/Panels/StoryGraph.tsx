@@ -38,6 +38,7 @@ import {
 } from '../../graph/editorGraph';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag, storyDataMime } from '../../graph/storyDataDrag';
+import { CopyButton } from './CopyButton';
 import styles from './StoryGraph.module.css';
 
 function toGraphNodes(nodes: readonly EditorGraphNode[]): GraphNodeLike[] {
@@ -240,6 +241,7 @@ export function StoryGraph() {
       const editingText = isTextEditingTarget(event.target);
       const isHistoryShortcut = modifier && (key === 'z' || key === 'y');
       if (editingText && !isHistoryShortcut) return;
+      if (modifier && key === 'c' && window.getSelection()?.toString()) return;
 
       if (modifier && key === 'c') {
         event.preventDefault();
@@ -354,7 +356,12 @@ export function StoryGraph() {
               Open Story…
             </button>
           </div>
-          {workspaceError && <div className={styles.welcomeError}>{workspaceError}</div>}
+          {workspaceError && (
+            <div className={styles.welcomeError}>
+              <span>{workspaceError}</span>
+              <CopyButton text={workspaceError} />
+            </div>
+          )}
           {!workspace && recentProjects.length > 0 && (
             <div className={styles.recentProjects}>
               <h2>Recent Projects</h2>
@@ -499,7 +506,12 @@ export function StoryGraph() {
             )}
           </div>
         )}
-        {connectionError && <div className={styles.connectionError}>{connectionError}</div>}
+        {connectionError && (
+          <div className={styles.connectionError}>
+            <span>{connectionError}</span>
+            <CopyButton text={connectionError} />
+          </div>
+        )}
       </div>
     </div>
   );

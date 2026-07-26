@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   shell,
@@ -672,6 +673,12 @@ async function activateWorkspace(rootPath: string, projectFile?: string): Promis
 }
 
 function registerStoryFileHandlers(): void {
+  ipcMain.handle('clipboard:write-text', async (event, text: unknown) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    if (typeof text !== 'string') throw new Error('Invalid clipboard text');
+    clipboard.writeText(text);
+  });
+
   ipcMain.on('story:set-dirty', (event, dirty: unknown) => {
     if (!isTrustedSender(event) || typeof dirty !== 'boolean') return;
     storyDirty = dirty === true;

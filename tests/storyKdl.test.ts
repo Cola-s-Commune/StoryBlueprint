@@ -139,6 +139,36 @@ describe('story KDL v2', () => {
     expect(parsed.characters[0]).toMatchObject({ id: 'c_arys', displayName: 'Arys' });
   });
 
+  it('preserves quotes inside string literal expressions', () => {
+    const source = sourceDocument();
+    source.variables = [
+      ...source.variables,
+      {
+        id: 'v_plan',
+        name: 'plan',
+        displayName: 'Plan',
+        scope: 'story',
+        valueType: { kind: 'string' },
+        defaultValue: '',
+      },
+    ];
+    source.root.nodes = [
+      ...source.root.nodes,
+      {
+        id: 'n_setvalue',
+        type: StoryNodeType.SetVariable,
+        definitionVersion: 1,
+        position: { x: 520, y: 260 },
+        data: { variableId: 'v_plan', value: { source: '"A"', bindings: {} } },
+      },
+    ];
+
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('value="\\"A\\""');
+    const parsed = parseStorySource(serialized);
+    expect(parsed.root.nodes.at(-1)?.data).toMatchObject({ value: { source: '"A"' } });
+  });
+
   it('rejects the discarded v1 format without migration', () => {
     const serialized = serializeStorySource(sourceDocument()).replace('version=2', 'version=1');
     expect(() => parseStorySource(serialized)).toThrow(StoryFormatError);

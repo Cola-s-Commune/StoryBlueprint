@@ -105,6 +105,7 @@ export interface UpdateProjectSettingsRequest {
 export interface ElectronAPI {
   platform: string;
   isElectron: true;
+  copyText: (text: string) => Promise<void>;
   openStory: () => Promise<OpenStoryResult>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
   revealStory: (filePath: string, fileToken: string) => Promise<void>;

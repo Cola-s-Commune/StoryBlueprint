@@ -1,5 +1,6 @@
 import styles from './StatusBar.module.css';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { CopyButton } from '../Panels/CopyButton';
 
 export function StatusBar() {
   const { hasActiveStory, workspace, document, nodes, edges, chapters, activeGraphId } =
@@ -28,7 +29,14 @@ export function StatusBar() {
   return (
     <div className={styles.bar}>
       <div className={styles.left}>
-        <span className={styles.item}>{document.error ? `Error: ${document.error}` : 'Ready'}</span>
+        {document.error ? (
+          <span className={`${styles.item} ${styles.errorItem}`}>
+            Error: {document.error}
+            <CopyButton text={document.error} label="Copy" />
+          </span>
+        ) : (
+          <span className={styles.item}>Ready</span>
+        )}
         <span className={styles.item}>{`${fileName}${document.dirty ? ' *' : ''}`}</span>
         <span className={styles.item}>{graphName}</span>
       </div>

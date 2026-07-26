@@ -91,10 +91,16 @@
 }
 
 .welcomeError {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   width: min(390px, 100%);
   margin: 0 0 14px;
   color: #e58b8b;
   font-size: 10px;
+  text-align: left;
+  user-select: text;
 }
 
 .recentProjects {
@@ -194,6 +200,9 @@
 }
 
 .connectionError {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   position: absolute;
   right: 12px;
   bottom: 12px;
@@ -205,7 +214,15 @@
   background: rgb(65 26 26 / 92%);
   color: #ffb3b3;
   font-size: 12px;
-  pointer-events: none;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.connectionError > span,
+.welcomeError > span {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .contextMenu {

@@ -14,6 +14,7 @@ import type {
   VariableDefinition,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { CopyButton } from './CopyButton';
 import styles from './RuntimePreview.module.css';
 
 type HistoryItem =
@@ -72,14 +73,17 @@ export function RuntimePreview() {
     [characterNames],
   );
 
-  const acceptResult = useCallback((runtime: StoryRuntime, result: RuntimeRunResult) => {
-    setSession((current) => ({
-      runtime,
-      result,
-      characters: current?.runtime === runtime ? current.characters : characters,
-      variables: current?.runtime === runtime ? current.variables : variables,
-    }));
-  }, [characters, variables]);
+  const acceptResult = useCallback(
+    (runtime: StoryRuntime, result: RuntimeRunResult) => {
+      setSession((current) => ({
+        runtime,
+        result,
+        characters: current?.runtime === runtime ? current.characters : characters,
+        variables: current?.runtime === runtime ? current.variables : variables,
+      }));
+    },
+    [characters, variables],
+  );
 
   const start = useCallback(() => {
     const compiled = compileStory(
@@ -147,6 +151,17 @@ export function RuntimePreview() {
   const result = session?.result;
   const state = result?.state;
   const interaction = result?.kind === 'waiting' ? result.interaction : undefined;
+  const errorText = [
+    result?.kind === 'failed'
+      ? `[ERROR] ${result.diagnostic.code}: ${result.diagnostic.message}`
+      : undefined,
+    ...diagnostics.map(
+      (diagnostic) =>
+        `[${diagnostic.severity.toUpperCase()}] ${diagnostic.code}: ${diagnostic.message}`,
+    ),
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   return (
     <div className={styles.root}>
@@ -159,7 +174,11 @@ export function RuntimePreview() {
         >
           {session ? 'Restart' : 'Run Current Story'}
         </button>
-        <button type="button" className={styles.secondaryButton} onClick={() => void openCompiled()}>
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={() => void openCompiled()}
+        >
           Run .storyc.json…
         </button>
         {session && (
@@ -178,6 +197,7 @@ export function RuntimePreview() {
         <span className={styles.status} data-status={state?.status ?? 'idle'}>
           {state?.status ?? 'idle'}
         </span>
+        {errorText && <CopyButton text={errorText} label="Copy Errors" />}
       </header>
 
       <div className={styles.content}>

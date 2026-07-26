@@ -87,6 +87,7 @@ button.problem:hover {
   min-width: 0;
   font-size: 11px;
   line-height: 1.4;
+  user-select: text;
 }
 
 .message small {
@@ -102,4 +103,9 @@ button.problem:hover {
 .code {
   color: #717b85;
   font-size: 9px;
+  user-select: text;
+}
+
+.buildPath {
+  user-select: text;
 }

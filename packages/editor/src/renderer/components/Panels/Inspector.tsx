@@ -8,9 +8,10 @@ import {
   type GetVariableNodeData,
   type SetVariableNodeData,
   type StartNodeData,
+  type NodeId,
   type VariableId,
 } from '@story-blueprint/common';
-import { useRef, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
 import { StoryDataInspector } from './StoryData';
@@ -111,6 +112,95 @@ function VariableSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+function decodeStringLiteral(source: string): string | undefined {
+  try {
+    const value: unknown = JSON.parse(source);
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
+  const { variables, checkpoint, updateNodeData } = useStoryGraphStore();
+  const variable = variables.find((candidate) => candidate.id === data.variableId);
+  const isString = variable?.valueType.kind === 'string';
+  const decodedLiteral = decodeStringLiteral(data.value.source);
+  const [mode, setMode] = useState<'literal' | 'expression'>(() =>
+    decodedLiteral === undefined ? 'expression' : 'literal',
+  );
+
+  useEffect(() => {
+    setMode(decodeStringLiteral(data.value.source) === undefined ? 'expression' : 'literal');
+  }, [data.variableId, nodeId]);
+
+  const updateValue = (source: string) =>
+    updateNodeData(nodeId, StoryNodeType.SetVariable, {
+      value: { source, bindings: {} },
+    });
+
+  return (
+    <>
+      <VariableSelect
+        label="Variable"
+        value={data.variableId}
+        onBeginEdit={checkpoint}
+        onChange={(variableId) => {
+          const nextVariable = variables.find((candidate) => candidate.id === variableId);
+          const nextIsString = nextVariable?.valueType.kind === 'string';
+          setMode(nextIsString ? 'literal' : 'expression');
+          updateNodeData(nodeId, StoryNodeType.SetVariable, {
+            variableId,
+            ...(nextIsString
+              ? {
+                  value: {
+                    source: JSON.stringify(decodedLiteral ?? data.value.source),
+                    bindings: {},
+                  },
+                }
+              : {}),
+          });
+        }}
+      />
+      {isString && (
+        <label className={styles.field}>
+          <span>Value Mode</span>
+          <select
+            value={mode}
+            onChange={(event) => {
+              checkpoint();
+              const nextMode = event.target.value as 'literal' | 'expression';
+              setMode(nextMode);
+              if (nextMode === 'literal' && decodedLiteral === undefined) {
+                updateValue(JSON.stringify(data.value.source));
+              }
+            }}
+          >
+            <option value="literal">Text</option>
+            <option value="expression">Expression</option>
+          </select>
+        </label>
+      )}
+      {isString && mode === 'literal' ? (
+        <PropertyField
+          label="Text Value"
+          value={decodedLiteral ?? data.value.source}
+          onBeginEdit={checkpoint}
+          onChange={(value) => updateValue(JSON.stringify(value))}
+        />
+      ) : (
+        <PropertyField
+          label="Value Expression"
+          value={data.value.source}
+          variableMode="expression"
+          onBeginEdit={checkpoint}
+          onChange={updateValue}
+        />
+      )}
+    </>
   );
 }
 
@@ -379,29 +469,7 @@ export function Inspector() {
       }
       case StoryNodeType.SetVariable: {
         const data = node.data as SetVariableNodeData;
-        return (
-          <>
-            <VariableSelect
-              label="Variable"
-              value={data.variableId}
-              onBeginEdit={checkpoint}
-              onChange={(variableId) =>
-                updateNodeData(node.id, StoryNodeType.SetVariable, { variableId })
-              }
-            />
-            <PropertyField
-              label="Value Expression"
-              value={data.value.source}
-              variableMode="expression"
-              onBeginEdit={checkpoint}
-              onChange={(source) =>
-                updateNodeData(node.id, StoryNodeType.SetVariable, {
-                  value: { source, bindings: {} },
-                })
-              }
-            />
-          </>
-        );
+        return <SetVariableEditor nodeId={node.id} data={data} />;
       }
       case StoryNodeType.CallSubstory: {
         const data = node.data as CallSubstoryNodeData;

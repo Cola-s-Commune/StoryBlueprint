@@ -634,6 +634,10 @@
 }
 
 .message {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   margin: 8px 9px 12px;
   padding: 7px 8px;
   border: 1px solid #625b40;
@@ -642,4 +646,10 @@
   color: #c9b975;
   font-size: 10px;
   line-height: 1.4;
+  user-select: text;
+}
+
+.message > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

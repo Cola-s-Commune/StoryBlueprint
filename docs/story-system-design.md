@@ -559,6 +559,8 @@ my-project.storyc.json.map
 
 项目构建前会保存脏 Story、同步项目索引，并检查断裂连线、不可达节点、多入口、End / Return 上下文、无暂停点循环及现有表达式和 Runtime Program 约束。Diagnostics 保留 Story、Substory 和源节点定位，但这些定位信息只存在于编辑器 Problems 结果中，不写入默认运行产物。
 
+编辑器呈现的错误、警告、路径与诊断正文必须允许直接选择文本。Problems 面板提供 Copy All，将严重级别、错误码、正文以及 Story、文件、Substory、Node 定位整理成纯文本；运行预览、工作区、画布临时错误和状态栏文档错误提供就近 Copy，便于作者粘贴到 Issue、聊天或 AI 上下文中。
+
 运行数据示例：
 
 ```json

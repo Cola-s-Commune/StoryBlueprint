@@ -127,6 +127,7 @@
 - [x] Property Panel
 - [x] 自动刷新
 - [x] Property Group
+- [x] Set Variable 的 String 值区分普通文本与表达式，普通文本无需手写引号
 
 ---
 
@@ -135,6 +136,8 @@
 - [ ] Log
 - [ ] Warning
 - [ ] Error
+- [x] Problems、运行预览、工作区、画布和状态栏中的错误文本可选择并复制
+- [x] Problems 支持一次复制全部结构化诊断与 Story / 文件 / Substory / Node 定位
 
 ---
 
@@ -489,6 +492,7 @@
 - [x] History
 - [x] 当前变量与执行位置查看
 - [x] 编译和运行错误展示
+- [x] 一键复制编译和运行错误
 
 ---
 

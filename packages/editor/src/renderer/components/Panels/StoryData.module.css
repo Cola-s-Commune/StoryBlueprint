@@ -190,6 +190,7 @@
 .warning {
   color: #e89b63;
   font-size: 10px;
+  user-select: text;
 }
 
 .detailActions {

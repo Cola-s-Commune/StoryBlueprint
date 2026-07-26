@@ -21,3 +21,8 @@
   display: flex;
   align-items: center;
 }
+
+.errorItem {
+  gap: 6px;
+  user-select: text;
+}

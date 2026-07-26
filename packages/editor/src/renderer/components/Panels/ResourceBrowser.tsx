@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StoryNodeType, type ChapterId, type StoryId } from '@story-blueprint/common';
 import type { WorkspaceEntry } from '../../../shared/electronApi';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { CopyButton } from './CopyButton';
 import panelStyles from './Panel.module.css';
 import styles from './ResourceBrowser.module.css';
 
@@ -245,6 +246,8 @@ export function ResourceBrowser() {
   const selectedCount = nodes.filter((node) => node.selected).length;
   const activeStory = stories.find((story) => story.document.id === activeStoryId);
   const hasProjectFile = Boolean(workspace?.project || workspace?.projectError);
+  const visibleMessage =
+    workspaceError ?? workspace?.projectError ?? workspace?.resourceErrors[0]?.message ?? message;
   const activeFilePath = normalizePath(activeStory?.document.filePath);
   const loadedByPath = useMemo(
     () =>
@@ -803,12 +806,10 @@ export function ResourceBrowser() {
           </small>
         </div>
 
-        {(message || workspaceError || workspace?.projectError || workspace?.resourceErrors[0]) && (
+        {visibleMessage && (
           <div className={styles.message}>
-            {workspaceError ??
-              workspace?.projectError ??
-              workspace?.resourceErrors[0]?.message ??
-              message}
+            <span>{visibleMessage}</span>
+            <CopyButton text={visibleMessage} />
           </div>
         )}
       </div>

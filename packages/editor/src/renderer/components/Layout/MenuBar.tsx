@@ -25,17 +25,12 @@ type SubMenuItem =
         | 'save-as'
         | 'build-project'
         | 'exit'
+        | 'copy-text'
         | 'undo'
         | 'redo'
         | 'reset-layout';
       panelId?:
-        | 'resources'
-        | 'storyData'
-        | 'graph'
-        | 'inspector'
-        | 'console'
-        | 'preview'
-        | 'problems';
+        'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview' | 'problems';
     }
   | { type: 'separator' };
 
@@ -55,7 +50,12 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
       { type: 'item', label: 'Save Project', action: 'save-project' },
       { type: 'separator' },
-      { type: 'item', label: 'Build Project...', shortcut: 'Ctrl+Shift+B', action: 'build-project' },
+      {
+        type: 'item',
+        label: 'Build Project...',
+        shortcut: 'Ctrl+Shift+B',
+        action: 'build-project',
+      },
       { type: 'separator' },
       { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
     ],
@@ -67,7 +67,7 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Redo', shortcut: 'Ctrl+Shift+Z', action: 'redo' },
       { type: 'separator' },
       { type: 'item', label: 'Cut', shortcut: 'Ctrl+X' },
-      { type: 'item', label: 'Copy', shortcut: 'Ctrl+C' },
+      { type: 'item', label: 'Copy', shortcut: 'Ctrl+C', action: 'copy-text' },
       { type: 'item', label: 'Paste', shortcut: 'Ctrl+V' },
       { type: 'item', label: 'Delete' },
       { type: 'separator' },
@@ -101,14 +101,7 @@ const menuItems: MenuItem[] = [
 interface MenuBarProps {
   onResetLayout: () => void;
   onShowPanel: (
-    panelId:
-      | 'resources'
-      | 'storyData'
-      | 'graph'
-      | 'inspector'
-      | 'console'
-      | 'preview'
-      | 'problems',
+    panelId: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview' | 'problems',
   ) => void;
 }
 
@@ -217,6 +210,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         break;
       case 'exit':
         window.close();
+        break;
+      case 'copy-text':
+        document.execCommand('copy');
         break;
       case 'reset-layout':
         onResetLayout();

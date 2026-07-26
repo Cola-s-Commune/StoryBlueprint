@@ -19,6 +19,8 @@ npm run dev
 
 ## Current: Workspace Explorer / Runtime Preview
 
+- Set Variable 写入 String 时提供 Text / Expression 模式；Text 直接填写普通文本并自动安全编码，不再要求作者手写表达式引号。
+- 编辑器主要错误入口支持直接复制：Problems 可复制全部结构化诊断，运行预览、工作区、画布临时错误和状态栏错误提供就近 Copy，正文仍可鼠标选择。
 - 项目角色和资产已拆分为 `Characters/*.character` 与 `Assets/*.asset`；`.storyproject` 保存资源路径和跨 Story 使用索引。
 - Story Data 在项目模式下直接管理共享资源，支持搜索、角色默认/情绪肖像选择，以及资产按 Locale 配置资源路径。
 - 共享资源修改会排队即时保存；Save All 和切换项目等待写入完成，删除前检查所有 Story 引用、未保存状态和角色肖像依赖。
