@@ -25,6 +25,8 @@ import {
 import type {
   CreateWorkspaceProjectRequest,
   CreateWorkspaceStoryRequest,
+  EditorSessionState,
+  RecoverySnapshot,
   SaveStoryRequest,
   RecentProject,
   WorkspaceEntry,
@@ -44,9 +46,66 @@ const MAX_WORKSPACE_ENTRIES = 10_000;
 const MAX_WORKSPACE_DEPTH = 32;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git', 'node_modules']);
 const MAX_RECENT_PROJECTS = 10;
+const MAX_SESSION_STORIES = 50;
+const MAX_RECOVERY_BYTES = 128 * 1024 * 1024;
 
 function recentProjectsFile(): string {
   return join(app.getPath('userData'), 'recent-projects.json');
+}
+
+function editorSessionFile(): string {
+  return join(app.getPath('userData'), 'editor-session.json');
+}
+
+function recoverySnapshotsFile(): string {
+  return join(app.getPath('userData'), 'story-recovery.json');
+}
+
+async function readJsonFile(filePath: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(filePath, 'utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function isEditorSessionState(value: unknown): value is EditorSessionState {
+  if (typeof value !== 'object' || value === null) return false;
+  const session = value as Partial<EditorSessionState>;
+  return (
+    Array.isArray(session.storyFilePaths) &&
+    session.storyFilePaths.length <= MAX_SESSION_STORIES &&
+    session.storyFilePaths.every((filePath) => typeof filePath === 'string') &&
+    (session.workspaceRoot === undefined || typeof session.workspaceRoot === 'string') &&
+    (session.activeStoryFilePath === undefined ||
+      typeof session.activeStoryFilePath === 'string')
+  );
+}
+
+function isRecoverySnapshot(value: unknown): value is RecoverySnapshot {
+  if (typeof value !== 'object' || value === null) return false;
+  const snapshot = value as Partial<RecoverySnapshot>;
+  return (
+    typeof snapshot.storyId === 'string' &&
+    typeof snapshot.displayName === 'string' &&
+    (snapshot.filePath === undefined || typeof snapshot.filePath === 'string') &&
+    typeof snapshot.content === 'string' &&
+    typeof snapshot.savedAt === 'string'
+  );
+}
+
+async function writeUserDataJson(filePath: string, value: unknown): Promise<void> {
+  await mkdir(app.getPath('userData'), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+async function readRecoverySnapshots(): Promise<RecoverySnapshot[]> {
+  const value = await readJsonFile(recoverySnapshotsFile());
+  return Array.isArray(value) ? value.filter(isRecoverySnapshot).slice(0, MAX_SESSION_STORIES) : [];
+}
+
+async function clearRecoverySnapshots(): Promise<void> {
+  await writeUserDataJson(recoverySnapshotsFile(), []);
 }
 
 async function readRecentProjects(): Promise<RecentProject[]> {
@@ -67,8 +126,7 @@ async function readRecentProjects(): Promise<RecentProject[]> {
 }
 
 async function writeRecentProjects(projects: RecentProject[]): Promise<void> {
-  await mkdir(app.getPath('userData'), { recursive: true });
-  await writeFile(recentProjectsFile(), `${JSON.stringify(projects, null, 2)}\n`, 'utf8');
+  await writeUserDataJson(recentProjectsFile(), projects);
 }
 
 async function rememberProject(filePath: string): Promise<void> {
@@ -453,13 +511,86 @@ function registerStoryFileHandlers(): void {
     return result.response === 0 ? 'save' : result.response === 1 ? 'discard' : 'cancel';
   });
 
+  ipcMain.handle('session:update', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !isEditorSessionState(value)) {
+      throw new Error('Invalid editor session');
+    }
+    await writeUserDataJson(editorSessionFile(), value);
+  });
+
+  ipcMain.handle('recovery:write', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !Array.isArray(value) || value.length > MAX_SESSION_STORIES) {
+      throw new Error('Invalid recovery snapshots');
+    }
+    const snapshots = value.filter(isRecoverySnapshot);
+    if (
+      snapshots.length !== value.length ||
+      Buffer.byteLength(JSON.stringify(snapshots), 'utf8') > MAX_RECOVERY_BYTES
+    ) {
+      throw new Error('Invalid recovery snapshots');
+    }
+    for (const snapshot of snapshots) parseStorySource(snapshot.content);
+    await writeUserDataJson(recoverySnapshotsFile(), snapshots);
+  });
+
+  ipcMain.handle('session:restore', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    const value = await readJsonFile(editorSessionFile());
+    const session = isEditorSessionState(value)
+      ? value
+      : ({ storyFilePaths: [] } satisfies EditorSessionState);
+    let restoredWorkspace: WorkspaceInfo | undefined;
+    if (session.workspaceRoot) {
+      try {
+        restoredWorkspace = await activateWorkspace(session.workspaceRoot);
+      } catch {
+        workspaceRoot = undefined;
+        workspaceProjectFile = undefined;
+      }
+    }
+    const storyPaths = [...new Set(session.storyFilePaths)].sort((left, right) => {
+      if (left === session.activeStoryFilePath) return 1;
+      if (right === session.activeStoryFilePath) return -1;
+      return 0;
+    });
+    const restoredStories: Exclude<Awaited<ReturnType<typeof openStoryFile>>, { canceled: true }>[] =
+      [];
+    for (const filePath of storyPaths) {
+      try {
+        const resolvedPath = await realpath(filePath);
+        if (!resolvedPath.toLowerCase().endsWith('.story')) continue;
+        restoredStories.push(await openStoryFile(resolvedPath));
+      } catch {
+        // Missing or inaccessible files are omitted from the restored session.
+      }
+    }
+    let recoveries = await readRecoverySnapshots();
+    if (recoveries.length > 0) {
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        title: 'Recover Unsaved Stories',
+        message: `Recover ${recoveries.length} unsaved ${recoveries.length === 1 ? 'Story' : 'Stories'}?`,
+        detail: 'Story Blueprint saved recovery copies from the previous session.',
+        buttons: ['Recover', 'Discard Recovery'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (result.response === 1) {
+        await clearRecoverySnapshots();
+        recoveries = [];
+      }
+    }
+    return { workspace: restoredWorkspace, stories: restoredStories, recoveries };
+  });
+
   ipcMain.on('app:finish-close', (event, saved: unknown) => {
     if (!isTrustedSender(event) || !closeSavePending) return;
     closeSavePending = false;
     if (saved !== true) return;
     storyDirty = false;
     closeAfterSave = true;
-    mainWindow?.close();
+    void clearRecoverySnapshots().finally(() => mainWindow?.close());
   });
 
   ipcMain.handle('workspace:new-project', async (event) => {
@@ -620,7 +751,7 @@ function createWindow(): void {
     } else if (choice === 1) {
       storyDirty = false;
       closeAfterSave = true;
-      mainWindow?.close();
+      void clearRecoverySnapshots().finally(() => mainWindow?.close());
     }
   });
 }

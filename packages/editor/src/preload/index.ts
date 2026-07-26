@@ -14,6 +14,9 @@ const electronAPI = {
   removeRecentProject: (filePath) => ipcRenderer.invoke('workspace:remove-recent-project', filePath),
   confirmUnsavedStories: (storyNames, action) =>
     ipcRenderer.invoke('story:confirm-unsaved', storyNames, action),
+  restoreEditorSession: () => ipcRenderer.invoke('session:restore'),
+  updateEditorSession: (session) => ipcRenderer.invoke('session:update', session),
+  writeRecoverySnapshots: (snapshots) => ipcRenderer.invoke('recovery:write', snapshots),
   refreshWorkspace: () => ipcRenderer.invoke('workspace:refresh'),
   openWorkspaceStory: (relativePath) => ipcRenderer.invoke('workspace:open-story', relativePath),
   createWorkspaceDirectory: (parent, name) =>

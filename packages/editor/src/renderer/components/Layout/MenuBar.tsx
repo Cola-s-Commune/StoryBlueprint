@@ -21,6 +21,7 @@ type SubMenuItem =
         | 'open-project'
         | 'save-project'
         | 'save'
+        | 'save-all'
         | 'save-as'
         | 'exit'
         | 'undo'
@@ -42,6 +43,7 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Open Folder...', action: 'open-folder' },
       { type: 'separator' },
       { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
+      { type: 'item', label: 'Save All', shortcut: 'Ctrl+Alt+S', action: 'save-all' },
       { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
       { type: 'item', label: 'Save Project', action: 'save-project' },
       { type: 'separator' },
@@ -103,6 +105,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     openProject,
     syncWorkspaceProject,
     saveStory,
+    saveAllStories,
     undo,
     redo,
   } = useStoryGraphStore();
@@ -131,13 +134,22 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         void openStory();
       } else if (key === 's') {
         event.preventDefault();
-        if (hasActiveStory) void saveStory(event.shiftKey);
+        if (event.altKey) void saveAllStories();
+        else if (hasActiveStory) void saveStory(event.shiftKey);
         else if (workspace?.project) void syncWorkspaceProject();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasActiveStory, newStory, openStory, saveStory, syncWorkspaceProject, workspace?.project]);
+  }, [
+    hasActiveStory,
+    newStory,
+    openStory,
+    saveAllStories,
+    saveStory,
+    syncWorkspaceProject,
+    workspace?.project,
+  ]);
 
   const runAction = (
     action: Exclude<Extract<SubMenuItem, { type: 'item' }>['action'], undefined>,
@@ -163,6 +175,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         break;
       case 'save':
         void saveStory();
+        break;
+      case 'save-all':
+        void saveAllStories();
         break;
       case 'save-as':
         void saveStory(true);

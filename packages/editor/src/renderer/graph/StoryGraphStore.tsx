@@ -296,6 +296,7 @@ interface StoryGraphStoreValue {
   newStory: () => void;
   openStory: () => Promise<void>;
   saveStory: (saveAs?: boolean) => Promise<void>;
+  saveAllStories: () => Promise<void>;
   switchStory: (id: StoryId, graphId?: ActiveGraphId) => void;
   closeStory: (id: StoryId) => Promise<void>;
   updateStory: (update: { name?: string; displayName?: string }) => void;
@@ -342,6 +343,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const restoredSessionRef = useRef(false);
   const source = useMemo<StorySourceDocument>(
     () => ({
       format: STORY_SOURCE_FORMAT,
@@ -1007,14 +1010,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         id: createStableId('story'),
         name,
         displayName: `Untitled Story${untitledIndex === 1 ? '' : ` ${untitledIndex}`}`,
-        dirty: false,
+        dirty: true,
       },
       rootGraph: structuredClone(nextGraph),
       chapters: [],
       variables: [],
       characters: [],
       assets: [],
-      revision: 0,
+      revision: 1,
     };
     setWorkspaceStories((items) => [
       ...items.map((story) =>
@@ -1026,7 +1029,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, [captureActiveStory, hasActiveStory, loadStory, workspaceStories]);
 
   const acceptOpenedStory = useCallback(
-    (result: Exclude<OpenStoryResult, { canceled: true }>) => {
+    (
+      result: Exclude<OpenStoryResult, { canceled: true }>,
+      recovered: { dirty?: boolean; filePath?: string; fileToken?: string } = {},
+    ) => {
       const source = parseStorySource(result.content);
       const rootGraph = fromSourceGraph(source.root);
       const current = hasActiveStory ? captureActiveStory() : undefined;
@@ -1035,9 +1041,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           id: source.id,
           name: source.name,
           displayName: source.displayName,
-          filePath: result.filePath,
-          fileToken: result.fileToken,
-          dirty: false,
+          filePath: recovered.dirty ? recovered.filePath : result.filePath,
+          fileToken: recovered.dirty ? recovered.fileToken : result.fileToken,
+          dirty: recovered.dirty ?? false,
         },
         rootGraph,
         chapters: source.chapters.map((chapter) => ({
@@ -1047,7 +1053,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         variables: [...source.variables],
         characters: [...source.characters],
         assets: [...source.assets],
-        revision: 0,
+        revision: recovered.dirty ? 1 : 0,
       };
       setWorkspaceStories((items) => {
         const withoutOpened = items.filter(
@@ -1350,6 +1356,88 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [document, hasActiveStory, source, workspace],
   );
 
+  const saveAllStories = useCallback(async () => {
+    await saveAllDirtyStories();
+  }, [saveAllDirtyStories]);
+
+  useEffect(() => {
+    if (restoredSessionRef.current || !window.electronAPI) return;
+    restoredSessionRef.current = true;
+    void (async () => {
+      try {
+        const restored = await window.electronAPI!.restoreEditorSession();
+        if (restored.workspace) setWorkspace(restored.workspace);
+        for (const story of restored.stories) acceptOpenedStory(story);
+        for (const recovery of restored.recoveries) {
+          const diskStory = restored.stories.find(
+            (story) => story.filePath.toLowerCase() === recovery.filePath?.toLowerCase(),
+          );
+          acceptOpenedStory(
+            {
+              canceled: false,
+              filePath: recovery.filePath ?? '',
+              fileToken: diskStory?.fileToken ?? '',
+              content: recovery.content,
+            },
+            {
+              dirty: true,
+              filePath: recovery.filePath,
+              fileToken: diskStory?.fileToken,
+            },
+          );
+        }
+        setRecentProjects(await window.electronAPI!.getRecentProjects());
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setSessionReady(true);
+      }
+    })();
+  }, [acceptOpenedStory]);
+
+  useEffect(() => {
+    if (!sessionReady || !window.electronAPI) return;
+    const timer = window.setTimeout(() => {
+      const items = currentStoryItems();
+      const storyFilePaths = items
+        .map((item) => item.document.filePath)
+        .filter((filePath): filePath is string => Boolean(filePath));
+      void window.electronAPI
+        ?.updateEditorSession({
+          workspaceRoot: workspace?.rootPath,
+          storyFilePaths,
+          activeStoryFilePath: hasActiveStory ? document.filePath : undefined,
+        })
+        .catch((error: unknown) =>
+          setWorkspaceError(error instanceof Error ? error.message : String(error)),
+        );
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [currentStoryItems, document.filePath, hasActiveStory, sessionReady, workspace?.rootPath]);
+
+  useEffect(() => {
+    if (!sessionReady || !window.electronAPI) return;
+    const timer = window.setTimeout(() => {
+      const savedAt = new Date().toISOString();
+      const snapshots = currentStoryItems()
+        .filter((item) => item.document.dirty)
+        .map((item) => ({
+          storyId: item.document.id,
+          displayName: item.document.displayName,
+          filePath: item.document.filePath,
+          content: serializeStorySource(storyItemToSource(item)),
+          savedAt,
+        }));
+      void window.electronAPI
+        ?.writeRecoverySnapshots(snapshots)
+        .catch((error: unknown) =>
+          setWorkspaceError(error instanceof Error ? error.message : String(error)),
+        );
+    }, 1_500);
+    return () => window.clearTimeout(timer);
+  }, [currentStoryItems, sessionReady, storyItemToSource]);
+
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onSaveBeforeClose(() => {
       void saveAllDirtyStories().then((saved) => window.electronAPI?.finishClose(saved));
@@ -1404,6 +1492,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       newStory,
       openStory,
       saveStory,
+      saveAllStories,
       switchStory,
       closeStory,
       updateStory,
@@ -1452,6 +1541,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setNodes,
       openStory,
       saveStory,
+      saveAllStories,
       switchStory,
       closeStory,
       updateStory,

@@ -385,8 +385,8 @@
 - [x] 多 Story 同时打开与分别保存
 - [x] 工作目录选择、刷新和目录内 Story 打开
 - [x] 所有目录 IPC 执行工作区边界校验
-- [ ] Save All
-- [ ] 工作目录与 Open Stories 会话恢复
+- [x] Save All
+- [x] 工作目录与 Open Stories 会话恢复
 - [x] 版本化 `.storyproject` 项目清单
 - [x] 项目级 Story 路径、角色与资产使用索引
 - [x] 创建与手动同步项目索引，保存/新增 Story 后自动同步
@@ -414,8 +414,8 @@
 
 ## Auto Save
 
-- [ ] Timer
-- [ ] Recovery
+- [x] 定时写入独立恢复快照（不覆盖源 `.story`）
+- [x] 异常退出后启动恢复或丢弃
 
 ---
 

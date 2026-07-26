@@ -37,6 +37,26 @@ export interface RecentProject {
 
 export type UnsavedChoice = 'save' | 'discard' | 'cancel';
 
+export interface EditorSessionState {
+  workspaceRoot?: string;
+  storyFilePaths: string[];
+  activeStoryFilePath?: string;
+}
+
+export interface RecoverySnapshot {
+  storyId: string;
+  displayName: string;
+  filePath?: string;
+  content: string;
+  savedAt: string;
+}
+
+export interface RestoredEditorSession {
+  workspace?: WorkspaceInfo;
+  stories: Exclude<OpenStoryResult, { canceled: true }>[];
+  recoveries: RecoverySnapshot[];
+}
+
 export interface CreateWorkspaceStoryRequest {
   directory: string;
   name: string;
@@ -60,6 +80,9 @@ export interface ElectronAPI {
   getRecentProjects: () => Promise<RecentProject[]>;
   removeRecentProject: (filePath: string) => Promise<RecentProject[]>;
   confirmUnsavedStories: (storyNames: string[], action: string) => Promise<UnsavedChoice>;
+  restoreEditorSession: () => Promise<RestoredEditorSession>;
+  updateEditorSession: (session: EditorSessionState) => Promise<void>;
+  writeRecoverySnapshots: (snapshots: RecoverySnapshot[]) => Promise<void>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
   openWorkspaceStory: (relativePath: string) => Promise<OpenStoryResult>;
   createWorkspaceDirectory: (parent: string, name: string) => Promise<WorkspaceInfo>;

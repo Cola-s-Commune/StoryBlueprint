@@ -139,6 +139,7 @@ export function ResourceBrowser() {
     createWorkspaceStory,
     createWorkspaceProject,
     syncWorkspaceProject,
+    saveAllStories,
   } = useStoryGraphStore();
   const [expandedStories, setExpandedStories] = useState<Set<StoryId>>(
     () => new Set(activeStoryId ? [activeStoryId] : []),
@@ -304,6 +305,9 @@ export function ResourceBrowser() {
         <div className={styles.sectionHeader}>
           <span className={styles.sectionTitle}>Open Stories</span>
           <span className={styles.sectionActions}>
+            <button type="button" title="Save All Stories" onClick={() => void saveAllStories()}>
+              ⇩
+            </button>
             <button type="button" title="Open Story File" onClick={() => void openStory()}>
               ▱
             </button>

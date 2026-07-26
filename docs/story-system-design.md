@@ -741,7 +741,9 @@ Runtime 不负责：
 
 编辑器采用类似 VS Code 的目录工作区：用户选择一个真实文件夹作为根目录，Explorer 递归展示其中的子目录与 `*.story`，Open Stories 单独表示已经加载到编辑会话的资源。工作区根目录可以包含一个 `*.storyproject`，作为项目稳定身份和语义索引；没有项目文件的普通目录仍可临时打开，但不能提供完整的跨 Story 资源视图。
 
-编辑器启动时保持空会话，不隐式创建 Untitled Story。欢迎页要求用户明确新建项目、打开项目或打开单个 Story；关闭最后一个 Story 后回到欢迎页。新建项目通过原生保存对话框创建 `*.storyproject` 并将其父目录设为工作区，打开项目则直接选择 `*.storyproject`。Save Project 会重新扫描并写入项目索引；Ctrl+S 优先保存当前 Story，没有活动 Story 时保存当前项目。
+编辑器首次启动时保持空会话，不隐式创建 Untitled Story。欢迎页要求用户明确新建项目、打开项目或打开单个 Story；关闭最后一个 Story 后回到欢迎页。后续启动会恢复上次工作目录、已打开 Story 和活动 Story。新建项目通过原生保存对话框创建 `*.storyproject` 并将其父目录设为工作区，打开项目则直接选择 `*.storyproject`。Save Project 会重新扫描并写入项目索引；Ctrl+S 优先保存当前 Story，没有活动 Story 时保存当前项目，Save All 保存所有脏 Story。
+
+自动恢复不直接覆盖源 `*.story`。编辑器把脏 Story 的完整文本延迟写入用户数据目录中的独立恢复区；正常保存或明确丢弃后清除，异常退出后的下次启动由用户选择恢复或丢弃。
 
 `*.storyproject` 当前保存：
 
