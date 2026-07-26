@@ -13,6 +13,7 @@ import {
 import { useRef, type DragEvent } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
+import { StoryDataInspector } from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -125,10 +126,20 @@ export function Inspector() {
     checkpoint,
     updateNode,
     updateNodeData,
+    storyDataSelection,
   } = useStoryGraphStore();
   const selected = nodes.filter((node) => node.selected);
 
   if (selected.length !== 1) {
+    if (storyDataSelection) {
+      return (
+        <div className={panelStyles.panel}>
+          <div className={`${panelStyles.body} ${styles.body}`}>
+            <StoryDataInspector />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={panelStyles.panel}>
         <div className={panelStyles.body}>

@@ -7,7 +7,7 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { mkdir, readFile, readdir, realpath, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { is } from '@electron-toolkit/utils';
@@ -1118,7 +1118,14 @@ function registerStoryFileHandlers(): void {
       const character = value as CharacterSource;
       if (character.id !== previous.id) throw new Error('Character ID cannot be changed');
       await validateCharacterResourceWrite(character, relativePath);
-      await writeFile(filePath, serializeCharacterResource(character), 'utf8');
+      const nextFilePath = join(
+        dirname(filePath),
+        `${character.name}-${character.id.slice(-6)}.character`,
+      );
+      if (nextFilePath.toLowerCase() !== filePath.toLowerCase()) {
+        await rename(filePath, nextFilePath);
+      }
+      await writeFile(nextFilePath, serializeCharacterResource(character), 'utf8');
       return syncWorkspaceProject();
     },
   );
@@ -1127,7 +1134,6 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || typeof relativePath !== 'string' || !workspaceProjectFile) {
       throw new Error('Invalid character delete');
     }
-    if (storyDirty) throw new Error('Save all Story changes before deleting project resources');
     const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
     const reference = project.characters.find((character) => character.path === relativePath);
     if (reference?.storyIds.length) {
@@ -1169,7 +1175,6 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || typeof relativePath !== 'string' || !workspaceProjectFile) {
       throw new Error('Invalid asset delete');
     }
-    if (storyDirty) throw new Error('Save all Story changes before deleting project resources');
     const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
     const reference = project.assets.find((asset) => asset.path === relativePath);
     if (reference?.storyIds.length) {

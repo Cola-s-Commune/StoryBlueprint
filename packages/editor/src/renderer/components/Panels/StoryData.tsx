@@ -1,23 +1,17 @@
 import { useMemo, useState } from 'react';
 import type {
-  CharacterId,
   CharacterSource,
   AssetId,
   AssetSource,
   RuntimeValue,
   ValueType,
   VariableDefinition,
-  VariableId,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
-type Selection =
-  | { kind: 'variable'; id: VariableId }
-  | { kind: 'character'; id: CharacterId }
-  | { kind: 'asset'; id: AssetId };
 type ScalarKind = 'boolean' | 'number' | 'string';
 
 function defaultForType(kind: ScalarKind): RuntimeValue {
@@ -140,11 +134,10 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         <span>Name</span>
         <input
           value={character.name}
-          onChange={(event) =>
-            updateCharacter(character.id, {
-              name: event.target.value.replace(/[^a-zA-Z0-9_]/g, ''),
-            })
-          }
+          onChange={(event) => {
+            const name = event.target.value.replace(/[^a-zA-Z0-9_]/g, '');
+            if (name) updateCharacter(character.id, { name, displayName: name });
+          }}
         />
       </label>
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
@@ -307,6 +300,21 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
   );
 }
 
+export function StoryDataInspector() {
+  const { storyDataSelection, variables, characters, assets } = useStoryGraphStore();
+  if (!storyDataSelection) return null;
+  if (storyDataSelection.kind === 'variable') {
+    const variable = variables.find((item) => item.id === storyDataSelection.id);
+    return variable ? <VariableEditor variable={variable} /> : null;
+  }
+  if (storyDataSelection.kind === 'character') {
+    const character = characters.find((item) => item.id === storyDataSelection.id);
+    return character ? <CharacterEditor character={character} /> : null;
+  }
+  const asset = assets.find((item) => item.id === storyDataSelection.id);
+  return asset ? <AssetEditor asset={asset} /> : null;
+}
+
 export function StoryData() {
   const {
     hasActiveStory,
@@ -317,8 +325,9 @@ export function StoryData() {
     addVariable,
     addCharacter,
     addAsset,
+    storyDataSelection,
+    selectStoryData,
   } = useStoryGraphStore();
-  const [selection, setSelection] = useState<Selection>();
   const [resourceSearch, setResourceSearch] = useState('');
   const filteredCharacters = useMemo(() => {
     const query = resourceSearch.trim().toLowerCase();
@@ -336,13 +345,6 @@ export function StoryData() {
         )
       : assets;
   }, [assets, resourceSearch]);
-  const selected = useMemo(() => {
-    if (!selection) return undefined;
-    if (selection.kind === 'variable') return variables.find((item) => item.id === selection.id);
-    if (selection.kind === 'character') return characters.find((item) => item.id === selection.id);
-    return assets.find((item) => item.id === selection.id);
-  }, [assets, characters, selection, variables]);
-
   if (!hasActiveStory && !workspace?.project) {
     return (
       <div className={panelStyles.panel}>
@@ -372,7 +374,7 @@ export function StoryData() {
               <button
                 type="button"
                 title="Add variable"
-                onClick={() => setSelection({ kind: 'variable', id: addVariable() })}
+                onClick={() => selectStoryData({ kind: 'variable', id: addVariable() })}
               >
                 +
               </button>
@@ -381,9 +383,9 @@ export function StoryData() {
             {variables.map((variable) => (
               <div
                 key={variable.id}
-                className={`${styles.item} ${selection?.kind === 'variable' && selection.id === variable.id ? styles.selected : ''}`}
+                className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
                 draggable
-                onClick={() => setSelection({ kind: 'variable', id: variable.id })}
+                onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
                 onDragStart={(event) =>
                   writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
                 }
@@ -414,7 +416,7 @@ export function StoryData() {
             <button
               type="button"
               title="Add asset"
-              onClick={() => setSelection({ kind: 'asset', id: addAsset() })}
+              onClick={() => selectStoryData({ kind: 'asset', id: addAsset() })}
             >
               +
             </button>
@@ -423,9 +425,9 @@ export function StoryData() {
           {filteredAssets.map((asset) => (
             <div
               key={asset.id}
-              className={`${styles.item} ${selection?.kind === 'asset' && selection.id === asset.id ? styles.selected : ''}`}
+              className={`${styles.item} ${storyDataSelection?.kind === 'asset' && storyDataSelection.id === asset.id ? styles.selected : ''}`}
               draggable
-              onClick={() => setSelection({ kind: 'asset', id: asset.id })}
+              onClick={() => selectStoryData({ kind: 'asset', id: asset.id })}
               onDragStart={(event) => writeStoryDataDrag(event, { kind: 'asset', id: asset.id })}
             >
               <span className={`${styles.typeDot} ${styles.asset}`} />
@@ -441,7 +443,7 @@ export function StoryData() {
             <button
               type="button"
               title="Add character"
-              onClick={() => setSelection({ kind: 'character', id: addCharacter() })}
+              onClick={() => selectStoryData({ kind: 'character', id: addCharacter() })}
             >
               +
             </button>
@@ -450,9 +452,9 @@ export function StoryData() {
           {filteredCharacters.map((character) => (
             <div
               key={character.id}
-              className={`${styles.item} ${selection?.kind === 'character' && selection.id === character.id ? styles.selected : ''}`}
+              className={`${styles.item} ${storyDataSelection?.kind === 'character' && storyDataSelection.id === character.id ? styles.selected : ''}`}
               draggable
-              onClick={() => setSelection({ kind: 'character', id: character.id })}
+              onClick={() => selectStoryData({ kind: 'character', id: character.id })}
               onDragStart={(event) =>
                 writeStoryDataDrag(event, { kind: 'character', id: character.id })
               }
@@ -463,14 +465,6 @@ export function StoryData() {
             </div>
           ))}
         </section>
-
-        {selection?.kind === 'variable' && selected && (
-          <VariableEditor variable={selected as VariableDefinition} />
-        )}
-        {selection?.kind === 'character' && selected && (
-          <CharacterEditor character={selected as CharacterSource} />
-        )}
-        {selection?.kind === 'asset' && selected && <AssetEditor asset={selected as AssetSource} />}
       </div>
     </div>
   );

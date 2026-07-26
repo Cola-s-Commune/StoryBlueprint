@@ -38,6 +38,7 @@ import {
   type CharacterSource,
   type AssetSource,
   type AssetId,
+  type DialogueNodeData,
   type StoryNodeDataMap,
   type StoryId,
   type StorySourceDocument,
@@ -240,6 +241,11 @@ interface EditorStoryWorkspaceItem extends EditorStoryResource {
   revision: number;
 }
 
+export type StoryDataSelection =
+  | { kind: 'variable'; id: VariableId }
+  | { kind: 'character'; id: CharacterId }
+  | { kind: 'asset'; id: AssetId };
+
 export type ActiveGraphId = 'root' | ChapterId;
 
 interface StoryGraphStoreValue {
@@ -279,6 +285,8 @@ interface StoryGraphStoreValue {
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
+  storyDataSelection?: StoryDataSelection;
+  selectStoryData: (selection?: StoryDataSelection) => void;
   chapters: EditorChapter[];
   activeGraphId: ActiveGraphId;
   switchGraph: (id: ActiveGraphId) => void;
@@ -361,9 +369,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [lastBuildPath, setLastBuildPath] = useState<string>();
   const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
+  const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
   const [sessionReady, setSessionReady] = useState(false);
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
+  const openResourceUsageRef = useRef({
+    characterIds: new Set<CharacterId>(),
+    assetIds: new Set<AssetId>(),
+  });
   const [projectResourcesDirty, setProjectResourcesDirty] = useState(false);
   const source = useMemo<StorySourceDocument>(
     () => ({
@@ -454,6 +467,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           .catch(() => undefined);
       });
   }, []);
+
+  const selectStoryData = useCallback(
+    (selection?: StoryDataSelection) => {
+      setStoryDataSelection(selection);
+      if (!selection) return;
+      setNodes((current) => current.map((node) => ({ ...node, selected: false })));
+      setEdges((current) => current.map((edge) => ({ ...edge, selected: false })));
+    },
+    [setEdges, setNodes],
+  );
 
   useEffect(() => {
     void window.electronAPI
@@ -698,6 +721,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const removeVariable = useCallback(
     (id: VariableId) => {
+      setStoryDataSelection((current) =>
+        current?.kind === 'variable' && current.id === id ? undefined : current,
+      );
       setVariables((current) => current.filter((variable) => variable.id !== id));
       setNodes((current) =>
         current.map((node) => {
@@ -749,11 +775,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const updateCharacter = useCallback(
     (id: CharacterId, update: Partial<CharacterSource>) => {
+      const nextUpdate =
+        update.name !== undefined && update.displayName === undefined
+          ? { ...update, displayName: update.name }
+          : update;
       const resource = workspace?.characterResources.find(
         (candidate) => candidate.character.id === id,
       );
       if (resource && window.electronAPI) {
-        const character = { ...resource.character, ...update, id };
+        const character = { ...resource.character, ...nextUpdate, id };
         setWorkspace((current) =>
           current
             ? {
@@ -771,7 +801,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       setCharacters((current) =>
         current.map((character) =>
-          character.id === id ? { ...character, ...update, id } : character,
+          character.id === id ? { ...character, ...nextUpdate, id } : character,
         ),
       );
       markDirty();
@@ -785,11 +815,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         (candidate) => candidate.character.id === id,
       );
       if (resource && window.electronAPI) {
+        if (openResourceUsageRef.current.characterIds.has(id)) {
+          setWorkspaceError('Character is used by an open Story. Remove its references first.');
+          return;
+        }
+        setStoryDataSelection((current) =>
+          current?.kind === 'character' && current.id === id ? undefined : current,
+        );
         queueProjectResourceWrite(() =>
           window.electronAPI!.deleteProjectCharacter(resource.relativePath),
         );
         return;
       }
+      setStoryDataSelection((current) =>
+        current?.kind === 'character' && current.id === id ? undefined : current,
+      );
       setCharacters((current) => current.filter((character) => character.id !== id));
       setNodes((current) =>
         current.map((node) =>
@@ -870,11 +910,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (id: AssetId) => {
       const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
       if (resource && window.electronAPI) {
+        if (openResourceUsageRef.current.assetIds.has(id)) {
+          setWorkspaceError('Asset is used by an open Story. Remove its references first.');
+          return;
+        }
+        setStoryDataSelection((current) =>
+          current?.kind === 'asset' && current.id === id ? undefined : current,
+        );
         queueProjectResourceWrite(() =>
           window.electronAPI!.deleteProjectAsset(resource.relativePath),
         );
         return;
       }
+      setStoryDataSelection((current) =>
+        current?.kind === 'asset' && current.id === id ? undefined : current,
+      );
       setAssets((current) => current.filter((asset) => asset.id !== id));
       setNodes((current) =>
         current.map((node) =>
@@ -982,6 +1032,27 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     );
   }, [captureActiveStory, hasActiveStory, workspaceStories]);
 
+  useEffect(() => {
+    const characterIds = new Set<CharacterId>();
+    const assetIds = new Set<AssetId>();
+    for (const story of currentStoryItems()) {
+      const graphs = [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)];
+      for (const candidate of graphs.flatMap((candidate) => candidate.nodes)) {
+        if (candidate.type !== StoryNodeType.Dialogue) continue;
+        const dialogue = candidate.data as DialogueNodeData;
+        if (dialogue.speakerId) characterIds.add(dialogue.speakerId);
+        if (dialogue.voiceId) assetIds.add(dialogue.voiceId);
+      }
+      for (const character of story.characters) {
+        if (character.defaultPortraitId) assetIds.add(character.defaultPortraitId);
+        for (const emotion of Object.values(character.emotions)) {
+          if (emotion.portraitId) assetIds.add(emotion.portraitId);
+        }
+      }
+    }
+    openResourceUsageRef.current = { characterIds, assetIds };
+  }, [currentStoryItems]);
+
   const saveStoryItems = useCallback(
     async (items: EditorStoryWorkspaceItem[]): Promise<EditorStoryWorkspaceItem[] | undefined> => {
       if (!window.electronAPI) return undefined;
@@ -1074,6 +1145,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     setActiveGraphId('root');
     setDocument(initialDocument);
     setHasActiveStory(false);
+    setStoryDataSelection(undefined);
     revisionRef.current = 0;
     history.clear();
   }, [history, initialDocument, restoreGraph]);
@@ -1095,6 +1167,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           ? story.rootGraph
           : story.chapters.find((chapter) => chapter.id === graphId)?.graph;
       if (!targetGraph) return;
+      setStoryDataSelection(undefined);
       rootGraphRef.current = structuredClone(story.rootGraph);
       restoreGraph(structuredClone(targetGraph));
       setChapters(structuredClone(story.chapters));
@@ -1809,6 +1882,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
       characters: resolvedCharacters,
       assets: resolvedAssets,
+      storyDataSelection,
+      selectStoryData,
       chapters,
       activeGraphId,
       switchGraph,
@@ -1870,6 +1945,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addSubstory,
       checkpoint,
       characters,
+      storyDataSelection,
+      selectStoryData,
       resolvedCharacters,
       resolvedAssets,
       chapters,

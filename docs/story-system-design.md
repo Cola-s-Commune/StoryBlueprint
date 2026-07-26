@@ -248,6 +248,8 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 
 编辑器提供类似 UE Blueprint 的 Story Data 面板，默认放在 Resource Browser 下方的左下区域。
 
+Story Data 左侧只负责资源列表、搜索和拖拽；点击变量、角色或资产后，其详细编辑表单显示在右侧 Inspector，与节点属性共用统一的属性编辑区域。选择资源时清除当前节点选择，选择节点后 Inspector 优先显示节点属性。
+
 面板管理：
 
 - Characters
@@ -308,6 +310,8 @@ interface CharacterDefinition {
   voiceNamespace?: string;
 }
 ```
+
+修改角色脚本 Name 时，编辑器默认让 Display Name 同步变化；作者仍可随后单独修改 Display Name。项目模式下角色文件名也同步为 `<name>-<id-suffix>.character`，稳定 ID 和所有 Story 引用保持不变。
 
 对话中的说话人既可以是固定 CharacterRef，也可以由表达式动态决定。
 
@@ -760,7 +764,7 @@ Runtime 不负责：
 
 项目索引可由编辑器重新扫描并稳定生成；新增、保存 Story 或修改资源后自动同步，也可在 Explorer 中手动同步。项目角色默认写入 `Characters/*.character`，项目资产默认写入 `Assets/*.asset`，二者都使用紧凑、版本化的 KDL。角色可引用默认肖像和情绪肖像，资产可声明类型以及 `default` 与各 Locale 的资源路径。
 
-独立资源和内嵌资源共享同一套稳定 ID 语义。同步时拒绝重复 ID、重复脚本名称、路径逃逸、缺失的说话人或语音、指向非 Portrait 资产的肖像，以及独立定义和 Story 内嵌定义的冲突。删除共享资源前会扫描所有已保存 Story；存在未保存 Story 时暂停删除，避免磁盘扫描漏掉刚创建的引用。
+独立资源和内嵌资源共享同一套稳定 ID 语义。同步时拒绝重复 ID、重复脚本名称、路径逃逸、缺失的说话人或语音、指向非 Portrait 资产的肖像，以及独立定义和 Story 内嵌定义的冲突。删除共享资源前，主进程通过项目索引检查已保存 Story，编辑器同时扫描所有已打开 Story 的当前内存图检查未保存引用；未保存但无关的修改不会阻止删除。
 
 编辑器中的项目资源修改按顺序即时落盘，Save All 与项目切换会等待资源写入结束。编译项目时只把项目索引判定为该 Story 实际使用的共享资源合并进编译输入；编译产物仍只包含 Runtime 所需的角色、资产和逻辑，不包含资源文件路径或编辑器节点信息。
 
