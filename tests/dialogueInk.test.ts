@@ -15,12 +15,12 @@ const assets: AssetSource[] = [
 
 function dialogue(): DialogueNodeData {
   return {
-    speakerId: 'c_alice',
     lines: [
       {
         id: 'ln_firstline',
         textId: 't_firstline',
         text: { source: 'Hello # there\nAgain' },
+        speakerId: 'c_alice',
         tags: ['intro'],
       },
       {
@@ -40,7 +40,7 @@ describe('Dialogue Ink profile', () => {
     const data = dialogue();
     const source = formatDialogueInk(data, characters, assets);
     expect(source).toBe(
-      'Hello \\# there\\nAgain # intro\nHi # speaker:bob # emotion:happy # voice:greeting',
+      'Alice: Hello \\# there\\nAgain # intro\nBob: Hi # emotion:happy # voice:greeting',
     );
     expect(parseDialogueInk(source, data, characters, assets).lines).toEqual(data.lines);
   });
@@ -48,30 +48,44 @@ describe('Dialogue Ink profile', () => {
   it('preserves stable IDs when lines are reordered or edited', () => {
     const data = dialogue();
     const reordered = parseDialogueInk(
-      'Hi # speaker:bob # emotion:happy # voice:greeting\nHello \\# there\\nAgain # intro',
+      'Bob: Hi # emotion:happy # voice:greeting\nAlice: Hello \\# there\\nAgain # intro',
       data,
       characters,
       assets,
     ).lines!;
     expect(reordered.map((line) => line.id)).toEqual(['ln_secondline', 'ln_firstline']);
 
-    const edited = parseDialogueInk('Edited\nHi again', data, characters, assets).lines!;
+    const edited = parseDialogueInk(
+      'Alice: Edited\nAlice: Hi again',
+      data,
+      characters,
+      assets,
+    ).lines!;
     expect(edited.map((line) => line.id)).toEqual(['ln_firstline', 'ln_secondline']);
     expect(edited.map((line) => line.textId)).toEqual(['t_firstline', 't_secondline']);
   });
 
   it('treats physical blank lines as real dialogue lines', () => {
     const data = dialogue();
-    const parsed = parseDialogueInk('First\n\nThird', data, characters, assets).lines!;
+    const parsed = parseDialogueInk(
+      'Alice: First\nAlice: \nAlice: Third',
+      data,
+      characters,
+      assets,
+    ).lines!;
     expect(parsed.map((line) => line.text.source)).toEqual(['First', '', 'Third']);
     expect(new Set(parsed.map((line) => line.id)).size).toBe(3);
   });
 
   it('rejects unresolved metadata and full Ink flow control without changing lines', () => {
     const data = dialogue();
-    const unresolved = parseDialogueInk('Hello # speaker:missing', data, characters, assets);
+    const unresolved = parseDialogueInk('Missing: Hello', data, characters, assets);
     expect(unresolved.lines).toBeUndefined();
     expect(unresolved.diagnostics[0].message).toContain('Unknown speaker');
+
+    const trailing = parseDialogueInk('Alice: Hello # speaker:bob', data, characters, assets);
+    expect(trailing.lines).toBeUndefined();
+    expect(trailing.diagnostics[0].message).toContain('not supported');
 
     const control = parseDialogueInk('* Choice', data, characters, assets);
     expect(control.lines).toBeUndefined();
@@ -81,10 +95,23 @@ describe('Dialogue Ink profile', () => {
   it('escapes dialogue text that happens to begin like Ink control syntax', () => {
     const data = dialogue();
     data.lines = [
-      { id: 'ln_literalstar', textId: 't_literalstar', text: { source: '* Not a choice' } },
+      {
+        id: 'ln_literalstar',
+        textId: 't_literalstar',
+        text: { source: '* Not a choice' },
+        speakerId: 'c_alice',
+      },
     ];
     const source = formatDialogueInk(data, characters, assets);
-    expect(source).toBe('\\* Not a choice');
+    expect(source).toBe('Alice: \\* Not a choice');
+    expect(parseDialogueInk(source, data, characters, assets).lines).toEqual(data.lines);
+  });
+
+  it('uses Narrator as the canonical prefix when no default speaker exists', () => {
+    const data = dialogue();
+    data.lines = [{ id: 'ln_narration', textId: 't_narration', text: { source: 'Night falls.' } }];
+    const source = formatDialogueInk(data, characters, assets);
+    expect(source).toBe('Narrator: Night falls.');
     expect(parseDialogueInk(source, data, characters, assets).lines).toEqual(data.lines);
   });
 });

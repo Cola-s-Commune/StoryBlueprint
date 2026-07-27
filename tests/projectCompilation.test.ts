@@ -108,12 +108,12 @@ describe('project compilation', () => {
           ? {
               ...node,
               data: {
-                speakerId: 'c_missing',
                 lines: [
                   {
                     id: 'ln_projecthello',
                     textId: 't_projecthello',
                     text: { source: 'Hello' },
+                    speakerId: 'c_missing',
                   },
                 ],
               },

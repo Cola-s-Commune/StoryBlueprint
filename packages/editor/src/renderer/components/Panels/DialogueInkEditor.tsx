@@ -2,11 +2,23 @@ import Editor, { loader, type BeforeMount, type Monaco, type OnMount } from '@mo
 import * as monacoApi from 'monaco-editor/editor/editor.api';
 import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DialogueInkDiagnostic } from '../../dialogue/dialogueInk';
 import styles from './Inspector.module.css';
 
 let languageRegistered = false;
+const INK_ZOOM_STORAGE_KEY = 'story-blueprint.dialogue-ink.zoom';
+const MIN_ZOOM = 80;
+const MAX_ZOOM = 200;
+
+function clampZoom(value: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(value / 10) * 10));
+}
+
+function initialZoom(): number {
+  const stored = Number.parseInt(localStorage.getItem(INK_ZOOM_STORAGE_KEY) ?? '', 10);
+  return Number.isFinite(stored) ? clampZoom(stored) : 100;
+}
 
 loader.config({ monaco: monacoApi });
 (
@@ -23,7 +35,8 @@ const registerLanguage: BeforeMount = (monaco) => {
     tokenizer: {
       root: [
         [/\\#/, 'string.escape'],
-        [/#\s*(?:speaker|emotion|voice)\s*:/, 'keyword'],
+        [/^[^:#]+(?=:)/, 'type.identifier'],
+        [/#\s*(?:emotion|voice)\s*:/, 'keyword'],
         [/#\s*[^#]+/, 'comment'],
         [/\{[^{}]+\}/, 'variable'],
       ],
@@ -90,6 +103,8 @@ export function DialogueInkEditor({
   const monacoRef = useRef<Monaco>();
   const applyRef = useRef(onApply);
   const focusLineRef = useRef(focusLine);
+  const [zoom, setZoom] = useState(initialZoom);
+  const [expanded, setExpanded] = useState(false);
   applyRef.current = onApply;
   focusLineRef.current = focusLine;
 
@@ -123,8 +138,21 @@ export function DialogueInkEditor({
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
       void pasteIntoEditor(editor);
     });
+    editor.onKeyDown((event) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.browserEvent.key;
+      if (key !== '+' && key !== '=' && key !== '-' && key !== '0') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (key === '0') setZoom(100);
+      else setZoom((current) => clampZoom(current + (key === '-' ? -10 : 10)));
+    });
     requestAnimationFrame(() => revealLine(editor, focusLineRef.current));
   };
+
+  useEffect(() => {
+    localStorage.setItem(INK_ZOOM_STORAGE_KEY, String(zoom));
+  }, [zoom]);
 
   useEffect(() => {
     if (editorRef.current) revealLine(editorRef.current, focusLine);
@@ -151,11 +179,38 @@ export function DialogueInkEditor({
 
   return (
     <div className={styles.inkEditorPanel}>
-      <div className={styles.inkHelp}>
-        One physical line is one dialogue line. Metadata uses <code># speaker:name</code>,{' '}
-        <code># emotion:name</code>, and <code># voice:name</code>.
+      <div className={styles.inkToolbar}>
+        <strong>Dialogue Ink</strong>
+        <div className={styles.inkZoomControls}>
+          <button
+            type="button"
+            title="Zoom out · Ctrl+-"
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => setZoom((current) => clampZoom(current - 10))}
+          >
+            −
+          </button>
+          <button type="button" title="Reset zoom · Ctrl+0" onClick={() => setZoom(100)}>
+            {zoom}%
+          </button>
+          <button
+            type="button"
+            title="Zoom in · Ctrl++"
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => setZoom((current) => clampZoom(current + 10))}
+          >
+            +
+          </button>
+          <button type="button" onClick={() => setExpanded((current) => !current)}>
+            {expanded ? 'Normal height' : 'Expand height'}
+          </button>
+        </div>
       </div>
-      <div className={styles.inkEditor}>
+      <div className={styles.inkHelp}>
+        Write <code>Character: dialogue</code>. Line metadata uses <code># emotion:name</code> and{' '}
+        <code># voice:name</code>; trailing speaker tags are invalid.
+      </div>
+      <div className={`${styles.inkEditor} ${expanded ? styles.inkEditorExpanded : ''}`}>
         <Editor
           beforeMount={registerLanguage}
           onMount={handleMount}
@@ -168,8 +223,8 @@ export function DialogueInkEditor({
             minimap: { enabled: false },
             overviewRulerLanes: 0,
             lineNumbersMinChars: 3,
-            fontSize: 12,
-            lineHeight: 20,
+            fontSize: Math.round((12 * zoom) / 100),
+            lineHeight: Math.round((20 * zoom) / 100),
             wordWrap: 'on',
             scrollBeyondLastLine: false,
             automaticLayout: true,

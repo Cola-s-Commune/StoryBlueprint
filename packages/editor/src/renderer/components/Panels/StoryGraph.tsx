@@ -808,12 +808,12 @@ export function StoryGraph() {
           });
           if (payload.kind === 'character') {
             addNode(StoryNodeType.Dialogue, position, {
-              speakerId: payload.id,
               lines: [
                 {
                   id: createStableId('line'),
                   textId: createStableId('text'),
                   text: { source: '' },
+                  speakerId: payload.id,
                 },
               ],
             });

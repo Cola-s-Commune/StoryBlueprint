@@ -74,14 +74,14 @@ function dialogueStory(): StorySourceDocument {
           definitionVersion: 1,
           position: { x: 240, y: 0 },
           data: {
-            speakerId: 'c_alice',
-            voiceId: 'a_defaultvoice',
-            emotion: 'happy',
             lines: [
               {
                 id: 'ln_firstline',
                 textId: 't_firstline',
                 text: { source: 'First line' },
+                speakerId: 'c_alice',
+                voiceId: 'a_defaultvoice',
+                emotion: 'happy',
                 tags: ['intro', 'greeting'],
               },
               {
@@ -121,24 +121,24 @@ describe('multi-line Dialogue', () => {
     expect(parseStorySource(serialized)).toEqual(source);
   });
 
-  it('normalizes the previous single-text KDL shape into one stable line', () => {
+  it('rejects the previous single-text Dialogue shape', () => {
     const source = dialogueStory();
     const serialized = serializeStorySource(source).replace(
       /\t\tline ln_firstline[\s\S]*?\t\tline ln_secondline[^\n]*(?:\n|\r\n)/,
       '\t\ttext "Legacy line"\n',
     );
-    const parsed = parseStorySource(serialized);
-    const dialogue = parsed.root.nodes.find((node) => node.type === StoryNodeType.Dialogue);
-    expect((dialogue?.data as DialogueNodeData).lines).toEqual([
-      {
-        id: 'ln_dialogue',
-        textId: 't_dialogue',
-        text: { source: 'Legacy line' },
-      },
-    ]);
+    expect(() => parseStorySource(serialized)).toThrow(/unsupported child text/);
   });
 
-  it('pauses and resumes once per line while applying node defaults and line overrides', () => {
+  it('rejects removed Dialogue-level defaults', () => {
+    const serialized = serializeStorySource(dialogueStory()).replace(
+      'dialogue n_dialogue',
+      'dialogue n_dialogue speaker=c_alice',
+    );
+    expect(() => parseStorySource(serialized)).toThrow(/unsupported property speaker/);
+  });
+
+  it('pauses and resumes once per line while applying each Line value', () => {
     const compiled = compileStory(dialogueStory());
     expect(compiled.ok, compiled.diagnostics.map((item) => item.message).join('\n')).toBe(true);
     if (!compiled.ok) return;

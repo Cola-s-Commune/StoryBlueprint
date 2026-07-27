@@ -351,14 +351,11 @@ Engine Adapter 负责将 AssetRef 解析为实际引擎资源。
 
 ## 7. Dialogue 数据
 
-Dialogue 节点表示一个没有中间控制流的连续对话段。节点保存默认说话人、情绪和语音，
-内部每条 Line 拥有独立稳定 ID，并可覆盖默认值：
+Dialogue 节点表示一个没有中间控制流的连续对话段。节点本身只组织 Line，不保存说话人、
+情绪或语音默认值；每条 Line 独立拥有完整语义：
 
 ```ts
 interface DialogueData {
-  speakerId?: CharacterId;
-  voiceId?: AssetId;
-  emotion?: string;
   lines: DialogueLine[];
 }
 
@@ -373,23 +370,25 @@ interface DialogueLine {
 }
 ```
 
-Line 未填写 speaker、voice 或 emotion 时继承节点默认值。节点只有一个执行入口和一个执行出口；
+Line 未填写 `speakerId` 时明确表示 Narrator，未填写 voice 或 emotion 时表示该句没有指定值，
+不存在节点级继承。节点只有一个执行入口和一个执行出口；
 Compiler 将 Line 按作者顺序降级为连续 Dialogue 指令，每句都形成独立暂停点。Choice、Branch、
 Event 或变量修改不能插入 Line 列表，遇到这些控制边界时必须拆成多个节点。
 
 ```kdl
-dialogue n_greet speaker=c_alice emotion=happy {
-  line ln_hello t_hello "你好，{playerName}。" voice=a_greeting {
+dialogue n_greet {
+  line ln_hello t_hello "你好，{playerName}。" speaker=c_alice voice=a_greeting emotion=happy {
     tag greeting
   }
-  line ln_warning t_warning "不过，前面的路并不安全。" emotion=serious
+  line ln_warning t_warning "不过，前面的路并不安全。" speaker=c_alice emotion=serious
 }
 ```
 
 Inspector 支持新增、复制、删除、上下移动和拖动排序；复制 Line 或整个 Dialogue 时必须重新生成
-Line ID 和 Text ID。Line 卡片默认折叠为说话人与台词摘要，按需展开完整属性；每条摘要可直接跳到
-Monaco 中一一对应的 Ink 物理行。画布只展示前三句及剩余总数，每句预览最多两行，完整内容在 Inspector 中编辑。旧版单 `text`
-Dialogue 在读取时归一化为一个稳定 Line，新 writer 统一输出 `line` 结构。
+Line ID 和 Text ID。新增 Line 可复制上一句的 Speaker / Emotion / Voice 作为编辑便利，但这些值
+立即写入新 Line，并非继承。Line 卡片默认折叠为说话人与台词摘要，按需展开完整属性；每条摘要可直接跳到
+Monaco 中一一对应的 Ink 物理行。画布只展示前三句及剩余总数，每句预览最多两行，完整内容在 Inspector 中编辑。
+v3 只接受 `line` 结构，旧单 `text` Dialogue 与节点级默认属性均明确拒绝。
 
 `emotion` 应引用最终说话人配置中的情绪 ID。立绘由 Runtime 根据说话人和情绪解析。
 
@@ -400,9 +399,10 @@ Inspector 为同一份 `DialogueData.lines` 提供 `Lines` 与 Monaco `Ink` 两�
 Line 后，Ink 文本立即重建；Ink 草稿只有在无诊断时才作为一次可撤销事务写回 Lines。切换回
 Lines 会尝试应用有效草稿，错误草稿则保留在 Monaco 中且不污染节点。
 
-当前编辑视图采用 Dialogue 专用 Ink Profile：一个物理行严格对应一个 Dialogue Line，包括空行；
-行尾可使用 `# speaker:<character-name>`、`# emotion:<emotion-name>`、
-`# voice:<audio-asset-name>`，其他 Ink Tag 写入 `tags`。文本中的换行编码为 `\n`，Tag 起始符
+当前编辑视图采用 Dialogue 专用 Ink Profile：一个物理行严格对应一个 Dialogue Line。每行必须以
+`Character: ` 或 `Narrator: ` 开头；说话人按唯一 `name` / `displayName` 解析，规范输出优先使用
+不重名的显示名。行尾可使用 `# emotion:<emotion-name>`、`# voice:<audio-asset-name>`，其他 Ink Tag
+写入 `tags`。行尾 `# speaker:...` 属于错误，不提供旧格式兼容或迁移。文本中的换行编码为 `\n`，Tag 起始符
 可写成 `\#`。解析时优先按稳定的资源 `name` 匹配，也接受唯一的 `displayName`；未知或重名资源
 产生可定位、可复制的诊断。重排和仅修改内容时尽量保留原 Line ID / Text ID，新增内容生成新 ID。
 
@@ -442,7 +442,7 @@ Ink 支持 choice、knot、stitch、divert、变量、条件、函数、循环�
 ```ink
 === greeting ===
 
-Alice: 你好。 # speaker:alice # voice:greeting_001 # emotion:happy
+Alice: 你好。 # voice:greeting_001 # emotion:happy
 
 * [你好]
     -> friendly
@@ -504,7 +504,7 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 ### 9.1 完整示例
 
 ```kdl
-story s_intro format=story-blueprint version=2 name=intro display-name=序章 {
+story s_intro format=story-blueprint version=3 name=intro display-name=序章 {
   variables {
     variable v_favor name=favor display-name=好感度 type=number default=0
     variable v_name name=playerName display-name=玩家姓名 type=string default=Player
@@ -517,8 +517,8 @@ story s_intro format=story-blueprint version=2 name=intro display-name=序章 {
   }
   graph {
     story-entry n_start x=80 y=120 title=序章
-    dialogue n_greet name=greeting x=320 y=120 speaker=c_alice emotion=happy {
-      line ln_greeting t_greeting "你好，{playerName}。"
+    dialogue n_greet name=greeting x=320 y=120 {
+      line ln_greeting t_greeting "你好，{playerName}。" speaker=c_alice emotion=happy
     }
     branch n_check x=600 y=120 condition="favor >= 10"
     choice n_choose x=860 y=120 prompt=是否接受任务？ {
@@ -535,7 +535,7 @@ story s_intro format=story-blueprint version=2 name=intro display-name=序章 {
 }
 ```
 
-这是当前不兼容旧格式的 `story-blueprint@2` writer 输出。项目尚处早期，不提供 v1 迁移或兼容读取。
+这是当前不兼容旧格式的 `story-blueprint@3` writer 输出。项目尚处早期，不提供 v1/v2 迁移或兼容读取。
 节点、变量、角色、资源和选项使用短稳定 ID；节点 `name` 只有作者明确命名时才写入；Edge 不持久化 ID。
 
 `.story` 是唯一权威编辑源，包含：

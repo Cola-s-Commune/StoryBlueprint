@@ -480,12 +480,8 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
     for (const node of graphNodes) {
       if (node.type !== StoryNodeType.Dialogue) continue;
       const data = node.data as unknown as DialogueNodeData;
-      const speakerIds = new Set(
-        [data.speakerId, ...data.lines.map((line) => line.speakerId)].filter(Boolean),
-      );
-      const voiceIds = new Set(
-        [data.voiceId, ...data.lines.map((line) => line.voiceId)].filter(Boolean),
-      );
+      const speakerIds = new Set(data.lines.map((line) => line.speakerId).filter(Boolean));
+      const voiceIds = new Set(data.lines.map((line) => line.voiceId).filter(Boolean));
       for (const speakerId of speakerIds) {
         const character = characters.get(speakerId!);
         if (!character) throw new Error(`Dialogue references missing character ${speakerId}`);

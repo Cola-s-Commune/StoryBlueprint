@@ -6,7 +6,6 @@ import {
   type DialogueLine,
   type StoryNodeDataMap,
 } from '../types/nodes';
-import type { DialogueLineId, NodeId, TextId } from '../types/ids';
 import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
@@ -58,11 +57,6 @@ function requiredId<Kind extends StableIdKind>(
   const id = requiredString(value, path);
   if (!isStableId(id, kind)) throw new StoryFormatError(`${path} is not a valid ${kind} ID`);
   return id as StableId<Kind>;
-}
-
-function legacyDialogueLineIds(nodeId: NodeId): { id: DialogueLineId; textId: TextId } {
-  const suffix = nodeId.slice(nodeId.indexOf('_') + 1);
-  return { id: `ln_${suffix}`, textId: `t_${suffix}` };
 }
 
 function assertShape(
@@ -127,9 +121,6 @@ function serializeSourceNode(source: SourceNode): Node {
       break;
     case StoryNodeType.Dialogue: {
       const dialogue = data as StoryNodeDataMap[StoryNodeType.Dialogue];
-      if (dialogue.speakerId) target.setProperty('speaker', dialogue.speakerId);
-      if (dialogue.voiceId) target.setProperty('voice', dialogue.voiceId);
-      if (dialogue.emotion) target.setProperty('emotion', dialogue.emotion);
       if (dialogue.lines.length === 0) {
         throw new StoryFormatError(`${source.id} must contain at least one dialogue line`);
       }
@@ -407,7 +398,7 @@ function parseSourceNode(node: Node): SourceNode {
   const commonProperties = ['name', 'definition-version', 'x', 'y'] as const;
   const typeProperties: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Start]: ['title'],
-    [StoryNodeType.Dialogue]: ['speaker', 'voice', 'emotion'],
+    [StoryNodeType.Dialogue]: [],
     [StoryNodeType.Choice]: ['prompt'],
     [StoryNodeType.Branch]: ['condition'],
     [StoryNodeType.GetVariable]: ['variable'],
@@ -420,7 +411,7 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.End]: ['title'],
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
-    [StoryNodeType.Dialogue]: ['text', 'line'],
+    [StoryNodeType.Dialogue]: ['line'],
     [StoryNodeType.Choice]: ['option'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: [],
@@ -446,12 +437,8 @@ function parseSourceNode(node: Node): SourceNode {
       data = { title: requiredString(node.getProperty('title'), `${id}.title`) };
       break;
     case StoryNodeType.Dialogue: {
-      const texts = node.findNodesByName('text');
       const lineNodes = node.findNodesByName('line');
-      if (texts.length > 0 && lineNodes.length > 0) {
-        throw new StoryFormatError(`${id} cannot mix legacy text and line children`);
-      }
-      if (texts.length > 1 || (texts.length === 0 && lineNodes.length === 0)) {
+      if (lineNodes.length === 0) {
         throw new StoryFormatError(`${id} must contain at least one dialogue line`);
       }
       const lines: DialogueLine[] = lineNodes.map((lineNode) => {
@@ -480,23 +467,7 @@ function parseSourceNode(node: Node): SourceNode {
           tags: tags.length > 0 ? tags : undefined,
         };
       });
-      if (texts.length === 1) {
-        assertShape(texts[0], `${id}.text`, { arguments: 1 });
-        lines.push({
-          ...legacyDialogueLineIds(id),
-          text: { source: requiredString(texts[0].getArgument(0), `${id}.text`) },
-        });
-      }
-      data = {
-        lines,
-        speakerId: node.getProperty('speaker')
-          ? requiredId(node.getProperty('speaker'), 'character', `${id}.speaker`)
-          : undefined,
-        voiceId: node.getProperty('voice')
-          ? requiredId(node.getProperty('voice'), 'asset', `${id}.voice`)
-          : undefined,
-        emotion: optionalString(node.getProperty('emotion'), `${id}.emotion`),
-      };
+      data = { lines };
       break;
     }
     case StoryNodeType.Choice: {

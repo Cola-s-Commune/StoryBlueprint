@@ -63,7 +63,7 @@ export interface DialogueLine {
   id: DialogueLineId;
   textId: TextId;
   text: TextTemplateSource;
-  /** Omitted values inherit the node-level default. */
+  /** An omitted speaker is the narrator; voice and emotion are independently optional. */
   speakerId?: CharacterId;
   voiceId?: AssetId;
   emotion?: string;
@@ -72,10 +72,6 @@ export interface DialogueLine {
 
 /** Data for Dialogue node — one uninterrupted sequence of dialogue lines. */
 export interface DialogueNodeData {
-  /** Defaults inherited by lines that do not override the value. */
-  speakerId?: CharacterId;
-  voiceId?: AssetId;
-  emotion?: string;
   lines: DialogueLine[];
 }
 

@@ -187,9 +187,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
               });
             }
             for (const line of data.lines) {
-              const speakerId = line.speakerId ?? data.speakerId;
-              const voiceId = line.voiceId ?? data.voiceId;
-              const emotion = line.emotion ?? data.emotion;
+              const speakerId = line.speakerId;
+              const voiceId = line.voiceId;
+              const emotion = line.emotion;
               const speaker = speakerId
                 ? source.characters.find((character) => character.id === speakerId)
                 : undefined;

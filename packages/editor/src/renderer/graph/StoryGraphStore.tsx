@@ -255,8 +255,6 @@ function collectOpenResourceUsage(items: readonly EditorStoryWorkspaceItem[]) {
     for (const candidate of graphs.flatMap((candidate) => candidate.nodes)) {
       if (candidate.type !== StoryNodeType.Dialogue) continue;
       const dialogue = candidate.data as DialogueNodeData;
-      if (dialogue.speakerId) characterIds.add(dialogue.speakerId);
-      if (dialogue.voiceId) assetIds.add(dialogue.voiceId);
       for (const line of dialogue.lines) {
         if (line.speakerId) characterIds.add(line.speakerId);
         if (line.voiceId) assetIds.add(line.voiceId);
@@ -877,7 +875,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 ...node,
                 data: {
                   ...node.data,
-                  speakerId: node.data.speakerId === id ? undefined : node.data.speakerId,
                   lines: (node.data as DialogueNodeData).lines.map((line) =>
                     line.speakerId === id ? { ...line, speakerId: undefined } : line,
                   ),
@@ -894,7 +891,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 ...node,
                 data: {
                   ...node.data,
-                  speakerId: node.data.speakerId === id ? undefined : node.data.speakerId,
                   lines: (node.data as DialogueNodeData).lines.map((line) =>
                     line.speakerId === id ? { ...line, speakerId: undefined } : line,
                   ),
@@ -991,7 +987,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 ...node,
                 data: {
                   ...node.data,
-                  voiceId: node.data.voiceId === id ? undefined : node.data.voiceId,
                   lines: (node.data as DialogueNodeData).lines.map((line) =>
                     line.voiceId === id ? { ...line, voiceId: undefined } : line,
                   ),
@@ -1008,7 +1003,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 ...node,
                 data: {
                   ...node.data,
-                  voiceId: node.data.voiceId === id ? undefined : node.data.voiceId,
                   lines: (node.data as DialogueNodeData).lines.map((line) =>
                     line.voiceId === id ? { ...line, voiceId: undefined } : line,
                   ),

@@ -288,7 +288,6 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
   useEffect(() => {
     if (!inkDirty) setInkDraft(canonicalInk);
   }, [canonicalInk, inkDirty]);
-  const defaultCharacter = characters.find((candidate) => candidate.id === data.speakerId);
   const updateLines = (lines: DialogueLine[]) =>
     updateNodeData(nodeId, StoryNodeType.Dialogue, { lines });
   const updateLine = (lineId: DialogueLineId, update: Partial<DialogueLine>) =>
@@ -322,94 +321,6 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
 
   return (
     <>
-      <div className={styles.groupLabel}>Defaults</div>
-      <label
-        className={styles.field}
-        onDragOver={(event) => {
-          if (readStoryDataDrag(event.dataTransfer)?.kind === 'character') event.preventDefault();
-        }}
-        onDrop={(event) => {
-          const payload = readStoryDataDrag(event.dataTransfer);
-          if (payload?.kind !== 'character') return;
-          event.preventDefault();
-          checkpoint();
-          updateNodeData(nodeId, StoryNodeType.Dialogue, { speakerId: payload.id });
-        }}
-      >
-        <span>Default Speaker</span>
-        <select
-          value={data.speakerId ?? ''}
-          onChange={(event) => {
-            checkpoint();
-            updateNodeData(nodeId, StoryNodeType.Dialogue, {
-              speakerId: (event.target.value || undefined) as DialogueNodeData['speakerId'],
-            });
-          }}
-        >
-          <option value="">Narrator</option>
-          {characters.map((character) => (
-            <option key={character.id} value={character.id}>
-              {character.displayName}
-            </option>
-          ))}
-        </select>
-        <small>Lines inherit this unless they select another speaker.</small>
-      </label>
-      {defaultCharacter && (
-        <label className={styles.field}>
-          <span>Default Emotion</span>
-          <select
-            value={data.emotion ?? ''}
-            onChange={(event) => {
-              checkpoint();
-              updateNodeData(nodeId, StoryNodeType.Dialogue, {
-                emotion: event.target.value || undefined,
-              });
-            }}
-          >
-            <option value="">Character Default</option>
-            {Object.entries(defaultCharacter.emotions).map(([key, emotion]) => (
-              <option key={key} value={key}>
-                {emotion.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <label
-        className={styles.field}
-        onDragOver={(event) => {
-          if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset') event.preventDefault();
-        }}
-        onDrop={(event) => {
-          const payload = readStoryDataDrag(event.dataTransfer);
-          if (payload?.kind !== 'asset') return;
-          event.preventDefault();
-          checkpoint();
-          updateNodeData(nodeId, StoryNodeType.Dialogue, { voiceId: payload.id });
-        }}
-      >
-        <span>Default Voice Asset</span>
-        <select
-          value={data.voiceId ?? ''}
-          onChange={(event) => {
-            checkpoint();
-            updateNodeData(nodeId, StoryNodeType.Dialogue, {
-              voiceId: (event.target.value || undefined) as DialogueNodeData['voiceId'],
-            });
-          }}
-        >
-          <option value="">None</option>
-          {assets
-            .filter((asset) => asset.kind === 'audio')
-            .map((asset) => (
-              <option key={asset.id} value={asset.id}>
-                {asset.displayName}
-              </option>
-            ))}
-        </select>
-      </label>
-
       <div className={styles.groupHeader}>
         <div className={styles.viewTabs}>
           <button
@@ -438,6 +349,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
             type="button"
             onClick={() => {
               const lineId = createStableId('line');
+              const previous = data.lines.at(-1);
               checkpoint();
               updateLines([
                 ...data.lines,
@@ -445,6 +357,9 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                   id: lineId,
                   textId: createStableId('text'),
                   text: { source: '' },
+                  speakerId: previous?.speakerId,
+                  voiceId: previous?.voiceId,
+                  emotion: previous?.emotion,
                 },
               ]);
               setExpandedLineIds((current) => new Set(current).add(lineId));
@@ -475,7 +390,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
         </Suspense>
       ) : (
         data.lines.map((line, index) => {
-          const speakerId = line.speakerId ?? data.speakerId;
+          const speakerId = line.speakerId;
           const character = characters.find((candidate) => candidate.id === speakerId);
           const speakerName = character?.displayName ?? 'Narrator';
           const isExpanded = expandedLineIds.has(line.id);
@@ -619,9 +534,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                         });
                       }}
                     >
-                      <option value="">
-                        Inherit · {defaultCharacter?.displayName ?? 'Narrator'}
-                      </option>
+                      <option value="">Narrator</option>
                       {characters.map((candidate) => (
                         <option key={candidate.id} value={candidate.id}>
                           {candidate.displayName}
@@ -647,7 +560,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                           updateLine(line.id, { emotion: event.target.value || undefined });
                         }}
                       >
-                        <option value="">Inherit · {data.emotion || 'Character Default'}</option>
+                        <option value="">None / Character Default</option>
                         {Object.entries(character.emotions).map(([key, emotion]) => (
                           <option key={key} value={key}>
                             {emotion.displayName}
@@ -680,7 +593,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                         });
                       }}
                     >
-                      <option value="">Inherit · {data.voiceId ? 'Default Voice' : 'None'}</option>
+                      <option value="">None</option>
                       {assets
                         .filter((asset) => asset.kind === 'audio')
                         .map((asset) => (

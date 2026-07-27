@@ -86,19 +86,27 @@ export function formatDialogueInk(
   characters: readonly CharacterSource[],
   assets: readonly AssetSource[],
 ): string {
-  const characterNames = new Map(characters.map((character) => [character.id, character.name]));
+  const characterNames = new Map(
+    characters.map((character) => {
+      const duplicateDisplayName = characters.some(
+        (candidate) =>
+          candidate.id !== character.id &&
+          candidate.displayName.toLocaleLowerCase() === character.displayName.toLocaleLowerCase(),
+      );
+      return [character.id, duplicateDisplayName ? character.name : character.displayName];
+    }),
+  );
   const assetNames = new Map(assets.map((asset) => [asset.id, asset.name]));
   return data.lines
     .map((line) => {
+      const speakerId = line.speakerId;
+      const speaker = speakerId ? (characterNames.get(speakerId) ?? speakerId) : 'Narrator';
       const tags = [
-        line.speakerId
-          ? `speaker:${characterNames.get(line.speakerId) ?? line.speakerId}`
-          : undefined,
         line.emotion ? `emotion:${line.emotion}` : undefined,
         line.voiceId ? `voice:${assetNames.get(line.voiceId) ?? line.voiceId}` : undefined,
         ...(line.tags ?? []).map((tag) => escapeText(tag)),
       ].filter((tag): tag is string => Boolean(tag));
-      return `${escapeText(line.text.source)}${tags.map((tag) => ` # ${tag}`).join('')}`;
+      return `${speaker}: ${escapeText(line.text.source)}${tags.map((tag) => ` # ${tag}`).join('')}`;
     })
     .join('\n');
 }
@@ -152,25 +160,47 @@ export function parseDialogueInk(
         });
       }
       const parsed = splitLine(sourceLine);
-      const draft: DialogueLineDraft = { text: { source: parsed.text } };
+      const speakerSeparator = parsed.text.indexOf(':');
+      const speakerToken =
+        speakerSeparator > 0 ? parsed.text.slice(0, speakerSeparator).trim() : undefined;
+      const dialogueText =
+        speakerSeparator > 0 ? parsed.text.slice(speakerSeparator + 1).replace(/^ /, '') : '';
+      const draft: DialogueLineDraft = { text: { source: dialogueText } };
+      if (!speakerToken) {
+        diagnostics.push({
+          line: lineNumber,
+          column: 1,
+          endColumn: Math.max(2, parsed.text.length + 1),
+          message: 'Dialogue lines must begin with “Character: ” or “Narrator: ”.',
+        });
+      } else if (speakerToken.toLocaleLowerCase() === 'narrator') {
+        // An omitted Line speaker explicitly means Narrator.
+      } else {
+        const matches = findNamed(characters, speakerToken);
+        if (matches.length !== 1) {
+          diagnostics.push({
+            line: lineNumber,
+            column: 1,
+            endColumn: speakerSeparator + 1,
+            message:
+              matches.length === 0
+                ? `Unknown speaker “${speakerToken}”.`
+                : `Speaker “${speakerToken}” is ambiguous.`,
+          });
+        } else draft.speakerId = matches[0].id;
+      }
       const ordinaryTags: string[] = [];
       for (const tag of parsed.tags) {
         const separator = tag.indexOf(':');
         const key = separator < 0 ? tag : tag.slice(0, separator).trim().toLocaleLowerCase();
         const value = separator < 0 ? '' : tag.slice(separator + 1).trim();
         if (key === 'speaker') {
-          const matches = findNamed(characters, value);
-          if (matches.length !== 1) {
-            diagnostics.push({
-              line: lineNumber,
-              column: Math.max(1, sourceLine.indexOf(tag) + 1),
-              endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
-              message:
-                matches.length === 0
-                  ? `Unknown speaker “${value}”.`
-                  : `Speaker “${value}” is ambiguous.`,
-            });
-          } else draft.speakerId = matches[0].id;
+          diagnostics.push({
+            line: lineNumber,
+            column: Math.max(1, sourceLine.indexOf(tag) + 1),
+            endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
+            message: 'Trailing # speaker tags are not supported. Put the speaker before the text.',
+          });
         } else if (key === 'voice') {
           const matches = findNamed(
             assets.filter((asset) => asset.kind === 'audio'),

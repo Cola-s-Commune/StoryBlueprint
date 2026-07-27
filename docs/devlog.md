@@ -19,9 +19,12 @@ npm run dev
 
 ## Current: Workspace Explorer / Runtime Preview
 
-- Dialogue 支持可排序的多 Line 连续对话段；每句拥有稳定 Line ID / Text ID，并可覆盖节点默认 Speaker、Emotion、Voice 和 Tags。
+- Dialogue 支持可排序的多 Line 连续对话段；每句独立拥有稳定 Line ID / Text ID、Speaker、Emotion、Voice 和 Tags，节点不保存对话默认值。
 - Dialogue Inspector 增加本地打包的 Monaco `Lines / Ink` 双视图；结构化 Line 与 Dialogue Ink 子集双向同步，错误草稿不写回节点。
 - Dialogue Line 卡片默认折叠为说话人与台词摘要，可一键展开完整属性或跳转并选中对应 Ink 行；画布预览限制为前三句、每句两行。
+- Monaco Ink 编辑器支持持久化字号缩放、`Ctrl++ / Ctrl+- / Ctrl+0` 与大高度编辑区。
+- Dialogue Ink 说话人改用 `Character: text` 剧本前缀，明确拒绝早期行尾 `# speaker` 试验格式。
+- `.story` 升级为不兼容 v3：Dialogue 删除所有节点级默认字段，Speaker / Emotion / Voice 完全归属各 Line，不提供迁移。
 - Inspector 支持新增、复制、删除、上下移动和拖动排序 Line；画布紧凑预览前三句和总数，整节点复制时重新生成全部 Line / Text ID。
 - `.story` KDL 使用紧凑 `line <lineId> <textId> <text>` 结构，仍可读取旧单 `text` Dialogue；Compiler 生成逐句暂停的连续 Dialogue 指令。
 - Pin 的透明拉线热区使用十字准星；普通节点使用四向移动光标。Reroute 按 UE Knot 语义划分为四向箭头外圈移动区，以及十字准星内圈输入/输出拉线区。

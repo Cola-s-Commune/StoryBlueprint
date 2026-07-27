@@ -216,12 +216,14 @@
 - [x] Voice / Portrait 资源选择器与按语言覆盖
 - [x] 稳定 Text ID
 - [x] Dialogue 改为可排序的多 Line 连续对话段，每句使用稳定 Line ID / Text ID
-- [x] Node 级 Speaker / Emotion / Voice 默认值与 Line 级覆盖
+- [x] 删除 Dialogue 节点级 Speaker / Emotion / Voice，所有对话属性只属于 Line
 - [x] Line 支持 Speaker、Text Template、Emotion、Voice、Tags
 - [x] Inspector 支持新增、删除、复制和拖动排序 Line
 - [x] Line 属性卡默认折叠为“说话人 + 台词”摘要，可独立展开并直接定位到对应 Ink 行
 - [x] Inspector 提供 Monaco `Lines / Ink` 双视图，结构化编辑后即时重建 Dialogue Ink 文本
 - [x] Dialogue Ink 子集支持批量编辑、资源名称解析、行级诊断、应用/撤销和稳定 ID 对齐
+- [x] Dialogue Ink 使用 `Character: text` 剧本前缀；拒绝行尾 `# speaker`，不兼容早期试验格式
+- [x] Monaco Ink 编辑器支持 80%–200% 字号缩放、快捷键复位和可切换的大高度编辑区
 - [x] Dialogue Ink 中每个物理行对应一个 Line，保留空 Line，并转义换行、反斜杠和 Ink Tag 起始符
 - [x] 画布节点折叠展示前几句与总句数，避免长对话撑高蓝图
 - [x] Compiler 将多个 Line 降级为连续 Dialogue 指令，控制流仍只从节点末尾离开

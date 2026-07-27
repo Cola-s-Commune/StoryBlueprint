@@ -12,7 +12,7 @@ import type { ExpressionSource } from './expressions';
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_SOURCE_FORMAT = 'story-blueprint' as const;
-export const STORY_SOURCE_VERSION = 2 as const;
+export const STORY_SOURCE_VERSION = 3 as const;
 
 export interface SourcePosition {
   x: number;

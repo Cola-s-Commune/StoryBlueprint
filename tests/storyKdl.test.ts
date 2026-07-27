@@ -32,13 +32,13 @@ function sourceDocument(): StorySourceDocument {
           definitionVersion: 1,
           position: { x: 360.1, y: 120.8 },
           data: {
-            speakerId: 'c_arys',
-            emotion: 'happy',
             lines: [
               {
                 id: 'ln_greeting',
                 textId: 't_greeting',
                 text: { source: 'Hello {gold}' },
+                speakerId: 'c_arys',
+                emotion: 'happy',
               },
             ],
           },
@@ -112,8 +112,16 @@ describe('story KDL v2', () => {
               ...node,
               data: {
                 ...(node.data as Record<string, unknown>),
-                speakerId: 'c_projectcharacter',
-                voiceId: 'a_projectvoice',
+                lines: [
+                  {
+                    id: 'ln_greeting',
+                    textId: 't_greeting',
+                    text: { source: 'Hello {gold}' },
+                    speakerId: 'c_projectcharacter',
+                    voiceId: 'a_projectvoice',
+                    emotion: 'happy',
+                  },
+                ],
               },
             }
           : node,
@@ -124,8 +132,12 @@ describe('story KDL v2', () => {
     const dialogue = parsed.root.nodes.find((node) => node.id === 'n_talk');
     expect(dialogue?.data).toEqual(
       expect.objectContaining({
-        speakerId: 'c_projectcharacter',
-        voiceId: 'a_projectvoice',
+        lines: [
+          expect.objectContaining({
+            speakerId: 'c_projectcharacter',
+            voiceId: 'a_projectvoice',
+          }),
+        ],
       }),
     );
   });
@@ -180,7 +192,7 @@ describe('story KDL v2', () => {
   });
 
   it('rejects the discarded v1 format without migration', () => {
-    const serialized = serializeStorySource(sourceDocument()).replace('version=2', 'version=1');
+    const serialized = serializeStorySource(sourceDocument()).replace('version=3', 'version=2');
     expect(() => parseStorySource(serialized)).toThrow(StoryFormatError);
   });
 });

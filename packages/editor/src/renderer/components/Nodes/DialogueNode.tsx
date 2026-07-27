@@ -24,7 +24,7 @@ export function DialogueNode({ data }: NodeProps) {
       </div>
       <div className={styles.dialogueLines}>
         {visibleLines.map((line, index) => {
-          const speakerId = line.speakerId ?? d.speakerId;
+          const speakerId = line.speakerId;
           const speaker =
             characters.find((candidate) => candidate.id === speakerId)?.displayName || 'Narrator';
           return (
