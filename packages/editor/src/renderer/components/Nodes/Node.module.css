@@ -16,6 +16,74 @@
     box-shadow 120ms ease;
 }
 
+.reroute {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #d4dbe4;
+  border-radius: 50%;
+  background: #56616f;
+  box-shadow:
+    0 0 0 2px rgb(14 17 21 / 80%),
+    0 2px 8px rgb(0 0 0 / 45%);
+  cursor: move;
+}
+
+.reroute::after {
+  position: absolute;
+  z-index: 1;
+  inset: -9px;
+  border-radius: 50%;
+  content: '';
+}
+
+:global(.react-flow__node.selected) .reroute {
+  border-color: #fff;
+  background: #6ea5d2;
+  box-shadow:
+    0 0 0 3px rgb(69 137 194 / 38%),
+    0 2px 8px rgb(0 0 0 / 45%);
+}
+
+.rerouteHandle {
+  z-index: 2 !important;
+  width: 26px !important;
+  height: 26px !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  cursor: move !important;
+}
+
+.flowNode {
+  min-width: 170px;
+}
+
+.portalBody {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px 10px;
+}
+
+.portalBody strong {
+  overflow: hidden;
+  color: #dce9e9;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portalBody small {
+  color: #718b8d;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.portalVirtualHandle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .node::before {
   position: absolute;
   z-index: 1;
@@ -206,29 +274,47 @@
 }
 
 .handle {
-  width: 13px !important;
-  height: 15px !important;
-  border: 1px solid #e7ecf2 !important;
-  border-radius: 0 !important;
-  background: #20242b !important;
-  transition:
-    filter 120ms ease,
-    transform 120ms ease !important;
+  width: 27px !important;
+  height: 27px !important;
+  border: 0 !important;
+  background: transparent !important;
+  cursor: move !important;
 }
 
-.handle:hover {
+.handle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 13px;
+  height: 15px;
+  border: 1px solid #e7ecf2;
+  background: #20242b;
+  content: '';
+  transform: translate(-50%, -50%);
+  transition:
+    filter 120ms ease,
+    transform 120ms ease;
+}
+
+.handle:hover::after {
   filter: drop-shadow(0 0 4px rgb(255 255 255 / 65%));
 }
 
 .handleInput {
   left: -8px !important;
+}
+
+.handleInput::after {
   clip-path: polygon(0 0, 100% 50%, 0 100%, 28% 50%);
 }
 
 .handleOutput {
   right: -8px !important;
+}
+
+.handleOutput::after {
   clip-path: polygon(0 0, 100% 50%, 0 100%);
-  background: #e7ecf2 !important;
+  background: #e7ecf2;
 }
 
 .rowHandle {
@@ -266,11 +352,25 @@
 }
 
 .dataHandle {
-  width: 12px !important;
-  height: 12px !important;
-  border: 2px solid #57cdbc !important;
+  width: 26px !important;
+  height: 26px !important;
+  border: 0 !important;
   border-radius: 50% !important;
-  background: #20242b !important;
+  background: transparent !important;
+  cursor: move !important;
+}
+
+.dataHandle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #57cdbc;
+  border-radius: 50%;
+  background: #20242b;
+  content: '';
+  transform: translate(-50%, -50%);
 }
 
 .dataHandleOutput {

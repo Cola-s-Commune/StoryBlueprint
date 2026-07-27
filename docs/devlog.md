@@ -19,6 +19,10 @@ npm run dev
 
 ## Current: Workspace Explorer / Runtime Preview
 
+- Pin 与 Reroute 的可拖动热区独立于可见图形放大，并统一显示四向移动光标，减少精确点中小图形的操作负担。
+- 新增 Reroute 与同图 Flow Portal：双击 Wire 插入横向自适应的 Knot 式 Reroute，右键 Wire 可转换为 Jump / Anchor；选中端点时显示虚拟跳转线，双击 Jump 可定位 Anchor。
+- `.story` KDL 持久化 Portal 的稳定同图引用；复制粘贴会重映射成对端点，删除 Anchor 会安全清空存活 Jump，提取 Substory 暂时拒绝跨边界 Portal。
+- Compiler 折叠 Reroute，并将 Jump → Anchor → 后继降级为普通 Runtime Jump；项目诊断将虚拟 Portal 计入可达性和循环分析，运行产物不包含视觉路由节点。
 - Alt+左键点击 Wire 可直接断开单条连线；Alt+点击 Pin 仍断开该 Pin 的全部连线。
 - 新增 UE 风格 Pin 操作：Alt+左键点击断开该 Pin 全部连线，Ctrl+左键拖到同方向兼容 Pin 整体转移连线；拖动期间显示连线预览，并在画布左上提供 Shortcuts 说明。
 - 普通执行输出重新连接到新节点时自动替换旧连线，不再显示“只能连接一个后继”；其他端口方向、类型和占用错误仍照常诊断。

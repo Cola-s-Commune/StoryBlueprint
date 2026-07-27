@@ -7,6 +7,7 @@ import {
   type ChoiceNodeData,
   type ChapterId,
   type EdgeId,
+  type FlowJumpNodeData,
   type NodeId,
   type NodeInstance,
   type OptionId,
@@ -168,10 +169,15 @@ export function extractSelectionToSubstory(
       (node) =>
         node.type === StoryNodeType.Start ||
         node.type === StoryNodeType.End ||
-        node.type === StoryNodeType.Return,
+        node.type === StoryNodeType.Return ||
+        node.type === StoryNodeType.FlowAnchor ||
+        node.type === StoryNodeType.FlowJump,
     )
   ) {
-    return { ok: false, message: 'Entry, End Story, and Return cannot be extracted.' };
+    return {
+      ok: false,
+      message: 'Entry, End Story, Return, and Flow Portal nodes cannot be extracted.',
+    };
   }
 
   const selectedIds = new Set(selected.map((node) => node.id));
@@ -438,6 +444,13 @@ export function pasteGraphClipboard(
       selected: true,
     };
   });
+
+  for (const node of pastedNodes) {
+    if (node.type !== StoryNodeType.FlowJump) continue;
+    const data = node.data as FlowJumpNodeData;
+    const remappedTarget = data.targetNodeId ? nodeIds.get(data.targetNodeId) : undefined;
+    if (remappedTarget) node.data = { ...node.data, targetNodeId: remappedTarget };
+  }
 
   const pastedEdges = clipboard.edges.flatMap((edge): EditorGraphEdge[] => {
     const source = nodeIds.get(edge.source);

@@ -5,6 +5,8 @@ import {
   type ChoiceNodeData,
   type DialogueNodeData,
   type EndNodeData,
+  type FlowAnchorNodeData,
+  type FlowJumpNodeData,
   type GetVariableNodeData,
   type SetVariableNodeData,
   type StartNodeData,
@@ -494,6 +496,46 @@ export function Inspector() {
                   </option>
                 ))}
             </select>
+          </label>
+        );
+      }
+      case StoryNodeType.Reroute:
+        return <div className={styles.info}>Visual routing only; removed during compilation.</div>;
+      case StoryNodeType.FlowAnchor: {
+        const data = node.data as FlowAnchorNodeData;
+        return (
+          <PropertyField
+            label="Portal Label"
+            value={data.label}
+            onBeginEdit={checkpoint}
+            onChange={(label) => updateNodeData(node.id, StoryNodeType.FlowAnchor, { label })}
+          />
+        );
+      }
+      case StoryNodeType.FlowJump: {
+        const data = node.data as FlowJumpNodeData;
+        const anchors = nodes.filter((candidate) => candidate.type === StoryNodeType.FlowAnchor);
+        return (
+          <label className={styles.field}>
+            <span>Target Anchor</span>
+            <select
+              value={data.targetNodeId ?? ''}
+              onChange={(event) => {
+                checkpoint();
+                updateNodeData(node.id, StoryNodeType.FlowJump, {
+                  targetNodeId: (event.target.value ||
+                    undefined) as FlowJumpNodeData['targetNodeId'],
+                });
+              }}
+            >
+              <option value="">Select Flow Anchor…</option>
+              {anchors.map((anchor) => (
+                <option key={anchor.id} value={anchor.id}>
+                  {(anchor.data as FlowAnchorNodeData).label || anchor.id}
+                </option>
+              ))}
+            </select>
+            <small>Double-click the Flow Jump on the graph to locate its target.</small>
           </label>
         );
       }

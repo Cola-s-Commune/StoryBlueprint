@@ -76,6 +76,8 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 | End Story    | 结束整个 Story 实例         |        1 | 0                    |
 | Return       | 从 Chapter 返回调用点       |        1 | 0                    |
 | Reroute      | 整理连线，不产生运行指令    |        1 | 1                    |
+| Flow Jump    | 跳转到同图 Flow Anchor      |        1 | 0                    |
+| Flow Anchor  | 标记同图跳转的继续位置      |        0 | 1                    |
 | Comment      | 编辑器注释，不参与运行      |        0 | 0                    |
 
 ### 3.2 后续节点
@@ -186,6 +188,18 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - 支持复制、粘贴、Duplicate。
 - 支持 Undo / Redo。
 - 支持 Reroute 和 Comment 整理大型蓝图。
+
+### 4.5 长连线与循环整理
+
+- 双击执行连线会在点击位置插入 Reroute；右键连线也可显式选择 Insert Reroute。Reroute 显示为单个 Knot，并根据相邻节点位于左侧还是右侧选择端口，让横向蓝图的回线穿过 Knot，避免小折返或 T 形短杆。
+- 右键执行连线选择 Convert to Flow Portal 后，原连线替换为靠近源端的 Flow Jump 和靠近目标端的 Flow Anchor。
+- Flow Jump 通过稳定 `targetNodeId` 引用同一 Graph 内的 Flow Anchor；Anchor 的显示标签可以修改，不参与引用身份。
+- Flow Jump 和 Flow Anchor 不使用一条永久跨画布长线。选中任一端时，编辑器临时显示虚拟虚线，并支持双击 Jump 定位 Anchor。
+- 删除 Anchor 时，仍存在的 Jump 会清空目标并显示未配置状态；保存允许保留这种编辑中状态，Compiler 会给出可定位错误。
+- 复制 Jump 和 Anchor 时，如果两者同时在选区内，粘贴会把 Jump 重映射到新 Anchor；只复制 Jump 时保留原图目标。
+- 第一阶段 Portal 只允许同一 Main Story 或同一 Substory Graph 内跳转。跨 Substory 流程继续使用 Call Substory / Return，避免绕过调用栈。
+- 含 Flow Jump 或 Flow Anchor 的选区暂不允许直接提取为 Substory，直到提取重构能够显式处理跨边界 Portal。
+- Compiler 将 Reroute 直接折叠，将 Flow Jump → Flow Anchor → 后继降级为普通 Runtime Jump；Reroute、Anchor、坐标和虚拟连线均不进入 `.storyc.json`。
 
 ---
 
@@ -498,6 +512,7 @@ story s_intro format=story-blueprint version=2 name=intro display-name=序章 {
 - 连线
 - 取整后的节点坐标；编译产物不包含坐标
 - Comment、Group、Reroute
+- Flow Jump / Flow Anchor 的同图稳定引用
 - 编辑器需要持久化的其他信息
 
 ### 9.2 Schema、未知字段与稳定格式化
@@ -628,6 +643,7 @@ my-project.storyc.json.map
 - 节点颜色和折叠状态
 - 选中状态和视口状态
 - Comment、Group、Reroute
+- Flow Anchor 和编辑器虚拟 Portal 连线
 - React 组件或插件 UI 名称
 - MiniMap 等编辑器信息
 

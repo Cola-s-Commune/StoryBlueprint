@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -22,11 +23,16 @@ import {
 import '@xyflow/react/dist/style.css';
 import {
   StoryNodeType,
+  NodeFactory,
   nodeRegistry,
   createStableId,
+  resolveNodePorts,
   validateGraphConnection,
   type GraphEdgeLike,
   type GraphNodeLike,
+  type EdgeId,
+  type FlowAnchorNodeData,
+  type FlowJumpNodeData,
 } from '@story-blueprint/common';
 import { nodeTypes } from '../Nodes';
 import {
@@ -34,6 +40,7 @@ import {
   disconnectGraphPinConnections,
   moveGraphPinConnections,
   pasteGraphClipboard,
+  toEditorGraphNode,
   type EditorGraphEdge,
   type EditorGraphNode,
   type EditorGraphState,
@@ -57,6 +64,17 @@ function toGraphEdges(edges: readonly EditorGraphEdge[]): GraphEdgeLike[] {
     target: edge.target,
     targetPortId: edge.targetHandle,
   }));
+}
+
+function isExecutionEdge(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): boolean {
+  const source = nodes.find((node) => node.id === edge.source);
+  if (!source) return false;
+  const sourcePort = resolveNodePorts({
+    id: source.id,
+    type: source.type,
+    data: source.data,
+  }).ports.find((port) => port.id === edge.sourceHandle);
+  return sourcePort?.direction === 'output' && sourcePort.kind === 'execution';
 }
 
 function replacesExistingExecutionEdge(
@@ -139,6 +157,7 @@ export function StoryGraph() {
     left: number;
     top: number;
     flowPosition: { x: number; y: number };
+    edge?: EditorGraphEdge;
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
@@ -238,6 +257,7 @@ export function StoryGraph() {
   const onEdgeClick = useCallback(
     (event: ReactMouseEvent, edge: EditorGraphEdge) => {
       if (!event.altKey) return;
+      if (!edges.some((candidate) => candidate.id === edge.id)) return;
       event.preventDefault();
       event.stopPropagation();
       checkpoint();
@@ -245,7 +265,24 @@ export function StoryGraph() {
       setConnectionError(null);
       markDirty();
     },
-    [checkpoint, markDirty, setEdges],
+    [checkpoint, edges, markDirty, setEdges],
+  );
+
+  const openEdgeContextMenu = useCallback(
+    (event: ReactMouseEvent, edge: EditorGraphEdge) => {
+      event.preventDefault();
+      if (!flowInstance || !canvasRef.current) return;
+      const actualEdge = edges.find((candidate) => candidate.id === edge.id);
+      if (!actualEdge || !isExecutionEdge(actualEdge, nodes)) return;
+      const bounds = canvasRef.current.getBoundingClientRect();
+      setContextMenu({
+        left: Math.max(4, Math.min(event.clientX - bounds.left, bounds.width - 200)),
+        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - 150)),
+        flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+        edge: actualEdge,
+      });
+    },
+    [edges, flowInstance, nodes],
   );
 
   const deleteSelection = useCallback(() => {
@@ -254,7 +291,17 @@ export function StoryGraph() {
     if (selectedNodeIds.size === 0 && !hasSelectedEdge) return;
 
     checkpoint();
-    setNodes((current) => current.filter((node) => !selectedNodeIds.has(node.id)));
+    setNodes((current) =>
+      current
+        .filter((node) => !selectedNodeIds.has(node.id))
+        .map((node) => {
+          if (node.type !== StoryNodeType.FlowJump) return node;
+          const data = node.data as FlowJumpNodeData;
+          return data.targetNodeId && selectedNodeIds.has(data.targetNodeId)
+            ? { ...node, data: { ...node.data, targetNodeId: undefined } }
+            : node;
+        }),
+    );
     setEdges((current) =>
       current.filter(
         (edge) =>
@@ -413,10 +460,132 @@ export function StoryGraph() {
   const createNode = useCallback(
     (type: StoryNodeType) => {
       if (!contextMenu) return;
-      addNode(type, contextMenu.flowPosition);
+      if (type === StoryNodeType.FlowAnchor) {
+        const usedLabels = new Set(
+          nodes
+            .filter((node) => node.type === StoryNodeType.FlowAnchor)
+            .map((node) => (node.data as FlowAnchorNodeData).label),
+        );
+        let index = usedLabels.size + 1;
+        let label = `Portal ${index}`;
+        while (usedLabels.has(label)) label = `Portal ${++index}`;
+        addNode(type, contextMenu.flowPosition, { label });
+      } else if (type === StoryNodeType.FlowJump) {
+        const anchors = nodes.filter((node) => node.type === StoryNodeType.FlowAnchor);
+        addNode(type, contextMenu.flowPosition, {
+          targetNodeId: anchors.length === 1 ? anchors[0].id : undefined,
+        });
+      } else {
+        addNode(type, contextMenu.flowPosition);
+      }
       setContextMenu(null);
     },
-    [addNode, contextMenu],
+    [addNode, contextMenu, nodes],
+  );
+
+  const insertReroute = useCallback(
+    (edge: EditorGraphEdge, position: { x: number; y: number }) => {
+      if (!isExecutionEdge(edge, nodes)) return;
+      const instance = NodeFactory.create(
+        NodeFactory.generateId(StoryNodeType.Reroute),
+        StoryNodeType.Reroute,
+        { x: Math.round(position.x - 7), y: Math.round(position.y - 7) },
+      );
+      if (!instance) return;
+      const reroute = { ...toEditorGraphNode(instance), selected: true };
+      checkpoint();
+      setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), reroute]);
+      setEdges((current) => [
+        ...current.filter((candidate) => candidate.id !== edge.id),
+        {
+          id: createStableId('edge'),
+          source: edge.source,
+          sourceHandle: edge.sourceHandle,
+          target: reroute.id,
+          targetHandle: 'in',
+        },
+        {
+          id: createStableId('edge'),
+          source: reroute.id,
+          sourceHandle: 'out',
+          target: edge.target,
+          targetHandle: edge.targetHandle,
+        },
+      ]);
+      setContextMenu(null);
+      markDirty();
+    },
+    [checkpoint, markDirty, nodes, setEdges, setNodes],
+  );
+
+  const convertEdgeToPortal = useCallback(
+    (edge: EditorGraphEdge) => {
+      if (!isExecutionEdge(edge, nodes)) return;
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const targetNode = nodes.find((node) => node.id === edge.target);
+      if (!sourceNode || !targetNode) return;
+      const usedLabels = new Set(
+        nodes
+          .filter((node) => node.type === StoryNodeType.FlowAnchor)
+          .map((node) => (node.data as FlowAnchorNodeData).label),
+      );
+      let index = usedLabels.size + 1;
+      let label = `Portal ${index}`;
+      while (usedLabels.has(label)) label = `Portal ${++index}`;
+      const anchorInstance = NodeFactory.create(
+        NodeFactory.generateId(StoryNodeType.FlowAnchor),
+        StoryNodeType.FlowAnchor,
+        {
+          x: Math.round(targetNode.position.x - 210),
+          y: Math.round(targetNode.position.y),
+        },
+      );
+      const jumpInstance = NodeFactory.create(
+        NodeFactory.generateId(StoryNodeType.FlowJump),
+        StoryNodeType.FlowJump,
+        {
+          x: Math.round(sourceNode.position.x + 250),
+          y: Math.round(sourceNode.position.y),
+        },
+      );
+      if (!anchorInstance || !jumpInstance) return;
+      const anchor = {
+        ...toEditorGraphNode(anchorInstance),
+        data: { label },
+        selected: false,
+      };
+      const jump = {
+        ...toEditorGraphNode(jumpInstance),
+        data: { targetNodeId: anchor.id },
+        selected: true,
+      };
+      checkpoint();
+      setNodes((current) => [
+        ...current.map((node) => ({ ...node, selected: false })),
+        jump,
+        anchor,
+      ]);
+      setEdges((current) => [
+        ...current.filter((candidate) => candidate.id !== edge.id),
+        {
+          id: createStableId('edge'),
+          source: edge.source,
+          sourceHandle: edge.sourceHandle,
+          target: jump.id,
+          targetHandle: 'in',
+        },
+        {
+          id: createStableId('edge'),
+          source: anchor.id,
+          sourceHandle: 'out',
+          target: edge.target,
+          targetHandle: edge.targetHandle,
+        },
+      ]);
+      setContextMenu(null);
+      markDirty();
+    },
+    [checkpoint, markDirty, nodes, setEdges, setNodes],
   );
 
   useEffect(() => {
@@ -518,6 +687,30 @@ export function StoryGraph() {
       ? 'Main Story'
       : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
   const selectedCount = nodes.filter((node) => node.selected).length;
+  const renderedEdges = useMemo<EditorGraphEdge[]>(() => {
+    const virtualEdges = nodes.flatMap((node): EditorGraphEdge[] => {
+      if (node.type !== StoryNodeType.FlowJump) return [];
+      const targetNodeId = (node.data as FlowJumpNodeData).targetNodeId;
+      const target = targetNodeId
+        ? nodes.find((candidate) => candidate.id === targetNodeId)
+        : undefined;
+      if (!target || (!node.selected && !target.selected)) return [];
+      return [
+        {
+          id: `e_portal_${node.id}` as EdgeId,
+          source: node.id,
+          sourceHandle: 'portal-out',
+          target: target.id,
+          targetHandle: 'portal-in',
+          selectable: false,
+          deletable: false,
+          animated: true,
+          style: { stroke: '#55c9c6', strokeWidth: 2, strokeDasharray: '7 5' },
+        },
+      ];
+    });
+    return [...edges, ...virtualEdges];
+  }, [edges, nodes]);
 
   if (!hasActiveStory) {
     return (
@@ -658,10 +851,35 @@ export function StoryGraph() {
         </div>
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={nodes}
-          edges={edges}
+          edges={renderedEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onEdgeClick={onEdgeClick}
+          onEdgeContextMenu={openEdgeContextMenu}
+          onEdgeDoubleClick={(event, edge) => {
+            const actualEdge = edges.find((candidate) => candidate.id === edge.id);
+            if (!actualEdge || !flowInstance || !isExecutionEdge(actualEdge, nodes)) return;
+            event.preventDefault();
+            insertReroute(
+              actualEdge,
+              flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+            );
+          }}
+          onNodeDoubleClick={(_event, node) => {
+            if (node.type !== StoryNodeType.FlowJump || !flowInstance) return;
+            const targetNodeId = (node.data as FlowJumpNodeData).targetNodeId;
+            const target = targetNodeId
+              ? nodes.find(
+                  (candidate) =>
+                    candidate.id === targetNodeId && candidate.type === StoryNodeType.FlowAnchor,
+                )
+              : undefined;
+            if (!target) return;
+            setNodes((current) =>
+              current.map((candidate) => ({ ...candidate, selected: candidate.id === target.id })),
+            );
+            void flowInstance.fitView({ nodes: [target], padding: 1.2, duration: 250 });
+          }}
           onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
           onInit={setFlowInstance}
@@ -719,6 +937,10 @@ export function StoryGraph() {
               <dd>Break only the clicked connection</dd>
               <dt>Ctrl + Left-drag Pin</dt>
               <dd>Move all wires to a compatible pin in the same direction</dd>
+              <dt>Double-click Wire</dt>
+              <dd>Insert a visual Reroute point</dd>
+              <dt>Right-click Wire</dt>
+              <dd>Insert Reroute or convert the wire to a Flow Portal</dd>
               <dt>Right-click</dt>
               <dd>Open the graph action menu</dd>
               <dt>Delete</dt>
@@ -746,38 +968,58 @@ export function StoryGraph() {
             className={styles.contextMenu}
             style={{ left: contextMenu.left, top: contextMenu.top }}
           >
-            <div className={styles.contextMenuTitle}>Create Node</div>
-            {nodeRegistry.list().map((definition) => (
-              <button
-                key={definition.type}
-                type="button"
-                disabled={
-                  (definition.type === StoryNodeType.Start && hasStoryEntry) ||
-                  (definition.type === StoryNodeType.Return && activeGraphId === 'root')
-                }
-                onClick={() => createNode(definition.type)}
-              >
-                <span
-                  className={styles.contextMenuColor}
-                  style={{ background: definition.color }}
-                />
-                {definition.label}
-              </button>
-            ))}
-            {selectedCount > 0 && (
+            <div className={styles.contextMenuTitle}>
+              {contextMenu.edge ? 'Wire Actions' : 'Create Node'}
+            </div>
+            {contextMenu.edge ? (
               <>
-                <div className={styles.contextMenuDivider} />
                 <button
                   type="button"
-                  onClick={() => {
-                    const result = extractSelectionToSubstory();
-                    if (!result.ok) setConnectionError(result.message);
-                    setContextMenu(null);
-                  }}
+                  onClick={() => insertReroute(contextMenu.edge!, contextMenu.flowPosition)}
                 >
-                  <span className={styles.contextMenuColor} style={{ background: '#6d96df' }} />
-                  Extract to Substory
+                  <span className={styles.contextMenuColor} style={{ background: '#8d99a8' }} />
+                  Insert Reroute
                 </button>
+                <button type="button" onClick={() => convertEdgeToPortal(contextMenu.edge!)}>
+                  <span className={styles.contextMenuColor} style={{ background: '#38a6a5' }} />
+                  Convert to Flow Portal
+                </button>
+              </>
+            ) : (
+              <>
+                {nodeRegistry.list().map((definition) => (
+                  <button
+                    key={definition.type}
+                    type="button"
+                    disabled={
+                      (definition.type === StoryNodeType.Start && hasStoryEntry) ||
+                      (definition.type === StoryNodeType.Return && activeGraphId === 'root')
+                    }
+                    onClick={() => createNode(definition.type)}
+                  >
+                    <span
+                      className={styles.contextMenuColor}
+                      style={{ background: definition.color }}
+                    />
+                    {definition.label}
+                  </button>
+                ))}
+                {selectedCount > 0 && (
+                  <>
+                    <div className={styles.contextMenuDivider} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const result = extractSelectionToSubstory();
+                        if (!result.ok) setConnectionError(result.message);
+                        setContextMenu(null);
+                      }}
+                    >
+                      <span className={styles.contextMenuColor} style={{ background: '#6d96df' }} />
+                      Extract to Substory
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>

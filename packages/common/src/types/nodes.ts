@@ -2,7 +2,7 @@
 // StoryBlueprint Node Type Definitions
 // ============================================================
 
-import type { AssetId, ChapterId, CharacterId, OptionId, VariableId } from './ids';
+import type { AssetId, ChapterId, CharacterId, NodeId, OptionId, VariableId } from './ids';
 import type { ExpressionSource, TextTemplateSource } from './expressions';
 import type { ValueType } from './values';
 
@@ -18,6 +18,9 @@ export enum StoryNodeType {
   GetVariable = 'get-variable',
   SetVariable = 'set-variable',
   CallSubstory = 'call-substory',
+  Reroute = 'reroute',
+  FlowAnchor = 'flow-anchor',
+  FlowJump = 'flow-jump',
   Return = 'return',
   End = 'end-story',
 }
@@ -98,6 +101,19 @@ export interface CallSubstoryNodeData {
   chapterId?: ChapterId;
 }
 
+/** Pure editor routing point. The compiler removes it from executable logic. */
+export interface RerouteNodeData {}
+
+/** Named destination for one or more Flow Jump nodes in the same graph. */
+export interface FlowAnchorNodeData {
+  label: string;
+}
+
+/** Hidden execution link to a Flow Anchor in the same graph. */
+export interface FlowJumpNodeData {
+  targetNodeId?: NodeId;
+}
+
 /** Returns from the current substory to its caller. */
 export interface ReturnNodeData {}
 
@@ -118,6 +134,9 @@ export interface StoryNodeDataMap {
   [StoryNodeType.GetVariable]: GetVariableNodeData;
   [StoryNodeType.SetVariable]: SetVariableNodeData;
   [StoryNodeType.CallSubstory]: CallSubstoryNodeData;
+  [StoryNodeType.Reroute]: RerouteNodeData;
+  [StoryNodeType.FlowAnchor]: FlowAnchorNodeData;
+  [StoryNodeType.FlowJump]: FlowJumpNodeData;
   [StoryNodeType.Return]: ReturnNodeData;
   [StoryNodeType.End]: EndNodeData;
 }

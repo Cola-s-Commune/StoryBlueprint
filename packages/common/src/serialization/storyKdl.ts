@@ -162,6 +162,21 @@ function serializeSourceNode(source: SourceNode): Node {
       if (chapterId) target.setProperty('chapter', chapterId);
       break;
     }
+    case StoryNodeType.FlowAnchor:
+      target.setProperty(
+        'label',
+        requiredString(
+          (data as StoryNodeDataMap[StoryNodeType.FlowAnchor]).label,
+          `${source.id}.label`,
+        ),
+      );
+      break;
+    case StoryNodeType.FlowJump: {
+      const targetNodeId = (data as StoryNodeDataMap[StoryNodeType.FlowJump]).targetNodeId;
+      if (targetNodeId) target.setProperty('target', targetNodeId);
+      break;
+    }
+    case StoryNodeType.Reroute:
     case StoryNodeType.Return:
       break;
   }
@@ -281,6 +296,7 @@ function validateStoryReferences(source: StorySourceDocument): void {
   const graphs = [source.root, ...source.chapters.map((chapter) => chapter.graph)];
   for (const graph of graphs) {
     const nodeIds = new Set(graph.nodes.map((node) => node.id));
+    const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     for (const nodeId of nodeIds) {
       if (allNodeIds.has(nodeId)) throw new StoryFormatError(`Duplicate node ID: ${nodeId}`);
       allNodeIds.add(nodeId);
@@ -288,6 +304,15 @@ function validateStoryReferences(source: StorySourceDocument): void {
     for (const edge of graph.edges) {
       if (!nodeIds.has(edge.from.nodeId) || !nodeIds.has(edge.to.nodeId)) {
         throw new StoryFormatError('Link references a missing node');
+      }
+    }
+    for (const node of graph.nodes) {
+      if (node.type !== StoryNodeType.FlowJump) continue;
+      const targetNodeId = (node.data as StoryNodeDataMap[StoryNodeType.FlowJump]).targetNodeId;
+      if (!targetNodeId) continue;
+      const targetNode = targetNodeId ? nodesById.get(targetNodeId) : undefined;
+      if (!targetNode || targetNode.type !== StoryNodeType.FlowAnchor) {
+        throw new StoryFormatError(`${node.id} references a missing Flow Anchor in its graph`);
       }
     }
   }
@@ -349,6 +374,9 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.GetVariable]: ['variable'],
     [StoryNodeType.SetVariable]: ['variable', 'value'],
     [StoryNodeType.CallSubstory]: ['chapter'],
+    [StoryNodeType.Reroute]: [],
+    [StoryNodeType.FlowAnchor]: ['label'],
+    [StoryNodeType.FlowJump]: ['target'],
     [StoryNodeType.Return]: [],
     [StoryNodeType.End]: ['title'],
   };
@@ -360,6 +388,9 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.GetVariable]: [],
     [StoryNodeType.SetVariable]: [],
     [StoryNodeType.CallSubstory]: [],
+    [StoryNodeType.Reroute]: [],
+    [StoryNodeType.FlowAnchor]: [],
+    [StoryNodeType.FlowJump]: [],
     [StoryNodeType.Return]: [],
     [StoryNodeType.End]: [],
   };
@@ -444,6 +475,19 @@ function parseSourceNode(node: Node): SourceNode {
       data = {
         chapterId: node.getProperty('chapter')
           ? requiredId(node.getProperty('chapter'), 'chapter', `${id}.chapter`)
+          : undefined,
+      };
+      break;
+    case StoryNodeType.Reroute:
+      data = {};
+      break;
+    case StoryNodeType.FlowAnchor:
+      data = { label: requiredString(node.getProperty('label'), `${id}.label`) };
+      break;
+    case StoryNodeType.FlowJump:
+      data = {
+        targetNodeId: node.getProperty('target')
+          ? requiredId(node.getProperty('target'), 'node', `${id}.target`)
           : undefined,
       };
       break;

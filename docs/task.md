@@ -157,8 +157,12 @@
 - [x] Connection
 - [x] Validation
 - [x] Delete
+- [x] 双击连线插入 Reroute，右键连线可选择插入 Reroute 或转换为 Flow Portal
+- [x] 同一 Graph 内的 Flow Jump / Flow Anchor 以稳定 Node ID 配对，选中任一端时显示虚拟跳转线
+- [x] Reroute 与 Flow Anchor 在编译时消除，Flow Jump 降级为普通 Runtime Jump
 - [x] 单后继执行输出重新连线时直接替换旧连线
 - [x] UE 风格 Pin 快捷操作：Alt+左键断开全部连线，Ctrl+左键拖动整体转移连线
+- [x] Pin 与 Reroute 使用放大的透明拖动热区和四向移动光标，保持视觉尺寸不变
 - [x] Alt+左键点击连线，断开被点击的单条连线
 - [x] 画布内 Graph Shortcuts 帮助面板
 
@@ -416,7 +420,7 @@
 
 ## Serialization
 
-- [x] 定义版本化 `.story` KDL Schema（当前五种基础节点）
+- [x] 定义版本化 `.story` KDL Schema
 - [x] 定义版本化 Node Definition Schema
 - [x] `.story` Parse / Serialize
 - [x] 稳定格式化（确保 Git Diff 可读）
@@ -425,6 +429,7 @@
 - [ ] 静态端口派生、动态端口项序列化
 - [x] Character / Variable / Asset 引用序列化
 - [x] Substory Graph、Call Substory 与 Return 序列化
+- [x] Reroute、Flow Jump 与 Flow Anchor 序列化和引用校验
 - [x] 稳定 ID / Name / Display Name 模型
 - [x] v2 紧凑格式：短 ID、可选 Node Name、无 Edge ID、默认端口/版本省略、整数坐标
 - [x] 明确放弃旧格式兼容与迁移
@@ -452,6 +457,7 @@
 - [ ] Chapter 参数和返回值类型
 - [x] 根蓝图与 Substory 编译、Call / Return 降级
 - [x] 无等待点的紧密死循环
+- [x] Flow Jump 同图 Anchor 引用、虚拟可达性与循环分析
 
 ---
 
@@ -464,6 +470,7 @@
 - [ ] 表达式稳定符号绑定与安全重命名
 - [x] 移除坐标、端口、边和编辑器节点 ID
 - [x] Block 终结指令与显式 Jump 校验
+- [x] Reroute / Flow Portal 控制流降级，不把视觉路由节点写入 Runtime Program
 - [ ] 可选 Source Map
 
 ---

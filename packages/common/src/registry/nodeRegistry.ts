@@ -161,6 +161,39 @@ export class NodeRegistry {
       defaultData: () => ({}),
     });
 
+    this.register<StoryNodeType.Reroute>({
+      type: StoryNodeType.Reroute,
+      version: 1,
+      label: 'Reroute',
+      category: 'flow',
+      color: '#8d99a8',
+      inputs: [{ id: 'in', label: 'In', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Out', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({}),
+    });
+
+    this.register<StoryNodeType.FlowAnchor>({
+      type: StoryNodeType.FlowAnchor,
+      version: 1,
+      label: 'Flow Anchor',
+      category: 'flow',
+      color: '#38a6a5',
+      inputs: [],
+      outputs: [{ id: 'out', label: 'Continue', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({ label: 'Portal' }),
+    });
+
+    this.register<StoryNodeType.FlowJump>({
+      type: StoryNodeType.FlowJump,
+      version: 1,
+      label: 'Flow Jump',
+      category: 'flow',
+      color: '#38a6a5',
+      inputs: [{ id: 'in', label: 'Enter', kind: 'execution', direction: 'input' }],
+      outputs: [],
+      defaultData: () => ({}),
+    });
+
     this.register<StoryNodeType.Return>({
       type: StoryNodeType.Return,
       version: 1,

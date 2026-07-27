@@ -8,6 +8,7 @@ import {
   type ChapterId,
   type CompiledStoryProgram,
   type GraphNodeLike,
+  type FlowJumpNodeData,
   type NodeId,
   type SourceGraph,
   type SourceNode,
@@ -101,6 +102,24 @@ function graphDiagnostics(
       validExecutionEdges.push({ source: candidate.source, target: candidate.target });
     }
   }
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  for (const node of graph.nodes) {
+    if (node.type !== StoryNodeType.FlowJump) continue;
+    const targetNodeId = (node.data as FlowJumpNodeData).targetNodeId;
+    const target = targetNodeId ? nodesById.get(targetNodeId) : undefined;
+    if (!target || target.type !== StoryNodeType.FlowAnchor) {
+      diagnostics.push(
+        decorate({
+          code: 'INVALID_NODE',
+          severity: 'error',
+          message: 'Flow Jump does not reference a Flow Anchor in the same graph',
+          sourceNodeId: node.id,
+        }),
+      );
+    } else {
+      validExecutionEdges.push({ source: node.id, target: target.id });
+    }
+  }
 
   const reachable = new Set<string>();
   const visit = (nodeId: string) => {
@@ -125,7 +144,8 @@ function graphDiagnostics(
         decorate({
           code: 'INVALID_END_LOCATION',
           severity: 'warning',
-          message: 'End Story inside a substory terminates the entire Story; use Return if intended',
+          message:
+            'End Story inside a substory terminates the entire Story; use Return if intended',
           sourceNodeId: node.id,
         }),
       );
@@ -137,7 +157,6 @@ function graphDiagnostics(
   const stack: string[] = [];
   const onStack = new Set<string>();
   let nextIndex = 0;
-  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
   const successors = (id: string) =>
     validExecutionEdges.filter((edge) => edge.source === id).map((edge) => edge.target);
   const strongConnect = (nodeId: string) => {

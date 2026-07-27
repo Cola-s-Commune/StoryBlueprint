@@ -10,6 +10,7 @@ import {
   type ChapterId,
   type ChoiceNodeData,
   type DialogueNodeData,
+  type FlowJumpNodeData,
   type GetVariableNodeData,
   type InstructionId,
   type NodeId,
@@ -18,7 +19,6 @@ import {
   type RuntimeChapterDefinition,
   type RuntimeInstruction,
   type SetVariableNodeData,
-  type SourceEdge,
   type SourceGraph,
   type SourceNode,
   type StorySourceDocument,
@@ -50,17 +50,6 @@ function textId(id: string): TextId {
 
 function programId(id: string): ProgramId {
   return `p_${suffix(id)}` as ProgramId;
-}
-
-function edgeTarget(
-  edges: readonly SourceEdge[],
-  nodeId: NodeId,
-  portId: string,
-): BlockId | undefined {
-  const edge = edges.find(
-    (candidate) => candidate.from.nodeId === nodeId && candidate.from.portId === portId,
-  );
-  return edge ? blockId(edge.to.nodeId) : undefined;
 }
 
 function jump(node: SourceNode, target: BlockId): RuntimeInstruction {
@@ -123,8 +112,32 @@ export class DefaultStoryCompiler implements StoryCompiler {
 
     const blocks: Record<string, RuntimeBlock> = {};
     const compileGraph = (graph: SourceGraph, chapterId?: ChapterId) => {
+      const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+      const resolveTarget = (
+        nodeId: NodeId,
+        portId: string,
+        visited = new Set<NodeId>(),
+      ): BlockId | undefined => {
+        const edge = graph.edges.find(
+          (candidate) => candidate.from.nodeId === nodeId && candidate.from.portId === portId,
+        );
+        if (!edge) return undefined;
+        const target = nodesById.get(edge.to.nodeId);
+        if (!target || target.type !== StoryNodeType.Reroute) return blockId(edge.to.nodeId);
+        if (visited.has(target.id)) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: 'Reroute cycle does not reach an executable node',
+            sourceNodeId: target.id,
+          });
+          return undefined;
+        }
+        visited.add(target.id);
+        return resolveTarget(target.id, 'out', visited);
+      };
       const requireTarget = (node: SourceNode, portId: string): BlockId | undefined => {
-        const target = edgeTarget(graph.edges, node.id, portId);
+        const target = resolveTarget(node.id, portId);
         if (!target) {
           diagnostics.push({
             code: 'MISSING_CONNECTION',
@@ -150,7 +163,12 @@ export class DefaultStoryCompiler implements StoryCompiler {
       };
 
       for (const node of graph.nodes) {
-        if (node.type === StoryNodeType.GetVariable) continue;
+        if (
+          node.type === StoryNodeType.GetVariable ||
+          node.type === StoryNodeType.Reroute ||
+          node.type === StoryNodeType.FlowAnchor
+        )
+          continue;
         const instructions: RuntimeInstruction[] = [];
         switch (node.type) {
           case StoryNodeType.Start: {
@@ -312,6 +330,22 @@ export class DefaultStoryCompiler implements StoryCompiler {
             }
             break;
           }
+          case StoryNodeType.FlowJump: {
+            const data = node.data as unknown as FlowJumpNodeData;
+            const anchor = data.targetNodeId ? nodesById.get(data.targetNodeId) : undefined;
+            if (!anchor || anchor.type !== StoryNodeType.FlowAnchor) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Flow Jump does not reference a Flow Anchor in the same graph',
+                sourceNodeId: node.id,
+              });
+            } else {
+              const target = requireTarget(anchor, 'out');
+              if (target) instructions.push(jump(node, target));
+            }
+            break;
+          }
           case StoryNodeType.Return:
             if (!chapterId) {
               diagnostics.push({
@@ -337,6 +371,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
             }
             break;
           }
+          case StoryNodeType.Reroute:
+          case StoryNodeType.FlowAnchor:
+            break;
           default:
             diagnostics.push({
               code: 'INVALID_NODE',
