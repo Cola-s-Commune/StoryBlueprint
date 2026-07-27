@@ -1,5 +1,6 @@
 import Editor, { loader, type BeforeMount, type Monaco, type OnMount } from '@monaco-editor/react';
 import * as monacoApi from 'monaco-editor/editor/editor.api';
+import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import { useEffect, useRef } from 'react';
 import type { DialogueInkDiagnostic } from '../../dialogue/dialogueInk';
@@ -71,6 +72,7 @@ export function DialogueInkEditor({
   value,
   diagnostics,
   dirty,
+  focusLine,
   onChange,
   onApply,
   onRevert,
@@ -79,6 +81,7 @@ export function DialogueInkEditor({
   value: string;
   diagnostics: readonly DialogueInkDiagnostic[];
   dirty: boolean;
+  focusLine?: number;
   onChange: (value: string) => void;
   onApply: () => void;
   onRevert: () => void;
@@ -86,7 +89,24 @@ export function DialogueInkEditor({
   const editorRef = useRef<Parameters<OnMount>[0]>();
   const monacoRef = useRef<Monaco>();
   const applyRef = useRef(onApply);
+  const focusLineRef = useRef(focusLine);
   applyRef.current = onApply;
+  focusLineRef.current = focusLine;
+
+  const revealLine = (editor: Parameters<OnMount>[0], requestedLine?: number) => {
+    const model = editor.getModel();
+    if (!model || requestedLine === undefined) return;
+    const lineNumber = Math.max(1, Math.min(requestedLine, model.getLineCount()));
+    const endColumn = model.getLineMaxColumn(lineNumber);
+    editor.setSelection({
+      startLineNumber: lineNumber,
+      startColumn: 1,
+      endLineNumber: lineNumber,
+      endColumn,
+    });
+    editor.revealLineInCenterIfOutsideViewport(lineNumber);
+    editor.focus();
+  };
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -103,7 +123,12 @@ export function DialogueInkEditor({
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
       void pasteIntoEditor(editor);
     });
+    requestAnimationFrame(() => revealLine(editor, focusLineRef.current));
   };
+
+  useEffect(() => {
+    if (editorRef.current) revealLine(editorRef.current, focusLine);
+  }, [focusLine]);
 
   useEffect(() => {
     const editor = editorRef.current;

@@ -387,7 +387,8 @@ dialogue n_greet speaker=c_alice emotion=happy {
 ```
 
 Inspector 支持新增、复制、删除、上下移动和拖动排序；复制 Line 或整个 Dialogue 时必须重新生成
-Line ID 和 Text ID。画布只展示前几句及总数，完整内容在 Inspector 中编辑。旧版单 `text`
+Line ID 和 Text ID。Line 卡片默认折叠为说话人与台词摘要，按需展开完整属性；每条摘要可直接跳到
+Monaco 中一一对应的 Ink 物理行。画布只展示前三句及剩余总数，每句预览最多两行，完整内容在 Inspector 中编辑。旧版单 `text`
 Dialogue 在读取时归一化为一个稳定 Line，新 writer 统一输出 `line` 结构。
 
 `emotion` 应引用最终说话人配置中的情绪 ID。立绘由 Runtime 根据说话人和情绪解析。

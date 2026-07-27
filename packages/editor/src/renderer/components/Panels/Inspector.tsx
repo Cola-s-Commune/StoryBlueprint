@@ -265,7 +265,9 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
 function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeData }) {
   const { characters, assets, checkpoint, updateNodeData } = useStoryGraphStore();
   const [draggedLineId, setDraggedLineId] = useState<DialogueLineId>();
+  const [expandedLineIds, setExpandedLineIds] = useState<Set<DialogueLineId>>(() => new Set());
   const [view, setView] = useState<'lines' | 'ink'>('lines');
+  const [inkFocusLine, setInkFocusLine] = useState<number>();
   const canonicalInk = useMemo(
     () => formatDialogueInk(data, characters, assets),
     [assets, characters, data],
@@ -278,6 +280,8 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
   );
   useEffect(() => {
     setView('lines');
+    setExpandedLineIds(new Set());
+    setInkFocusLine(undefined);
     setInkDraft(canonicalInk);
     setInkDirty(false);
   }, [nodeId]);
@@ -297,6 +301,14 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
     lines.splice(nextIndex, 0, line);
     checkpoint();
     updateLines(lines);
+  };
+  const toggleLine = (lineId: DialogueLineId) => {
+    setExpandedLineIds((current) => {
+      const next = new Set(current);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
   };
   const applyInk = (): boolean => {
     if (!inkDirty) return true;
@@ -413,7 +425,10 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
           <button
             type="button"
             className={view === 'ink' ? styles.activeTab : undefined}
-            onClick={() => setView('ink')}
+            onClick={() => {
+              setInkFocusLine(undefined);
+              setView('ink');
+            }}
           >
             Ink
           </button>
@@ -422,15 +437,17 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
           <button
             type="button"
             onClick={() => {
+              const lineId = createStableId('line');
               checkpoint();
               updateLines([
                 ...data.lines,
                 {
-                  id: createStableId('line'),
+                  id: lineId,
                   textId: createStableId('text'),
                   text: { source: '' },
                 },
               ]);
+              setExpandedLineIds((current) => new Set(current).add(lineId));
             }}
           >
             Add Line
@@ -444,6 +461,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
             value={inkDraft}
             diagnostics={parsedInk.diagnostics}
             dirty={inkDirty}
+            focusLine={inkFocusLine}
             onChange={(value) => {
               setInkDraft(value);
               setInkDirty(value !== canonicalInk);
@@ -459,10 +477,14 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
         data.lines.map((line, index) => {
           const speakerId = line.speakerId ?? data.speakerId;
           const character = characters.find((candidate) => candidate.id === speakerId);
+          const speakerName = character?.displayName ?? 'Narrator';
+          const isExpanded = expandedLineIds.has(line.id);
           return (
             <div
               key={line.id}
-              className={`${styles.optionGroup} ${styles.lineGroup}`}
+              className={`${styles.optionGroup} ${styles.lineGroup} ${
+                isExpanded ? '' : styles.lineGroupCollapsed
+              }`}
               onDragOver={(event) => {
                 if (draggedLineId) event.preventDefault();
               }}
@@ -486,155 +508,199 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                 >
                   ↕
                 </span>
-                <strong>Line {index + 1}</strong>
+                <button
+                  type="button"
+                  className={styles.disclosureButton}
+                  title={isExpanded ? 'Collapse line' : 'Expand line'}
+                  aria-expanded={isExpanded}
+                  onClick={() => toggleLine(line.id)}
+                >
+                  {isExpanded ? '▾' : '▸'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.lineSummary}
+                  title={line.text.source || 'Empty dialogue line'}
+                  onClick={() => toggleLine(line.id)}
+                >
+                  <strong>{speakerName}</strong>
+                  <span>{line.text.source || 'Empty dialogue line…'}</span>
+                </button>
                 <div className={styles.lineActions}>
                   <button
                     type="button"
-                    title="Move up"
-                    disabled={index === 0}
-                    onClick={() => moveLine(line.id, index - 1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    title="Move down"
-                    disabled={index === data.lines.length - 1}
-                    onClick={() => moveLine(line.id, index + 1)}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    title="Duplicate line"
+                    title={`Edit line ${index + 1} in Ink`}
                     onClick={() => {
-                      checkpoint();
-                      const lines = [...data.lines];
-                      lines.splice(index + 1, 0, {
-                        ...structuredClone(line),
-                        id: createStableId('line'),
-                        textId: createStableId('text'),
-                      });
-                      updateLines(lines);
+                      setInkFocusLine(index + 1);
+                      setView('ink');
                     }}
                   >
-                    Duplicate
+                    Ink
                   </button>
-                  <button
-                    type="button"
-                    title="Delete line"
-                    disabled={data.lines.length === 1}
-                    onClick={() => {
-                      checkpoint();
-                      updateLines(data.lines.filter((candidate) => candidate.id !== line.id));
-                    }}
-                  >
-                    Delete
-                  </button>
+                  {isExpanded && (
+                    <>
+                      <button
+                        type="button"
+                        title="Move up"
+                        disabled={index === 0}
+                        onClick={() => moveLine(line.id, index - 1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        title="Move down"
+                        disabled={index === data.lines.length - 1}
+                        onClick={() => moveLine(line.id, index + 1)}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        title="Duplicate line"
+                        onClick={() => {
+                          checkpoint();
+                          const lines = [...data.lines];
+                          const copy = {
+                            ...structuredClone(line),
+                            id: createStableId('line'),
+                            textId: createStableId('text'),
+                          };
+                          lines.splice(index + 1, 0, copy);
+                          updateLines(lines);
+                          setExpandedLineIds((current) => new Set(current).add(copy.id));
+                        }}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete line"
+                        disabled={data.lines.length === 1}
+                        onClick={() => {
+                          checkpoint();
+                          updateLines(data.lines.filter((candidate) => candidate.id !== line.id));
+                          setExpandedLineIds((current) => {
+                            const next = new Set(current);
+                            next.delete(line.id);
+                            return next;
+                          });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-              <label
-                className={styles.field}
-                onDragOver={(event) => {
-                  if (readStoryDataDrag(event.dataTransfer)?.kind === 'character')
-                    event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  const payload = readStoryDataDrag(event.dataTransfer);
-                  if (payload?.kind !== 'character') return;
-                  event.preventDefault();
-                  checkpoint();
-                  updateLine(line.id, { speakerId: payload.id });
-                }}
-              >
-                <span>Speaker</span>
-                <select
-                  value={line.speakerId ?? ''}
-                  onChange={(event) => {
-                    checkpoint();
-                    updateLine(line.id, {
-                      speakerId: (event.target.value || undefined) as DialogueLine['speakerId'],
-                    });
-                  }}
-                >
-                  <option value="">Inherit · {defaultCharacter?.displayName ?? 'Narrator'}</option>
-                  {characters.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <PropertyField
-                label="Text Template"
-                value={line.text.source}
-                multiline
-                variableMode="template"
-                onBeginEdit={checkpoint}
-                onChange={(source) => updateLine(line.id, { text: { source } })}
-              />
-              {character && (
-                <label className={styles.field}>
-                  <span>Emotion</span>
-                  <select
-                    value={line.emotion ?? ''}
-                    onChange={(event) => {
+              {isExpanded && (
+                <>
+                  <label
+                    className={styles.field}
+                    onDragOver={(event) => {
+                      if (readStoryDataDrag(event.dataTransfer)?.kind === 'character')
+                        event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      const payload = readStoryDataDrag(event.dataTransfer);
+                      if (payload?.kind !== 'character') return;
+                      event.preventDefault();
                       checkpoint();
-                      updateLine(line.id, { emotion: event.target.value || undefined });
+                      updateLine(line.id, { speakerId: payload.id });
                     }}
                   >
-                    <option value="">Inherit · {data.emotion || 'Character Default'}</option>
-                    {Object.entries(character.emotions).map(([key, emotion]) => (
-                      <option key={key} value={key}>
-                        {emotion.displayName}
+                    <span>Speaker</span>
+                    <select
+                      value={line.speakerId ?? ''}
+                      onChange={(event) => {
+                        checkpoint();
+                        updateLine(line.id, {
+                          speakerId: (event.target.value || undefined) as DialogueLine['speakerId'],
+                        });
+                      }}
+                    >
+                      <option value="">
+                        Inherit · {defaultCharacter?.displayName ?? 'Narrator'}
                       </option>
-                    ))}
-                  </select>
-                </label>
+                      {characters.map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <PropertyField
+                    label="Text Template"
+                    value={line.text.source}
+                    multiline
+                    variableMode="template"
+                    onBeginEdit={checkpoint}
+                    onChange={(source) => updateLine(line.id, { text: { source } })}
+                  />
+                  {character && (
+                    <label className={styles.field}>
+                      <span>Emotion</span>
+                      <select
+                        value={line.emotion ?? ''}
+                        onChange={(event) => {
+                          checkpoint();
+                          updateLine(line.id, { emotion: event.target.value || undefined });
+                        }}
+                      >
+                        <option value="">Inherit · {data.emotion || 'Character Default'}</option>
+                        {Object.entries(character.emotions).map(([key, emotion]) => (
+                          <option key={key} value={key}>
+                            {emotion.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label
+                    className={styles.field}
+                    onDragOver={(event) => {
+                      if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset')
+                        event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      const payload = readStoryDataDrag(event.dataTransfer);
+                      if (payload?.kind !== 'asset') return;
+                      event.preventDefault();
+                      checkpoint();
+                      updateLine(line.id, { voiceId: payload.id });
+                    }}
+                  >
+                    <span>Voice Asset</span>
+                    <select
+                      value={line.voiceId ?? ''}
+                      onChange={(event) => {
+                        checkpoint();
+                        updateLine(line.id, {
+                          voiceId: (event.target.value || undefined) as DialogueLine['voiceId'],
+                        });
+                      }}
+                    >
+                      <option value="">Inherit · {data.voiceId ? 'Default Voice' : 'None'}</option>
+                      {assets
+                        .filter((asset) => asset.kind === 'audio')
+                        .map((asset) => (
+                          <option key={asset.id} value={asset.id}>
+                            {asset.displayName}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <TagsField
+                    value={line.tags ?? []}
+                    onBeginEdit={checkpoint}
+                    onChange={(tags) => updateLine(line.id, { tags })}
+                  />
+                  <div className={styles.stableIds}>
+                    <code>{line.id}</code>
+                    <code>{line.textId}</code>
+                  </div>
+                </>
               )}
-              <label
-                className={styles.field}
-                onDragOver={(event) => {
-                  if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset')
-                    event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  const payload = readStoryDataDrag(event.dataTransfer);
-                  if (payload?.kind !== 'asset') return;
-                  event.preventDefault();
-                  checkpoint();
-                  updateLine(line.id, { voiceId: payload.id });
-                }}
-              >
-                <span>Voice Asset</span>
-                <select
-                  value={line.voiceId ?? ''}
-                  onChange={(event) => {
-                    checkpoint();
-                    updateLine(line.id, {
-                      voiceId: (event.target.value || undefined) as DialogueLine['voiceId'],
-                    });
-                  }}
-                >
-                  <option value="">Inherit · {data.voiceId ? 'Default Voice' : 'None'}</option>
-                  {assets
-                    .filter((asset) => asset.kind === 'audio')
-                    .map((asset) => (
-                      <option key={asset.id} value={asset.id}>
-                        {asset.displayName}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <TagsField
-                value={line.tags ?? []}
-                onBeginEdit={checkpoint}
-                onChange={(tags) => updateLine(line.id, { tags })}
-              />
-              <div className={styles.stableIds}>
-                <code>{line.id}</code>
-                <code>{line.textId}</code>
-              </div>
             </div>
           );
         })

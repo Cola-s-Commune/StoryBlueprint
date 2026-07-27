@@ -219,6 +219,7 @@
 - [x] Node 级 Speaker / Emotion / Voice 默认值与 Line 级覆盖
 - [x] Line 支持 Speaker、Text Template、Emotion、Voice、Tags
 - [x] Inspector 支持新增、删除、复制和拖动排序 Line
+- [x] Line 属性卡默认折叠为“说话人 + 台词”摘要，可独立展开并直接定位到对应 Ink 行
 - [x] Inspector 提供 Monaco `Lines / Ink` 双视图，结构化编辑后即时重建 Dialogue Ink 文本
 - [x] Dialogue Ink 子集支持批量编辑、资源名称解析、行级诊断、应用/撤销和稳定 ID 对齐
 - [x] Dialogue Ink 中每个物理行对应一个 Line，保留空 Line，并转义换行、反斜杠和 Ink Tag 起始符
