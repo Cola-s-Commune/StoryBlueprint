@@ -20,6 +20,10 @@ function horizontalSideToward(
   return dx < 0 ? Position.Left : Position.Right;
 }
 
+function rerouteHandleStyle(position: Position): CSSProperties {
+  return position === Position.Left ? { left: 5 } : { right: 5 };
+}
+
 export function RerouteNode({ id }: NodeProps) {
   const { nodes, edges } = useStoryGraphStore();
   const updateNodeInternals = useUpdateNodeInternals();
@@ -35,8 +39,20 @@ export function RerouteNode({ id }: NodeProps) {
 
   return (
     <div className={styles.reroute} title="Reroute">
-      <Handle className={styles.rerouteHandle} type="target" position={inputSide} id="in" />
-      <Handle className={styles.rerouteHandle} type="source" position={outputSide} id="out" />
+      <Handle
+        className={styles.rerouteHandle}
+        type="target"
+        position={inputSide}
+        id="in"
+        style={rerouteHandleStyle(inputSide)}
+      />
+      <Handle
+        className={styles.rerouteHandle}
+        type="source"
+        position={outputSide}
+        id="out"
+        style={rerouteHandleStyle(outputSide)}
+      />
     </div>
   );
 }

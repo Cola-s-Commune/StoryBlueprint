@@ -22,7 +22,7 @@ npm run dev
 - Dialogue 支持可排序的多 Line 连续对话段；每句拥有稳定 Line ID / Text ID，并可覆盖节点默认 Speaker、Emotion、Voice 和 Tags。
 - Inspector 支持新增、复制、删除、上下移动和拖动排序 Line；画布紧凑预览前三句和总数，整节点复制时重新生成全部 Line / Text ID。
 - `.story` KDL 使用紧凑 `line <lineId> <textId> <text>` 结构，仍可读取旧单 `text` Dialogue；Compiler 生成逐句暂停的连续 Dialogue 指令。
-- Pin 与 Reroute 的可拖动热区独立于可见图形放大，并统一显示四向移动光标，减少精确点中小图形的操作负担。
+- Pin 的透明拉线热区使用十字准星；普通节点使用四向移动光标。Reroute 按 UE Knot 语义划分为四向箭头外圈移动区，以及十字准星内圈输入/输出拉线区。
 - 新增 Reroute 与同图 Flow Portal：双击 Wire 插入横向自适应的 Knot 式 Reroute，右键 Wire 可转换为 Jump / Anchor；选中端点时显示虚拟跳转线，双击 Jump 可定位 Anchor。
 - `.story` KDL 持久化 Portal 的稳定同图引用；复制粘贴会重映射成对端点，删除 Anchor 会安全清空存活 Jump，提取 Substory 暂时拒绝跨边界 Portal。
 - Compiler 折叠 Reroute，并将 Jump → Anchor → 后继降级为普通 Runtime Jump；项目诊断将虚拟 Portal 计入可达性和循环分析，运行产物不包含视觉路由节点。

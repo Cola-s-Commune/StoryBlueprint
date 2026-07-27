@@ -162,7 +162,7 @@
 - [x] Reroute 与 Flow Anchor 在编译时消除，Flow Jump 降级为普通 Runtime Jump
 - [x] 单后继执行输出重新连线时直接替换旧连线
 - [x] UE 风格 Pin 快捷操作：Alt+左键断开全部连线，Ctrl+左键拖动整体转移连线
-- [x] Pin 与 Reroute 使用放大的透明拖动热区和四向移动光标，保持视觉尺寸不变
+- [x] Pin 使用放大的透明拉线热区和十字准星；节点使用四向移动光标；Reroute 外圈移动、内圈拉线
 - [x] Alt+左键点击连线，断开被点击的单条连线
 - [x] 画布内 Graph Shortcuts 帮助面板
 
