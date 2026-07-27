@@ -14,11 +14,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@story-blueprint/common": "*",
     "@story-blueprint/compiler": "*",
     "@story-blueprint/runtime": "*",
     "@xyflow/react": "^12.10.0",
-    "dockview-react": "^7.0.4"
+    "dockview-react": "^7.0.4",
+    "monaco-editor": "^0.56.0"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^4.0.0",

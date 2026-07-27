@@ -20,6 +20,7 @@ npm run dev
 ## Current: Workspace Explorer / Runtime Preview
 
 - Dialogue 支持可排序的多 Line 连续对话段；每句拥有稳定 Line ID / Text ID，并可覆盖节点默认 Speaker、Emotion、Voice 和 Tags。
+- Dialogue Inspector 增加本地打包的 Monaco `Lines / Ink` 双视图；结构化 Line 与 Dialogue Ink 子集双向同步，错误草稿不写回节点。
 - Inspector 支持新增、复制、删除、上下移动和拖动排序 Line；画布紧凑预览前三句和总数，整节点复制时重新生成全部 Line / Text ID。
 - `.story` KDL 使用紧凑 `line <lineId> <textId> <text>` 结构，仍可读取旧单 `text` Dialogue；Compiler 生成逐句暂停的连续 Dialogue 指令。
 - Pin 的透明拉线热区使用十字准星；普通节点使用四向移动光标。Reroute 按 UE Knot 语义划分为四向箭头外圈移动区，以及十字准星内圈输入/输出拉线区。
@@ -109,6 +110,7 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-07-27 | Dialogue Inspector 接入离线 Monaco Ink 编辑视图，支持行级元数据、诊断、稳定 ID 对齐、原生剪贴板及 Lines 双向同步 |
 | 2026-07-25 | 增加左下 Story Data、变量/角色编辑、拖拽创建 Get/Set/Dialogue，以及 Inspector 模板和表达式变量投放                 |
 | 2026-07-25 | `.story` 改为紧凑 v2：短稳定 ID、整数坐标、可选节点名、无 Edge ID；不兼容且不迁移旧格式                            |
 | 2026-07-25 | Compiler 实现安全表达式、Text Template 与基础图降级；Runtime 实现求值、模板渲染及 Choice 显示/可用条件             |

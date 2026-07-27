@@ -685,6 +685,10 @@ function registerStoryFileHandlers(): void {
     if (typeof text !== 'string') throw new Error('Invalid clipboard text');
     clipboard.writeText(text);
   });
+  ipcMain.handle('clipboard:read-text', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return clipboard.readText();
+  });
 
   ipcMain.on('story:set-dirty', (event, dirty: unknown) => {
     if (!isTrustedSender(event) || typeof dirty !== 'boolean') return;

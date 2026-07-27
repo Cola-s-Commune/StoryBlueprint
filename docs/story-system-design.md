@@ -392,7 +392,23 @@ Dialogue 在读取时归一化为一个稳定 Line，新 writer 统一输出 `li
 
 `emotion` 应引用最终说话人配置中的情绪 ID。立绘由 Runtime 根据说话人和情绪解析。
 
-### 7.1 本地化
+### 7.1 Dialogue Ink 编辑视图
+
+Inspector 为同一份 `DialogueData.lines` 提供 `Lines` 与 Monaco `Ink` 两种视图。Lines 始终是
+节点的唯一权威数据；Ink 是可编辑投影，不作为第二份源数据保存。结构化新增、删除、排序或修改
+Line 后，Ink 文本立即重建；Ink 草稿只有在无诊断时才作为一次可撤销事务写回 Lines。切换回
+Lines 会尝试应用有效草稿，错误草稿则保留在 Monaco 中且不污染节点。
+
+当前编辑视图采用 Dialogue 专用 Ink Profile：一个物理行严格对应一个 Dialogue Line，包括空行；
+行尾可使用 `# speaker:<character-name>`、`# emotion:<emotion-name>`、
+`# voice:<audio-asset-name>`，其他 Ink Tag 写入 `tags`。文本中的换行编码为 `\n`，Tag 起始符
+可写成 `\#`。解析时优先按稳定的资源 `name` 匹配，也接受唯一的 `displayName`；未知或重名资源
+产生可定位、可复制的诊断。重排和仅修改内容时尽量保留原 Line ID / Text ID，新增内容生成新 ID。
+
+Choice、divert、knot 等完整 Ink 控制语法不能写入 Dialogue 节点；它们属于后续 Ink Block 或
+Ink-to-Nodes 转换能力。这样批量写对白可以立即使用 Monaco，同时不与完整 Ink Runtime 路线冲突。
+
+### 7.2 本地化
 
 采用“开发期可内联、发布时可提取”的混合方式：
 

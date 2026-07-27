@@ -44,6 +44,21 @@
   font-size: 10px;
 }
 
+.viewTabs {
+  display: flex;
+  gap: 3px;
+}
+
+.viewTabs button {
+  padding: 5px 8px;
+}
+
+.viewTabs .activeTab {
+  border-color: #4778a8;
+  background: #31465b;
+  color: #d8eaff;
+}
+
 .groupHeader button {
   padding: 5px 8px;
 }
@@ -201,4 +216,83 @@
   color: #e89b63;
   font-size: 11px;
   user-select: text;
+}
+
+.inkEditorPanel {
+  margin: 0 -4px 12px;
+  overflow: hidden;
+  border: 1px solid #343a43;
+  border-radius: 5px;
+  background: #1e1e1e;
+}
+
+.inkLoading {
+  height: 360px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #343a43;
+  border-radius: 5px;
+  background: #1e1e1e;
+  color: #778390;
+  font-size: 11px;
+}
+
+.inkHelp {
+  padding: 8px 10px;
+  border-bottom: 1px solid #343a43;
+  color: #8490a0;
+  font-size: 10px;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.inkHelp code {
+  color: #b9cce0;
+}
+
+.inkEditor {
+  height: 360px;
+}
+
+.inkDiagnostics {
+  display: grid;
+  gap: 4px;
+  max-height: 100px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-top: 1px solid #613c3c;
+  background: #2b2020;
+  color: #e3a1a1;
+  font-size: 10px;
+  user-select: text;
+}
+
+.inkActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 7px 8px;
+  border-top: 1px solid #343a43;
+  color: #778390;
+  font-size: 10px;
+}
+
+.inkActions span {
+  margin-right: auto;
+}
+
+.inkActions button {
+  padding: 5px 8px;
+  border: 1px solid #414954;
+  border-radius: 3px;
+  background: #282e36;
+  color: #b7c1ce;
+  cursor: pointer;
+  font: inherit;
+}
+
+.inkActions button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

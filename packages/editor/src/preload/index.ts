@@ -5,6 +5,7 @@ const electronAPI = {
   platform: process.platform,
   isElectron: true,
   copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
+  readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   openStory: () => ipcRenderer.invoke('story:open'),
   saveStory: (request) => ipcRenderer.invoke('story:save', request),
   revealStory: (filePath, fileToken) => ipcRenderer.invoke('story:reveal', filePath, fileToken),

@@ -106,6 +106,7 @@ export interface ElectronAPI {
   platform: string;
   isElectron: true;
   copyText: (text: string) => Promise<void>;
+  readClipboardText: () => Promise<string>;
   openStory: () => Promise<OpenStoryResult>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
   revealStory: (filePath: string, fileToken: string) => Promise<void>;
