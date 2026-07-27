@@ -49,7 +49,15 @@ function portalStory(): StorySourceDocument {
           type: StoryNodeType.Dialogue,
           definitionVersion: 1,
           position: { x: 360, y: 0 },
-          data: { text: { source: 'Through the portal' } },
+          data: {
+            lines: [
+              {
+                id: 'ln_portaltalk',
+                textId: 't_portaltalk',
+                text: { source: 'Through the portal' },
+              },
+            ],
+          },
         },
         {
           id: 'n_jump',

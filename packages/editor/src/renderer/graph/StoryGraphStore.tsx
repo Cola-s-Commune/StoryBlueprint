@@ -94,20 +94,21 @@ function renameVariableInNode(
   newName: string,
 ): EditorGraphNode {
   switch (node.type) {
-    case StoryNodeType.Dialogue:
+    case StoryNodeType.Dialogue: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
       return {
         ...node,
         data: {
           ...node.data,
-          text: {
-            source: renameTemplateIdentifier(
-              (node.data as StoryNodeDataMap[StoryNodeType.Dialogue]).text.source,
-              oldName,
-              newName,
-            ),
-          },
+          lines: data.lines.map((line) => ({
+            ...line,
+            text: {
+              source: renameTemplateIdentifier(line.text.source, oldName, newName),
+            },
+          })),
         },
       };
+    }
     case StoryNodeType.Choice: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
       return {
@@ -256,6 +257,10 @@ function collectOpenResourceUsage(items: readonly EditorStoryWorkspaceItem[]) {
       const dialogue = candidate.data as DialogueNodeData;
       if (dialogue.speakerId) characterIds.add(dialogue.speakerId);
       if (dialogue.voiceId) assetIds.add(dialogue.voiceId);
+      for (const line of dialogue.lines) {
+        if (line.speakerId) characterIds.add(line.speakerId);
+        if (line.voiceId) assetIds.add(line.voiceId);
+      }
     }
     for (const character of story.characters) {
       if (character.defaultPortraitId) assetIds.add(character.defaultPortraitId);
@@ -867,16 +872,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setCharacters((current) => current.filter((character) => character.id !== id));
       setNodes((current) =>
         current.map((node) =>
-          node.type === StoryNodeType.Dialogue && node.data.speakerId === id
-            ? { ...node, data: { ...node.data, speakerId: undefined } }
+          node.type === StoryNodeType.Dialogue
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  speakerId: node.data.speakerId === id ? undefined : node.data.speakerId,
+                  lines: (node.data as DialogueNodeData).lines.map((line) =>
+                    line.speakerId === id ? { ...line, speakerId: undefined } : line,
+                  ),
+                },
+              }
             : node,
         ),
       );
       updateInactiveGraphs((candidate) => ({
         ...candidate,
         nodes: candidate.nodes.map((node) =>
-          node.type === StoryNodeType.Dialogue && node.data.speakerId === id
-            ? { ...node, data: { ...node.data, speakerId: undefined } }
+          node.type === StoryNodeType.Dialogue
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  speakerId: node.data.speakerId === id ? undefined : node.data.speakerId,
+                  lines: (node.data as DialogueNodeData).lines.map((line) =>
+                    line.speakerId === id ? { ...line, speakerId: undefined } : line,
+                  ),
+                },
+              }
             : node,
         ),
       }));
@@ -963,16 +986,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setAssets((current) => current.filter((asset) => asset.id !== id));
       setNodes((current) =>
         current.map((node) =>
-          node.type === StoryNodeType.Dialogue && node.data.voiceId === id
-            ? { ...node, data: { ...node.data, voiceId: undefined } }
+          node.type === StoryNodeType.Dialogue
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  voiceId: node.data.voiceId === id ? undefined : node.data.voiceId,
+                  lines: (node.data as DialogueNodeData).lines.map((line) =>
+                    line.voiceId === id ? { ...line, voiceId: undefined } : line,
+                  ),
+                },
+              }
             : node,
         ),
       );
       updateInactiveGraphs((candidate) => ({
         ...candidate,
         nodes: candidate.nodes.map((node) =>
-          node.type === StoryNodeType.Dialogue && node.data.voiceId === id
-            ? { ...node, data: { ...node.data, voiceId: undefined } }
+          node.type === StoryNodeType.Dialogue
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  voiceId: node.data.voiceId === id ? undefined : node.data.voiceId,
+                  lines: (node.data as DialogueNodeData).lines.map((line) =>
+                    line.voiceId === id ? { ...line, voiceId: undefined } : line,
+                  ),
+                },
+              }
             : node,
         ),
       }));

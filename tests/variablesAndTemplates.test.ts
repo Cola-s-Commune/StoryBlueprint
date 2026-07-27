@@ -96,7 +96,15 @@ describe('variables and templates', () => {
             type: StoryNodeType.Dialogue,
             definitionVersion: 1,
             position: { x: 30, y: 40 },
-            data: { text: { source: 'Hello {playerName}' } },
+            data: {
+              lines: [
+                {
+                  id: 'ln_hello',
+                  textId: 't_hello',
+                  text: { source: 'Hello {playerName}' },
+                },
+              ],
+            },
           },
           {
             id: 'n_endx',
@@ -167,7 +175,9 @@ describe('variables and templates', () => {
             type: StoryNodeType.Dialogue,
             definitionVersion: 1,
             position: { x: 3, y: 0 },
-            data: { text: { source: 'Gold: {gold}' } },
+            data: {
+              lines: [{ id: 'ln_goldx', textId: 't_goldx', text: { source: 'Gold: {gold}' } }],
+            },
           },
           {
             id: 'n_pickx',

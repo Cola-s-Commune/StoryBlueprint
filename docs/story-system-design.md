@@ -351,31 +351,46 @@ Engine Adapter 负责将 AssetRef 解析为实际引擎资源。
 
 ## 7. Dialogue 数据
 
-Dialogue 节点至少包含：
+Dialogue 节点表示一个没有中间控制流的连续对话段。节点保存默认说话人、情绪和语音，
+内部每条 Line 拥有独立稳定 ID，并可覆盖默认值：
 
 ```ts
 interface DialogueData {
-  speaker: CharacterRef | Expression;
-  text: LocalizedText;
-  voice?: AssetRef;
+  speakerId?: CharacterId;
+  voiceId?: AssetId;
   emotion?: string;
-  portrait?: AssetRef;
+  lines: DialogueLine[];
+}
+
+interface DialogueLine {
+  id: DialogueLineId;
+  textId: TextId;
+  text: TextTemplateSource;
+  speakerId?: CharacterId;
+  voiceId?: AssetId;
+  emotion?: string;
   tags?: string[];
 }
 ```
 
-示例：
+Line 未填写 speaker、voice 或 emotion 时继承节点默认值。节点只有一个执行入口和一个执行出口；
+Compiler 将 Line 按作者顺序降级为连续 Dialogue 指令，每句都形成独立暂停点。Choice、Branch、
+Event 或变量修改不能插入 Line 列表，遇到这些控制边界时必须拆成多个节点。
 
-```json
-{
-  "speaker": { "characterId": "character.alice" },
-  "text": { "default": "你好，旅行者。" },
-  "voice": { "assetId": "voice.alice.greeting_001" },
-  "emotion": "happy"
+```kdl
+dialogue n_greet speaker=c_alice emotion=happy {
+  line ln_hello t_hello "你好，{playerName}。" voice=a_greeting {
+    tag greeting
+  }
+  line ln_warning t_warning "不过，前面的路并不安全。" emotion=serious
 }
 ```
 
-`emotion` 应引用角色配置中的情绪 ID。`portrait` 是可选覆盖项，没有设置时使用角色该情绪的默认立绘。
+Inspector 支持新增、复制、删除、上下移动和拖动排序；复制 Line 或整个 Dialogue 时必须重新生成
+Line ID 和 Text ID。画布只展示前几句及总数，完整内容在 Inspector 中编辑。旧版单 `text`
+Dialogue 在读取时归一化为一个稳定 Line，新 writer 统一输出 `line` 结构。
+
+`emotion` 应引用最终说话人配置中的情绪 ID。立绘由 Runtime 根据说话人和情绪解析。
 
 ### 7.1 本地化
 
@@ -419,16 +434,17 @@ Alice: 你好。 # speaker:alice # voice:greeting_001 # emotion:happy
     -> END
 ```
 
-互操作分为两层：
+互操作分为两条可共存的路线：
 
-1. Story Blueprint Ink 子集
-   - 保证 `.story ⇄ .ink` 的语义双向转换，不保证文本、空白和排版逐字符一致。
-   - 覆盖 Dialogue、Narration、Choice、Branch、变量、基础跳转和 End。
+1. 完整运行 Ink Block
+   - Linked Ink 引用项目内 `.ink`，外部文件是权威来源；Embedded Ink 将源码保存在 `.story`。
+   - 直接交给完整 Ink Runtime 执行，不要求先转换成原生节点。
+   - 通过变量桥接和 Event Adapter 与 Story Runtime、游戏引擎交互。
 
-2. 任意 Ink
-   - 可以导入为 Ink Block 并保留原始源码。
-   - 可以交给 inkjs 执行。
-   - 不保证 weave、thread、tunnel、复杂函数或自由布局能无损转换为可视节点。
+2. Ink 节点转换
+   - 长期目标是把完整 Ink 语义转换为可视节点；连续台词合并为多 Line Dialogue。
+   - 转换覆盖率可以渐进增加，暂未覆盖的局部结构继续保留为可运行 Ink Block。
+   - `.story ⇄ .ink` 只承诺语义等价，不承诺原始空白、排版和注释位置不变。
 
 Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 
@@ -438,7 +454,7 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 - 导出时用保留 Tag 写入稳定对象 ID，以及 speaker、voice、emotion、textId 等元数据。
 - Tag 的名称、转义和重复规则形成版本化的 Ink Profile，不能依赖自由文本猜测。
 - Ink 变量必须显式映射到 Story Blueprint 变量 ID、作用域和类型。
-- 不受支持的结构默认整体保留为 Ink Block；禁止静默丢弃或擅自改写。
+- 暂未覆盖的结构默认整体保留为 Ink Block；禁止静默丢弃或擅自改写。
 - 部分导入出现不支持结构时，先生成 Diagnostics 和预览，由用户选择取消或降级为 Ink Block。
 - Ink Block 原始源码保持原样；一旦拆成可视节点，之后只保证语义等价。
 
@@ -485,7 +501,7 @@ story s_intro format=story-blueprint version=2 name=intro display-name=序章 {
   graph {
     story-entry n_start x=80 y=120 title=序章
     dialogue n_greet name=greeting x=320 y=120 speaker=c_alice emotion=happy {
-      text "你好，{playerName}。"
+      line ln_greeting t_greeting "你好，{playerName}。"
     }
     branch n_check x=600 y=120 condition="favor >= 10"
     choice n_choose x=860 y=120 prompt=是否接受任务？ {

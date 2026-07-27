@@ -31,6 +31,7 @@ import {
   StoryNodeType,
   type AssetSource,
   type CharacterSource,
+  type DialogueNodeData,
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type StoryProjectDocument,
@@ -478,15 +479,21 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
     ];
     for (const node of graphNodes) {
       if (node.type !== StoryNodeType.Dialogue) continue;
-      const data = node.data as { speakerId?: string; voiceId?: string };
-      if (data.speakerId) {
-        const character = characters.get(data.speakerId);
-        if (!character) throw new Error(`Dialogue references missing character ${data.speakerId}`);
+      const data = node.data as unknown as DialogueNodeData;
+      const speakerIds = new Set(
+        [data.speakerId, ...data.lines.map((line) => line.speakerId)].filter(Boolean),
+      );
+      const voiceIds = new Set(
+        [data.voiceId, ...data.lines.map((line) => line.voiceId)].filter(Boolean),
+      );
+      for (const speakerId of speakerIds) {
+        const character = characters.get(speakerId!);
+        if (!character) throw new Error(`Dialogue references missing character ${speakerId}`);
         addUsage(character, source.id);
       }
-      if (data.voiceId) {
-        const asset = assets.get(data.voiceId);
-        if (!asset) throw new Error(`Dialogue references missing asset ${data.voiceId}`);
+      for (const voiceId of voiceIds) {
+        const asset = assets.get(voiceId!);
+        if (!asset) throw new Error(`Dialogue references missing asset ${voiceId}`);
         addUsage(asset, source.id);
       }
     }

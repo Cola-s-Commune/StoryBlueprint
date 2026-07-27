@@ -809,7 +809,13 @@ export function StoryGraph() {
           if (payload.kind === 'character') {
             addNode(StoryNodeType.Dialogue, position, {
               speakerId: payload.id,
-              text: { source: '' },
+              lines: [
+                {
+                  id: createStableId('line'),
+                  textId: createStableId('text'),
+                  text: { source: '' },
+                },
+              ],
             });
           } else if (payload.kind === 'variable' && payload.action === 'set') {
             addNode(StoryNodeType.SetVariable, position, {

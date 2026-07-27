@@ -31,7 +31,17 @@ function sourceDocument(): StorySourceDocument {
           type: StoryNodeType.Dialogue,
           definitionVersion: 1,
           position: { x: 360.1, y: 120.8 },
-          data: { speakerId: 'c_arys', text: { source: 'Hello {gold}' }, emotion: 'happy' },
+          data: {
+            speakerId: 'c_arys',
+            emotion: 'happy',
+            lines: [
+              {
+                id: 'ln_greeting',
+                textId: 't_greeting',
+                text: { source: 'Hello {gold}' },
+              },
+            ],
+          },
         },
         {
           id: 'n_endx',

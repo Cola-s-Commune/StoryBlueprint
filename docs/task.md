@@ -214,7 +214,15 @@
 - [x] Voice Asset ID 基础字段
 - [x] Character Emotion 选择
 - [x] Voice / Portrait 资源选择器与按语言覆盖
-- [ ] 稳定 Text ID
+- [x] 稳定 Text ID
+- [x] Dialogue 改为可排序的多 Line 连续对话段，每句使用稳定 Line ID / Text ID
+- [x] Node 级 Speaker / Emotion / Voice 默认值与 Line 级覆盖
+- [x] Line 支持 Speaker、Text Template、Emotion、Voice、Tags
+- [x] Inspector 支持新增、删除、复制和拖动排序 Line
+- [x] 画布节点折叠展示前几句与总句数，避免长对话撑高蓝图
+- [x] Compiler 将多个 Line 降级为连续 Dialogue 指令，控制流仍只从节点末尾离开
+- [x] Runtime 历史、语音播放和恢复位置精确到单个 Line
+- [x] Line 之间出现 Choice、Branch、Event 或变量修改时保持为独立节点
 
 ---
 
@@ -258,9 +266,18 @@
 
 ## Call Event Node
 
-- [ ] Event Reference
-- [ ] Typed Parameters / Result
-- [ ] Error Policy
+- [ ] 项目级 Event Definition / Registry 与稳定 Event ID
+- [ ] Event Name / Display Name、参数 Schema、返回类型、执行模式和错误策略
+- [ ] Event Reference 使用稳定 ID，参数重命名不破坏节点绑定
+- [ ] Boolean / Number / String / CharacterRef / AssetRef 参数
+- [ ] Array / Struct / Map / Json 递归复杂参数，编译产物使用 JSON 兼容值
+- [ ] 参数支持 Literal、Expression、Variable Binding 和结构化编辑
+- [ ] Raw JSON 仅作为复杂参数的逃生编辑方式
+- [ ] Wait for Completion / Fire and Forget
+- [ ] 可选返回值写入变量
+- [ ] Completed 输出与按策略显示的 Failed 输出
+- [ ] 终止故事、继续执行、进入 Failed 分支错误策略
+- [ ] Ink External Function 映射为 Event Definition / Call Event
 
 ---
 
@@ -298,6 +315,18 @@
 - [ ] Script ID
 - [ ] Parameters
 - [ ] 延后到基础 Call Event 完成后评估
+
+---
+
+## Ink Block Node
+
+- [ ] Embedded Ink：完整 Ink 文本保存在 `.story` 中
+- [ ] Linked Ink：引用项目内 `.ink` 文件，外部文件作为权威来源
+- [ ] 接入完整 Ink Runtime，不要求先转换成原生节点
+- [ ] Ink Block 的入口、完成出口、变量桥接与 Event Adapter 桥接
+- [ ] Ink Runtime 暂停、选择、继续、错误和取消状态接入 Story Runtime
+- [ ] Linked / Embedded 模式明确单一权威来源，不自动双向同步文本与节点
+- [ ] Convert to Nodes / Convert to Ink Block 使用显式操作和 Diff Preview
 
 ---
 
@@ -381,7 +410,7 @@
 
 ## Localization
 
-- [ ] 内联默认文本与稳定 Text ID
+- [x] 内联默认文本与稳定 Text ID
 - [ ] 本地化表提取
 - [ ] Locale Fallback
 
@@ -514,6 +543,7 @@
 - [x] RuntimeState / CallFrame / PendingInteraction 类型契约
 - [x] `blockId + instructionIndex` 执行状态机
 - [ ] Async Pause / Resume / Abort
+- [x] 多 Line Dialogue 的逐句暂停、继续、历史和恢复位置
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
 - [ ] Project / Story / Chapter / Character Variables 状态机集成
@@ -522,6 +552,7 @@
 - [x] End Story
 - [ ] 稳定点 Save / Load
 - [ ] Pending Choice / Event 恢复
+- [ ] Ink Block 子运行时的暂停、选择、恢复与终止
 - [x] Program Format / Version / Content Version 检查
 - [x] 核心执行状态机结构化 Runtime Diagnostics
 
@@ -532,6 +563,9 @@
 - [x] StoryAdapter TypeScript 契约
 - [x] Dialogue / Choice 异步接口
 - [ ] Event Registry 与 Typed Parameters / Result
+- [ ] `callEvent(eventId, arguments, signal)` 异步调用协议
+- [ ] 游戏引擎按稳定 Event ID 注册具体 Handler
+- [ ] Wait / Fire-and-forget、返回值与 Failed 分支语义
 - [ ] Text / Voice / Asset 解析
 - [ ] External Variable 读写
 - [ ] AbortSignal 取消
@@ -652,12 +686,29 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 
 # Milestone 12 - Ink Interoperability
 
+完整运行 Ink Block 与 Ink 节点化是两条可共存路线。近期优先保证任意 Ink 可以作为
+Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力，并作为后续渐进目标。
+
+## Ink Block Runtime
+
+- [ ] 集成 Ink Runtime，执行完整 Ink 语言而非仅支持子集
+- [ ] Linked `.ink` 与 Embedded Ink Source 加载、编译和诊断
+- [ ] Ink Variable 与 Story Typed Variable 显式桥接
+- [ ] Ink External Function 与项目 Event Definition 映射
+- [ ] Ink Choice / Continue 与 Story Runtime PendingInteraction 桥接
+- [ ] Ink Block 运行状态参与 Save / Load、Abort 和结构化 Diagnostics
+
+---
+
 ## Versioned Ink Profile
 
-- [ ] 定义受支持的 Story Blueprint Ink 子集
+- [ ] 定义可转换为原生节点的版本化 Ink Profile
+- [ ] 建立完整 Ink 语法与原生节点类型的覆盖矩阵
 - [ ] Speaker / Voice / Emotion / Text ID Tag 规范
 - [ ] Tag 转义与稳定 ID 规则
 - [ ] Ink Variable 与 Typed Variable 映射
+- [ ] 连续 Ink 台词合并为多 Line Dialogue，控制流边界处自动拆分
+- [ ] Expressions 保持内嵌，不把普通运算展开成大量数据节点
 
 ---
 
@@ -665,8 +716,11 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 
 - [ ] `.story` → `.ink` 语义导出
 - [ ] 受支持 `.ink` → Typed Story Graph
-- [ ] 不受支持结构的 Diagnostics / Preview
-- [ ] 任意 Ink 降级为保留原文的 Ink Block
+- [ ] 完整 `.ink` → 原生节点的长期转换目标
+- [ ] 暂未覆盖的结构保留为可完整运行的 Ink Block，并提供 Diagnostics / Preview
+- [ ] Linked / Embedded Ink Block → Nodes 显式转换
+- [ ] 选中原生节点 → Ink Block 显式转换
+- [ ] 转换前显示语义 Diff，不承诺保留原始空白、排版和注释位置
 - [ ] 语义往返测试
 
 ---

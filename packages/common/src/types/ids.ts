@@ -8,6 +8,7 @@ const stableIdPrefixes = {
   character: 'c',
   asset: 'a',
   event: 'ev',
+  line: 'ln',
   text: 't',
   option: 'o',
   program: 'p',
@@ -27,6 +28,7 @@ export type VariableId = StableId<'variable'>;
 export type CharacterId = StableId<'character'>;
 export type AssetId = StableId<'asset'>;
 export type EventId = StableId<'event'>;
+export type DialogueLineId = StableId<'line'>;
 export type TextId = StableId<'text'>;
 export type OptionId = StableId<'option'>;
 export type ProgramId = StableId<'program'>;

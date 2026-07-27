@@ -1,6 +1,12 @@
 import { Document, Node, format, parse } from '@bgotink/kdl';
 import { isStableId, type StableId, type StableIdKind } from '../types/ids';
-import { StoryNodeType, type ChoiceOption, type StoryNodeDataMap } from '../types/nodes';
+import {
+  StoryNodeType,
+  type ChoiceOption,
+  type DialogueLine,
+  type StoryNodeDataMap,
+} from '../types/nodes';
+import type { DialogueLineId, NodeId, TextId } from '../types/ids';
 import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
@@ -52,6 +58,11 @@ function requiredId<Kind extends StableIdKind>(
   const id = requiredString(value, path);
   if (!isStableId(id, kind)) throw new StoryFormatError(`${path} is not a valid ${kind} ID`);
   return id as StableId<Kind>;
+}
+
+function legacyDialogueLineIds(nodeId: NodeId): { id: DialogueLineId; textId: TextId } {
+  const suffix = nodeId.slice(nodeId.indexOf('_') + 1);
+  return { id: `ln_${suffix}`, textId: `t_${suffix}` };
 }
 
 function assertShape(
@@ -119,9 +130,24 @@ function serializeSourceNode(source: SourceNode): Node {
       if (dialogue.speakerId) target.setProperty('speaker', dialogue.speakerId);
       if (dialogue.voiceId) target.setProperty('voice', dialogue.voiceId);
       if (dialogue.emotion) target.setProperty('emotion', dialogue.emotion);
-      const text = Node.create('text');
-      text.addArgument(requiredString(dialogue.text.source, `${source.id}.text`));
-      target.appendNode(text);
+      if (dialogue.lines.length === 0) {
+        throw new StoryFormatError(`${source.id} must contain at least one dialogue line`);
+      }
+      for (const line of dialogue.lines) {
+        const lineNode = Node.create('line');
+        lineNode.addArgument(line.id);
+        lineNode.addArgument(line.textId);
+        lineNode.addArgument(requiredString(line.text.source, `${line.id}.text`));
+        if (line.speakerId) lineNode.setProperty('speaker', line.speakerId);
+        if (line.voiceId) lineNode.setProperty('voice', line.voiceId);
+        if (line.emotion) lineNode.setProperty('emotion', line.emotion);
+        for (const tag of line.tags ?? []) {
+          const tagNode = Node.create('tag');
+          tagNode.addArgument(requiredString(tag, `${line.id}.tag`));
+          lineNode.appendNode(tagNode);
+        }
+        target.appendNode(lineNode);
+      }
       break;
     }
     case StoryNodeType.Choice: {
@@ -293,6 +319,8 @@ function validateStoryReferences(source: StorySourceDocument): void {
   const chapterIds = new Set(source.chapters.map((chapter) => chapter.id));
   const variableIds = new Set(source.variables.map((variable) => variable.id));
   const allNodeIds = new Set<string>();
+  const allLineIds = new Set<string>();
+  const allTextIds = new Set<string>();
   const graphs = [source.root, ...source.chapters.map((chapter) => chapter.graph)];
   for (const graph of graphs) {
     const nodeIds = new Set(graph.nodes.map((node) => node.id));
@@ -307,6 +335,17 @@ function validateStoryReferences(source: StorySourceDocument): void {
       }
     }
     for (const node of graph.nodes) {
+      if (node.type === StoryNodeType.Dialogue) {
+        const dialogue = node.data as unknown as StoryNodeDataMap[StoryNodeType.Dialogue];
+        for (const line of dialogue.lines) {
+          if (allLineIds.has(line.id)) throw new StoryFormatError(`Duplicate line ID: ${line.id}`);
+          if (allTextIds.has(line.textId)) {
+            throw new StoryFormatError(`Duplicate text ID: ${line.textId}`);
+          }
+          allLineIds.add(line.id);
+          allTextIds.add(line.textId);
+        }
+      }
       if (node.type !== StoryNodeType.FlowJump) continue;
       const targetNodeId = (node.data as StoryNodeDataMap[StoryNodeType.FlowJump]).targetNodeId;
       if (!targetNodeId) continue;
@@ -381,7 +420,7 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.End]: ['title'],
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
-    [StoryNodeType.Dialogue]: ['text'],
+    [StoryNodeType.Dialogue]: ['text', 'line'],
     [StoryNodeType.Choice]: ['option'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: [],
@@ -408,10 +447,48 @@ function parseSourceNode(node: Node): SourceNode {
       break;
     case StoryNodeType.Dialogue: {
       const texts = node.findNodesByName('text');
-      if (texts.length !== 1) throw new StoryFormatError(`${id} must contain exactly one text`);
-      assertShape(texts[0], `${id}.text`, { arguments: 1 });
+      const lineNodes = node.findNodesByName('line');
+      if (texts.length > 0 && lineNodes.length > 0) {
+        throw new StoryFormatError(`${id} cannot mix legacy text and line children`);
+      }
+      if (texts.length > 1 || (texts.length === 0 && lineNodes.length === 0)) {
+        throw new StoryFormatError(`${id} must contain at least one dialogue line`);
+      }
+      const lines: DialogueLine[] = lineNodes.map((lineNode) => {
+        assertShape(lineNode, `${id}.line`, {
+          arguments: 3,
+          properties: ['speaker', 'voice', 'emotion'],
+          children: ['tag'],
+        });
+        const lineId = requiredId(lineNode.getArgument(0), 'line', `${id}.line.id`);
+        const textId = requiredId(lineNode.getArgument(1), 'text', `${lineId}.text-id`);
+        const tags = lineNode.findNodesByName('tag').map((tagNode) => {
+          assertShape(tagNode, `${lineId}.tag`, { arguments: 1 });
+          return requiredString(tagNode.getArgument(0), `${lineId}.tag`);
+        });
+        return {
+          id: lineId,
+          textId,
+          text: { source: requiredString(lineNode.getArgument(2), `${lineId}.text`) },
+          speakerId: lineNode.getProperty('speaker')
+            ? requiredId(lineNode.getProperty('speaker'), 'character', `${lineId}.speaker`)
+            : undefined,
+          voiceId: lineNode.getProperty('voice')
+            ? requiredId(lineNode.getProperty('voice'), 'asset', `${lineId}.voice`)
+            : undefined,
+          emotion: optionalString(lineNode.getProperty('emotion'), `${lineId}.emotion`),
+          tags: tags.length > 0 ? tags : undefined,
+        };
+      });
+      if (texts.length === 1) {
+        assertShape(texts[0], `${id}.text`, { arguments: 1 });
+        lines.push({
+          ...legacyDialogueLineIds(id),
+          text: { source: requiredString(texts[0].getArgument(0), `${id}.text`) },
+        });
+      }
       data = {
-        text: { source: requiredString(texts[0].getArgument(0), `${id}.text`) },
+        lines,
         speakerId: node.getProperty('speaker')
           ? requiredId(node.getProperty('speaker'), 'character', `${id}.speaker`)
           : undefined,

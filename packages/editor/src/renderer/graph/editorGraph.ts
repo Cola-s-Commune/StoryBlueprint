@@ -6,6 +6,7 @@ import {
   validateGraphConnection,
   type ChoiceNodeData,
   type ChapterId,
+  type DialogueNodeData,
   type EdgeId,
   type FlowJumpNodeData,
   type NodeId,
@@ -402,6 +403,14 @@ function cloneNodeData(node: EditorGraphNode): {
 } {
   const data = structuredClone(node.data);
   const portIds = new Map<string, string>();
+  if (node.type === StoryNodeType.Dialogue) {
+    const dialogue = data as DialogueNodeData;
+    dialogue.lines = dialogue.lines.map((line) => ({
+      ...line,
+      id: createStableId('line'),
+      textId: createStableId('text'),
+    }));
+  }
   const dynamic = nodeRegistry.get(node.type)?.dynamicOutputs;
   if (!dynamic) return { data, portIds };
 

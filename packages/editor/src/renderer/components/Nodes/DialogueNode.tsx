@@ -7,8 +7,7 @@ import styles from './Node.module.css';
 export function DialogueNode({ data }: NodeProps) {
   const d = data as unknown as DialogueNodeData;
   const { characters } = useStoryGraphStore();
-  const character = characters.find((candidate) => candidate.id === d.speakerId);
-  const speaker = character?.displayName || 'Narrator';
+  const visibleLines = d.lines.slice(0, 3);
   return (
     <div
       className={styles.node}
@@ -21,20 +20,28 @@ export function DialogueNode({ data }: NodeProps) {
     >
       <div className={styles.header}>
         <span className={styles.title}>Dialogue</span>
-        <span className={styles.typeIcon}>“</span>
+        <span className={styles.typeIcon}>{d.lines.length}</span>
       </div>
-      <div className={styles.body}>
-        <div className={styles.field}>
-          <label>Speaker</label>
-          <div className={styles.speaker}>
-            <span className={styles.avatar}>{speaker.slice(0, 1)}</span>
-            {speaker}
-          </div>
-        </div>
-        <div className={styles.field}>
-          <label>Line</label>
-          <div className={styles.dialogueText}>{d.text.source || 'No dialogue text yet…'}</div>
-        </div>
+      <div className={styles.dialogueLines}>
+        {visibleLines.map((line, index) => {
+          const speakerId = line.speakerId ?? d.speakerId;
+          const speaker =
+            characters.find((candidate) => candidate.id === speakerId)?.displayName || 'Narrator';
+          return (
+            <div key={line.id} className={styles.dialogueLine}>
+              <div className={styles.dialogueLineMeta}>
+                <span>{index + 1}</span>
+                <strong>{speaker}</strong>
+              </div>
+              <div className={styles.dialogueText}>
+                {line.text.source || 'No dialogue text yet…'}
+              </div>
+            </div>
+          );
+        })}
+        {d.lines.length > visibleLines.length && (
+          <div className={styles.moreLines}>+{d.lines.length - visibleLines.length} more lines</div>
+        )}
       </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}

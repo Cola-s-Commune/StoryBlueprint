@@ -34,7 +34,15 @@ function graph(): EditorGraphState {
         type: StoryNodeType.Dialogue,
         definitionVersion: 1,
         position: { x: 300, y: 0 },
-        data: { text: { source: 'Inside substory' } },
+        data: {
+          lines: [
+            {
+              id: 'ln_inside',
+              textId: 't_inside',
+              text: { source: 'Inside substory' },
+            },
+          ],
+        },
         selected: true,
       },
       {

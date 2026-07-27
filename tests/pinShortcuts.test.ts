@@ -23,14 +23,18 @@ function graph(): EditorGraphState {
         type: StoryNodeType.Dialogue,
         definitionVersion: 1,
         position: { x: 300, y: 0 },
-        data: { text: { source: 'First' } },
+        data: {
+          lines: [{ id: 'ln_first', textId: 't_first', text: { source: 'First' } }],
+        },
       },
       {
         id: 'n_second',
         type: StoryNodeType.Dialogue,
         definitionVersion: 1,
         position: { x: 300, y: 200 },
-        data: { text: { source: 'Second' } },
+        data: {
+          lines: [{ id: 'ln_second', textId: 't_second', text: { source: 'Second' } }],
+        },
       },
     ],
     edges: [

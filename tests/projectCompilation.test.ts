@@ -40,7 +40,9 @@ function story(): StorySourceDocument {
           type: StoryNodeType.Dialogue,
           definitionVersion: 1,
           position: { x: 30, y: 20 },
-          data: { text: { source: 'Hello' } },
+          data: {
+            lines: [{ id: 'ln_projecthello', textId: 't_projecthello', text: { source: 'Hello' } }],
+          },
         },
         {
           id: 'n_projectend',
@@ -86,9 +88,7 @@ function project(): StoryProjectDocument {
 
 describe('project compilation', () => {
   it('exports a node-free project artifact that the runtime can load', () => {
-    const result = compileProject(project(), [
-      { path: 'Stories/project.story', source: story() },
-    ]);
+    const result = compileProject(project(), [{ path: 'Stories/project.story', source: story() }]);
     expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics)).toBe(true);
     if (!result.ok) return;
     const json = JSON.stringify(result.project);
@@ -105,7 +105,19 @@ describe('project compilation', () => {
       ...invalid.root,
       nodes: invalid.root.nodes.map((node) =>
         node.id === 'n_projectdialogue'
-          ? { ...node, data: { text: { source: 'Hello' }, speakerId: 'c_missing' } }
+          ? {
+              ...node,
+              data: {
+                speakerId: 'c_missing',
+                lines: [
+                  {
+                    id: 'ln_projecthello',
+                    textId: 't_projecthello',
+                    text: { source: 'Hello' },
+                  },
+                ],
+              },
+            }
           : node,
       ),
       edges: [
@@ -115,9 +127,7 @@ describe('project compilation', () => {
         },
       ],
     };
-    const result = compileProject(project(), [
-      { path: 'Stories/project.story', source: invalid },
-    ]);
+    const result = compileProject(project(), [{ path: 'Stories/project.story', source: invalid }]);
     expect(result.ok).toBe(false);
     expect(result.diagnostics).toEqual(
       expect.arrayContaining([

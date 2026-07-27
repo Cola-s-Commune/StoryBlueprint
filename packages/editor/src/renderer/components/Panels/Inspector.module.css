@@ -21,6 +21,33 @@
   margin-top: 14px;
 }
 
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  margin-bottom: 10px;
+}
+
+.groupHeader .groupLabel {
+  margin: 0;
+}
+
+.groupHeader button,
+.lineActions button {
+  border: 1px solid #414954;
+  border-radius: 3px;
+  background: #282e36;
+  color: #b7c1ce;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.groupHeader button {
+  padding: 5px 8px;
+}
+
 .field {
   display: grid;
   gap: 5px;
@@ -67,6 +94,75 @@
   border: 1px solid #343a43;
   border-radius: 5px;
   background: #20242a;
+}
+
+.lineGroup {
+  padding-top: 7px;
+}
+
+.lineHeader {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  color: #b9c4d1;
+  font-size: 11px;
+}
+
+.dragHandle {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 3px;
+  color: #768394;
+  cursor: move;
+  font-size: 14px;
+}
+
+.dragHandle:hover {
+  background: #303944;
+  color: #c5d0dd;
+}
+
+.lineActions {
+  display: flex;
+  flex: 1;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.lineActions button {
+  min-width: 24px;
+  padding: 3px 5px;
+}
+
+.lineActions button:hover:not(:disabled),
+.groupHeader button:hover {
+  border-color: #55789a;
+  background: #314153;
+}
+
+.lineActions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.stableIds {
+  display: grid;
+  gap: 2px;
+  margin: -3px 0 8px;
+}
+
+.stableIds code {
+  overflow: hidden;
+  color: #586271;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
 }
 
 .info {

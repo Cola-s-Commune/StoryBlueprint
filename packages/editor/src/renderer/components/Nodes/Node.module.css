@@ -192,6 +192,57 @@
   white-space: pre-wrap;
 }
 
+.dialogueLines {
+  display: grid;
+  min-width: 230px;
+}
+
+.dialogueLine {
+  display: grid;
+  gap: 4px;
+  padding: 8px 11px 9px;
+  border-bottom: 1px solid #303640;
+}
+
+.dialogueLine:last-child {
+  border-bottom: 0;
+}
+
+.dialogueLineMeta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #84909f;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.dialogueLineMeta span {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--node-accent-soft);
+  color: var(--node-accent);
+  font-weight: 700;
+}
+
+.dialogueLineMeta strong {
+  overflow: hidden;
+  color: var(--node-accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moreLines {
+  padding: 7px 11px;
+  color: #718095;
+  font-size: 9px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .expression {
   display: inline-flex;
   align-items: center;

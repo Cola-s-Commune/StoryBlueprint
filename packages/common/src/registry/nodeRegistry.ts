@@ -77,7 +77,13 @@ export class NodeRegistry {
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
       defaultData: () => ({
-        text: { source: '' },
+        lines: [
+          {
+            id: createStableId('line'),
+            textId: createStableId('text'),
+            text: { source: '' },
+          },
+        ],
       }),
     });
 

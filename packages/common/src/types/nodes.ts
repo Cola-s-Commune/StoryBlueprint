@@ -2,7 +2,16 @@
 // StoryBlueprint Node Type Definitions
 // ============================================================
 
-import type { AssetId, ChapterId, CharacterId, NodeId, OptionId, VariableId } from './ids';
+import type {
+  AssetId,
+  ChapterId,
+  CharacterId,
+  DialogueLineId,
+  NodeId,
+  OptionId,
+  TextId,
+  VariableId,
+} from './ids';
 import type { ExpressionSource, TextTemplateSource } from './expressions';
 import type { ValueType } from './values';
 
@@ -49,16 +58,25 @@ export interface StartNodeData {
   title: string;
 }
 
-/** Data for Dialogue node — a single dialogue line */
-export interface DialogueNodeData {
-  /** Stable character reference. */
-  speakerId?: CharacterId;
-  /** Dialogue text content */
+/** A stable, individually resumable line inside a Dialogue node. */
+export interface DialogueLine {
+  id: DialogueLineId;
+  textId: TextId;
   text: TextTemplateSource;
-  /** Optional voice asset reference. */
+  /** Omitted values inherit the node-level default. */
+  speakerId?: CharacterId;
   voiceId?: AssetId;
-  /** Emotion key configured on the character. */
   emotion?: string;
+  tags?: readonly string[];
+}
+
+/** Data for Dialogue node — one uninterrupted sequence of dialogue lines. */
+export interface DialogueNodeData {
+  /** Defaults inherited by lines that do not override the value. */
+  speakerId?: CharacterId;
+  voiceId?: AssetId;
+  emotion?: string;
+  lines: DialogueLine[];
 }
 
 /** Data for Choice node — presents options to the player */

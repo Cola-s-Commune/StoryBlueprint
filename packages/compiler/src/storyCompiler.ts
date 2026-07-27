@@ -40,8 +40,8 @@ function blockId(nodeId: NodeId): BlockId {
   return `b_${suffix(nodeId)}` as BlockId;
 }
 
-function instructionId(nodeId: NodeId, tag = 'main'): InstructionId {
-  return `i_${suffix(nodeId)}_${tag}` as InstructionId;
+function instructionId(sourceId: string, tag = 'main'): InstructionId {
+  return `i_${suffix(sourceId)}_${tag}` as InstructionId;
 }
 
 function textId(id: string): TextId {
@@ -178,45 +178,59 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.Dialogue: {
             const data = node.data as unknown as DialogueNodeData;
-            const speaker = data.speakerId
-              ? source.characters.find((character) => character.id === data.speakerId)
-              : undefined;
-            if (data.speakerId && !speaker) {
+            if (data.lines.length === 0) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
-                message: `Dialogue references missing character ${data.speakerId}`,
+                message: 'Dialogue must contain at least one line',
                 sourceNodeId: node.id,
               });
             }
-            if (data.emotion && speaker && !speaker.emotions[data.emotion]) {
-              diagnostics.push({
-                code: 'INVALID_NODE',
-                severity: 'warning',
-                message: `Character ${speaker.displayName} has no ${data.emotion} emotion`,
-                sourceNodeId: node.id,
-              });
-            }
-            if (data.voiceId && !source.assets.some((asset) => asset.id === data.voiceId)) {
-              diagnostics.push({
-                code: 'INVALID_NODE',
-                severity: 'error',
-                message: `Dialogue references missing voice asset ${data.voiceId}`,
-                sourceNodeId: node.id,
-              });
-            }
-            const text = compileSafe(node, () =>
-              compileTextTemplate(data.text.source, textId(node.id), source.variables),
-            );
-            if (text) {
-              instructions.push({
-                id: instructionId(node.id),
-                op: 'dialogue',
-                speakerId: data.speakerId,
-                text,
-                voice: data.voiceId ? { default: data.voiceId } : undefined,
-                emotion: data.emotion,
-              });
+            for (const line of data.lines) {
+              const speakerId = line.speakerId ?? data.speakerId;
+              const voiceId = line.voiceId ?? data.voiceId;
+              const emotion = line.emotion ?? data.emotion;
+              const speaker = speakerId
+                ? source.characters.find((character) => character.id === speakerId)
+                : undefined;
+              if (speakerId && !speaker) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Dialogue line ${line.id} references missing character ${speakerId}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              if (emotion && speaker && !speaker.emotions[emotion]) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'warning',
+                  message: `Character ${speaker.displayName} has no ${emotion} emotion`,
+                  sourceNodeId: node.id,
+                });
+              }
+              if (voiceId && !source.assets.some((asset) => asset.id === voiceId)) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Dialogue line ${line.id} references missing voice asset ${voiceId}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              const text = compileSafe(node, () =>
+                compileTextTemplate(line.text.source, line.textId, source.variables),
+              );
+              if (text) {
+                instructions.push({
+                  id: instructionId(line.id),
+                  op: 'dialogue',
+                  speakerId,
+                  text,
+                  voice: voiceId ? { default: voiceId } : undefined,
+                  emotion,
+                  tags: line.tags,
+                });
+              }
             }
             const target = requireTarget(node, 'out');
             if (target) instructions.push(jump(node, target));

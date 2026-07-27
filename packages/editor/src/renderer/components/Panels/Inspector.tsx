@@ -1,9 +1,12 @@
 import {
+  createStableId,
   StoryNodeType,
   type BranchNodeData,
   type CallSubstoryNodeData,
   type ChoiceNodeData,
   type DialogueNodeData,
+  type DialogueLine,
+  type DialogueLineId,
   type EndNodeData,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
@@ -117,6 +120,54 @@ function VariableSelect({
   );
 }
 
+function TagsField({
+  value,
+  onBeginEdit,
+  onChange,
+}: {
+  value: readonly string[];
+  onBeginEdit: () => void;
+  onChange: (value: string[] | undefined) => void;
+}) {
+  const serialized = value.join(', ');
+  const [draft, setDraft] = useState(serialized);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setDraft(serialized);
+  }, [serialized]);
+  return (
+    <label className={styles.field}>
+      <span>Tags</span>
+      <input
+        value={draft}
+        placeholder="intro, greeting"
+        onChange={(event) => {
+          if (!editing.current) {
+            onBeginEdit();
+            editing.current = true;
+          }
+          setDraft(event.target.value);
+        }}
+        onBlur={() => {
+          if (!editing.current) return;
+          const tags = [
+            ...new Set(
+              draft
+                .split(',')
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            ),
+          ];
+          editing.current = false;
+          setDraft(tags.join(', '));
+          onChange(tags.length > 0 ? tags : undefined);
+        }}
+      />
+      <small>Comma-separated tags.</small>
+    </label>
+  );
+}
+
 function decodeStringLiteral(source: string): string | undefined {
   try {
     const value: unknown = JSON.parse(source);
@@ -206,13 +257,323 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
   );
 }
 
+function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeData }) {
+  const { characters, assets, checkpoint, updateNodeData } = useStoryGraphStore();
+  const [draggedLineId, setDraggedLineId] = useState<DialogueLineId>();
+  const defaultCharacter = characters.find((candidate) => candidate.id === data.speakerId);
+  const updateLines = (lines: DialogueLine[]) =>
+    updateNodeData(nodeId, StoryNodeType.Dialogue, { lines });
+  const updateLine = (lineId: DialogueLineId, update: Partial<DialogueLine>) =>
+    updateLines(data.lines.map((line) => (line.id === lineId ? { ...line, ...update } : line)));
+  const moveLine = (lineId: DialogueLineId, nextIndex: number) => {
+    const currentIndex = data.lines.findIndex((line) => line.id === lineId);
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= data.lines.length) return;
+    const lines = [...data.lines];
+    const [line] = lines.splice(currentIndex, 1);
+    lines.splice(nextIndex, 0, line);
+    checkpoint();
+    updateLines(lines);
+  };
+
+  return (
+    <>
+      <div className={styles.groupLabel}>Defaults</div>
+      <label
+        className={styles.field}
+        onDragOver={(event) => {
+          if (readStoryDataDrag(event.dataTransfer)?.kind === 'character') event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const payload = readStoryDataDrag(event.dataTransfer);
+          if (payload?.kind !== 'character') return;
+          event.preventDefault();
+          checkpoint();
+          updateNodeData(nodeId, StoryNodeType.Dialogue, { speakerId: payload.id });
+        }}
+      >
+        <span>Default Speaker</span>
+        <select
+          value={data.speakerId ?? ''}
+          onChange={(event) => {
+            checkpoint();
+            updateNodeData(nodeId, StoryNodeType.Dialogue, {
+              speakerId: (event.target.value || undefined) as DialogueNodeData['speakerId'],
+            });
+          }}
+        >
+          <option value="">Narrator</option>
+          {characters.map((character) => (
+            <option key={character.id} value={character.id}>
+              {character.displayName}
+            </option>
+          ))}
+        </select>
+        <small>Lines inherit this unless they select another speaker.</small>
+      </label>
+      {defaultCharacter && (
+        <label className={styles.field}>
+          <span>Default Emotion</span>
+          <select
+            value={data.emotion ?? ''}
+            onChange={(event) => {
+              checkpoint();
+              updateNodeData(nodeId, StoryNodeType.Dialogue, {
+                emotion: event.target.value || undefined,
+              });
+            }}
+          >
+            <option value="">Character Default</option>
+            {Object.entries(defaultCharacter.emotions).map(([key, emotion]) => (
+              <option key={key} value={key}>
+                {emotion.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label
+        className={styles.field}
+        onDragOver={(event) => {
+          if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset') event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const payload = readStoryDataDrag(event.dataTransfer);
+          if (payload?.kind !== 'asset') return;
+          event.preventDefault();
+          checkpoint();
+          updateNodeData(nodeId, StoryNodeType.Dialogue, { voiceId: payload.id });
+        }}
+      >
+        <span>Default Voice Asset</span>
+        <select
+          value={data.voiceId ?? ''}
+          onChange={(event) => {
+            checkpoint();
+            updateNodeData(nodeId, StoryNodeType.Dialogue, {
+              voiceId: (event.target.value || undefined) as DialogueNodeData['voiceId'],
+            });
+          }}
+        >
+          <option value="">None</option>
+          {assets
+            .filter((asset) => asset.kind === 'audio')
+            .map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.displayName}
+              </option>
+            ))}
+        </select>
+      </label>
+
+      <div className={styles.groupHeader}>
+        <div className={styles.groupLabel}>Lines · {data.lines.length}</div>
+        <button
+          type="button"
+          onClick={() => {
+            checkpoint();
+            updateLines([
+              ...data.lines,
+              {
+                id: createStableId('line'),
+                textId: createStableId('text'),
+                text: { source: '' },
+              },
+            ]);
+          }}
+        >
+          Add Line
+        </button>
+      </div>
+      {data.lines.map((line, index) => {
+        const speakerId = line.speakerId ?? data.speakerId;
+        const character = characters.find((candidate) => candidate.id === speakerId);
+        return (
+          <div
+            key={line.id}
+            className={`${styles.optionGroup} ${styles.lineGroup}`}
+            onDragOver={(event) => {
+              if (draggedLineId) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (draggedLineId && draggedLineId !== line.id) moveLine(draggedLineId, index);
+              setDraggedLineId(undefined);
+            }}
+          >
+            <div className={styles.lineHeader}>
+              <span
+                className={styles.dragHandle}
+                draggable
+                title="Drag to reorder"
+                onDragStart={(event) => {
+                  setDraggedLineId(line.id);
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', line.id);
+                }}
+                onDragEnd={() => setDraggedLineId(undefined)}
+              >
+                ↕
+              </span>
+              <strong>Line {index + 1}</strong>
+              <div className={styles.lineActions}>
+                <button
+                  type="button"
+                  title="Move up"
+                  disabled={index === 0}
+                  onClick={() => moveLine(line.id, index - 1)}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  title="Move down"
+                  disabled={index === data.lines.length - 1}
+                  onClick={() => moveLine(line.id, index + 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  title="Duplicate line"
+                  onClick={() => {
+                    checkpoint();
+                    const lines = [...data.lines];
+                    lines.splice(index + 1, 0, {
+                      ...structuredClone(line),
+                      id: createStableId('line'),
+                      textId: createStableId('text'),
+                    });
+                    updateLines(lines);
+                  }}
+                >
+                  Duplicate
+                </button>
+                <button
+                  type="button"
+                  title="Delete line"
+                  disabled={data.lines.length === 1}
+                  onClick={() => {
+                    checkpoint();
+                    updateLines(data.lines.filter((candidate) => candidate.id !== line.id));
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+            <label
+              className={styles.field}
+              onDragOver={(event) => {
+                if (readStoryDataDrag(event.dataTransfer)?.kind === 'character')
+                  event.preventDefault();
+              }}
+              onDrop={(event) => {
+                const payload = readStoryDataDrag(event.dataTransfer);
+                if (payload?.kind !== 'character') return;
+                event.preventDefault();
+                checkpoint();
+                updateLine(line.id, { speakerId: payload.id });
+              }}
+            >
+              <span>Speaker</span>
+              <select
+                value={line.speakerId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateLine(line.id, {
+                    speakerId: (event.target.value || undefined) as DialogueLine['speakerId'],
+                  });
+                }}
+              >
+                <option value="">Inherit · {defaultCharacter?.displayName ?? 'Narrator'}</option>
+                {characters.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PropertyField
+              label="Text Template"
+              value={line.text.source}
+              multiline
+              variableMode="template"
+              onBeginEdit={checkpoint}
+              onChange={(source) => updateLine(line.id, { text: { source } })}
+            />
+            {character && (
+              <label className={styles.field}>
+                <span>Emotion</span>
+                <select
+                  value={line.emotion ?? ''}
+                  onChange={(event) => {
+                    checkpoint();
+                    updateLine(line.id, { emotion: event.target.value || undefined });
+                  }}
+                >
+                  <option value="">Inherit · {data.emotion || 'Character Default'}</option>
+                  {Object.entries(character.emotions).map(([key, emotion]) => (
+                    <option key={key} value={key}>
+                      {emotion.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label
+              className={styles.field}
+              onDragOver={(event) => {
+                if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset') event.preventDefault();
+              }}
+              onDrop={(event) => {
+                const payload = readStoryDataDrag(event.dataTransfer);
+                if (payload?.kind !== 'asset') return;
+                event.preventDefault();
+                checkpoint();
+                updateLine(line.id, { voiceId: payload.id });
+              }}
+            >
+              <span>Voice Asset</span>
+              <select
+                value={line.voiceId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateLine(line.id, {
+                    voiceId: (event.target.value || undefined) as DialogueLine['voiceId'],
+                  });
+                }}
+              >
+                <option value="">Inherit · {data.voiceId ? 'Default Voice' : 'None'}</option>
+                {assets
+                  .filter((asset) => asset.kind === 'audio')
+                  .map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.displayName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <TagsField
+              value={line.tags ?? []}
+              onBeginEdit={checkpoint}
+              onChange={(tags) => updateLine(line.id, { tags })}
+            />
+            <div className={styles.stableIds}>
+              <code>{line.id}</code>
+              <code>{line.textId}</code>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function Inspector() {
   const {
     hasActiveStory,
     nodes,
     variables,
-    characters,
-    assets,
     chapters,
     activeGraphId,
     checkpoint,
@@ -268,109 +629,7 @@ export function Inspector() {
       }
       case StoryNodeType.Dialogue: {
         const data = node.data as DialogueNodeData;
-        const character = characters.find((candidate) => candidate.id === data.speakerId);
-        return (
-          <>
-            <label
-              className={styles.field}
-              onDragOver={(event) => {
-                if (readStoryDataDrag(event.dataTransfer)?.kind === 'character')
-                  event.preventDefault();
-              }}
-              onDrop={(event) => {
-                const payload = readStoryDataDrag(event.dataTransfer);
-                if (payload?.kind !== 'character') return;
-                event.preventDefault();
-                checkpoint();
-                updateNodeData(node.id, StoryNodeType.Dialogue, { speakerId: payload.id });
-              }}
-            >
-              <span>Speaker</span>
-              <select
-                value={data.speakerId ?? ''}
-                onChange={(event) => {
-                  checkpoint();
-                  updateNodeData(node.id, StoryNodeType.Dialogue, {
-                    speakerId: (event.target.value || undefined) as DialogueNodeData['speakerId'],
-                  });
-                }}
-              >
-                <option value="">Narrator</option>
-                {characters.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.displayName}
-                  </option>
-                ))}
-              </select>
-              <small>Drag a character here to assign it.</small>
-            </label>
-            <PropertyField
-              label="Text Template"
-              value={data.text.source}
-              multiline
-              variableMode="template"
-              onBeginEdit={checkpoint}
-              onChange={(source) =>
-                updateNodeData(node.id, StoryNodeType.Dialogue, { text: { source } })
-              }
-            />
-            {character && (
-              <label className={styles.field}>
-                <span>Emotion</span>
-                <select
-                  value={data.emotion ?? ''}
-                  onChange={(event) => {
-                    checkpoint();
-                    updateNodeData(node.id, StoryNodeType.Dialogue, {
-                      emotion: event.target.value || undefined,
-                    });
-                  }}
-                >
-                  <option value="">Default</option>
-                  {Object.entries(character.emotions).map(([key, emotion]) => (
-                    <option key={key} value={key}>
-                      {emotion.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label
-              className={styles.field}
-              onDragOver={(event) => {
-                if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset') event.preventDefault();
-              }}
-              onDrop={(event) => {
-                const payload = readStoryDataDrag(event.dataTransfer);
-                if (payload?.kind !== 'asset') return;
-                event.preventDefault();
-                checkpoint();
-                updateNodeData(node.id, StoryNodeType.Dialogue, { voiceId: payload.id });
-              }}
-            >
-              <span>Voice Asset</span>
-              <select
-                value={data.voiceId ?? ''}
-                onChange={(event) => {
-                  checkpoint();
-                  updateNodeData(node.id, StoryNodeType.Dialogue, {
-                    voiceId: (event.target.value || undefined) as DialogueNodeData['voiceId'],
-                  });
-                }}
-              >
-                <option value="">None</option>
-                {assets
-                  .filter((asset) => asset.kind === 'audio')
-                  .map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.displayName}
-                    </option>
-                  ))}
-              </select>
-              <small>Drag a voice asset here to assign it.</small>
-            </label>
-          </>
-        );
+        return <DialogueEditor nodeId={node.id} data={data} />;
       }
       case StoryNodeType.Choice: {
         const data = node.data as ChoiceNodeData;
