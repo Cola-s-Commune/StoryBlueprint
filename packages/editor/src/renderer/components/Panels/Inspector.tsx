@@ -4,6 +4,7 @@ import {
   type BranchNodeData,
   type CallSubstoryNodeData,
   type ChoiceNodeData,
+  type ChoiceOption,
   type DialogueNodeData,
   type DialogueLine,
   type DialogueLineId,
@@ -14,13 +15,15 @@ import {
   type SetVariableNodeData,
   type StartNodeData,
   type NodeId,
+  type OptionId,
   type VariableId,
 } from '@story-blueprint/common';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
-import type { EditorGraphState } from '../../graph/editorGraph';
+import { toSourceGraph, type EditorGraphState } from '../../graph/editorGraph';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
 import { formatDialogueInk, parseDialogueInk } from '../../dialogue/dialogueInk';
+import { formatChoiceInk, parseChoiceInk } from '../../dialogue/choiceInk';
 import { StoryDataInspector } from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
@@ -258,6 +261,342 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           onBeginEdit={checkpoint}
           onChange={updateValue}
         />
+      )}
+    </>
+  );
+}
+
+function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }) {
+  const { nodes, edges, setEdges, checkpoint, updateNodeData, source, activeGraphId, saveStory } =
+    useStoryGraphStore();
+  const [draggedOptionId, setDraggedOptionId] = useState<OptionId>();
+  const [expandedOptionIds, setExpandedOptionIds] = useState<Set<OptionId>>(() => new Set());
+  const [view, setView] = useState<'options' | 'ink'>('options');
+  const [inkFocusLine, setInkFocusLine] = useState<number>();
+  const inkUndoSnapshotRef = useRef<EditorGraphState>();
+  const canonicalInk = useMemo(() => formatChoiceInk(data), [data]);
+  const [inkDraft, setInkDraft] = useState(canonicalInk);
+  const [inkDirty, setInkDirty] = useState(false);
+  const parsedInk = useMemo(() => parseChoiceInk(inkDraft, data), [data, inkDraft]);
+
+  useEffect(() => {
+    setView('options');
+    setExpandedOptionIds(new Set());
+    setInkFocusLine(undefined);
+    inkUndoSnapshotRef.current = undefined;
+    setInkDraft(canonicalInk);
+    setInkDirty(false);
+  }, [nodeId]);
+  useEffect(() => {
+    if (!inkDirty) setInkDraft(canonicalInk);
+  }, [canonicalInk, inkDirty]);
+
+  const edgesForOptions = (options: readonly ChoiceOption[]) => {
+    const optionIds = new Set<string>(options.map((option) => option.id));
+    return edges.filter(
+      (edge) => edge.source !== nodeId || !edge.sourceHandle || optionIds.has(edge.sourceHandle),
+    );
+  };
+  const updateChoice = (next: ChoiceNodeData) => {
+    const nextEdges = edgesForOptions(next.options);
+    updateNodeData(nodeId, StoryNodeType.Choice, next);
+    if (nextEdges.length !== edges.length) setEdges(nextEdges);
+  };
+  const updateOptions = (options: ChoiceOption[]) => updateChoice({ ...data, options });
+  const updateOption = (optionId: OptionId, update: Partial<ChoiceOption>) =>
+    updateOptions(
+      data.options.map((option) => (option.id === optionId ? { ...option, ...update } : option)),
+    );
+  const moveOption = (optionId: OptionId, nextIndex: number) => {
+    const currentIndex = data.options.findIndex((option) => option.id === optionId);
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= data.options.length) return;
+    const options = [...data.options];
+    const [option] = options.splice(currentIndex, 1);
+    options.splice(nextIndex, 0, option);
+    checkpoint();
+    updateOptions(options);
+  };
+  const toggleOption = (optionId: OptionId) => {
+    setExpandedOptionIds((current) => {
+      const next = new Set(current);
+      if (next.has(optionId)) next.delete(optionId);
+      else next.add(optionId);
+      return next;
+    });
+  };
+  const sourceWithChoice = (next: ChoiceNodeData) => {
+    const nextGraph = toSourceGraph(graphWithChoice(next));
+    return activeGraphId === 'root'
+      ? { ...source, root: nextGraph }
+      : {
+          ...source,
+          chapters: source.chapters.map((chapter) =>
+            chapter.id === activeGraphId ? { ...chapter, graph: nextGraph } : chapter,
+          ),
+        };
+  };
+  const graphWithChoice = (next: ChoiceNodeData): EditorGraphState => ({
+    nodes: nodes.map((node) =>
+      node.id === nodeId && node.type === StoryNodeType.Choice
+        ? { ...node, data: next as unknown as typeof node.data }
+        : node,
+    ),
+    edges: edgesForOptions(next.options),
+  });
+  const enterInk = (focusLine?: number) => {
+    inkUndoSnapshotRef.current = structuredClone({ nodes, edges });
+    setInkFocusLine(focusLine);
+    setView('ink');
+  };
+  const saveInk = (saveAs = false, leaving = false): boolean => {
+    if (!inkDirty) {
+      void saveStory(saveAs);
+      return true;
+    }
+    if (!parsedInk.data) return false;
+    const next = parsedInk.data;
+    checkpoint(inkUndoSnapshotRef.current ?? { nodes, edges });
+    updateChoice(next);
+    inkUndoSnapshotRef.current = structuredClone(graphWithChoice(next));
+    if (!leaving) {
+      setInkDraft(formatChoiceInk(next));
+      setInkDirty(false);
+    }
+    void saveStory(saveAs, sourceWithChoice(next));
+    return true;
+  };
+  const viewRef = useRef(view);
+  const saveInkRef = useRef(saveInk);
+  viewRef.current = view;
+  saveInkRef.current = saveInk;
+  useEffect(
+    () => () => {
+      if (viewRef.current === 'ink') saveInkRef.current(false, true);
+    },
+    [],
+  );
+
+  return (
+    <>
+      <div className={styles.groupHeader}>
+        <div className={styles.viewTabs}>
+          <button
+            type="button"
+            className={view === 'options' ? styles.activeTab : undefined}
+            onClick={() => {
+              if (view === 'ink' && !saveInk(false)) return;
+              inkUndoSnapshotRef.current = undefined;
+              setView('options');
+            }}
+          >
+            Options · {data.options.length}
+          </button>
+          <button
+            type="button"
+            className={view === 'ink' ? styles.activeTab : undefined}
+            onClick={() => enterInk()}
+          >
+            Ink
+          </button>
+        </div>
+        {view === 'options' && (
+          <button
+            type="button"
+            onClick={() => {
+              const optionId = createStableId('option');
+              checkpoint();
+              updateOptions([...data.options, { id: optionId, text: { source: '' } }]);
+              setExpandedOptionIds((current) => new Set(current).add(optionId));
+            }}
+          >
+            Add Option
+          </button>
+        )}
+      </div>
+      {view === 'ink' ? (
+        <Suspense fallback={<div className={styles.inkLoading}>Loading editor…</div>}>
+          <DialogueInkEditor
+            nodeId={nodeId}
+            value={inkDraft}
+            diagnostics={parsedInk.diagnostics}
+            dirty={inkDirty}
+            focusLine={inkFocusLine}
+            onChange={(value) => {
+              setInkDraft(value);
+              setInkDirty(value !== canonicalInk);
+            }}
+            onSave={saveInk}
+            onRevert={() => {
+              setInkDraft(canonicalInk);
+              setInkDirty(false);
+            }}
+          />
+        </Suspense>
+      ) : (
+        <>
+          <PropertyField
+            label="Prompt Template"
+            value={data.prompt.source}
+            variableMode="template"
+            onBeginEdit={checkpoint}
+            onChange={(source) => updateChoice({ ...data, prompt: { source } })}
+          />
+          <div className={styles.groupLabel}>Options</div>
+          {data.options.map((option, index) => {
+            const isExpanded = expandedOptionIds.has(option.id);
+            return (
+              <div
+                key={option.id}
+                className={`${styles.optionGroup} ${styles.lineGroup} ${
+                  isExpanded ? '' : styles.lineGroupCollapsed
+                }`}
+                onDragOver={(event) => {
+                  if (draggedOptionId) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggedOptionId && draggedOptionId !== option.id)
+                    moveOption(draggedOptionId, index);
+                  setDraggedOptionId(undefined);
+                }}
+              >
+                <div className={styles.lineHeader}>
+                  <span
+                    className={styles.dragHandle}
+                    draggable
+                    title="Drag to reorder"
+                    onDragStart={(event) => {
+                      setDraggedOptionId(option.id);
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', option.id);
+                    }}
+                    onDragEnd={() => setDraggedOptionId(undefined)}
+                  >
+                    ↕
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.disclosureButton}
+                    title={isExpanded ? 'Collapse option' : 'Expand option'}
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleOption(option.id)}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.lineSummary}
+                    title={option.text.source || 'Empty choice option'}
+                    onClick={() => toggleOption(option.id)}
+                  >
+                    <strong>Option {index + 1}</strong>
+                    <span>{option.text.source || 'Empty choice option…'}</span>
+                  </button>
+                  <div className={styles.lineActions}>
+                    <button
+                      type="button"
+                      title={`Edit option ${index + 1} in Ink`}
+                      onClick={() => enterInk(index + 2)}
+                    >
+                      Ink
+                    </button>
+                    {isExpanded && (
+                      <>
+                        <button
+                          type="button"
+                          title="Move up"
+                          disabled={index === 0}
+                          onClick={() => moveOption(option.id, index - 1)}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          title="Move down"
+                          disabled={index === data.options.length - 1}
+                          onClick={() => moveOption(option.id, index + 1)}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          title="Duplicate option"
+                          onClick={() => {
+                            checkpoint();
+                            const options = [...data.options];
+                            const copy = {
+                              ...structuredClone(option),
+                              id: createStableId('option'),
+                            };
+                            options.splice(index + 1, 0, copy);
+                            updateOptions(options);
+                            setExpandedOptionIds((current) => new Set(current).add(copy.id));
+                          }}
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete option"
+                          disabled={data.options.length === 1}
+                          onClick={() => {
+                            checkpoint();
+                            updateOptions(
+                              data.options.filter((candidate) => candidate.id !== option.id),
+                            );
+                            setExpandedOptionIds((current) => {
+                              const next = new Set(current);
+                              next.delete(option.id);
+                              return next;
+                            });
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {isExpanded && (
+                  <>
+                    <PropertyField
+                      label="Text Template"
+                      value={option.text.source}
+                      variableMode="template"
+                      onBeginEdit={checkpoint}
+                      onChange={(source) => updateOption(option.id, { text: { source } })}
+                    />
+                    <PropertyField
+                      label="Visible If"
+                      value={option.visibleIf?.source ?? ''}
+                      variableMode="expression"
+                      onBeginEdit={checkpoint}
+                      onChange={(source) =>
+                        updateOption(option.id, {
+                          visibleIf: source ? { source, bindings: {} } : undefined,
+                        })
+                      }
+                    />
+                    <PropertyField
+                      label="Enabled If"
+                      value={option.enabledIf?.source ?? ''}
+                      variableMode="expression"
+                      onBeginEdit={checkpoint}
+                      onChange={(source) =>
+                        updateOption(option.id, {
+                          enabledIf: source ? { source, bindings: {} } : undefined,
+                        })
+                      }
+                    />
+                    <div className={styles.stableIds}>
+                      <code>{option.id}</code>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </>
       )}
     </>
   );
@@ -749,70 +1088,7 @@ export function Inspector() {
       }
       case StoryNodeType.Choice: {
         const data = node.data as ChoiceNodeData;
-        return (
-          <>
-            <PropertyField
-              label="Prompt Template"
-              value={data.prompt.source}
-              variableMode="template"
-              onBeginEdit={checkpoint}
-              onChange={(source) =>
-                updateNodeData(node.id, StoryNodeType.Choice, { prompt: { source } })
-              }
-            />
-            <div className={styles.groupLabel}>Options</div>
-            {data.options.map((option, index) => (
-              <div key={option.id} className={styles.optionGroup}>
-                <PropertyField
-                  label={`Option ${index + 1}`}
-                  value={option.text.source}
-                  variableMode="template"
-                  onBeginEdit={checkpoint}
-                  onChange={(source) => {
-                    const options = data.options.map((candidate) =>
-                      candidate.id === option.id ? { ...candidate, text: { source } } : candidate,
-                    );
-                    updateNodeData(node.id, StoryNodeType.Choice, { options });
-                  }}
-                />
-                <PropertyField
-                  label="Visible If"
-                  value={option.visibleIf?.source ?? ''}
-                  variableMode="expression"
-                  onBeginEdit={checkpoint}
-                  onChange={(source) => {
-                    const options = data.options.map((candidate) =>
-                      candidate.id === option.id
-                        ? {
-                            ...candidate,
-                            visibleIf: source ? { source, bindings: {} } : undefined,
-                          }
-                        : candidate,
-                    );
-                    updateNodeData(node.id, StoryNodeType.Choice, { options });
-                  }}
-                />
-                <PropertyField
-                  label="Enabled If"
-                  value={option.enabledIf?.source ?? ''}
-                  variableMode="expression"
-                  onBeginEdit={checkpoint}
-                  onChange={(source) => {
-                    const options = data.options.map((candidate) =>
-                      candidate.id === option.id
-                        ? {
-                            ...candidate,
-                            enabledIf: source ? { source, bindings: {} } : undefined,
-                          }
-                        : candidate,
-                    );
-                    updateNodeData(node.id, StoryNodeType.Choice, { options });
-                  }}
-                />
-              </div>
-            ))}
-          </>
-        );
+        return <ChoiceEditor key={node.id} nodeId={node.id} data={data} />;
       }
       case StoryNodeType.Branch: {
         const data = node.data as BranchNodeData;

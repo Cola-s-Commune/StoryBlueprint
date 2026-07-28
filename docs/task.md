@@ -248,6 +248,9 @@
 - [x] 动态 Option 与稳定 Option ID
 - [x] Option Text Template / Visible If / Enabled If
 - [x] 每个 Option 的动态执行输出
+- [x] Option 卡片采用与 Dialogue Line 一致的折叠摘要、拖动排序、新增、复制、删除与行级 Ink 定位
+- [x] Choice Monaco 双向编辑 Prompt 与 `* Option`，条件标签可往返，离开时自动保存且可整体撤销
+- [x] 删除 Option 时同步清理对应输出连线，Undo 恢复 Option 与连线
 
 ---
 

@@ -409,7 +409,18 @@ Story，不提供独立 Apply 按钮；切回 Lines 时若存在错误则保持�
 Choice、divert、knot 等完整 Ink 控制语法不能写入 Dialogue 节点；它们属于后续 Ink Block 或
 Ink-to-Nodes 转换能力。这样批量写对白可以立即使用 Monaco，同时不与完整 Ink Runtime 路线冲突。
 
-### 7.2 本地化
+### 7.2 Choice Option 与 Ink 编辑视图
+
+Choice Option 使用与 Dialogue Line 一致的 Inspector 交互：卡片默认显示序号和文本摘要，可展开编辑
+Text Template、Visible If 与 Enabled If，也可新增、复制、删除、按钮移动或拖动排序。每个 Option
+继续使用稳定 Option ID 作为动态输出端口身份；删除 Option 必须在同一可撤销事务中删除对应输出连线。
+
+Choice Monaco 投影的第一行是 Prompt，后续每行使用 Ink 的 `* ` Choice 形式表示一个 Option。
+`# visible-if:<expression>` 与 `# enabled-if:<expression>` 是 Story Blueprint Choice Profile 的扩展标签。
+结构化 Option 是唯一权威数据；离开 Monaco 时有效草稿自动写回并保存，整次应用可通过一次蓝图 Undo
+恢复。Option 摘要可直接定位到对应 Ink 行，文本编辑和重排时尽量保持稳定 Option ID 与已有连线。
+
+### 7.3 本地化
 
 采用“开发期可内联、发布时可提取”的混合方式：
 
