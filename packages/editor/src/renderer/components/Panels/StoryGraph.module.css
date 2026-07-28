@@ -199,6 +199,81 @@
   stroke-dasharray: 5 4;
 }
 
+.canvas :global(.react-flow__node.ai-change-added) {
+  border-radius: 9px;
+  outline: 2px solid #55c878;
+  outline-offset: 3px;
+  filter: drop-shadow(0 0 10px rgb(85 200 120 / 52%));
+}
+
+.canvas :global(.react-flow__node.ai-change-modified) {
+  border-radius: 9px;
+  outline: 2px solid #d7aa4d;
+  outline-offset: 3px;
+  filter: drop-shadow(0 0 10px rgb(215 170 77 / 48%));
+}
+
+.aiChangeBanner {
+  position: absolute;
+  z-index: 12;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, calc(100% - 24px));
+  padding: 8px 9px 8px 11px;
+  border: 1px solid #4b6656;
+  border-radius: 5px;
+  background: rgb(31 42 37 / 95%);
+  box-shadow: 0 7px 24px rgb(0 0 0 / 36%);
+  color: #dce8e0;
+  font-size: 10px;
+}
+
+.aiChangeBanner > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.aiChangeBanner strong {
+  font-size: 11px;
+}
+
+.aiChangeBanner span {
+  overflow: hidden;
+  color: #91a99a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiChangeBanner button {
+  flex: none;
+  padding: 4px 7px;
+  border: 1px solid #537160;
+  border-radius: 3px;
+  background: #31473a;
+  color: #dce8e0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.aiChangeBanner button:hover {
+  background: #3c5848;
+}
+
+.aiChangeBanner .aiUndoButton {
+  border-color: #785050;
+  background: #553535;
+  color: #f1dada;
+}
+
+.aiChangeBanner .aiUndoButton:hover {
+  background: #684040;
+}
+
 .connectionError {
   display: flex;
   align-items: flex-start;

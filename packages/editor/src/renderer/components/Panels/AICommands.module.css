@@ -149,6 +149,33 @@
   background: #22262c;
 }
 
+.diffGroup[data-tone='added'] {
+  border-color: #365f43;
+  background: #202b24;
+}
+
+.diffGroup[data-tone='changed'] {
+  border-color: #665632;
+  background: #2b2820;
+}
+
+.diffGroup[data-tone='removed'] {
+  border-color: #6e3f45;
+  background: #2d2225;
+}
+
+.diffGroup[data-tone='added'] strong {
+  color: #77bd88;
+}
+
+.diffGroup[data-tone='changed'] strong {
+  color: #d5ae5d;
+}
+
+.diffGroup[data-tone='removed'] strong {
+  color: #dc7d87;
+}
+
 .diffGroup strong {
   color: #9ca9b8;
   font-size: 11px;

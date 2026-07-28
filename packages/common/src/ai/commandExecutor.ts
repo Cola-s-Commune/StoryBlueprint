@@ -7,8 +7,14 @@ import {
 import { NodeRegistry } from '../registry/nodeRegistry';
 import { serializeStorySource } from '../serialization/storyKdl';
 import { isStableId } from '../types/ids';
-import { StoryNodeType, type StoryNodeDataMap } from '../types/nodes';
+import {
+  StoryNodeType,
+  type ChoiceNodeData,
+  type DialogueNodeData,
+  type StoryNodeDataMap,
+} from '../types/nodes';
 import type { SourceEdge, SourceGraph, SourceNode, StorySourceDocument } from '../types/source';
+import type { RuntimeValue, ValueType, VariableDefinition } from '../types/values';
 import {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_VERSION,
@@ -32,9 +38,10 @@ interface MutableChapter {
   graph: MutableGraph;
 }
 
-interface MutableStory extends Omit<StorySourceDocument, 'root' | 'chapters'> {
+interface MutableStory extends Omit<StorySourceDocument, 'root' | 'chapters' | 'variables'> {
   root: MutableGraph;
   chapters: MutableChapter[] & StorySourceDocument['chapters'];
+  variables: VariableDefinition[];
 }
 
 export type BlueprintTransactionResult =
@@ -85,6 +92,86 @@ function validGraphTarget(value: unknown): boolean {
   );
 }
 
+function validScalarType(value: unknown): value is ValueType {
+  return (
+    isRecord(value) &&
+    (value.kind === 'boolean' || value.kind === 'number' || value.kind === 'string') &&
+    (value.nullable === undefined || typeof value.nullable === 'boolean')
+  );
+}
+
+function validRuntimeValue(value: unknown): value is RuntimeValue {
+  return (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string'
+  );
+}
+
+function validVariable(value: unknown): value is VariableDefinition {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isStableId(value.id, 'variable') &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    typeof value.displayName === 'string' &&
+    value.displayName.length > 0 &&
+    (value.scope === 'story' || value.scope === 'chapter' || value.scope === 'local') &&
+    validScalarType(value.valueType) &&
+    validRuntimeValue(value.defaultValue)
+  );
+}
+
+function validStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function validLineInput(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isStableId(value.id, 'line') &&
+    typeof value.textId === 'string' &&
+    isStableId(value.textId, 'text') &&
+    typeof value.text === 'string' &&
+    (value.speakerId === undefined ||
+      (typeof value.speakerId === 'string' && isStableId(value.speakerId, 'character'))) &&
+    (value.voiceId === undefined ||
+      (typeof value.voiceId === 'string' && isStableId(value.voiceId, 'asset'))) &&
+    (value.emotion === undefined || typeof value.emotion === 'string') &&
+    (value.tags === undefined || validStringArray(value.tags))
+  );
+}
+
+function validChoiceOptionInput(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isStableId(value.id, 'option') &&
+    typeof value.text === 'string' &&
+    (value.visibleIf === undefined || typeof value.visibleIf === 'string') &&
+    (value.enabledIf === undefined || typeof value.enabledIf === 'string')
+  );
+}
+
+function validExpressionTarget(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'branch-condition' || value.kind === 'set-variable-value') return true;
+  if (value.kind === 'choice-visible' || value.kind === 'choice-enabled') {
+    return typeof value.optionId === 'string' && isStableId(value.optionId, 'option');
+  }
+  if (value.kind === 'event-argument' || value.kind === 'signal-match') {
+    return typeof value.parameterName === 'string' && value.parameterName.length > 0;
+  }
+  return false;
+}
+
+function requiresGraphTarget(kind: unknown): boolean {
+  return kind !== 'add-variable' && kind !== 'update-variable';
+}
+
 /** Runtime shape validation for untrusted JSON produced by an AI or plugin. */
 export function validateBlueprintCommandTransaction(
   value: unknown,
@@ -126,7 +213,7 @@ export function validateBlueprintCommandTransaction(
         operationIndex,
       });
     } else operationIds.add(operationId);
-    if (!validGraphTarget(raw.graph)) {
+    if (requiresGraphTarget(raw.kind) && !validGraphTarget(raw.graph)) {
       diagnostics.push(
         invalidShape('Operation has an invalid graph target', operationIndex, `${path}.graph`),
       );
@@ -194,6 +281,135 @@ export function validateBlueprintCommandTransaction(
           );
         }
         break;
+      case 'add-variable':
+        if (!validVariable(raw.variable)) {
+          diagnostics.push(
+            invalidShape(
+              'add-variable requires a valid scalar variable definition',
+              operationIndex,
+              `${path}.variable`,
+            ),
+          );
+        }
+        break;
+      case 'update-variable':
+        if (
+          typeof raw.variableId !== 'string' ||
+          !isStableId(raw.variableId, 'variable') ||
+          !isRecord(raw.patch) ||
+          (raw.patch.name !== undefined &&
+            (typeof raw.patch.name !== 'string' || raw.patch.name.length === 0)) ||
+          (raw.patch.displayName !== undefined &&
+            (typeof raw.patch.displayName !== 'string' || raw.patch.displayName.length === 0)) ||
+          (raw.patch.scope !== undefined &&
+            raw.patch.scope !== 'story' &&
+            raw.patch.scope !== 'chapter' &&
+            raw.patch.scope !== 'local') ||
+          (raw.patch.valueType !== undefined && !validScalarType(raw.patch.valueType)) ||
+          (raw.patch.defaultValue !== undefined && !validRuntimeValue(raw.patch.defaultValue))
+        ) {
+          diagnostics.push(
+            invalidShape(
+              'update-variable has an invalid variableId or patch',
+              operationIndex,
+              path,
+            ),
+          );
+        }
+        break;
+      case 'add-dialogue-line':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          !validLineInput(raw.line) ||
+          (raw.afterLineId !== undefined &&
+            (typeof raw.afterLineId !== 'string' || !isStableId(raw.afterLineId, 'line')))
+        ) {
+          diagnostics.push(invalidShape('add-dialogue-line is invalid', operationIndex, path));
+        }
+        break;
+      case 'update-dialogue-line':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          typeof raw.lineId !== 'string' ||
+          !isStableId(raw.lineId, 'line') ||
+          !isRecord(raw.patch) ||
+          (raw.patch.text !== undefined && typeof raw.patch.text !== 'string') ||
+          (raw.patch.speakerId !== undefined &&
+            raw.patch.speakerId !== null &&
+            (typeof raw.patch.speakerId !== 'string' ||
+              !isStableId(raw.patch.speakerId, 'character'))) ||
+          (raw.patch.voiceId !== undefined &&
+            raw.patch.voiceId !== null &&
+            (typeof raw.patch.voiceId !== 'string' || !isStableId(raw.patch.voiceId, 'asset'))) ||
+          (raw.patch.emotion !== undefined &&
+            raw.patch.emotion !== null &&
+            typeof raw.patch.emotion !== 'string') ||
+          (raw.patch.tags !== undefined && !validStringArray(raw.patch.tags))
+        ) {
+          diagnostics.push(invalidShape('update-dialogue-line is invalid', operationIndex, path));
+        }
+        break;
+      case 'remove-dialogue-line':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          typeof raw.lineId !== 'string' ||
+          !isStableId(raw.lineId, 'line')
+        ) {
+          diagnostics.push(invalidShape('remove-dialogue-line is invalid', operationIndex, path));
+        }
+        break;
+      case 'add-choice-option':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          !validChoiceOptionInput(raw.option) ||
+          (raw.afterOptionId !== undefined &&
+            (typeof raw.afterOptionId !== 'string' || !isStableId(raw.afterOptionId, 'option')))
+        ) {
+          diagnostics.push(invalidShape('add-choice-option is invalid', operationIndex, path));
+        }
+        break;
+      case 'update-choice-option':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          typeof raw.optionId !== 'string' ||
+          !isStableId(raw.optionId, 'option') ||
+          !isRecord(raw.patch) ||
+          (raw.patch.text !== undefined && typeof raw.patch.text !== 'string') ||
+          (raw.patch.visibleIf !== undefined &&
+            raw.patch.visibleIf !== null &&
+            typeof raw.patch.visibleIf !== 'string') ||
+          (raw.patch.enabledIf !== undefined &&
+            raw.patch.enabledIf !== null &&
+            typeof raw.patch.enabledIf !== 'string')
+        ) {
+          diagnostics.push(invalidShape('update-choice-option is invalid', operationIndex, path));
+        }
+        break;
+      case 'remove-choice-option':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          typeof raw.optionId !== 'string' ||
+          !isStableId(raw.optionId, 'option')
+        ) {
+          diagnostics.push(invalidShape('remove-choice-option is invalid', operationIndex, path));
+        }
+        break;
+      case 'set-expression':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          !validExpressionTarget(raw.target) ||
+          (raw.source !== null && typeof raw.source !== 'string')
+        ) {
+          diagnostics.push(invalidShape('set-expression is invalid', operationIndex, path));
+        }
+        break;
       default:
         diagnostics.push(
           invalidShape(
@@ -249,11 +465,91 @@ function operationDiagnostic(
   return { code, message, operationId: operation.operationId, operationIndex };
 }
 
+function allGraphs(story: MutableStory): MutableGraph[] {
+  return [story.root, ...story.chapters.map((chapter) => chapter.graph)];
+}
+
+function insertAfter<T>(items: T[], item: T, afterIndex: number | undefined): T[] {
+  if (afterIndex === undefined) return [...items, item];
+  return [...items.slice(0, afterIndex + 1), item, ...items.slice(afterIndex + 1)];
+}
+
+function defaultMatchesType(value: RuntimeValue, type: ValueType): boolean {
+  return value === null ? type.nullable === true : typeof value === type.kind;
+}
+
 function applyOperation(
   story: MutableStory,
   operation: BlueprintCommand,
   operationIndex: number,
 ): BlueprintCommandDiagnostic | undefined {
+  if (operation.kind === 'add-variable') {
+    if (story.variables.some((variable) => variable.id === operation.variable.id)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'DUPLICATE_VARIABLE_ID',
+        `Variable already exists: ${operation.variable.id}`,
+      );
+    }
+    if (story.variables.some((variable) => variable.name === operation.variable.name)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Variable name already exists: ${operation.variable.name}`,
+      );
+    }
+    if (!defaultMatchesType(operation.variable.defaultValue, operation.variable.valueType)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Default value does not match ${operation.variable.valueType.kind}`,
+      );
+    }
+    story.variables = [...story.variables, structuredClone(operation.variable)];
+    return undefined;
+  }
+  if (operation.kind === 'update-variable') {
+    const index = story.variables.findIndex((variable) => variable.id === operation.variableId);
+    if (index < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_VARIABLE',
+        `Variable does not exist: ${operation.variableId}`,
+      );
+    }
+    const previous = story.variables[index]!;
+    const patch = structuredClone(operation.patch);
+    if (patch.name !== undefined && patch.displayName === undefined) {
+      patch.displayName = patch.name;
+    }
+    const next = { ...previous, ...patch, id: previous.id };
+    if (
+      story.variables.some(
+        (variable, candidateIndex) => candidateIndex !== index && variable.name === next.name,
+      )
+    ) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Variable name already exists: ${next.name}`,
+      );
+    }
+    if (!defaultMatchesType(next.defaultValue, next.valueType)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Default value does not match ${next.valueType.kind}`,
+      );
+    }
+    story.variables[index] = next;
+    return undefined;
+  }
   const graph = graphFor(story, operation.graph);
   if (!graph) {
     return operationDiagnostic(
@@ -319,6 +615,320 @@ function applyOperation(
     if (operation.patch.data) {
       node.data = { ...node.data, ...structuredClone(operation.patch.data) };
     }
+    return undefined;
+  }
+  if (operation.kind === 'add-dialogue-line') {
+    if (!node || node.type !== StoryNodeType.Dialogue) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'add-dialogue-line requires a Dialogue node',
+      );
+    }
+    const duplicate = allGraphs(story).some((candidate) =>
+      candidate.nodes.some((candidateNode) => {
+        if (candidateNode.type !== StoryNodeType.Dialogue) return false;
+        const lines = (candidateNode.data as unknown as DialogueNodeData).lines;
+        return lines.some(
+          (line) => line.id === operation.line.id || line.textId === operation.line.textId,
+        );
+      }),
+    );
+    if (duplicate) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'DUPLICATE_LINE_ID',
+        `Line or Text ID already exists: ${operation.line.id} / ${operation.line.textId}`,
+      );
+    }
+    const data = node.data as unknown as DialogueNodeData;
+    const afterIndex = operation.afterLineId
+      ? data.lines.findIndex((line) => line.id === operation.afterLineId)
+      : undefined;
+    if (operation.afterLineId && afterIndex === -1) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_LINE',
+        `Insertion line does not exist: ${operation.afterLineId}`,
+      );
+    }
+    const line = {
+      ...structuredClone(operation.line),
+      text: { source: operation.line.text },
+    };
+    node.data = { ...data, lines: insertAfter(data.lines, line, afterIndex) };
+    return undefined;
+  }
+  if (operation.kind === 'update-dialogue-line') {
+    if (!node || node.type !== StoryNodeType.Dialogue) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'update-dialogue-line requires a Dialogue node',
+      );
+    }
+    const data = node.data as unknown as DialogueNodeData;
+    const index = data.lines.findIndex((line) => line.id === operation.lineId);
+    if (index < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_LINE',
+        `Dialogue line does not exist: ${operation.lineId}`,
+      );
+    }
+    const next = structuredClone(data.lines[index]!);
+    if (operation.patch.text !== undefined) next.text = { source: operation.patch.text };
+    if (operation.patch.speakerId === null) delete next.speakerId;
+    else if (operation.patch.speakerId !== undefined) next.speakerId = operation.patch.speakerId;
+    if (operation.patch.voiceId === null) delete next.voiceId;
+    else if (operation.patch.voiceId !== undefined) next.voiceId = operation.patch.voiceId;
+    if (operation.patch.emotion === null) delete next.emotion;
+    else if (operation.patch.emotion !== undefined) next.emotion = operation.patch.emotion;
+    if (operation.patch.tags !== undefined) next.tags = [...operation.patch.tags];
+    node.data = {
+      ...data,
+      lines: data.lines.map((line, candidateIndex) => (candidateIndex === index ? next : line)),
+    };
+    return undefined;
+  }
+  if (operation.kind === 'remove-dialogue-line') {
+    if (!node || node.type !== StoryNodeType.Dialogue) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'remove-dialogue-line requires a Dialogue node',
+      );
+    }
+    const data = node.data as unknown as DialogueNodeData;
+    if (!data.lines.some((line) => line.id === operation.lineId)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_LINE',
+        `Dialogue line does not exist: ${operation.lineId}`,
+      );
+    }
+    node.data = { ...data, lines: data.lines.filter((line) => line.id !== operation.lineId) };
+    return undefined;
+  }
+  if (operation.kind === 'add-choice-option') {
+    if (!node || node.type !== StoryNodeType.Choice) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'add-choice-option requires a Choice node',
+      );
+    }
+    const duplicate = allGraphs(story).some((candidate) =>
+      candidate.nodes.some(
+        (candidateNode) =>
+          candidateNode.type === StoryNodeType.Choice &&
+          (candidateNode.data as unknown as ChoiceNodeData).options.some(
+            (option) => option.id === operation.option.id,
+          ),
+      ),
+    );
+    if (duplicate) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'DUPLICATE_OPTION_ID',
+        `Choice option already exists: ${operation.option.id}`,
+      );
+    }
+    const data = node.data as unknown as ChoiceNodeData;
+    const afterIndex = operation.afterOptionId
+      ? data.options.findIndex((option) => option.id === operation.afterOptionId)
+      : undefined;
+    if (operation.afterOptionId && afterIndex === -1) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_OPTION',
+        `Insertion option does not exist: ${operation.afterOptionId}`,
+      );
+    }
+    const option = {
+      id: operation.option.id,
+      text: { source: operation.option.text },
+      visibleIf: operation.option.visibleIf
+        ? { source: operation.option.visibleIf, bindings: {} }
+        : undefined,
+      enabledIf: operation.option.enabledIf
+        ? { source: operation.option.enabledIf, bindings: {} }
+        : undefined,
+    };
+    node.data = { ...data, options: insertAfter(data.options, option, afterIndex) };
+    return undefined;
+  }
+  if (operation.kind === 'update-choice-option') {
+    if (!node || node.type !== StoryNodeType.Choice) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'update-choice-option requires a Choice node',
+      );
+    }
+    const data = node.data as unknown as ChoiceNodeData;
+    const index = data.options.findIndex((option) => option.id === operation.optionId);
+    if (index < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_OPTION',
+        `Choice option does not exist: ${operation.optionId}`,
+      );
+    }
+    const next = structuredClone(data.options[index]!);
+    if (operation.patch.text !== undefined) next.text = { source: operation.patch.text };
+    for (const property of ['visibleIf', 'enabledIf'] as const) {
+      const value = operation.patch[property];
+      if (value === null) delete next[property];
+      else if (value !== undefined) next[property] = { source: value, bindings: {} };
+    }
+    node.data = {
+      ...data,
+      options: data.options.map((option, candidateIndex) =>
+        candidateIndex === index ? next : option,
+      ),
+    };
+    return undefined;
+  }
+  if (operation.kind === 'remove-choice-option') {
+    if (!node || node.type !== StoryNodeType.Choice) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'remove-choice-option requires a Choice node',
+      );
+    }
+    const data = node.data as unknown as ChoiceNodeData;
+    if (!data.options.some((option) => option.id === operation.optionId)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_OPTION',
+        `Choice option does not exist: ${operation.optionId}`,
+      );
+    }
+    node.data = {
+      ...data,
+      options: data.options.filter((option) => option.id !== operation.optionId),
+    };
+    graph.edges = graph.edges.filter(
+      (edge) => edge.from.nodeId !== operation.nodeId || edge.from.portId !== operation.optionId,
+    );
+    return undefined;
+  }
+  if (operation.kind === 'set-expression') {
+    if (!node) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_NODE',
+        `Node does not exist: ${operation.nodeId}`,
+      );
+    }
+    const expression =
+      operation.source === null ? undefined : { source: operation.source, bindings: {} };
+    if (operation.target.kind === 'branch-condition') {
+      if (node.type !== StoryNodeType.Branch || !expression) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'INVALID_TARGET',
+          'branch-condition requires a Branch node and non-null source',
+        );
+      }
+      node.data = {
+        ...(node.data as unknown as StoryNodeDataMap[StoryNodeType.Branch]),
+        condition: expression,
+      };
+      return undefined;
+    }
+    if (operation.target.kind === 'set-variable-value') {
+      if (node.type !== StoryNodeType.SetVariable || !expression) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'INVALID_TARGET',
+          'set-variable-value requires a Set Variable node and non-null source',
+        );
+      }
+      node.data = {
+        ...(node.data as unknown as StoryNodeDataMap[StoryNodeType.SetVariable]),
+        value: expression,
+      };
+      return undefined;
+    }
+    if (operation.target.kind === 'choice-visible' || operation.target.kind === 'choice-enabled') {
+      if (node.type !== StoryNodeType.Choice) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'INVALID_TARGET',
+          'Choice expression target requires a Choice node',
+        );
+      }
+      const data = node.data as unknown as ChoiceNodeData;
+      const optionId = operation.target.optionId;
+      const option = data.options.find((candidate) => candidate.id === optionId);
+      if (!option) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'UNKNOWN_OPTION',
+          `Choice option does not exist: ${optionId}`,
+        );
+      }
+      const property = operation.target.kind === 'choice-visible' ? 'visibleIf' : 'enabledIf';
+      const next = { ...option };
+      if (expression) next[property] = expression;
+      else delete next[property];
+      node.data = {
+        ...data,
+        options: data.options.map((candidate) => (candidate.id === optionId ? next : candidate)),
+      };
+      return undefined;
+    }
+    if (operation.target.kind === 'event-argument') {
+      if (node.type !== StoryNodeType.CallEvent) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'INVALID_TARGET',
+          'event-argument requires a Call Event node',
+        );
+      }
+      const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+      const argumentsMap = { ...data.arguments };
+      if (expression) argumentsMap[operation.target.parameterName] = expression;
+      else delete argumentsMap[operation.target.parameterName];
+      node.data = { ...data, arguments: argumentsMap };
+      return undefined;
+    }
+    if (node.type !== StoryNodeType.WaitSignal) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'signal-match requires a Wait Signal node',
+      );
+    }
+    const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.WaitSignal];
+    const matches = { ...data.matches };
+    if (expression) matches[operation.target.parameterName] = expression;
+    else delete matches[operation.target.parameterName];
+    node.data = { ...data, matches };
     return undefined;
   }
   if (operation.kind === 'remove-node') {

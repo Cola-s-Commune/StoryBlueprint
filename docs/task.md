@@ -681,11 +681,13 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Add / Update / Remove Node 原语
 - [x] Connect / Disconnect 与显式 Replace Existing
 - [ ] Add / Update Character
-- [ ] Add / Update Variable
-- [ ] Set Expression
+- [x] Add / Update Variable
+- [x] Set Expression（Branch、Set Variable、Choice 条件、Event 参数与 Signal Match）
+- [x] Add / Update / Remove Dialogue Line
+- [x] Add / Update / Remove Choice Option
 - [ ] Create / Refactor Chapter
 - [ ] Import / Export Ink
-- [ ] Validate / Auto Layout
+- [ ] 显式 Validate / Auto Layout 命令
 - [ ] 通用原语与高级命令展开
 
 ---
@@ -697,12 +699,15 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 端口、数据类型、Source Schema 与 Editor Compiler 校验
 - [x] 批量 Transaction
 - [x] Dry Run / Revision Precondition / Atomic Rollback
-- [x] 单个活动 Graph 事务与 Undo / Redo 集成
+- [x] 单个活动 Graph + Story Variable 事务与 Undo / Redo 集成
 - [ ] 跨 Graph / Chapter 原子历史快照与 Undo / Redo
 - [x] 第一版语义 Diff 不包含坐标或布局变化
 - [x] 所有面板操作执行前强制 Dry Run / Diff Preview
 - [ ] 低风险局部操作自动执行策略
-- [ ] 高亮 AI 新增、修改和删除内容
+- [x] Dry Run 显示字段级语义 Diff 与删除摘要
+- [x] Apply 后高亮并聚焦 AI 新增、修改节点
+- [x] AI 新增节点连接感知自动布局，不移动已有节点
+- [x] 画布 Accept / Undo AI Changes 快捷入口
 - [x] 失败时返回 Operation ID / Index / Path 结构化 Diagnostics
 - [ ] 删除与改型前引用检查
 - [x] Transaction 内 Operation ID 去重

@@ -36,6 +36,8 @@ npm run dev
 - Runtime Preview 新增本地单槽 Save / Load 与 Copy State；加载通过 JSON 状态创建全新 Runtime，并恢复 Pending Dialogue / Choice / Signal、Call Stack、变量和 Signal Inbox。Preview Content Version 改为当前编译输入指纹，拒绝加载已变化蓝图的旧状态。
 - AI Editing Foundation 第一版完成：输出无坐标 Semantic Snapshot 与确定性 Revision；版本化 Blueprint Command 支持节点增删改、连接与断开；不可信 JSON、端口、类型、Source Schema 和 Compiler 分层校验，支持 Dry Run、Revision 冲突、整笔回滚和活动 Graph 单次 Undo。跨 Graph 提交暂时明确拒绝，等待整 Story 历史快照。
 - 新增可停靠 AI Commands 面板：可复制模型上下文或纯语义 Snapshot、粘贴 Blueprint Command JSON、强制 Dry Run 并查看节点/连线语义 Diff，再 Apply 为单个可撤销事务；Revision 或命令变化后旧确认自动失效。
+- AI Command 扩展 Story Variable、Dialogue Line、Choice Option 与 Expression 专用操作；表达式覆盖 Branch、Set Variable、Choice 条件、Event 参数和 Signal Match，Option 删除会清理动态输出连线。编辑历史同步保存变量表，变量与 Graph 的复合事务可整体 Undo / Redo。
+- AI Apply 增加连接感知的横向布局，只移动新建节点；新增/修改节点分别绿色与黄色高亮并自动聚焦，画布提供 Accept / Undo AI Changes。Dry Run Diff 展示节点内容摘要、稳定子项字段路径，并以红色明确标示删除项。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
 - Project Events / Signals 提供统一的人类可读 Project Interface Table，可横向查看完整接口并一键复制 Markdown 交付程序员；点击表格行可返回具体定义编辑。

@@ -1,5 +1,6 @@
-import type { ChapterId, NodeId } from '../types/ids';
-import type { StoryNodeDataMap, StoryNodeType } from '../types/nodes';
+import type { ChapterId, DialogueLineId, NodeId, OptionId, VariableId } from '../types/ids';
+import type { DialogueLine, StoryNodeDataMap, StoryNodeType } from '../types/nodes';
+import type { RuntimeValue, ValueType, VariableDefinition, VariableScope } from '../types/values';
 
 export const BLUEPRINT_COMMAND_FORMAT = 'story-blueprint-commands' as const;
 export const BLUEPRINT_COMMAND_VERSION = 1 as const;
@@ -9,10 +10,13 @@ export type BlueprintGraphTarget = { kind: 'root' } | { kind: 'chapter'; chapter
 interface BlueprintCommandBase {
   /** Unique within a transaction and suitable for future idempotency tracking. */
   operationId: string;
+}
+
+interface BlueprintGraphCommandBase extends BlueprintCommandBase {
   graph: BlueprintGraphTarget;
 }
 
-export interface AddNodeCommand extends BlueprintCommandBase {
+export interface AddNodeCommand extends BlueprintGraphCommandBase {
   kind: 'add-node';
   node: {
     id: NodeId;
@@ -22,7 +26,7 @@ export interface AddNodeCommand extends BlueprintCommandBase {
   };
 }
 
-export interface UpdateNodeCommand extends BlueprintCommandBase {
+export interface UpdateNodeCommand extends BlueprintGraphCommandBase {
   kind: 'update-node';
   nodeId: NodeId;
   patch: {
@@ -33,12 +37,12 @@ export interface UpdateNodeCommand extends BlueprintCommandBase {
   };
 }
 
-export interface RemoveNodeCommand extends BlueprintCommandBase {
+export interface RemoveNodeCommand extends BlueprintGraphCommandBase {
   kind: 'remove-node';
   nodeId: NodeId;
 }
 
-export interface ConnectNodesCommand extends BlueprintCommandBase {
+export interface ConnectNodesCommand extends BlueprintGraphCommandBase {
   kind: 'connect';
   from: { nodeId: NodeId; portId: string };
   to: { nodeId: NodeId; portId: string };
@@ -46,10 +50,100 @@ export interface ConnectNodesCommand extends BlueprintCommandBase {
   replaceExisting?: boolean;
 }
 
-export interface DisconnectNodesCommand extends BlueprintCommandBase {
+export interface DisconnectNodesCommand extends BlueprintGraphCommandBase {
   kind: 'disconnect';
   from: { nodeId: NodeId; portId: string };
   to: { nodeId: NodeId; portId: string };
+}
+
+export interface AddVariableCommand extends BlueprintCommandBase {
+  kind: 'add-variable';
+  variable: VariableDefinition;
+}
+
+export interface UpdateVariableCommand extends BlueprintCommandBase {
+  kind: 'update-variable';
+  variableId: VariableId;
+  patch: {
+    name?: string;
+    displayName?: string;
+    scope?: VariableScope;
+    valueType?: ValueType;
+    defaultValue?: RuntimeValue;
+  };
+}
+
+type DialogueLineInput = Omit<DialogueLine, 'text'> & { text: string };
+
+export interface AddDialogueLineCommand extends BlueprintGraphCommandBase {
+  kind: 'add-dialogue-line';
+  nodeId: NodeId;
+  line: DialogueLineInput;
+  afterLineId?: DialogueLineId;
+}
+
+export interface UpdateDialogueLineCommand extends BlueprintGraphCommandBase {
+  kind: 'update-dialogue-line';
+  nodeId: NodeId;
+  lineId: DialogueLineId;
+  patch: {
+    text?: string;
+    speakerId?: DialogueLine['speakerId'] | null;
+    voiceId?: DialogueLine['voiceId'] | null;
+    emotion?: string | null;
+    tags?: readonly string[];
+  };
+}
+
+export interface RemoveDialogueLineCommand extends BlueprintGraphCommandBase {
+  kind: 'remove-dialogue-line';
+  nodeId: NodeId;
+  lineId: DialogueLineId;
+}
+
+export interface AddChoiceOptionCommand extends BlueprintGraphCommandBase {
+  kind: 'add-choice-option';
+  nodeId: NodeId;
+  option: {
+    id: OptionId;
+    text: string;
+    visibleIf?: string;
+    enabledIf?: string;
+  };
+  afterOptionId?: OptionId;
+}
+
+export interface UpdateChoiceOptionCommand extends BlueprintGraphCommandBase {
+  kind: 'update-choice-option';
+  nodeId: NodeId;
+  optionId: OptionId;
+  patch: {
+    text?: string;
+    visibleIf?: string | null;
+    enabledIf?: string | null;
+  };
+}
+
+export interface RemoveChoiceOptionCommand extends BlueprintGraphCommandBase {
+  kind: 'remove-choice-option';
+  nodeId: NodeId;
+  optionId: OptionId;
+}
+
+export type ExpressionTarget =
+  | { kind: 'branch-condition' }
+  | { kind: 'set-variable-value' }
+  | { kind: 'choice-visible'; optionId: OptionId }
+  | { kind: 'choice-enabled'; optionId: OptionId }
+  | { kind: 'event-argument'; parameterName: string }
+  | { kind: 'signal-match'; parameterName: string };
+
+export interface SetExpressionCommand extends BlueprintGraphCommandBase {
+  kind: 'set-expression';
+  nodeId: NodeId;
+  target: ExpressionTarget;
+  /** Null clears optional Choice, Event, or Signal expressions. */
+  source: string | null;
 }
 
 export type BlueprintCommand =
@@ -57,7 +151,16 @@ export type BlueprintCommand =
   | UpdateNodeCommand
   | RemoveNodeCommand
   | ConnectNodesCommand
-  | DisconnectNodesCommand;
+  | DisconnectNodesCommand
+  | AddVariableCommand
+  | UpdateVariableCommand
+  | AddDialogueLineCommand
+  | UpdateDialogueLineCommand
+  | RemoveDialogueLineCommand
+  | AddChoiceOptionCommand
+  | UpdateChoiceOptionCommand
+  | RemoveChoiceOptionCommand
+  | SetExpressionCommand;
 
 export interface BlueprintCommandTransaction {
   format: typeof BLUEPRINT_COMMAND_FORMAT;
@@ -74,6 +177,13 @@ export type BlueprintCommandDiagnosticCode =
   | 'UNKNOWN_GRAPH'
   | 'UNKNOWN_NODE'
   | 'DUPLICATE_NODE_ID'
+  | 'UNKNOWN_VARIABLE'
+  | 'DUPLICATE_VARIABLE_ID'
+  | 'UNKNOWN_LINE'
+  | 'DUPLICATE_LINE_ID'
+  | 'UNKNOWN_OPTION'
+  | 'DUPLICATE_OPTION_ID'
+  | 'INVALID_TARGET'
   | 'UNKNOWN_CONNECTION'
   | 'INVALID_CONNECTION'
   | 'INVALID_GRAPH';

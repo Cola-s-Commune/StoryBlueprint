@@ -37,6 +37,118 @@ export interface EditorGraphState {
   edges: EditorGraphEdge[];
 }
 
+export interface AIGraphChangeSet {
+  graph: EditorGraphState;
+  addedNodeIds: NodeId[];
+  changedNodeIds: NodeId[];
+  removedNodeIds: NodeId[];
+}
+
+function semanticNodeValue(node: EditorGraphNode): string {
+  return JSON.stringify({ type: node.type, name: node.name, data: node.data });
+}
+
+/** Keeps authored positions intact and places only AI-created nodes near their flow neighbors. */
+export function prepareAIGraphChanges(
+  before: EditorGraphState,
+  after: EditorGraphState,
+): AIGraphChangeSet {
+  const beforeById = new Map(before.nodes.map((node) => [node.id, node]));
+  const afterById = new Map(after.nodes.map((node) => [node.id, node]));
+  const addedNodeIds = after.nodes
+    .filter((node) => !beforeById.has(node.id))
+    .map((node) => node.id);
+  const removedNodeIds = before.nodes
+    .filter((node) => !afterById.has(node.id))
+    .map((node) => node.id);
+  const changedNodeIds = after.nodes
+    .filter((node) => {
+      const previous = beforeById.get(node.id);
+      return previous !== undefined && semanticNodeValue(previous) !== semanticNodeValue(node);
+    })
+    .map((node) => node.id);
+  const added = new Set(addedNodeIds);
+  const positions = new Map(
+    after.nodes
+      .filter((node) => !added.has(node.id))
+      .map((node) => [node.id, { ...node.position }] as const),
+  );
+  const occupied = [...positions.values()];
+  const pending = new Set(addedNodeIds);
+  const horizontalGap = 280;
+  const verticalGap = 170;
+  const existingRight = Math.max(0, ...occupied.map((position) => position.x));
+
+  const place = (nodeId: NodeId, allowFallback: boolean): boolean => {
+    const predecessorPositions = after.edges
+      .filter((edge) => edge.target === nodeId)
+      .map((edge) => positions.get(edge.source))
+      .filter((position): position is { x: number; y: number } => position !== undefined);
+    const successorPositions = after.edges
+      .filter((edge) => edge.source === nodeId)
+      .map((edge) => positions.get(edge.target))
+      .filter((position): position is { x: number; y: number } => position !== undefined);
+    if (!allowFallback && predecessorPositions.length === 0 && successorPositions.length === 0) {
+      return false;
+    }
+    const anchors = [...predecessorPositions, ...successorPositions];
+    const predecessorX = Math.max(...predecessorPositions.map((position) => position.x));
+    const successorX = Math.min(...successorPositions.map((position) => position.x));
+    let x: number;
+    if (predecessorPositions.length > 0 && successorPositions.length > 0) {
+      x =
+        successorX - predecessorX >= horizontalGap * 1.5
+          ? (predecessorX + successorX) / 2
+          : predecessorX + horizontalGap;
+    } else if (predecessorPositions.length > 0) {
+      x = predecessorX + horizontalGap;
+    } else if (successorPositions.length > 0) {
+      x = successorX - horizontalGap;
+    } else {
+      x = existingRight + horizontalGap;
+    }
+    let y =
+      anchors.length > 0
+        ? anchors.reduce((total, position) => total + position.y, 0) / anchors.length
+        : occupied.length * verticalGap;
+    x = Math.round(x);
+    y = Math.round(y);
+    while (
+      occupied.some((position) => Math.abs(position.x - x) < 220 && Math.abs(position.y - y) < 120)
+    ) {
+      y += verticalGap;
+    }
+    const position = { x, y };
+    positions.set(nodeId, position);
+    occupied.push(position);
+    pending.delete(nodeId);
+    return true;
+  };
+
+  while (pending.size > 0) {
+    let progressed = false;
+    for (const nodeId of [...pending]) progressed = place(nodeId, false) || progressed;
+    if (!progressed) {
+      for (const nodeId of [...pending]) place(nodeId, true);
+    }
+  }
+
+  const highlighted = new Set([...addedNodeIds, ...changedNodeIds]);
+  return {
+    graph: {
+      nodes: after.nodes.map((node) => ({
+        ...node,
+        position: positions.get(node.id) ?? node.position,
+        selected: highlighted.has(node.id),
+      })),
+      edges: after.edges.map((edge) => ({ ...edge, selected: false })),
+    },
+    addedNodeIds,
+    changedNodeIds,
+    removedNodeIds,
+  };
+}
+
 export interface GraphClipboard {
   nodes: EditorGraphNode[];
   edges: EditorGraphEdge[];

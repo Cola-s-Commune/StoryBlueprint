@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_VERSION,
+  StoryNodeType,
   type BlueprintTransactionResult,
+  type StoryNodeDataMap,
   type StorySemanticSnapshot,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
@@ -11,6 +13,9 @@ import panelStyles from './Panel.module.css';
 import styles from './AICommands.module.css';
 
 interface SemanticDiff {
+  addedVariables: string[];
+  removedVariables: string[];
+  changedVariables: string[];
   addedNodes: string[];
   removedNodes: string[];
   changedNodes: string[];
@@ -29,15 +34,76 @@ function connectionKey(
   return `${graphKey(graph)}:${connection.from.nodeId}.${connection.from.portId} -> ${connection.to.nodeId}.${connection.to.portId}`;
 }
 
+function compactText(value: string, limit = 48): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
+}
+
+function nodeSummary(
+  key: string,
+  node: StorySemanticSnapshot['graphs'][number]['nodes'][number],
+): string {
+  let content = '';
+  if (node.type === StoryNodeType.Dialogue) {
+    content = (node.data as StoryNodeDataMap[StoryNodeType.Dialogue]).lines[0]?.text.source ?? '';
+  } else if (node.type === StoryNodeType.Choice) {
+    content = (node.data as StoryNodeDataMap[StoryNodeType.Choice]).prompt.source;
+  }
+  const label = node.name ? ` · ${node.name}` : '';
+  return `${key} · ${node.type}${label}${content ? ` · “${compactText(content)}”` : ''}`;
+}
+
+function changedPaths(before: unknown, after: unknown, prefix = '', limit = 6): string[] {
+  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  if (limit <= 0) return [prefix || 'value'];
+  if (
+    typeof before !== 'object' ||
+    before === null ||
+    typeof after !== 'object' ||
+    after === null
+  ) {
+    return [prefix || 'value'];
+  }
+  if (Array.isArray(before) || Array.isArray(after)) {
+    if (!Array.isArray(before) || !Array.isArray(after)) return [prefix || 'value'];
+    const hasStableIds = [...before, ...after].every(
+      (item) => typeof item === 'object' && item !== null && 'id' in item,
+    );
+    if (!hasStableIds) return [prefix || 'value'];
+    const beforeItems = new Map(
+      before.map((item) => [String((item as Record<string, unknown>).id), item]),
+    );
+    const afterItems = new Map(
+      after.map((item) => [String((item as Record<string, unknown>).id), item]),
+    );
+    return [...new Set([...beforeItems.keys(), ...afterItems.keys()])].flatMap((id) => {
+      const itemPrefix = `${prefix}[${id}]`;
+      if (!beforeItems.has(id) || !afterItems.has(id)) return [itemPrefix];
+      return changedPaths(beforeItems.get(id), afterItems.get(id), itemPrefix, limit - 1);
+    });
+  }
+  const beforeRecord = before as Record<string, unknown>;
+  const afterRecord = after as Record<string, unknown>;
+  return [...new Set([...Object.keys(beforeRecord), ...Object.keys(afterRecord)])].flatMap((key) =>
+    changedPaths(beforeRecord[key], afterRecord[key], prefix ? `${prefix}.${key}` : key, limit - 1),
+  );
+}
+
 function semanticDiff(before: StorySemanticSnapshot, after: StorySemanticSnapshot): SemanticDiff {
+  const beforeVariables = new Map(
+    before.variables.map((variable) => [variable.id, variable] as const),
+  );
+  const afterVariables = new Map(
+    after.variables.map((variable) => [variable.id, variable] as const),
+  );
   const beforeNodes = new Map(
     before.graphs.flatMap((graph) =>
-      graph.nodes.map((node) => [`${graphKey(graph)}:${node.id}`, JSON.stringify(node)] as const),
+      graph.nodes.map((node) => [`${graphKey(graph)}:${node.id}`, node] as const),
     ),
   );
   const afterNodes = new Map(
     after.graphs.flatMap((graph) =>
-      graph.nodes.map((node) => [`${graphKey(graph)}:${node.id}`, JSON.stringify(node)] as const),
+      graph.nodes.map((node) => [`${graphKey(graph)}:${node.id}`, node] as const),
     ),
   );
   const beforeConnections = new Set(
@@ -51,11 +117,42 @@ function semanticDiff(before: StorySemanticSnapshot, after: StorySemanticSnapsho
     ),
   );
   return {
-    addedNodes: [...afterNodes.keys()].filter((id) => !beforeNodes.has(id)),
-    removedNodes: [...beforeNodes.keys()].filter((id) => !afterNodes.has(id)),
-    changedNodes: [...afterNodes.keys()].filter(
-      (id) => beforeNodes.has(id) && beforeNodes.get(id) !== afterNodes.get(id),
-    ),
+    addedVariables: [...afterVariables]
+      .filter(([id]) => !beforeVariables.has(id))
+      .map(([id, variable]) => `${id} · ${variable.name}: ${variable.valueType.kind}`),
+    removedVariables: [...beforeVariables]
+      .filter(([id]) => !afterVariables.has(id))
+      .map(([id, variable]) => `${id} · ${variable.name}: ${variable.valueType.kind}`),
+    changedVariables: [...afterVariables.keys()]
+      .filter(
+        (id) =>
+          beforeVariables.has(id) &&
+          JSON.stringify(beforeVariables.get(id)) !== JSON.stringify(afterVariables.get(id)),
+      )
+      .map((id) => {
+        const variable = afterVariables.get(id)!;
+        const paths = changedPaths(beforeVariables.get(id), variable);
+        return `${id} · ${variable.name} · ${paths.join(', ')}`;
+      }),
+    addedNodes: [...afterNodes]
+      .filter(([id]) => !beforeNodes.has(id))
+      .map(([id, node]) => nodeSummary(id, node)),
+    removedNodes: [...beforeNodes]
+      .filter(([id]) => !afterNodes.has(id))
+      .map(([id, node]) => nodeSummary(id, node)),
+    changedNodes: [...afterNodes.keys()]
+      .filter(
+        (id) =>
+          beforeNodes.has(id) &&
+          JSON.stringify(beforeNodes.get(id)) !== JSON.stringify(afterNodes.get(id)),
+      )
+      .map((id) => {
+        const node = afterNodes.get(id)!;
+        const paths = changedPaths(beforeNodes.get(id), node).filter(
+          (path) => path !== 'ports' && !path.startsWith('ports['),
+        );
+        return `${nodeSummary(id, node)} · ${paths.join(', ')}`;
+      }),
     addedConnections: [...afterConnections].filter((edge) => !beforeConnections.has(edge)),
     removedConnections: [...beforeConnections].filter((edge) => !afterConnections.has(edge)),
   };
@@ -79,12 +176,24 @@ function aiContext(snapshot: StorySemanticSnapshot): string {
     'Edit this Story Blueprint using only a Blueprint Command transaction.',
     'Return one JSON object and no Markdown fences or explanation.',
     `Use format ${BLUEPRINT_COMMAND_FORMAT} version ${BLUEPRINT_COMMAND_VERSION}.`,
-    'Every operation requires a unique operationId and graph target.',
+    'Every operation requires a unique operationId; graph operations also require a graph target.',
     'Supported kinds:',
     '- add-node: { operationId, kind, graph, node: { id, type, name?, data } }',
     '- update-node: { operationId, kind, graph, nodeId, patch: { name?, data? } }',
     '- remove-node: { operationId, kind, graph, nodeId }',
     '- connect/disconnect: { operationId, kind, graph, from: { nodeId, portId }, to: { nodeId, portId } }',
+    '- add-variable: { operationId, kind, variable: { id, name, displayName, scope, valueType, defaultValue } }',
+    '- update-variable: { operationId, kind, variableId, patch }',
+    '- add-dialogue-line: { operationId, kind, graph, nodeId, afterLineId?, line: { id, textId, text, speakerId?, voiceId?, emotion?, tags? } }',
+    '- update-dialogue-line: { operationId, kind, graph, nodeId, lineId, patch: { text?, speakerId?, voiceId?, emotion?, tags? } }',
+    '- remove-dialogue-line: { operationId, kind, graph, nodeId, lineId }',
+    '- add-choice-option: { operationId, kind, graph, nodeId, afterOptionId?, option: { id, text, visibleIf?, enabledIf? } }',
+    '- update-choice-option: { operationId, kind, graph, nodeId, optionId, patch: { text?, visibleIf?, enabledIf? } }',
+    '- remove-choice-option: { operationId, kind, graph, nodeId, optionId }',
+    '- set-expression: { operationId, kind, graph, nodeId, target, source }; source is plain expression text',
+    'Expression targets: branch-condition, set-variable-value, choice-visible/choice-enabled with optionId, event-argument/signal-match with parameterName.',
+    'New stable IDs use prefixes v_, n_, ln_, t_, and o_ followed by at least three lowercase letters, digits, underscores, or hyphens.',
+    'Variable valueType.kind is boolean, number, or string; defaultValue must have the same type.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
@@ -279,14 +388,17 @@ export function AICommands() {
           <div className={styles.diffGrid}>
             {(
               [
-                ['Added nodes', diff.addedNodes],
-                ['Changed nodes', diff.changedNodes],
-                ['Removed nodes', diff.removedNodes],
-                ['Added connections', diff.addedConnections],
-                ['Removed connections', diff.removedConnections],
+                ['Added variables', diff.addedVariables, 'added'],
+                ['Changed variables', diff.changedVariables, 'changed'],
+                ['Removed variables', diff.removedVariables, 'removed'],
+                ['Added nodes', diff.addedNodes, 'added'],
+                ['Changed nodes', diff.changedNodes, 'changed'],
+                ['Removed nodes', diff.removedNodes, 'removed'],
+                ['Added connections', diff.addedConnections, 'added'],
+                ['Removed connections', diff.removedConnections, 'removed'],
               ] as const
-            ).map(([label, items]) => (
-              <div className={styles.diffGroup} key={label}>
+            ).map(([label, items, tone]) => (
+              <div className={styles.diffGroup} data-tone={tone} key={label}>
                 <strong>
                   {label} · {items.length}
                 </strong>

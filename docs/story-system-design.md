@@ -987,6 +987,18 @@ AI Context（命令约束与当前 Semantic Snapshot），把 AI 返回的单个
 查看节点和连线的语义 Diff，再手动 Apply。Apply 只对与当前 Revision 完全相同的 Dry Run 开放；Story 在此期间
 发生任何语义修改都会使确认失效。未来接入内置模型 Provider 时仍复用同一协议、校验和确认流程。
 
+剧情内容编辑不要求 AI 整体替换节点 `data`：协议提供 Variable、Dialogue Line、Choice Option 和 Expression
+专用命令。Line / Option 命令使用稳定子项 ID 完成插入、局部修改、删除和排序定位；删除 Option 同步清理其
+动态输出连线。Expression 命令接收与 Inspector 相同的纯文本表达式，并覆盖 Branch、Set Variable、Choice
+可见/可用条件、Event Argument 和 Signal Match。变量定义与当前 Graph 一起进入同一个历史快照，使一次
+“创建变量并接入分支”的 AI 事务能够整体 Undo / Redo。
+
+Dry Run 的语义 Diff 使用绿色、黄色和红色区分新增、修改与删除，节点条目包含类型、名称、台词或 Prompt
+摘要，以及发生变化的稳定子项和字段路径。Apply 后只对新增节点执行连接感知的横向布局：优先放在前驱与
+后继之间，空间不足时放到前驱右侧并避让已有节点；任何作者已有节点都不移动。新增节点以绿色、修改节点以
+黄色短时高亮，画布自动聚焦变更范围，并提供 Accept 和 Undo AI Changes；高亮属于临时 UI 状态，不写入
+Story Source。
+
 每次 AI 修改必须：
 
 - 通过 JSON Schema、端口和数据类型校验。

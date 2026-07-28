@@ -60,6 +60,7 @@ import {
 import {
   fromSourceGraph,
   extractSelectionToSubstory as extractGraphSelection,
+  prepareAIGraphChanges,
   toEditorGraphNode,
   toSourceGraph,
   type EditorGraphEdge,
@@ -288,6 +289,22 @@ function collectOpenResourceUsage(items: readonly EditorStoryWorkspaceItem[]) {
 
 export type ActiveGraphId = 'root' | ChapterId;
 
+interface EditorHistoryState {
+  activeGraphId: ActiveGraphId;
+  graph: EditorGraphState;
+  rootGraph: EditorGraphState;
+  chapters: EditorChapter[];
+  variables: VariableDefinition[];
+}
+
+interface AIEditorChanges {
+  nonce: number;
+  addedNodeIds: NodeId[];
+  changedNodeIds: NodeId[];
+  removedNodeIds: NodeId[];
+  variableChangeCount: number;
+}
+
 interface StoryGraphStoreValue {
   source: StorySourceDocument;
   graph: EditorGraphState;
@@ -322,6 +339,8 @@ interface StoryGraphStoreValue {
   problems: readonly ProjectCompilerDiagnostic[];
   lastBuildPath?: string;
   problemFocus?: { nodeId: NodeId; nonce: number };
+  aiChanges?: AIEditorChanges;
+  clearAIChanges: () => void;
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -405,7 +424,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [nodes, setNodes, onNodesChange] = useNodesState<EditorGraphNode>(initialGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>(initialGraph.edges);
   const graph = useMemo<EditorGraphState>(() => ({ nodes, edges }), [edges, nodes]);
-  const history = useGraphHistory();
+  const history = useGraphHistory<EditorHistoryState>();
   const [variables, setVariables] = useState<VariableDefinition[]>([]);
   const [characters, setCharacters] = useState<CharacterSource[]>([]);
   const [assets, setAssets] = useState<AssetSource[]>([]);
@@ -423,6 +442,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [problems, setProblems] = useState<readonly ProjectCompilerDiagnostic[]>([]);
   const [lastBuildPath, setLastBuildPath] = useState<string>();
   const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
+  const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
   const [sessionReady, setSessionReady] = useState(false);
@@ -539,9 +559,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, []);
 
   const checkpoint = useCallback(
-    (snapshot?: EditorGraphState) => history.checkpoint(snapshot ?? graph),
-    [graph, history],
+    (snapshot?: EditorGraphState) => {
+      setAIChanges(undefined);
+      history.checkpoint({
+        activeGraphId,
+        graph: snapshot ?? graph,
+        rootGraph: rootGraphRef.current,
+        chapters,
+        variables,
+      });
+    },
+    [activeGraphId, chapters, graph, history, variables],
   );
+
+  useEffect(() => setAIChanges(undefined), [activeGraphId, document.id]);
 
   const restoreGraph = useCallback(
     (next: EditorGraphState) => {
@@ -586,20 +617,44 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const undo = useCallback(() => {
-    const previous = history.undo(graph);
+    const previous = history.undo({
+      activeGraphId,
+      graph,
+      rootGraph: rootGraphRef.current,
+      chapters,
+      variables,
+    });
     if (previous) {
-      restoreGraph(previous);
+      setActiveGraphId(previous.activeGraphId);
+      rootGraphRef.current = previous.rootGraph;
+      setChapters(previous.chapters);
+      restoreGraph(previous.graph);
+      setVariables(previous.variables);
+      setAIChanges(undefined);
       markDirty();
     }
-  }, [graph, history, markDirty, restoreGraph]);
+  }, [activeGraphId, chapters, graph, history, markDirty, restoreGraph, variables]);
 
   const redo = useCallback(() => {
-    const next = history.redo(graph);
+    const next = history.redo({
+      activeGraphId,
+      graph,
+      rootGraph: rootGraphRef.current,
+      chapters,
+      variables,
+    });
     if (next) {
-      restoreGraph(next);
+      setActiveGraphId(next.activeGraphId);
+      rootGraphRef.current = next.rootGraph;
+      setChapters(next.chapters);
+      restoreGraph(next.graph);
+      setVariables(next.variables);
+      setAIChanges(undefined);
       markDirty();
     }
-  }, [graph, history, markDirty, restoreGraph]);
+  }, [activeGraphId, chapters, graph, history, markDirty, restoreGraph, variables]);
+
+  const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
 
   const executeBlueprintCommands = useCallback(
     (transactionValue: unknown, options: { dryRun?: boolean } = {}): BlueprintTransactionResult => {
@@ -671,12 +726,29 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           diagnostics: [{ code: 'UNKNOWN_GRAPH', message: 'Active graph no longer exists' }],
         };
       }
+      const prepared = prepareAIGraphChanges(graph, fromSourceGraph(nextSourceGraph));
+      const beforeVariables = new Map(source.variables.map((variable) => [variable.id, variable]));
+      const afterVariables = new Map(
+        result.document.variables.map((variable) => [variable.id, variable]),
+      );
+      const variableIds = new Set([...beforeVariables.keys(), ...afterVariables.keys()]);
+      const variableChangeCount = [...variableIds].filter(
+        (id) => JSON.stringify(beforeVariables.get(id)) !== JSON.stringify(afterVariables.get(id)),
+      ).length;
       checkpoint();
-      restoreGraph(fromSourceGraph(nextSourceGraph));
+      restoreGraph(prepared.graph);
+      setVariables([...structuredClone(result.document.variables)]);
+      setAIChanges({
+        nonce: Date.now(),
+        addedNodeIds: prepared.addedNodeIds,
+        changedNodeIds: prepared.changedNodeIds,
+        removedNodeIds: prepared.removedNodeIds,
+        variableChangeCount,
+      });
       markDirty();
       return result;
     },
-    [activeGraphId, checkpoint, events, markDirty, restoreGraph, signals, source],
+    [activeGraphId, checkpoint, events, graph, markDirty, restoreGraph, signals, source],
   );
 
   const addNode = useCallback(
@@ -807,6 +879,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const addVariable = useCallback((): VariableId => {
     const id = createStableId('variable');
+    checkpoint();
     setVariables((current) => {
       const used = new Set(current.map((variable) => variable.name));
       let index = current.length + 1;
@@ -826,10 +899,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     });
     markDirty();
     return id;
-  }, [markDirty]);
+  }, [checkpoint, markDirty]);
 
   const updateVariable = useCallback(
     (id: VariableId, update: Partial<VariableDefinition>) => {
+      checkpoint();
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
@@ -853,11 +927,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty, setNodes, updateInactiveGraphs, variables],
+    [checkpoint, markDirty, setNodes, updateInactiveGraphs, variables],
   );
 
   const removeVariable = useCallback(
     (id: VariableId) => {
+      checkpoint();
       setStoryDataSelection((current) =>
         current?.kind === 'variable' && current.id === id ? undefined : current,
       );
@@ -887,7 +962,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }));
       markDirty();
     },
-    [markDirty, setNodes, updateInactiveGraphs],
+    [checkpoint, markDirty, setNodes, updateInactiveGraphs],
   );
 
   const addCharacter = useCallback((): CharacterId => {
@@ -2354,6 +2429,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       problems,
       lastBuildPath,
       problemFocus,
+      aiChanges,
+      clearAIChanges,
       markDirty,
       newStory,
       openStory,
@@ -2406,6 +2483,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       problems,
       lastBuildPath,
       problemFocus,
+      aiChanges,
+      clearAIChanges,
       edges,
       graph,
       activeGraphId,

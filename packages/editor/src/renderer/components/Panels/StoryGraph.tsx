@@ -143,6 +143,8 @@ export function StoryGraph() {
     removeRecentProject,
     openStory,
     problemFocus,
+    aiChanges,
+    clearAIChanges,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<GraphControlMode>(initialGraphControlMode);
@@ -653,6 +655,25 @@ export function StoryGraph() {
     return () => cancelAnimationFrame(frame);
   }, [flowInstance, problemFocus]);
 
+  useEffect(() => {
+    if (!aiChanges) return;
+    const highlightedIds = [...aiChanges.addedNodeIds, ...aiChanges.changedNodeIds];
+    const frame = requestAnimationFrame(() => {
+      if (!flowInstance || highlightedIds.length === 0) return;
+      void flowInstance.fitView({
+        nodes: highlightedIds.map((id) => ({ id })),
+        padding: 0.75,
+        duration: 320,
+        maxZoom: 1.2,
+      });
+    });
+    const timer = window.setTimeout(clearAIChanges, 12_000);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [aiChanges, clearAIChanges, flowInstance]);
+
   const onNodeDragStart = useCallback(() => {
     dragSnapshot.current = structuredClone(graph);
   }, [graph]);
@@ -688,6 +709,19 @@ export function StoryGraph() {
       ? 'Main Story'
       : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
   const selectedCount = nodes.filter((node) => node.selected).length;
+  const renderedNodes = useMemo<EditorGraphNode[]>(() => {
+    const added = new Set(aiChanges?.addedNodeIds ?? []);
+    const changed = new Set(aiChanges?.changedNodeIds ?? []);
+    return nodes.map((node) => ({
+      ...node,
+      className: [
+        node.className,
+        added.has(node.id) ? 'ai-change-added' : changed.has(node.id) ? 'ai-change-modified' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    }));
+  }, [aiChanges, nodes]);
   const renderedEdges = useMemo<EditorGraphEdge[]>(() => {
     const virtualEdges = nodes.flatMap((node): EditorGraphEdge[] => {
       if (node.type !== StoryNodeType.FlowJump) return [];
@@ -878,7 +912,7 @@ export function StoryGraph() {
           </button>
         </div>
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
-          nodes={nodes}
+          nodes={renderedNodes}
           edges={renderedEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -937,6 +971,24 @@ export function StoryGraph() {
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" />
           <Controls />
         </ReactFlow>
+        {aiChanges && (
+          <aside className={styles.aiChangeBanner}>
+            <div>
+              <strong>AI changes applied</strong>
+              <span>
+                +{aiChanges.addedNodeIds.length} nodes · ~{aiChanges.changedNodeIds.length} nodes ·
+                −{aiChanges.removedNodeIds.length} nodes · ~{aiChanges.variableChangeCount}{' '}
+                variables
+              </span>
+            </div>
+            <button type="button" onClick={clearAIChanges}>
+              Accept
+            </button>
+            <button type="button" className={styles.aiUndoButton} onClick={undo}>
+              Undo AI Changes
+            </button>
+          </aside>
+        )}
         {transferPreview && (
           <svg className={styles.transferPreview} aria-hidden="true">
             {transferPreview.fixedPoints.map((point, index) => {
