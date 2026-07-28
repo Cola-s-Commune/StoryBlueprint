@@ -156,7 +156,14 @@ describe('multi-line Dialogue', () => {
       voice: { default: 'a_defaultvoice' },
     });
 
-    const second = runtime.continueDialogue();
+    const restoredFirstLine = new StoryRuntime(
+      compiled.program,
+      JSON.parse(JSON.stringify(first.state)),
+    );
+    const restoredFirst = restoredFirstLine.runUntilPause();
+    expect(restoredFirst.kind === 'waiting' && restoredFirst.interaction.kind).toBe('dialogue');
+
+    const second = restoredFirstLine.continueDialogue();
     expect(second.kind).toBe('waiting');
     if (second.kind !== 'waiting' || second.interaction.kind !== 'dialogue') return;
     expect(second.interaction.request).toMatchObject({
@@ -166,7 +173,13 @@ describe('multi-line Dialogue', () => {
       emotion: 'serious',
       voice: { default: 'a_bobvoice' },
     });
-    expect(runtime.continueDialogue().kind).toBe('completed');
+    const restoredSecondLine = new StoryRuntime(
+      compiled.program,
+      JSON.parse(JSON.stringify(second.state)),
+    );
+    const restoredSecond = restoredSecondLine.runUntilPause();
+    expect(restoredSecond.kind === 'waiting' && restoredSecond.interaction.kind).toBe('dialogue');
+    expect(restoredSecondLine.continueDialogue().kind).toBe('completed');
   });
 
   it('regenerates line and text IDs when a Dialogue node is pasted', () => {

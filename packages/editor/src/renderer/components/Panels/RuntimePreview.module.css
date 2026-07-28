@@ -17,6 +17,12 @@
   padding: 0 10px;
   border-bottom: 1px solid #30343a;
   background: #202329;
+  overflow-x: auto;
+}
+
+.toolbar button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .toolbar button,

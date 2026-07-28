@@ -556,6 +556,7 @@
 - [x] 当前变量与执行位置查看
 - [x] 编译和运行错误展示
 - [x] 一键复制编译和运行错误
+- [x] Runtime State 单槽保存、加载与复制 JSON；不兼容内容版本显示结构化错误
 
 ---
 
@@ -564,7 +565,7 @@
 - [x] Load `.storyc.json`
 - [x] RuntimeState / CallFrame / PendingInteraction 类型契约
 - [x] `blockId + instructionIndex` 执行状态机
-- [ ] Async Pause / Resume / Abort
+- [x] Async Pause / Resume / Abort
 - [x] 多 Line Dialogue 的逐句暂停、继续、历史和恢复位置
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
@@ -572,8 +573,8 @@
 - [ ] Typed Return Value
 - [x] 无返回值 Substory Call Stack / Return
 - [x] End Story
-- [ ] 稳定点 Save / Load
-- [ ] Pending Choice / Event 恢复
+- [x] 稳定点 Save / Load（Preview 本地槽验证 RuntimeState 契约）
+- [x] Pending Dialogue / Choice / Signal 与 Signal Inbox JSON 往返恢复
 - [ ] Ink Block 子运行时的暂停、选择、恢复与终止
 - [x] Program Format / Version / Content Version 检查
 - [x] 核心执行状态机结构化 Runtime Diagnostics

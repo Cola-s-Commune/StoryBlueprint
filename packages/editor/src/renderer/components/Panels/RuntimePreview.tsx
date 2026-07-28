@@ -6,6 +6,7 @@ import {
   StoryRuntime,
   type RuntimeInteraction,
   type RuntimeRunResult,
+  type RuntimeState,
 } from '@story-blueprint/runtime';
 import type {
   CharacterSource,
@@ -13,6 +14,7 @@ import type {
   SignalSource,
   OptionId,
   RuntimeValue,
+  RuntimeProgram,
   VariableDefinition,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
@@ -26,11 +28,32 @@ type HistoryItem =
 
 interface PreviewSession {
   runtime: StoryRuntime;
+  program: RuntimeProgram;
   result: RuntimeRunResult;
   characters: readonly CharacterSource[];
   variables: readonly VariableDefinition[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+}
+
+interface PreviewSaveEnvelope {
+  format: 'story-blueprint-preview-save';
+  version: 1;
+  savedAt: string;
+  state: RuntimeState;
+}
+
+function previewSaveKey(program: RuntimeProgram): string {
+  return `story-blueprint.preview-save.${program.id}`;
+}
+
+function previewContentVersion(value: unknown): string {
+  const text = JSON.stringify(value);
+  let hash = 2_166_136_261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = Math.imul(hash ^ text.charCodeAt(index), 16_777_619);
+  }
+  return `preview-${(hash >>> 0).toString(36)}`;
 }
 
 function valueLabel(value: RuntimeValue): string {
@@ -44,6 +67,8 @@ export function RuntimePreview() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly CompilerDiagnostic[]>([]);
   const [signalPayload, setSignalPayload] = useState<Record<string, RuntimeValue>>({});
+  const [savedStateJson, setSavedStateJson] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'loaded' | 'failed'>('idle');
   const dispatchedEventResult = useRef<RuntimeRunResult>();
 
   useEffect(() => {
@@ -51,6 +76,8 @@ export function RuntimePreview() {
     setHistory([]);
     setDiagnostics([]);
     setSignalPayload({});
+    setSavedStateJson('');
+    setSaveStatus('idle');
     dispatchedEventResult.current = undefined;
   }, [source]);
 
@@ -83,24 +110,16 @@ export function RuntimePreview() {
     [characterNames],
   );
 
-  const acceptResult = useCallback(
-    (runtime: StoryRuntime, result: RuntimeRunResult) => {
-      setSession((current) => ({
-        runtime,
-        result,
-        characters: current?.runtime === runtime ? current.characters : characters,
-        variables: current?.runtime === runtime ? current.variables : variables,
-        events: current?.runtime === runtime ? current.events : events,
-        signals: current?.runtime === runtime ? current.signals : signals,
-      }));
-    },
-    [characters, events, signals, variables],
-  );
+  const acceptResult = useCallback((runtime: StoryRuntime, result: RuntimeRunResult) => {
+    setSession((current) => (current ? { ...current, runtime, result } : current));
+  }, []);
 
   const start = useCallback(() => {
     const compiled = compileStory(
       { ...source, characters, assets, events, signals },
-      { contentVersion: 'editor-preview' },
+      {
+        contentVersion: previewContentVersion({ source, characters, assets, events, signals }),
+      },
     );
     setHistory([]);
     setDiagnostics(compiled.diagnostics);
@@ -109,8 +128,12 @@ export function RuntimePreview() {
       return;
     }
     const runtime = new StoryRuntime(compiled.program);
+    const stored = window.localStorage.getItem(previewSaveKey(compiled.program)) ?? '';
+    setSavedStateJson(stored);
+    setSaveStatus('idle');
     setSession({
       runtime,
+      program: compiled.program,
       result: runtime.runUntilPause(),
       characters,
       variables,
@@ -127,10 +150,14 @@ export function RuntimePreview() {
       const project = parseCompiledStoryProject(opened.content);
       const entry = project.stories[project.entryStoryId];
       const runtime = createRuntimeFromCompiledProject(project);
+      const stored = window.localStorage.getItem(previewSaveKey(entry.program)) ?? '';
+      setSavedStateJson(stored);
+      setSaveStatus('idle');
       setHistory([]);
       setDiagnostics([]);
       setSession({
         runtime,
+        program: entry.program,
         result: runtime.runUntilPause(),
         characters: entry.characters,
         variables: entry.program.variables,
@@ -148,6 +175,67 @@ export function RuntimePreview() {
       ]);
     }
   }, []);
+
+  const saveState = useCallback(() => {
+    if (!session) return;
+    try {
+      const envelope: PreviewSaveEnvelope = {
+        format: 'story-blueprint-preview-save',
+        version: 1,
+        savedAt: new Date().toISOString(),
+        state: session.runtime.state,
+      };
+      const json = JSON.stringify(envelope, null, 2);
+      window.localStorage.setItem(previewSaveKey(session.program), json);
+      setSavedStateJson(json);
+      setSaveStatus('saved');
+    } catch (error) {
+      setSaveStatus('failed');
+      setDiagnostics([
+        {
+          code: 'PROJECT_ERROR',
+          severity: 'error',
+          message: `Could not save Runtime State: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]);
+    }
+  }, [session]);
+
+  const loadState = useCallback(() => {
+    if (!session || !savedStateJson) return;
+    try {
+      const envelope = JSON.parse(savedStateJson) as Partial<PreviewSaveEnvelope>;
+      if (
+        envelope.format !== 'story-blueprint-preview-save' ||
+        envelope.version !== 1 ||
+        !envelope.state
+      ) {
+        throw new Error('Unsupported preview save format');
+      }
+      const runtime = new StoryRuntime(session.program, envelope.state);
+      const result = runtime.runUntilPause();
+      dispatchedEventResult.current = undefined;
+      setHistory([]);
+      setDiagnostics([]);
+      setSaveStatus('loaded');
+      setSession({ ...session, runtime, result });
+    } catch (error) {
+      setSaveStatus('failed');
+      setDiagnostics([
+        {
+          code: 'PROJECT_ERROR',
+          severity: 'error',
+          message: `Could not load Runtime State: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]);
+    }
+  }, [savedStateJson, session]);
+
+  useEffect(() => {
+    if (saveStatus === 'idle') return;
+    const timer = window.setTimeout(() => setSaveStatus('idle'), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [saveStatus]);
 
   const continueDialogue = useCallback(() => {
     if (!session) return;
@@ -232,17 +320,35 @@ export function RuntimePreview() {
           Run .storyc.json…
         </button>
         {session && (
-          <button
-            type="button"
-            className={styles.secondaryButton}
-            onClick={() => {
-              session.runtime.abort();
-              setSession(undefined);
-              setHistory([]);
-            }}
-          >
-            Stop
-          </button>
+          <>
+            <button type="button" className={styles.secondaryButton} onClick={saveState}>
+              {saveStatus === 'saved' ? 'Saved' : 'Save State'}
+            </button>
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              disabled={!savedStateJson}
+              onClick={loadState}
+            >
+              {saveStatus === 'loaded'
+                ? 'Loaded'
+                : saveStatus === 'failed'
+                  ? 'Load Failed'
+                  : 'Load State'}
+            </button>
+            <CopyButton text={JSON.stringify(session.runtime.state, null, 2)} label="Copy State" />
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={() => {
+                session.runtime.abort();
+                setSession(undefined);
+                setHistory([]);
+              }}
+            >
+              Stop
+            </button>
+          </>
         )}
         <span className={styles.status} data-status={state?.status ?? 'idle'}>
           {state?.status ?? 'idle'}

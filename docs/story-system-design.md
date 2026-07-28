@@ -807,6 +807,11 @@ interface RuntimeState {
 - 存档记录 Runtime Program 的内容版本；加载不兼容版本时必须先迁移或明确失败。
 - Random 等非确定性功能必须保存随机种子或已经选定的结果。
 
+编辑器 Runtime Preview 提供一个按 Program ID 隔离的本地验证槽，以及 `Save State`、`Load State`、
+`Copy State` 操作。加载必须创建新的 Runtime 实例，不能复用旧执行器；当前编辑内容通过确定性指纹生成
+Content Version，因此蓝图、资源或项目接口变化后，旧槽会返回可复制的版本不兼容诊断。该槽只用于
+验证 Runtime 契约，最终游戏仍由引擎存档系统持有 RuntimeState。
+
 ### 12.1 Engine Adapter 契约
 
 Adapter 使用异步、可取消接口：

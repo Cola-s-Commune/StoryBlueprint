@@ -230,7 +230,11 @@ describe('variables and templates', () => {
     expect(choice.interaction.request.defaultPrompt).toBe('Continue?');
     expect(choice.interaction.request.options[0]?.defaultText).toBe('Yes');
 
-    const completed = runtime.choose('o_yesx');
+    const restored = new StoryRuntime(compiled.program, JSON.parse(JSON.stringify(choice.state)));
+    const restoredChoice = restored.runUntilPause();
+    expect(restoredChoice.kind === 'waiting' && restoredChoice.interaction.kind).toBe('choice');
+    expect(restored.state.storyVariables.v_gold).toBe(10);
+    const completed = restored.choose('o_yesx');
     expect(completed.kind).toBe('completed');
     expect(completed.state.status).toBe('completed');
   });
