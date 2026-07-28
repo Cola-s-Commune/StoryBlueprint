@@ -1,4 +1,5 @@
 import type { AssetId, CharacterId, ProjectId, StoryId } from './ids';
+import type { EventSource, SignalSource } from './source';
 
 export const STORY_PROJECT_FORMAT = 'story-blueprint-project';
 export const STORY_PROJECT_VERSION = 1;
@@ -39,4 +40,6 @@ export interface StoryProjectDocument {
   stories: readonly ProjectStoryReference[];
   characters: readonly ProjectCharacterReference[];
   assets: readonly ProjectAssetReference[];
+  events: readonly EventSource[];
+  signals: readonly SignalSource[];
 }

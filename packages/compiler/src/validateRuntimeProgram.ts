@@ -16,8 +16,6 @@ function targetBlocks(instruction: RuntimeInstruction): readonly BlockId[] {
       return [instruction.target];
     case 'call-chapter':
       return [instruction.target, instruction.returnTo.blockId];
-    case 'call-event':
-      return instruction.onError.kind === 'jump' ? [instruction.onError.target] : [];
     default:
       return [];
   }

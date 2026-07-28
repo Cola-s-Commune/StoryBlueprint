@@ -113,6 +113,8 @@ function portalProject(): StoryProjectDocument {
     ],
     characters: [],
     assets: [],
+    events: [],
+    signals: [],
   };
 }
 

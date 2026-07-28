@@ -96,7 +96,9 @@ function graphDiagnostics(
     acceptedEdges.push({ id: `source-edge-${edgeIndex}`, ...candidate });
     const sourceNode = graphNodes.find((node) => node.id === candidate.source);
     const sourcePort = sourceNode
-      ? resolveNodePorts(sourceNode).ports.find((port) => port.id === candidate.sourcePortId)
+      ? resolveNodePorts(sourceNode).ports.find(
+          (port: { id: string }) => port.id === candidate.sourcePortId,
+        )
       : undefined;
     if (sourcePort?.kind === 'execution') {
       validExecutionEdges.push({ source: candidate.source, target: candidate.target });
@@ -187,7 +189,11 @@ function graphDiagnostics(
       (component.length === 1 && successors(component[0]).includes(component[0] as NodeId));
     const hasPause = component.some((id) => {
       const type = nodesById.get(id as NodeId)?.type;
-      return type === StoryNodeType.Dialogue || type === StoryNodeType.Choice;
+      return (
+        type === StoryNodeType.Dialogue ||
+        type === StoryNodeType.Choice ||
+        type === StoryNodeType.WaitSignal
+      );
     });
     if (cyclic && !hasPause) {
       diagnostics.push(
@@ -239,10 +245,13 @@ export class DefaultProjectCompiler implements ProjectCompiler {
       for (const chapter of story.source.chapters) {
         diagnostics.push(...graphDiagnostics(chapter.graph, story, chapter.id));
       }
-      const compiled = compileStory(story.source, {
-        ...options,
-        contentVersion: options.contentVersion ?? 'project-build',
-      });
+      const compiled = compileStory(
+        { ...story.source, events: project.events, signals: project.signals },
+        {
+          ...options,
+          contentVersion: options.contentVersion ?? 'project-build',
+        },
+      );
       diagnostics.push(
         ...compiled.diagnostics.map((diagnostic) => {
           const sourceChapterId = diagnostic.sourceNodeId
@@ -275,7 +284,13 @@ export class DefaultProjectCompiler implements ProjectCompiler {
     }
     const contentVersion =
       options.contentVersion ??
-      contentHash(JSON.stringify(stories.map((story) => [story.path, story.source])));
+      contentHash(
+        JSON.stringify([
+          project.events,
+          project.signals,
+          stories.map((story) => [story.path, story.source]),
+        ]),
+      );
     for (const compiled of Object.values(programs)) {
       compiled.program = { ...compiled.program, contentVersion };
     }
@@ -289,6 +304,8 @@ export class DefaultProjectCompiler implements ProjectCompiler {
         displayName: project.displayName,
         contentVersion,
         entryStoryId,
+        events: project.events,
+        signals: project.signals,
         stories: programs,
       },
       diagnostics,

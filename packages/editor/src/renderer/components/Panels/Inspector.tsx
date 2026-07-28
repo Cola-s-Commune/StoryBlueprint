@@ -3,6 +3,8 @@ import {
   StoryNodeType,
   type BranchNodeData,
   type CallSubstoryNodeData,
+  type CallEventNodeData,
+  type WaitSignalNodeData,
   type ChoiceNodeData,
   type ChoiceOption,
   type DialogueNodeData,
@@ -260,6 +262,81 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           variableMode="expression"
           onBeginEdit={checkpoint}
           onChange={updateValue}
+        />
+      )}
+    </>
+  );
+}
+
+function EventArgumentEditor({
+  nodeId,
+  name,
+  kind,
+  value,
+  argumentsByName,
+}: {
+  nodeId: NodeId;
+  name: string;
+  kind: 'boolean' | 'number' | 'string';
+  value?: CallEventNodeData['arguments'][string];
+  argumentsByName: CallEventNodeData['arguments'];
+}) {
+  const { checkpoint, updateNodeData } = useStoryGraphStore();
+  const source = value?.source ?? (kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
+  const decodedLiteral = decodeStringLiteral(source);
+  const [mode, setMode] = useState<'literal' | 'expression'>(() =>
+    kind === 'string' && decodedLiteral !== undefined ? 'literal' : 'expression',
+  );
+
+  useEffect(() => {
+    setMode(
+      kind === 'string' && decodeStringLiteral(source) !== undefined ? 'literal' : 'expression',
+    );
+  }, [kind, name, nodeId]);
+
+  const updateSource = (nextSource: string) =>
+    updateNodeData(nodeId, StoryNodeType.CallEvent, {
+      arguments: {
+        ...argumentsByName,
+        [name]: { source: nextSource, bindings: {} },
+      },
+    });
+
+  return (
+    <>
+      {kind === 'string' && (
+        <label className={styles.field}>
+          <span>{name} Mode</span>
+          <select
+            value={mode}
+            onChange={(event) => {
+              checkpoint();
+              const nextMode = event.target.value as 'literal' | 'expression';
+              setMode(nextMode);
+              if (nextMode === 'literal' && decodedLiteral === undefined) {
+                updateSource(JSON.stringify(source));
+              }
+            }}
+          >
+            <option value="literal">Text</option>
+            <option value="expression">Expression</option>
+          </select>
+        </label>
+      )}
+      {kind === 'string' && mode === 'literal' ? (
+        <PropertyField
+          label={`${name} · string`}
+          value={decodedLiteral ?? source}
+          onBeginEdit={checkpoint}
+          onChange={(text) => updateSource(JSON.stringify(text))}
+        />
+      ) : (
+        <PropertyField
+          label={`${name} · ${kind}`}
+          value={source}
+          variableMode="expression"
+          onBeginEdit={checkpoint}
+          onChange={updateSource}
         />
       )}
     </>
@@ -1029,6 +1106,8 @@ export function Inspector() {
     hasActiveStory,
     nodes,
     variables,
+    events,
+    signals,
     chapters,
     activeGraphId,
     checkpoint,
@@ -1123,6 +1202,96 @@ export function Inspector() {
       case StoryNodeType.SetVariable: {
         const data = node.data as SetVariableNodeData;
         return <SetVariableEditor nodeId={node.id} data={data} />;
+      }
+      case StoryNodeType.CallEvent: {
+        const data = node.data as CallEventNodeData;
+        const selectedEvent = events.find((candidate) => candidate.id === data.eventId);
+        return (
+          <>
+            <label className={styles.field}>
+              <span>Project Event</span>
+              <select
+                value={data.eventId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  const eventId = event.target.value as CallEventNodeData['eventId'];
+                  const definition = events.find((candidate) => candidate.id === eventId);
+                  updateNodeData(node.id, StoryNodeType.CallEvent, {
+                    eventId: eventId || undefined,
+                    arguments: Object.fromEntries(
+                      (definition?.parameters ?? []).map((parameter) => [
+                        parameter.name,
+                        data.arguments[parameter.name] ?? {
+                          source:
+                            parameter.valueType.kind === 'string'
+                              ? '""'
+                              : parameter.valueType.kind === 'boolean'
+                                ? 'false'
+                                : '0',
+                          bindings: {},
+                        },
+                      ]),
+                    ),
+                  });
+                }}
+              >
+                <option value="">Select event…</option>
+                {events.map((event) => (
+                  <option value={event.id} key={event.id}>
+                    {event.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedEvent?.description && (
+              <div className={styles.info}>{selectedEvent.description}</div>
+            )}
+            {selectedEvent?.parameters.map((parameter) => (
+              <EventArgumentEditor
+                key={`${data.eventId}-${parameter.name}`}
+                nodeId={node.id}
+                name={parameter.name}
+                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string'}
+                value={data.arguments[parameter.name]}
+                argumentsByName={data.arguments}
+              />
+            ))}
+            <div className={styles.info}>
+              Dispatches the event to the engine and continues immediately.
+            </div>
+          </>
+        );
+      }
+      case StoryNodeType.WaitSignal: {
+        const data = node.data as WaitSignalNodeData;
+        const selectedSignal = signals.find((candidate) => candidate.id === data.signalId);
+        return (
+          <>
+            <label className={styles.field}>
+              <span>Project Signal</span>
+              <select
+                value={data.signalId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateNodeData(node.id, StoryNodeType.WaitSignal, {
+                    signalId: (event.target.value || undefined) as WaitSignalNodeData['signalId'],
+                  });
+                }}
+              >
+                <option value="">Select signal…</option>
+                {signals.map((signal) => (
+                  <option value={signal.id} key={signal.id}>
+                    {signal.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedSignal?.description && (
+              <div className={styles.info}>{selectedSignal.description}</div>
+            )}
+            <div className={styles.info}>Pauses here until the engine sends this signal.</div>
+          </>
+        );
       }
       case StoryNodeType.CallSubstory: {
         const data = node.data as CallSubstoryNodeData;

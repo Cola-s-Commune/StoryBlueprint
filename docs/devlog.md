@@ -30,6 +30,13 @@ npm run dev
 - Ink 视图改为离开时自动写回 Lines 并保存 Story，移除 Apply 按钮；存在诊断时阻止切回 Lines。
 - Ink 自动应用使用进入编辑器时的蓝图快照建立单一 Undo 事务，离开 Monaco 后可完整撤销 Dialogue 修改。
 - Choice Option 对齐 Dialogue Line 的折叠卡片、排序和增删操作，并支持 Monaco 编辑 Prompt、`* Option` 及条件标签；离开自动保存可整体撤销，删除 Option 会同步清理其输出连线。
+- 项目文件新增 Event Definition Registry；Story Data 可编辑稳定 Event ID、名称、Description 与 Boolean / Number / String 参数，并可拖到画布创建 Call Event。
+- Call Event 简化为单向派发并立即继续，不再暴露完成、返回值或失败分支；Preview 自动记录派发。
+- 新增项目级 Signal Registry 与 Wait for Signal 节点，贯通 KDL、Compiler、Runtime、Preview 和 Adapter；提前到达的 Signal 会进入可序列化缓冲，稍后由对应 Wait 节点消费。
+- Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
+- Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
+- Project Events / Signals 提供统一的人类可读 Project Interface Table，可横向查看完整接口并一键复制 Markdown 交付程序员；点击表格行可返回具体定义编辑。
+- Side Effect 暂无 Runtime 行为且分类含糊，先从 Event 编辑器和人类接口表隐藏；底层字段仅作为内部默认值保留，未来按 Pure / Query / Command 的实际需求重新设计。
 - Inspector 支持新增、复制、删除、上下移动和拖动排序 Line；画布紧凑预览前三句和总数，整节点复制时重新生成全部 Line / Text ID。
 - `.story` KDL 使用紧凑 `line <lineId> <textId> <text>` 结构，仍可读取旧单 `text` Dialogue；Compiler 生成逐句暂停的连续 Dialogue 指令。
 - Pin 的透明拉线热区使用十字准星；普通节点使用四向移动光标。Reroute 按 UE Knot 语义划分为四向箭头外圈移动区，以及十字准星内圈输入/输出拉线区。

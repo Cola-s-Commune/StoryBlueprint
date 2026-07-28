@@ -1,5 +1,5 @@
 import type { ProjectId, StoryId } from './ids';
-import type { AssetSource, CharacterSource } from './source';
+import type { AssetSource, CharacterSource, EventSource, SignalSource } from './source';
 import type { RuntimeProgram } from './runtimeProgram';
 
 export const STORY_COMPILED_PROJECT_FORMAT = 'story-blueprint-compiled-project';
@@ -23,5 +23,8 @@ export interface CompiledStoryProject {
   displayName: string;
   contentVersion: string;
   entryStoryId: StoryId;
+  /** Project-level engine interface manifest used to implement adapter handlers. */
+  events: readonly EventSource[];
+  signals: readonly SignalSource[];
   stories: Readonly<Record<string, CompiledStoryProgram>>;
 }

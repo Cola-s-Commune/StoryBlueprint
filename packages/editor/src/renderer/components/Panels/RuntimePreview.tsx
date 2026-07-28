@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { compileStory, type CompilerDiagnostic } from '@story-blueprint/compiler';
 import {
   createRuntimeFromCompiledProject,
@@ -9,6 +9,8 @@ import {
 } from '@story-blueprint/runtime';
 import type {
   CharacterSource,
+  EventSource,
+  SignalSource,
   OptionId,
   RuntimeValue,
   VariableDefinition,
@@ -19,13 +21,16 @@ import styles from './RuntimePreview.module.css';
 
 type HistoryItem =
   | { kind: 'dialogue'; speaker?: string; emotion?: string; text: string }
-  | { kind: 'choice'; text: string };
+  | { kind: 'choice'; text: string }
+  | { kind: 'event'; name: string; arguments: Readonly<Record<string, RuntimeValue>> };
 
 interface PreviewSession {
   runtime: StoryRuntime;
   result: RuntimeRunResult;
   characters: readonly CharacterSource[];
   variables: readonly VariableDefinition[];
+  events: readonly EventSource[];
+  signals: readonly SignalSource[];
 }
 
 function valueLabel(value: RuntimeValue): string {
@@ -33,15 +38,18 @@ function valueLabel(value: RuntimeValue): string {
 }
 
 export function RuntimePreview() {
-  const { hasActiveStory, source, characters, assets, variables } = useStoryGraphStore();
+  const { hasActiveStory, source, characters, assets, variables, events, signals } =
+    useStoryGraphStore();
   const [session, setSession] = useState<PreviewSession>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly CompilerDiagnostic[]>([]);
+  const dispatchedEventResult = useRef<RuntimeRunResult>();
 
   useEffect(() => {
     setSession(undefined);
     setHistory([]);
     setDiagnostics([]);
+    dispatchedEventResult.current = undefined;
   }, [source]);
 
   const characterNames = useMemo(
@@ -80,14 +88,16 @@ export function RuntimePreview() {
         result,
         characters: current?.runtime === runtime ? current.characters : characters,
         variables: current?.runtime === runtime ? current.variables : variables,
+        events: current?.runtime === runtime ? current.events : events,
+        signals: current?.runtime === runtime ? current.signals : signals,
       }));
     },
-    [characters, variables],
+    [characters, events, signals, variables],
   );
 
   const start = useCallback(() => {
     const compiled = compileStory(
-      { ...source, characters, assets },
+      { ...source, characters, assets, events, signals },
       { contentVersion: 'editor-preview' },
     );
     setHistory([]);
@@ -102,8 +112,10 @@ export function RuntimePreview() {
       result: runtime.runUntilPause(),
       characters,
       variables,
+      events,
+      signals,
     });
-  }, [assets, characters, source, variables]);
+  }, [assets, characters, events, signals, source, variables]);
 
   const openCompiled = useCallback(async () => {
     if (!window.electronAPI) return;
@@ -120,6 +132,8 @@ export function RuntimePreview() {
         result: runtime.runUntilPause(),
         characters: entry.characters,
         variables: entry.program.variables,
+        events: project.events,
+        signals: project.signals,
       });
     } catch (error) {
       setSession(undefined);
@@ -151,6 +165,22 @@ export function RuntimePreview() {
   const result = session?.result;
   const state = result?.state;
   const interaction = result?.kind === 'waiting' ? result.interaction : undefined;
+
+  useEffect(() => {
+    if (!session || interaction?.kind !== 'event') return;
+    if (dispatchedEventResult.current === session.result) return;
+    dispatchedEventResult.current = session.result;
+    const definition = session.events.find((event) => event.id === interaction.request.eventId);
+    setHistory((current) => [
+      ...current,
+      {
+        kind: 'event',
+        name: definition?.displayName ?? interaction.request.eventId,
+        arguments: interaction.request.arguments,
+      },
+    ]);
+    acceptResult(session.runtime, session.runtime.continueEvent());
+  }, [acceptResult, interaction, session]);
   const errorText = [
     result?.kind === 'failed'
       ? `[ERROR] ${result.diagnostic.code}: ${result.diagnostic.message}`
@@ -221,9 +251,13 @@ export function RuntimePreview() {
                     </div>
                     <div>{item.text}</div>
                   </article>
-                ) : (
+                ) : item.kind === 'choice' ? (
                   <div key={index} className={styles.historyChoice}>
                     › {item.text}
+                  </div>
+                ) : (
+                  <div key={index} className={styles.historyChoice}>
+                    ⚡ {item.name}({Object.values(item.arguments).map(valueLabel).join(', ')})
                   </div>
                 ),
               )}
@@ -263,6 +297,27 @@ export function RuntimePreview() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {interaction?.kind === 'signal' && (
+            <div className={styles.currentCard}>
+              <div className={styles.prompt}>
+                Wait for Signal ·{' '}
+                {session?.signals.find((signal) => signal.id === interaction.request.signalId)
+                  ?.displayName ?? interaction.request.signalId}
+              </div>
+              <button
+                type="button"
+                className={styles.continueButton}
+                onClick={() => {
+                  if (!session) return;
+                  const next = session.runtime.sendSignal(interaction.request.signalId);
+                  if (next) acceptResult(session.runtime, next);
+                }}
+              >
+                Send Signal
+              </button>
             </div>
           )}
 

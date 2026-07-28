@@ -38,6 +38,10 @@ import {
   type CharacterSource,
   type AssetSource,
   type AssetId,
+  type EventId,
+  type EventSource,
+  type SignalId,
+  type SignalSource,
   type DialogueNodeData,
   type StoryNodeDataMap,
   type StoryId,
@@ -243,9 +247,12 @@ interface EditorStoryWorkspaceItem extends EditorStoryResource {
 }
 
 export type StoryDataSelection =
+  | { kind: 'event-table' }
   | { kind: 'variable'; id: VariableId }
   | { kind: 'character'; id: CharacterId }
-  | { kind: 'asset'; id: AssetId };
+  | { kind: 'asset'; id: AssetId }
+  | { kind: 'event'; id: EventId }
+  | { kind: 'signal'; id: SignalId };
 
 function collectOpenResourceUsage(items: readonly EditorStoryWorkspaceItem[]) {
   const characterIds = new Set<CharacterId>();
@@ -309,6 +316,8 @@ interface StoryGraphStoreValue {
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
+  events: readonly EventSource[];
+  signals: readonly SignalSource[];
   storyDataSelection?: StoryDataSelection;
   selectStoryData: (selection?: StoryDataSelection) => void;
   chapters: EditorChapter[];
@@ -328,6 +337,12 @@ interface StoryGraphStoreValue {
   addAsset: () => AssetId;
   updateAsset: (id: AssetId, update: Partial<AssetSource>) => void;
   removeAsset: (id: AssetId) => void;
+  addEvent: () => EventId | undefined;
+  updateEvent: (id: EventId, update: Partial<EventSource>) => void;
+  removeEvent: (id: EventId) => void;
+  addSignal: () => SignalId | undefined;
+  updateSignal: (id: SignalId, update: Partial<SignalSource>) => void;
+  removeSignal: (id: SignalId) => void;
   markDirty: () => void;
   newStory: () => void;
   openStory: () => Promise<void>;
@@ -387,6 +402,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [document, setDocument] = useState<StoryDocumentInfo>(initialDocument);
   const [hasActiveStory, setHasActiveStory] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
+  const events = workspace?.project?.events ?? [];
+  const signals = workspace?.project?.signals ?? [];
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [problems, setProblems] = useState<readonly ProjectCompilerDiagnostic[]>([]);
@@ -1035,6 +1052,225 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
 
+  const writeProjectEvents = useCallback(
+    (nextEvents: readonly EventSource[]) => {
+      if (!workspace?.project || !window.electronAPI) return;
+      const project = workspace.project;
+      setWorkspace((current) =>
+        current?.project
+          ? { ...current, project: { ...current.project, events: nextEvents } }
+          : current,
+      );
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.updateProjectSettings({
+          entryStoryId: project.entryStoryId,
+          outputDirectory: project.outputDirectory,
+          events: nextEvents,
+        }),
+      );
+    },
+    [queueProjectResourceWrite, workspace?.project],
+  );
+
+  const addEvent = useCallback((): EventId | undefined => {
+    if (!workspace?.project) {
+      setWorkspaceError('Open or create a Story project before adding events.');
+      return undefined;
+    }
+    const id = createStableId('event');
+    const used = new Set(events.map((event) => event.name));
+    let index = events.length + 1;
+    let name = `event${index}`;
+    while (used.has(name)) name = `event${++index}`;
+    writeProjectEvents([
+      ...events,
+      {
+        id,
+        name,
+        displayName: name,
+        parameters: [],
+        resumable: true,
+        sideEffect: 'write',
+      },
+    ]);
+    return id;
+  }, [events, workspace?.project, writeProjectEvents]);
+
+  const updateEvent = useCallback(
+    (id: EventId, update: Partial<EventSource>) => {
+      const previous = events.find((event) => event.id === id);
+      if (!previous) return;
+      const nextUpdate =
+        update.name !== undefined && update.displayName === undefined
+          ? { ...update, displayName: update.name }
+          : update;
+      const nextEvent = { ...previous, ...nextUpdate, id };
+      if (nextUpdate.parameters) {
+        const renamed = new Map<string, string>();
+        const previousNames = new Set(previous.parameters.map((parameter) => parameter.name));
+        if (previous.parameters.length === nextEvent.parameters.length) {
+          previous.parameters.forEach((parameter, index) => {
+            const nextName = nextEvent.parameters[index]?.name;
+            if (nextName && nextName !== parameter.name && !previousNames.has(nextName)) {
+              renamed.set(parameter.name, nextName);
+            }
+          });
+        }
+        const updateCalls = (candidate: EditorGraphState): EditorGraphState => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) => {
+            if (node.type !== StoryNodeType.CallEvent) return node;
+            const call = node.data as StoryNodeDataMap[StoryNodeType.CallEvent];
+            if (call.eventId !== id) return node;
+            const argumentsByName = { ...call.arguments };
+            for (const [oldName, newName] of renamed) {
+              argumentsByName[newName] = argumentsByName[oldName] ?? {
+                source: '',
+                bindings: {},
+              };
+              delete argumentsByName[oldName];
+            }
+            const nextArguments = Object.fromEntries(
+              nextEvent.parameters.map((parameter) => [
+                parameter.name,
+                argumentsByName[parameter.name] ?? {
+                  source:
+                    parameter.valueType.kind === 'string'
+                      ? '""'
+                      : parameter.valueType.kind === 'boolean'
+                        ? 'false'
+                        : '0',
+                  bindings: {},
+                },
+              ]),
+            );
+            return { ...node, data: { ...node.data, arguments: nextArguments } };
+          }),
+        });
+        setNodes((current) => updateCalls({ nodes: current, edges }).nodes);
+        updateInactiveGraphs(updateCalls);
+        setWorkspaceStories((current) =>
+          current.map((story) => ({
+            ...story,
+            rootGraph: updateCalls(story.rootGraph),
+            chapters: story.chapters.map((chapter) => ({
+              ...chapter,
+              graph: updateCalls(chapter.graph),
+            })),
+            document: { ...story.document, dirty: true },
+            revision: story.revision + 1,
+          })),
+        );
+        markDirty();
+      }
+      writeProjectEvents(events.map((event) => (event.id === id ? nextEvent : event)));
+    },
+    [edges, events, markDirty, setNodes, updateInactiveGraphs, writeProjectEvents],
+  );
+
+  const removeEvent = useCallback(
+    (id: EventId) => {
+      const event = events.find((candidate) => candidate.id === id);
+      if (!event) return;
+      const used = currentStoryItemsRef
+        .current()
+        .some((story) =>
+          [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)].some((candidate) =>
+            candidate.nodes.some(
+              (node) => node.type === StoryNodeType.CallEvent && node.data.eventId === id,
+            ),
+          ),
+        );
+      if (used) {
+        setWorkspaceError('Event is used by an open Story. Remove its Call Event nodes first.');
+        return;
+      }
+      if (!window.confirm(`Delete event "${event.displayName}"? This cannot be undone.`)) return;
+      setStoryDataSelection((current) =>
+        current?.kind === 'event' && current.id === id ? undefined : current,
+      );
+      writeProjectEvents(events.filter((candidate) => candidate.id !== id));
+    },
+    [events, writeProjectEvents],
+  );
+
+  const writeProjectSignals = useCallback(
+    (nextSignals: readonly SignalSource[]) => {
+      if (!workspace?.project || !window.electronAPI) return;
+      const project = workspace.project;
+      setWorkspace((current) =>
+        current?.project
+          ? { ...current, project: { ...current.project, signals: nextSignals } }
+          : current,
+      );
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.updateProjectSettings({
+          entryStoryId: project.entryStoryId,
+          outputDirectory: project.outputDirectory,
+          signals: nextSignals,
+        }),
+      );
+    },
+    [queueProjectResourceWrite, workspace?.project],
+  );
+
+  const addSignal = useCallback((): SignalId | undefined => {
+    if (!workspace?.project) {
+      setWorkspaceError('Open or create a Story project before adding signals.');
+      return undefined;
+    }
+    const id = createStableId('signal');
+    const used = new Set(signals.map((signal) => signal.name));
+    let index = signals.length + 1;
+    let name = `signal${index}`;
+    while (used.has(name)) name = `signal${++index}`;
+    writeProjectSignals([...signals, { id, name, displayName: name }]);
+    return id;
+  }, [signals, workspace?.project, writeProjectSignals]);
+
+  const updateSignal = useCallback(
+    (id: SignalId, update: Partial<SignalSource>) => {
+      const previous = signals.find((signal) => signal.id === id);
+      if (!previous) return;
+      const nextUpdate =
+        update.name !== undefined && update.displayName === undefined
+          ? { ...update, displayName: update.name }
+          : update;
+      writeProjectSignals(
+        signals.map((signal) => (signal.id === id ? { ...signal, ...nextUpdate, id } : signal)),
+      );
+    },
+    [signals, writeProjectSignals],
+  );
+
+  const removeSignal = useCallback(
+    (id: SignalId) => {
+      const signal = signals.find((candidate) => candidate.id === id);
+      if (!signal) return;
+      const used = currentStoryItemsRef
+        .current()
+        .some((story) =>
+          [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)].some((candidate) =>
+            candidate.nodes.some(
+              (node) => node.type === StoryNodeType.WaitSignal && node.data.signalId === id,
+            ),
+          ),
+        );
+      if (used) {
+        setWorkspaceError(
+          'Signal is used by an open Story. Remove its Wait for Signal nodes first.',
+        );
+        return;
+      }
+      if (!window.confirm(`Delete signal "${signal.displayName}"? This cannot be undone.`)) return;
+      setStoryDataSelection((current) =>
+        current?.kind === 'signal' && current.id === id ? undefined : current,
+      );
+      writeProjectSignals(signals.filter((candidate) => candidate.id !== id));
+    },
+    [signals, writeProjectSignals],
+  );
+
   const updateNode = useCallback(
     (id: NodeId, update: { name?: string }) => {
       setNodes((current) =>
@@ -1545,6 +1781,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             stories: [],
             characters: [],
             assets: [],
+            events: [],
+            signals: [],
           }),
         });
         setWorkspace(result.workspace);
@@ -1623,6 +1861,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             ...source,
             characters: [...source.characters, ...externalCharacters],
             assets: [...source.assets, ...externalAssets],
+            events: nextWorkspace.project!.events,
           },
         };
       });
@@ -1936,6 +2175,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
       characters: resolvedCharacters,
       assets: resolvedAssets,
+      events,
+      signals,
       storyDataSelection,
       selectStoryData,
       chapters,
@@ -1953,6 +2194,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addAsset,
       updateAsset,
       removeAsset,
+      addEvent,
+      updateEvent,
+      removeEvent,
+      addSignal,
+      updateSignal,
+      removeSignal,
       document,
       stories,
       hasActiveStory,
@@ -1996,6 +2243,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       addCharacter,
       addAsset,
+      addEvent,
+      addSignal,
       addSubstory,
       checkpoint,
       characters,
@@ -2024,6 +2273,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       redo,
       removeCharacter,
       removeAsset,
+      removeEvent,
+      removeSignal,
       removeSubstory,
       removeVariable,
       restoreGraph,
@@ -2059,12 +2310,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       undo,
       updateCharacter,
       updateAsset,
+      updateEvent,
+      updateSignal,
       updateNode,
       updateNodeData,
       updateSubstory,
       updateVariable,
       variables,
       assets,
+      events,
+      signals,
       extractSelectionToSubstory,
     ],
   );

@@ -21,6 +21,8 @@ export function parseCompiledStoryProject(content: string): CompiledStoryProject
   }
   if (
     typeof project.entryStoryId !== 'string' ||
+    !Array.isArray(project.events) ||
+    !Array.isArray(project.signals) ||
     typeof project.stories !== 'object' ||
     project.stories === null ||
     !project.stories[project.entryStoryId]

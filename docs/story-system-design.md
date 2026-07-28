@@ -63,29 +63,30 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 
 ### 3.1 MVP 节点
 
-| 节点         | 用途                        | 执行输入 | 执行输出             |
-| ------------ | --------------------------- | -------: | -------------------- |
-| Story Entry  | 根 Story 入口               |        0 | Next                 |
-| Dialogue     | 显示角色对话                |        1 | Next                 |
-| Narration    | 显示无说话人的旁白          |        1 | Next                 |
-| Choice       | 等待玩家选择                |        1 | 每个选项一个动态输出 |
-| Branch       | 根据布尔表达式自动分流      |        1 | True / False         |
-| Set Variable | 修改 Story 变量             |        1 | Next                 |
-| Call Event   | 调用 Adapter 注册的游戏事件 |        1 | Next 或结果分支      |
-| Call Chapter | 调用可复用 Chapter          |        1 | Completed            |
-| End Story    | 结束整个 Story 实例         |        1 | 0                    |
-| Return       | 从 Chapter 返回调用点       |        1 | 0                    |
-| Reroute      | 整理连线，不产生运行指令    |        1 | 1                    |
-| Flow Jump    | 跳转到同图 Flow Anchor      |        1 | 0                    |
-| Flow Anchor  | 标记同图跳转的继续位置      |        0 | 1                    |
-| Comment      | 编辑器注释，不参与运行      |        0 | 0                    |
+| 节点         | 用途                     | 执行输入 | 执行输出             |
+| ------------ | ------------------------ | -------: | -------------------- |
+| Story Entry  | 根 Story 入口            |        0 | Next                 |
+| Dialogue     | 显示角色对话             |        1 | Next                 |
+| Narration    | 显示无说话人的旁白       |        1 | Next                 |
+| Choice       | 等待玩家选择             |        1 | 每个选项一个动态输出 |
+| Branch       | 根据布尔表达式自动分流   |        1 | True / False         |
+| Set Variable | 修改 Story 变量          |        1 | Next                 |
+| Call Event   | 向 Adapter 派发游戏事件  |        1 | Next                 |
+| Wait Signal  | 等待引擎发送项目 Signal  |        1 | Received             |
+| Call Chapter | 调用可复用 Chapter       |        1 | Completed            |
+| End Story    | 结束整个 Story 实例      |        1 | 0                    |
+| Return       | 从 Chapter 返回调用点    |        1 | 0                    |
+| Reroute      | 整理连线，不产生运行指令 |        1 | 1                    |
+| Flow Jump    | 跳转到同图 Flow Anchor   |        1 | 0                    |
+| Flow Anchor  | 标记同图跳转的继续位置   |        0 | 1                    |
+| Comment      | 编辑器注释，不参与运行   |        0 | 0                    |
 
 ### 3.2 后续节点
 
 - Switch
 - Sequence
 - Random
-- Wait Event
+- Wait Signal（已实现）
 - Parallel
 - Gate
 - Quest State
@@ -346,6 +347,30 @@ interface CharacterDefinition {
 ```
 
 Engine Adapter 负责将 AssetRef 解析为实际引擎资源。
+
+### 6.4 项目事件
+
+Event Definition 保存在 `.storyproject`，由同一项目内的 Story 共享。事件表展示稳定 Event ID、Name、
+Display Name、参数签名和 Description；Description 应说明调用时机与引擎 Handler 的职责。
+同一张事件表进入 node-free 编译项目清单，供引擎程序直接据此实现 Adapter。名称和说明变化不改变节点引用。第一阶段参数支持 Boolean、Number、String，Call Event
+节点使用与 Branch / Set Variable 相同的 Typed Expression 输入，因此 Literal、变量和组合表达式不需要
+展开成大量数据节点。参数重命名会同步改写已打开 Story 中对应的参数键。
+
+Call Event 是单向命令：Compiler 将参数表达式编译为 Typed Expression；Runtime 求值后产生
+EventRequest，Adapter 将其派发给引擎后故事立即继续。故事不观察引擎工作的完成、返回值或失败状态，
+因此节点只有 `Next` 输出，也没有 Fire-and-forget / Wait for Completion 模式开关。
+
+需要显式同步时使用独立的 Wait for Signal。Signal Definition 与 Event 一样保存在 `.storyproject`，包含
+稳定 ID、Name、Display Name 和供程序员阅读的 Description。Wait 节点到达时暂停，直到引擎发送对应
+Signal。RuntimeState 保存提前到达的 Signal 计数，因而 Event 派发后立刻收到 Signal、但故事稍后才走到
+Wait 节点时不会丢失通知。第一阶段 Signal 不携带 Payload；复杂参数等出现明确用例后再扩展。
+
+编辑器还提供独立的 Project Interface Table 人类视图，列出 Event / Signal 的稳定 ID 和 Description，
+并可复制为 Markdown 交给引擎程序员。该视图是接口文档，不以 Runtime 调试界面或机器 JSON 代替。
+
+当前 Side Effect 元数据不参与 Runtime 行为，且 None / Read / Write 对动画、UI 等事件语义含糊，因此不在
+作者界面和人类接口表中展示。未来只有在安全策略、重放或静态分析真正使用它时，才考虑以
+Pure / Query / Command 等更明确的模型重新开放。
 
 ---
 
@@ -773,7 +798,7 @@ interface RuntimeState {
 存档策略：
 
 - 每条指令完成后形成稳定存档点。
-- 等待 Choice 或外部事件时可以保存 PendingInteraction 和恢复所需的请求 ID。
+- 等待 Choice 或 Signal 时可以保存 PendingInteraction 和恢复所需的请求 ID；提前到达的 Signal 缓冲也属于存档状态。
 - 不保存打字机进度、动画帧或语音播放位置；恢复时由 Adapter 重新呈现当前交互。
 - 存档记录 Runtime Program 的内容版本；加载不兼容版本时必须先迁移或明确失败。
 - Random 等非确定性功能必须保存随机种子或已经选定的结果。
@@ -786,17 +811,18 @@ Adapter 使用异步、可取消接口：
 interface StoryAdapter {
   showDialogue(request: DialogueRequest, signal: AbortSignal): Promise<void>;
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
-  callEvent(request: EventRequest, signal: AbortSignal): Promise<RuntimeValue>;
+  callEvent(request: EventRequest, signal: AbortSignal): Promise<void>;
+  waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<void>;
   resolveText(textId: string, locale: string): Promise<string | undefined>;
   readExternalVariable(id: string): Promise<RuntimeValue>;
   writeExternalVariable(id: string, value: RuntimeValue): Promise<void>;
 }
 ```
 
-- Adapter 返回值必须经过 Runtime 类型和 ID 校验。
+- Choice 等 Adapter 返回值必须经过 Runtime 类型和 ID 校验。
 - 停止、切换存档或销毁 Story 时，Runtime 使用 AbortSignal 取消未完成请求。
-- Event 必须在项目注册表中声明参数、返回类型、是否可存档恢复以及副作用类别。
-- Adapter 错误统一转换为结构化 Runtime Diagnostic；Story 是否重试、跳转失败分支或终止由指令策略决定。
+- Event 与 Signal 必须在项目接口表中声明；Event 是单向命令，Signal 是唯一的外部同步点。
+- Adapter 派发或等待错误统一转换为结构化 Runtime Diagnostic。
 - Adapter 不能直接修改 Story Runtime 内部状态，只能通过返回值和外部变量接口交互。
 
 Runtime 不负责：

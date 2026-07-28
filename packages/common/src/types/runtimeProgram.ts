@@ -5,6 +5,7 @@ import type {
   CharacterId,
   ChapterId,
   EventId,
+  SignalId,
   InstructionId,
   OptionId,
   ProgramId,
@@ -63,15 +64,15 @@ export interface SetVariableInstruction extends RuntimeInstructionBase {
   value: TypedExpression;
 }
 
-export type EventErrorPolicy =
-  { kind: 'fail' } | { kind: 'continue' } | { kind: 'jump'; target: BlockId };
-
 export interface CallEventInstruction extends RuntimeInstructionBase {
   op: 'call-event';
   eventId: EventId;
   arguments: Readonly<Record<string, TypedExpression>>;
-  resultVariableId?: VariableId;
-  onError: EventErrorPolicy;
+}
+
+export interface WaitSignalInstruction extends RuntimeInstructionBase {
+  op: 'wait-signal';
+  signalId: SignalId;
 }
 
 export interface ChoiceOptionInstruction {
@@ -123,6 +124,7 @@ export type RuntimeInstruction =
   | NarrationInstruction
   | SetVariableInstruction
   | CallEventInstruction
+  | WaitSignalInstruction
   | ChoiceInstruction
   | BranchInstruction
   | JumpInstruction

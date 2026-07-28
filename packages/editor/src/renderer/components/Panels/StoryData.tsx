@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CharacterSource,
+  EventSource,
+  SignalSource,
   AssetId,
   AssetSource,
   RuntimeValue,
@@ -9,6 +11,7 @@ import type {
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { writeStoryDataDrag } from '../../graph/storyDataDrag';
+import { CopyButton } from './CopyButton';
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
@@ -334,9 +337,274 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
   );
 }
 
+function EventEditor({ event }: { event: EventSource }) {
+  const { events, updateEvent, removeEvent } = useStoryGraphStore();
+  const duplicate = events.some(
+    (candidate) => candidate.id !== event.id && candidate.name === event.name,
+  );
+  return (
+    <div className={styles.details}>
+      <div className={styles.detailsTitle}>Project Event</div>
+      <label>
+        <span>Name</span>
+        <ScriptNameInput
+          value={event.name}
+          onCommit={(name) => updateEvent(event.id, { name, displayName: name })}
+        />
+      </label>
+      {duplicate && <div className={styles.warning}>Name must be unique.</div>}
+      <label>
+        <span>Display Name</span>
+        <input
+          value={event.displayName}
+          onChange={(change) => updateEvent(event.id, { displayName: change.target.value })}
+        />
+      </label>
+      <label>
+        <span>Description</span>
+        <textarea
+          rows={4}
+          value={event.description ?? ''}
+          placeholder="Explain when this event is called and what the engine handler should do."
+          onChange={(change) =>
+            updateEvent(event.id, { description: change.target.value || undefined })
+          }
+        />
+      </label>
+      <div className={styles.parameterHeader}>
+        <span>Parameters</span>
+        <button
+          type="button"
+          onClick={() => {
+            const used = new Set(event.parameters.map((parameter) => parameter.name));
+            let index = event.parameters.length + 1;
+            let name = `argument${index}`;
+            while (used.has(name)) name = `argument${++index}`;
+            updateEvent(event.id, {
+              parameters: [...event.parameters, { name, valueType: { kind: 'string' } }],
+            });
+          }}
+        >
+          Add
+        </button>
+      </div>
+      {event.parameters.length === 0 && <div className={styles.empty}>No parameters</div>}
+      {event.parameters.map((parameter, index) => (
+        <div className={styles.parameterRow} key={`${index}-${parameter.name}`}>
+          <ScriptNameInput
+            value={parameter.name}
+            onCommit={(name) =>
+              updateEvent(event.id, {
+                parameters: event.parameters.map((candidate, candidateIndex) =>
+                  candidateIndex === index ? { ...candidate, name } : candidate,
+                ),
+              })
+            }
+          />
+          <select
+            value={parameter.valueType.kind}
+            onChange={(change) =>
+              updateEvent(event.id, {
+                parameters: event.parameters.map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? { ...candidate, valueType: { kind: change.target.value as ScalarKind } }
+                    : candidate,
+                ),
+              })
+            }
+          >
+            <option value="boolean">Boolean</option>
+            <option value="number">Number</option>
+            <option value="string">String</option>
+          </select>
+          <button
+            type="button"
+            title="Remove parameter"
+            onClick={() =>
+              updateEvent(event.id, {
+                parameters: event.parameters.filter(
+                  (_, candidateIndex) => candidateIndex !== index,
+                ),
+              })
+            }
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <div className={styles.infoText}>
+        Call Event dispatches to the engine and immediately continues.
+      </div>
+      <button className={styles.dangerButton} type="button" onClick={() => removeEvent(event.id)}>
+        Delete Event
+      </button>
+    </div>
+  );
+}
+
+function SignalEditor({ signal }: { signal: SignalSource }) {
+  const { signals, updateSignal, removeSignal } = useStoryGraphStore();
+  const duplicate = signals.some(
+    (candidate) => candidate.id !== signal.id && candidate.name === signal.name,
+  );
+  return (
+    <div className={styles.details}>
+      <div className={styles.detailsTitle}>Project Signal</div>
+      <label>
+        <span>Name</span>
+        <ScriptNameInput
+          value={signal.name}
+          onCommit={(name) => updateSignal(signal.id, { name, displayName: name })}
+        />
+      </label>
+      {duplicate && <div className={styles.warning}>Name must be unique.</div>}
+      <label>
+        <span>Display Name</span>
+        <input
+          value={signal.displayName}
+          onChange={(change) => updateSignal(signal.id, { displayName: change.target.value })}
+        />
+      </label>
+      <label>
+        <span>Description</span>
+        <textarea
+          rows={4}
+          value={signal.description ?? ''}
+          placeholder="Explain when the engine sends this signal."
+          onChange={(change) =>
+            updateSignal(signal.id, { description: change.target.value || undefined })
+          }
+        />
+      </label>
+      <div className={styles.infoText}>
+        Wait for Signal pauses story execution until this notification arrives.
+      </div>
+      <button className={styles.dangerButton} type="button" onClick={() => removeSignal(signal.id)}>
+        Delete Signal
+      </button>
+    </div>
+  );
+}
+
+function eventSignature(event: EventSource): string {
+  const parameters = event.parameters
+    .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
+    .join(', ');
+  return `${event.name}(${parameters}): ${event.returnType?.kind ?? 'void'}`;
+}
+
+function markdownCell(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+}
+
+function EventTable({
+  events,
+  signals,
+}: {
+  events: readonly EventSource[];
+  signals: readonly SignalSource[];
+}) {
+  const { selectStoryData } = useStoryGraphStore();
+  const markdown = [
+    '## Events',
+    '',
+    '| Event | Stable ID | Description |',
+    '| --- | --- | --- |',
+    ...events.map(
+      (event) =>
+        `| \`${markdownCell(eventSignature(event))}\` | \`${event.id}\` | ${markdownCell(event.description ?? '')} |`,
+    ),
+    '',
+    '## Signals',
+    '',
+    '| Signal | Stable ID | Description |',
+    '| --- | --- | --- |',
+    ...signals.map(
+      (signal) =>
+        `| \`${markdownCell(signal.name)}\` | \`${signal.id}\` | ${markdownCell(signal.description ?? '')} |`,
+    ),
+  ].join('\n');
+  return (
+    <div className={styles.eventTableDetails}>
+      <div className={styles.eventTableTitleRow}>
+        <div>
+          <div className={styles.detailsTitle}>Project Interface Table</div>
+          <p>Human-readable event and signal contract for engine programmers.</p>
+        </div>
+        <CopyButton text={markdown} label="Copy Markdown" />
+      </div>
+      {events.length === 0 ? (
+        <div className={styles.empty}>No project events</div>
+      ) : (
+        <div className={styles.eventTableScroll}>
+          <table className={styles.eventTable}>
+            <thead>
+              <tr>
+                <th>Event / Signature</th>
+                <th>Stable ID</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((event) => (
+                <tr key={event.id} onClick={() => selectStoryData({ kind: 'event', id: event.id })}>
+                  <td>
+                    <strong>{event.displayName}</strong>
+                    <code>{eventSignature(event)}</code>
+                  </td>
+                  <td>
+                    <code>{event.id}</code>
+                  </td>
+                  <td>{event.description || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className={styles.detailsTitle}>Signals</div>
+      {signals.length === 0 ? (
+        <div className={styles.empty}>No project signals</div>
+      ) : (
+        <div className={styles.eventTableScroll}>
+          <table className={styles.eventTable}>
+            <thead>
+              <tr>
+                <th>Signal</th>
+                <th>Stable ID</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {signals.map((signal) => (
+                <tr
+                  key={signal.id}
+                  onClick={() => selectStoryData({ kind: 'signal', id: signal.id })}
+                >
+                  <td>
+                    <strong>{signal.displayName}</strong>
+                    <code>{signal.name}</code>
+                  </td>
+                  <td>
+                    <code>{signal.id}</code>
+                  </td>
+                  <td>{signal.description || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StoryDataInspector() {
-  const { storyDataSelection, variables, characters, assets } = useStoryGraphStore();
+  const { storyDataSelection, variables, characters, assets, events, signals } =
+    useStoryGraphStore();
   if (!storyDataSelection) return null;
+  if (storyDataSelection.kind === 'event-table')
+    return <EventTable events={events} signals={signals} />;
   if (storyDataSelection.kind === 'variable') {
     const variable = variables.find((item) => item.id === storyDataSelection.id);
     return variable ? <VariableEditor variable={variable} /> : null;
@@ -344,6 +612,14 @@ export function StoryDataInspector() {
   if (storyDataSelection.kind === 'character') {
     const character = characters.find((item) => item.id === storyDataSelection.id);
     return character ? <CharacterEditor character={character} /> : null;
+  }
+  if (storyDataSelection.kind === 'event') {
+    const event = events.find((item) => item.id === storyDataSelection.id);
+    return event ? <EventEditor event={event} /> : null;
+  }
+  if (storyDataSelection.kind === 'signal') {
+    const signal = signals.find((item) => item.id === storyDataSelection.id);
+    return signal ? <SignalEditor signal={signal} /> : null;
   }
   const asset = assets.find((item) => item.id === storyDataSelection.id);
   return asset ? <AssetEditor asset={asset} /> : null;
@@ -356,9 +632,13 @@ export function StoryData() {
     variables,
     characters,
     assets,
+    events,
+    signals,
     addVariable,
     addCharacter,
     addAsset,
+    addEvent,
+    addSignal,
     storyDataSelection,
     selectStoryData,
   } = useStoryGraphStore();
@@ -379,6 +659,28 @@ export function StoryData() {
         )
       : assets;
   }, [assets, resourceSearch]);
+  const filteredEvents = useMemo(() => {
+    const query = resourceSearch.trim().toLowerCase();
+    return query
+      ? events.filter((item) =>
+          `${item.name} ${item.displayName} ${item.description ?? ''} ${item.parameters
+            .map((parameter) => `${parameter.name} ${parameter.valueType.kind}`)
+            .join(' ')}`
+            .toLowerCase()
+            .includes(query),
+        )
+      : events;
+  }, [events, resourceSearch]);
+  const filteredSignals = useMemo(() => {
+    const query = resourceSearch.trim().toLowerCase();
+    return query
+      ? signals.filter((item) =>
+          `${item.name} ${item.displayName} ${item.description ?? ''}`
+            .toLowerCase()
+            .includes(query),
+        )
+      : signals;
+  }, [signals, resourceSearch]);
   if (!hasActiveStory && !workspace?.project) {
     return (
       <div className={panelStyles.panel}>
@@ -438,6 +740,100 @@ export function StoryData() {
                   }}
                 >
                   S
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {workspace?.project && (
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span>Project Events</span>
+              <div className={styles.sectionHeaderActions}>
+                <button
+                  type="button"
+                  title="Open event interface table"
+                  onClick={() => selectStoryData({ kind: 'event-table' })}
+                >
+                  ≡
+                </button>
+                <button
+                  type="button"
+                  title="Add event"
+                  onClick={() => {
+                    const id = addEvent();
+                    if (id) selectStoryData({ kind: 'event', id });
+                  }}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            {events.length === 0 && <div className={styles.empty}>No events</div>}
+            {filteredEvents.map((event) => (
+              <div
+                key={event.id}
+                className={`${styles.item} ${styles.eventTableRow} ${storyDataSelection?.kind === 'event' && storyDataSelection.id === event.id ? styles.selected : ''}`}
+                draggable
+                onClick={() => selectStoryData({ kind: 'event', id: event.id })}
+                onDragStart={(drag) => writeStoryDataDrag(drag, { kind: 'event', id: event.id })}
+              >
+                <span className={`${styles.typeDot} ${styles.event}`} />
+                <span className={styles.eventTableSummary}>
+                  <strong>{event.displayName}</strong>
+                  <code>
+                    {event.name}(
+                    {event.parameters
+                      .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
+                      .join(', ')}
+                    )
+                  </code>
+                  {event.description && <small>{event.description}</small>}
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {workspace?.project && (
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span>Project Signals</span>
+              <div className={styles.sectionHeaderActions}>
+                <button
+                  type="button"
+                  title="Open project interface table"
+                  onClick={() => selectStoryData({ kind: 'event-table' })}
+                >
+                  ≡
+                </button>
+                <button
+                  type="button"
+                  title="Add signal"
+                  onClick={() => {
+                    const id = addSignal();
+                    if (id) selectStoryData({ kind: 'signal', id });
+                  }}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            {signals.length === 0 && <div className={styles.empty}>No signals</div>}
+            {filteredSignals.map((signal) => (
+              <div
+                key={signal.id}
+                className={`${styles.item} ${styles.eventTableRow} ${storyDataSelection?.kind === 'signal' && storyDataSelection.id === signal.id ? styles.selected : ''}`}
+                draggable
+                onClick={() => selectStoryData({ kind: 'signal', id: signal.id })}
+                onDragStart={(drag) => writeStoryDataDrag(drag, { kind: 'signal', id: signal.id })}
+              >
+                <span className={`${styles.typeDot} ${styles.event}`} />
+                <span className={styles.eventTableSummary}>
+                  <strong>{signal.displayName}</strong>
+                  <code>{signal.name}</code>
+                  {signal.description && <small>{signal.description}</small>}
                 </span>
               </div>
             ))}

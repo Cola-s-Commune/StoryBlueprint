@@ -3,6 +3,8 @@ import {
   STORY_RUNTIME_VERSION,
   type BlockId,
   type ChoiceInstruction,
+  type CallEventInstruction,
+  type SignalId,
   type OptionId,
   type RuntimeInstruction,
   type RuntimeProgram,
@@ -10,10 +12,20 @@ import {
   type VariableId,
 } from '@story-blueprint/common';
 import { evaluateExpression, renderTextTemplate, resolveChoiceOptions } from './evaluator';
-import type { ChoiceRequest, DialogueRequest, RuntimeDiagnostic, RuntimeState } from './types';
+import type {
+  ChoiceRequest,
+  DialogueRequest,
+  EventRequest,
+  SignalRequest,
+  RuntimeDiagnostic,
+  RuntimeState,
+} from './types';
 
 export type RuntimeInteraction =
-  { kind: 'dialogue'; request: DialogueRequest } | { kind: 'choice'; request: ChoiceRequest };
+  | { kind: 'dialogue'; request: DialogueRequest }
+  | { kind: 'choice'; request: ChoiceRequest }
+  | { kind: 'event'; request: EventRequest }
+  | { kind: 'signal'; request: SignalRequest };
 
 export type RuntimeRunResult =
   | { kind: 'waiting'; state: RuntimeState; interaction: RuntimeInteraction }
@@ -25,6 +37,7 @@ function cloneState(state: RuntimeState): RuntimeState {
     ...state,
     callStack: state.callStack.map((frame) => ({ ...frame, locals: { ...frame.locals } })),
     storyVariables: { ...state.storyVariables },
+    signalInbox: { ...state.signalInbox },
     pending: state.pending ? { ...state.pending } : undefined,
   };
 }
@@ -39,6 +52,7 @@ export function createRuntimeState(program: RuntimeProgram): RuntimeState {
     storyVariables: Object.fromEntries(
       program.variables.map((variable) => [variable.id, variable.defaultValue]),
     ),
+    signalInbox: {},
     status: 'running',
   };
 }
@@ -157,12 +171,54 @@ export class StoryRuntime {
     return this.runUntilPause();
   }
 
+  continueEvent(): RuntimeRunResult {
+    const instruction = this.currentInstruction();
+    if (this.currentState.pending?.kind !== 'event' || instruction?.op !== 'call-event') {
+      return this.fail({
+        code: 'INVALID_ADAPTER_RESULT',
+        severity: 'error',
+        message: 'Runtime is not waiting for an event dispatch',
+        location: this.location(),
+      });
+    }
+    this.currentState.pending = undefined;
+    this.currentState.status = 'running';
+    this.currentState.instructionIndex += 1;
+    return this.runUntilPause();
+  }
+
+  /** Delivers a signal. Early signals are buffered in serializable runtime state. */
+  sendSignal(signalId: SignalId): RuntimeRunResult | undefined {
+    if (
+      this.currentState.pending?.kind === 'signal' &&
+      this.currentState.pending.signalId === signalId
+    ) {
+      this.currentState.pending = undefined;
+      this.currentState.status = 'running';
+      this.currentState.instructionIndex += 1;
+      return this.runUntilPause();
+    }
+    this.currentState.signalInbox[signalId] = (this.currentState.signalInbox[signalId] ?? 0) + 1;
+    return undefined;
+  }
+
   abort(): RuntimeRunResult {
     return this.fail({
       code: 'ABORTED',
       severity: 'error',
       message: 'Runtime execution was aborted',
       location: this.location(),
+    });
+  }
+
+  failAdapter(cause: unknown): RuntimeRunResult {
+    return this.fail({
+      code: 'ADAPTER_ERROR',
+      severity: 'error',
+      message: cause instanceof Error ? cause.message : String(cause),
+      location: this.location(),
+      instructionId: this.currentInstruction()?.id,
+      cause,
     });
   }
 
@@ -196,6 +252,36 @@ export class StoryRuntime {
         );
         this.currentState.instructionIndex += 1;
         return undefined;
+      case 'call-event': {
+        this.currentState.pending = {
+          kind: 'event',
+          requestId: instruction.id,
+          instructionId: instruction.id,
+          eventId: instruction.eventId,
+        };
+        this.currentState.status = 'waiting';
+        return this.waiting(this.eventInteraction(instruction));
+      }
+      case 'wait-signal': {
+        const buffered = this.currentState.signalInbox[instruction.signalId] ?? 0;
+        if (buffered > 0) {
+          if (buffered === 1) delete this.currentState.signalInbox[instruction.signalId];
+          else this.currentState.signalInbox[instruction.signalId] = buffered - 1;
+          this.currentState.instructionIndex += 1;
+          return undefined;
+        }
+        this.currentState.pending = {
+          kind: 'signal',
+          requestId: instruction.id,
+          instructionId: instruction.id,
+          signalId: instruction.signalId,
+        };
+        this.currentState.status = 'waiting';
+        return this.waiting({
+          kind: 'signal',
+          request: { requestId: instruction.id, signalId: instruction.signalId },
+        });
+      }
       case 'branch': {
         const condition = evaluateExpression(instruction.condition, this.readVariable);
         if (typeof condition !== 'boolean') throw new TypeError('Branch condition must be boolean');
@@ -308,7 +394,32 @@ export class StoryRuntime {
     if (this.currentState.pending?.kind === 'choice' && instruction?.op === 'choice') {
       return this.choiceInteraction(instruction);
     }
+    if (this.currentState.pending?.kind === 'event' && instruction?.op === 'call-event') {
+      return this.eventInteraction(instruction);
+    }
+    if (this.currentState.pending?.kind === 'signal' && instruction?.op === 'wait-signal') {
+      return {
+        kind: 'signal',
+        request: { requestId: instruction.id, signalId: instruction.signalId },
+      };
+    }
     return undefined;
+  }
+
+  private eventInteraction(instruction: CallEventInstruction): RuntimeInteraction {
+    return {
+      kind: 'event',
+      request: {
+        requestId: instruction.id,
+        eventId: instruction.eventId,
+        arguments: Object.fromEntries(
+          Object.entries(instruction.arguments).map(([name, expression]) => [
+            name,
+            evaluateExpression(expression, this.readVariable),
+          ]),
+        ),
+      },
+    };
   }
 
   private choiceInteraction(instruction: ChoiceInstruction): RuntimeInteraction {

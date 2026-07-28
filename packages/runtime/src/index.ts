@@ -6,6 +6,7 @@ export type {
   DialogueRequest,
   ChoiceRequest,
   EventRequest,
+  SignalRequest,
   StoryAdapter,
   RuntimeDiagnosticCode,
   RuntimeDiagnostic,
@@ -25,3 +26,4 @@ export {
   type RuntimeRunResult,
 } from './storyRuntime';
 export { parseCompiledStoryProject, createRuntimeFromCompiledProject } from './compiledProject';
+export { StoryRuntimeDriver, runStoryWithAdapter } from './runtimeDriver';

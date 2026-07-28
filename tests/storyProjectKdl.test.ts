@@ -40,6 +40,25 @@ function projectDocument(): StoryProjectDocument {
         storyIds: ['s_quest'],
       },
     ],
+    events: [
+      {
+        id: 'ev_reward',
+        name: 'grantReward',
+        displayName: 'Grant Reward',
+        description: 'Adds a reward to the player inventory.',
+        parameters: [{ name: 'amount', valueType: { kind: 'number' } }],
+        resumable: true,
+        sideEffect: 'write',
+      },
+    ],
+    signals: [
+      {
+        id: 'sig_animationfinished',
+        name: 'animationFinished',
+        displayName: 'Animation Finished',
+        description: 'Sent after the current character animation ends.',
+      },
+    ],
   };
 }
 
@@ -52,6 +71,10 @@ describe('story project KDL', () => {
     expect(serialized).toContain('entry-story=s_intro');
     expect(serialized).toContain('output-directory="Build/Stories"');
     expect(serialized).toContain('path="Characters/trader.character"');
+    expect(serialized).toContain('event ev_reward');
+    expect(serialized).toContain('parameter amount type=number');
+    expect(serialized).toContain('description="Adds a reward to the player inventory."');
+    expect(serialized).toContain('signal sig_animationfinished');
   });
 
   it('rejects paths outside the project and dangling resource usage', () => {

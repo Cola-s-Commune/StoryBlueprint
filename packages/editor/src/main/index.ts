@@ -622,6 +622,7 @@ async function createInitialStoryFile(rootPath: string): Promise<{
     characters: [],
     assets: [],
     events: [],
+    signals: [],
   };
   for (let index = 1; index <= MAX_WORKSPACE_ENTRIES; index += 1) {
     const fileName = index === 1 ? 'main.story' : `main-${index}.story`;
@@ -939,6 +940,8 @@ function registerStoryFileHandlers(): void {
       stories: [],
       characters: [],
       assets: [],
+      events: [],
+      signals: [],
     };
     await writeFile(projectFile, serializeStoryProject(project), 'utf8');
     const initialStory = await createInitialStoryFile(rootPath);
@@ -1094,7 +1097,9 @@ function registerStoryFileHandlers(): void {
     const settings = value as Partial<UpdateProjectSettingsRequest>;
     if (
       (settings.entryStoryId !== undefined && typeof settings.entryStoryId !== 'string') ||
-      (settings.outputDirectory !== undefined && typeof settings.outputDirectory !== 'string')
+      (settings.outputDirectory !== undefined && typeof settings.outputDirectory !== 'string') ||
+      (settings.events !== undefined && !Array.isArray(settings.events)) ||
+      (settings.signals !== undefined && !Array.isArray(settings.signals))
     ) {
       throw new Error('Invalid project settings');
     }
@@ -1103,6 +1108,8 @@ function registerStoryFileHandlers(): void {
       ...current,
       entryStoryId: settings.entryStoryId as StoryProjectDocument['entryStoryId'],
       outputDirectory: settings.outputDirectory?.trim() || undefined,
+      events: settings.events ?? current.events,
+      signals: settings.signals ?? current.signals,
     };
     await writeFile(workspaceProjectFile, serializeStoryProject(next), 'utf8');
     return (await readWorkspace())!;

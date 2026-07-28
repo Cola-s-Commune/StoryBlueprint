@@ -83,6 +83,18 @@ function project(): StoryProjectDocument {
     ],
     characters: [],
     assets: [],
+    events: [
+      {
+        id: 'ev_playanim',
+        name: 'playAnim',
+        displayName: 'Play Animation',
+        description: 'Plays an animation and waits for completion.',
+        parameters: [{ name: 'animName', valueType: { kind: 'string' } }],
+        resumable: true,
+        sideEffect: 'write',
+      },
+    ],
+    signals: [],
   };
 }
 
@@ -95,6 +107,13 @@ describe('project compilation', () => {
     expect(json).not.toContain('position');
     expect(json).not.toContain('n_projectstart');
     const loaded = parseCompiledStoryProject(json);
+    expect(loaded.events).toMatchObject([
+      {
+        id: 'ev_playanim',
+        name: 'playAnim',
+        description: 'Plays an animation and waits for completion.',
+      },
+    ]);
     const runtime = createRuntimeFromCompiledProject(loaded);
     expect(runtime.runUntilPause().kind).toBe('waiting');
   });

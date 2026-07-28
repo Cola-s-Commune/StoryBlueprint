@@ -3,6 +3,7 @@ import type {
   ChapterId,
   CharacterId,
   EventId,
+  SignalId,
   NodeId,
   OptionId,
   StoryId,
@@ -86,10 +87,19 @@ export interface EventSource {
   id: EventId;
   name: string;
   displayName: string;
+  description?: string;
   parameters: readonly { name: string; valueType: ValueType }[];
   returnType?: ValueType;
   resumable: boolean;
   sideEffect: 'none' | 'read' | 'write';
+}
+
+/** A project-level notification that story execution can explicitly wait for. */
+export interface SignalSource {
+  id: SignalId;
+  name: string;
+  displayName: string;
+  description?: string;
 }
 
 export interface LocalizedTextSource {
@@ -109,6 +119,7 @@ export interface StorySourceDocument {
   characters: readonly CharacterSource[];
   assets: readonly AssetSource[];
   events: readonly EventSource[];
+  signals?: readonly SignalSource[];
 }
 
 export interface BoundExpressionSource {

@@ -6,6 +6,8 @@ import type {
   AssetId,
   ChapterId,
   CharacterId,
+  EventId,
+  SignalId,
   DialogueLineId,
   NodeId,
   OptionId,
@@ -26,6 +28,8 @@ export enum StoryNodeType {
   Branch = 'branch',
   GetVariable = 'get-variable',
   SetVariable = 'set-variable',
+  CallEvent = 'call-event',
+  WaitSignal = 'wait-signal',
   CallSubstory = 'call-substory',
   Reroute = 'reroute',
   FlowAnchor = 'flow-anchor',
@@ -110,6 +114,17 @@ export interface SetVariableNodeData {
   value: ExpressionSource;
 }
 
+/** Dispatches a project-defined engine event and immediately continues. */
+export interface CallEventNodeData {
+  eventId?: EventId;
+  arguments: Record<string, ExpressionSource>;
+}
+
+/** Pauses story execution until the engine emits a project-defined signal. */
+export interface WaitSignalNodeData {
+  signalId?: SignalId;
+}
+
 /** Calls another blueprint contained by the current Story asset. */
 export interface CallSubstoryNodeData {
   chapterId?: ChapterId;
@@ -147,6 +162,8 @@ export interface StoryNodeDataMap {
   [StoryNodeType.Branch]: BranchNodeData;
   [StoryNodeType.GetVariable]: GetVariableNodeData;
   [StoryNodeType.SetVariable]: SetVariableNodeData;
+  [StoryNodeType.CallEvent]: CallEventNodeData;
+  [StoryNodeType.WaitSignal]: WaitSignalNodeData;
   [StoryNodeType.CallSubstory]: CallSubstoryNodeData;
   [StoryNodeType.Reroute]: RerouteNodeData;
   [StoryNodeType.FlowAnchor]: FlowAnchorNodeData;

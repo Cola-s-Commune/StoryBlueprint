@@ -174,6 +174,24 @@ function serializeSourceNode(source: SourceNode): Node {
       target.setProperty('value', setVariable.value.source);
       break;
     }
+    case StoryNodeType.CallEvent: {
+      const callEvent = data as StoryNodeDataMap[StoryNodeType.CallEvent];
+      if (callEvent.eventId) target.setProperty('event', callEvent.eventId);
+      for (const [name, value] of Object.entries(callEvent.arguments).sort(([left], [right]) =>
+        left.localeCompare(right),
+      )) {
+        const argument = Node.create('argument');
+        argument.addArgument(name);
+        argument.addArgument(value.source);
+        target.appendNode(argument);
+      }
+      break;
+    }
+    case StoryNodeType.WaitSignal: {
+      const signalId = (data as StoryNodeDataMap[StoryNodeType.WaitSignal]).signalId;
+      if (signalId) target.setProperty('signal', signalId);
+      break;
+    }
     case StoryNodeType.CallSubstory: {
       const chapterId = (data as StoryNodeDataMap[StoryNodeType.CallSubstory]).chapterId;
       if (chapterId) target.setProperty('chapter', chapterId);
@@ -403,6 +421,8 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.Branch]: ['condition'],
     [StoryNodeType.GetVariable]: ['variable'],
     [StoryNodeType.SetVariable]: ['variable', 'value'],
+    [StoryNodeType.CallEvent]: ['event'],
+    [StoryNodeType.WaitSignal]: ['signal'],
     [StoryNodeType.CallSubstory]: ['chapter'],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: ['label'],
@@ -417,6 +437,8 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.Branch]: [],
     [StoryNodeType.GetVariable]: [],
     [StoryNodeType.SetVariable]: [],
+    [StoryNodeType.CallEvent]: ['argument'],
+    [StoryNodeType.WaitSignal]: [],
     [StoryNodeType.CallSubstory]: [],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: [],
@@ -517,6 +539,30 @@ function parseSourceNode(node: Node): SourceNode {
           ? requiredId(node.getProperty('variable'), 'variable', `${id}.variable`)
           : undefined,
         value: expressionSource(node.getProperty('value'), `${id}.value`),
+      };
+      break;
+    case StoryNodeType.CallEvent:
+      data = {
+        eventId: node.getProperty('event')
+          ? requiredId(node.getProperty('event'), 'event', `${id}.event`)
+          : undefined,
+        arguments: Object.fromEntries(
+          node.findNodesByName('argument').map((argument, index) => {
+            const path = `${id}.argument[${index}]`;
+            assertShape(argument, path, { arguments: 2 });
+            return [
+              requiredString(argument.getArgument(0), `${path}.name`),
+              expressionSource(argument.getArgument(1), `${path}.value`),
+            ];
+          }),
+        ),
+      };
+      break;
+    case StoryNodeType.WaitSignal:
+      data = {
+        signalId: node.getProperty('signal')
+          ? requiredId(node.getProperty('signal'), 'signal', `${id}.signal`)
+          : undefined,
       };
       break;
     case StoryNodeType.CallSubstory:

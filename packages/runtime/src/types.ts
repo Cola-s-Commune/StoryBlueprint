@@ -4,6 +4,7 @@ import type {
   CharacterId,
   ChapterId,
   EventId,
+  SignalId,
   InstructionId,
   LocalizedVoiceRef,
   OptionId,
@@ -32,7 +33,8 @@ export type PendingInteraction =
       instructionId: InstructionId;
       optionIds: readonly OptionId[];
     }
-  | { kind: 'event'; requestId: string; instructionId: InstructionId; eventId: EventId };
+  | { kind: 'event'; requestId: string; instructionId: InstructionId; eventId: EventId }
+  | { kind: 'signal'; requestId: string; instructionId: InstructionId; signalId: SignalId };
 
 /** Serializable state owned by the engine save system. */
 export interface RuntimeState {
@@ -42,6 +44,8 @@ export interface RuntimeState {
   instructionIndex: number;
   callStack: CallFrame[];
   storyVariables: Record<string, RuntimeValue>;
+  /** Counts signals received before their matching Wait for Signal instruction. */
+  signalInbox: Record<string, number>;
   pending?: PendingInteraction;
   status: RuntimeStatus;
   randomSeed?: number;
@@ -76,10 +80,18 @@ export interface EventRequest {
   arguments: Readonly<Record<string, RuntimeValue>>;
 }
 
+export interface SignalRequest {
+  requestId: string;
+  signalId: SignalId;
+}
+
 export interface StoryAdapter {
   showDialogue(request: DialogueRequest, signal: AbortSignal): Promise<void>;
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
-  callEvent(request: EventRequest, signal: AbortSignal): Promise<RuntimeValue>;
+  /** Dispatches an engine action. Resolving means dispatched, not completed. */
+  callEvent(request: EventRequest, signal: AbortSignal): Promise<void>;
+  /** Resolves when the engine observes the requested signal. */
+  waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<void>;
   resolveText(textId: TextId, locale: string): Promise<string | undefined>;
   readExternalVariable(id: VariableId): Promise<RuntimeValue>;
   writeExternalVariable(id: VariableId, value: RuntimeValue): Promise<void>;

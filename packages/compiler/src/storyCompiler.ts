@@ -7,6 +7,7 @@ import {
   type BlockId,
   type BranchNodeData,
   type CallSubstoryNodeData,
+  type CallEventNodeData,
   type ChapterId,
   type ChoiceNodeData,
   type DialogueNodeData,
@@ -23,6 +24,7 @@ import {
   type SourceNode,
   type StorySourceDocument,
   type TextId,
+  type WaitSignalNodeData,
 } from '@story-blueprint/common';
 import {
   compileExpression,
@@ -260,6 +262,87 @@ export class DefaultStoryCompiler implements StoryCompiler {
             }
             const target = requireTarget(node, 'out');
             if (target) instructions.push(jump(node, target));
+            break;
+          }
+          case StoryNodeType.CallEvent: {
+            const data = node.data as unknown as CallEventNodeData;
+            const event = data.eventId
+              ? source.events.find((candidate) => candidate.id === data.eventId)
+              : undefined;
+            if (!event) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Call Event does not reference an existing project event',
+                sourceNodeId: node.id,
+              });
+            }
+            const compiledArguments: Record<string, ReturnType<typeof compileExpression>> = {};
+            if (event) {
+              for (const parameter of event.parameters) {
+                const argument = data.arguments[parameter.name];
+                if (!argument) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Call Event is missing argument ${parameter.name}`,
+                    sourceNodeId: node.id,
+                  });
+                  continue;
+                }
+                const compiled = compileSafe(node, () =>
+                  compileExpression(argument, source.variables),
+                );
+                if (
+                  compiled &&
+                  compiled.valueType.kind !== 'any' &&
+                  compiled.valueType.kind !== parameter.valueType.kind
+                ) {
+                  diagnostics.push({
+                    code: 'EXPRESSION_ERROR',
+                    severity: 'error',
+                    message: `Event argument ${parameter.name} expects ${parameter.valueType.kind}, got ${compiled.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (compiled) compiledArguments[parameter.name] = compiled;
+              }
+              const target = requireTarget(node, 'out');
+              if (target && Object.keys(compiledArguments).length === event.parameters.length) {
+                instructions.push({
+                  id: instructionId(node.id),
+                  op: 'call-event',
+                  eventId: event.id,
+                  arguments: compiledArguments,
+                });
+                instructions.push(jump(node, target));
+              }
+            } else {
+              requireTarget(node, 'out');
+            }
+            break;
+          }
+          case StoryNodeType.WaitSignal: {
+            const data = node.data as unknown as WaitSignalNodeData;
+            const signal = data.signalId
+              ? (source.signals ?? []).find((candidate) => candidate.id === data.signalId)
+              : undefined;
+            if (!signal) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Wait for Signal does not reference an existing project signal',
+                sourceNodeId: node.id,
+              });
+            }
+            const target = requireTarget(node, 'out');
+            if (signal && target) {
+              instructions.push({
+                id: instructionId(node.id),
+                op: 'wait-signal',
+                signalId: signal.id,
+              });
+              instructions.push(jump(node, target));
+            }
             break;
           }
           case StoryNodeType.Choice: {

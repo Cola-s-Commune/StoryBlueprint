@@ -131,6 +131,7 @@ export function StoryGraph() {
     addNode,
     activeGraphId,
     chapters,
+    events,
     extractSelectionToSubstory,
     hasActiveStory,
     workspace,
@@ -824,6 +825,27 @@ export function StoryGraph() {
             });
           } else if (payload.kind === 'variable') {
             addNode(StoryNodeType.GetVariable, position, { variableId: payload.id });
+          } else if (payload.kind === 'event') {
+            const definition = events.find((candidate) => candidate.id === payload.id);
+            addNode(StoryNodeType.CallEvent, position, {
+              eventId: payload.id,
+              arguments: Object.fromEntries(
+                (definition?.parameters ?? []).map((parameter) => [
+                  parameter.name,
+                  {
+                    source:
+                      parameter.valueType.kind === 'string'
+                        ? '""'
+                        : parameter.valueType.kind === 'boolean'
+                          ? 'false'
+                          : '0',
+                    bindings: {},
+                  },
+                ]),
+              ),
+            });
+          } else if (payload.kind === 'signal') {
+            addNode(StoryNodeType.WaitSignal, position, { signalId: payload.id });
           }
         }}
       >

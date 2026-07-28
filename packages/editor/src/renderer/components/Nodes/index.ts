@@ -8,6 +8,7 @@ import { EndNode } from './EndNode';
 import { GetVariableNode, SetVariableNode } from './VariableNode';
 import { CallSubstoryNode, ReturnNode } from './SubstoryNode';
 import { FlowAnchorNode, FlowJumpNode, RerouteNode } from './FlowNode';
+import { CallEventNode, WaitSignalNode } from './EventNode';
 
 /** React Flow nodeTypes mapping — pass to <ReactFlow nodeTypes={...}> */
 export const nodeTypes: NodeTypes = {
@@ -17,6 +18,8 @@ export const nodeTypes: NodeTypes = {
   [StoryNodeType.Branch]: BranchNode,
   [StoryNodeType.GetVariable]: GetVariableNode,
   [StoryNodeType.SetVariable]: SetVariableNode,
+  [StoryNodeType.CallEvent]: CallEventNode,
+  [StoryNodeType.WaitSignal]: WaitSignalNode,
   [StoryNodeType.CallSubstory]: CallSubstoryNode,
   [StoryNodeType.Reroute]: RerouteNode,
   [StoryNodeType.FlowAnchor]: FlowAnchorNode,

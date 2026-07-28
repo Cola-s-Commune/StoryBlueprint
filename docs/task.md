@@ -278,18 +278,26 @@
 
 ## Call Event Node
 
-- [ ] 项目级 Event Definition / Registry 与稳定 Event ID
-- [ ] Event Name / Display Name、参数 Schema、返回类型、执行模式和错误策略
-- [ ] Event Reference 使用稳定 ID，参数重命名不破坏节点绑定
+- [x] 项目级 Event Definition / Registry 与稳定 Event ID
+- [x] 面向程序员的 Event Interface Table 展示名称、参数签名、稳定 ID 与 Description，可复制 Markdown
+- [x] Event Name / Display Name、参数 Schema 与 Description
+- [x] Event Reference 使用稳定 ID，参数重命名同步更新已打开 Story 的节点绑定
+- [x] 第一阶段 Boolean / Number / String 参数及 Literal / Expression / Variable 表达式绑定
+- [x] Call Event 固定为派发后立即继续；无返回值、完成状态或失败分支
 - [ ] Boolean / Number / String / CharacterRef / AssetRef 参数
 - [ ] Array / Struct / Map / Json 递归复杂参数，编译产物使用 JSON 兼容值
 - [ ] 参数支持 Literal、Expression、Variable Binding 和结构化编辑
 - [ ] Raw JSON 仅作为复杂参数的逃生编辑方式
-- [ ] Wait for Completion / Fire and Forget
-- [ ] 可选返回值写入变量
-- [ ] Completed 输出与按策略显示的 Failed 输出
-- [ ] 终止故事、继续执行、进入 Failed 分支错误策略
 - [ ] Ink External Function 映射为 Event Definition / Call Event
+
+## Wait for Signal Node
+
+- [x] 项目级 Signal Definition、稳定 Signal ID、Display Name 与 Description
+- [x] Signal 与 Event 合并为可复制 Markdown 的程序员接口表
+- [x] Wait for Signal 节点、KDL、Compiler、Runtime 与 Preview 闭环
+- [x] RuntimeState 序列化提前到达的 Signal 缓冲；Wait 节点到达后消费
+- [x] Pending Signal 可保存、恢复和通过 AbortSignal 取消 Adapter 等待
+- [ ] Signal 参数 / Payload；需要明确用例后再设计，首版仅表示通知
 
 ---
 
@@ -575,12 +583,12 @@
 - [x] StoryAdapter TypeScript 契约
 - [x] Dialogue / Choice 异步接口
 - [ ] Event Registry 与 Typed Parameters / Result
-- [ ] `callEvent(eventId, arguments, signal)` 异步调用协议
-- [ ] 游戏引擎按稳定 Event ID 注册具体 Handler
+- [x] `callEvent(eventId, arguments, signal)` 异步调用协议
+- [x] 游戏引擎按稳定 Event ID 注册具体 Handler
 - [ ] Wait / Fire-and-forget、返回值与 Failed 分支语义
 - [ ] Text / Voice / Asset 解析
 - [ ] External Variable 读写
-- [ ] AbortSignal 取消
+- [x] AbortSignal 取消
 - [ ] Adapter 返回值校验与错误策略
 
 ---

@@ -156,6 +156,28 @@ export class NodeRegistry {
       defaultData: () => ({ value: { source: '', bindings: {} } }),
     });
 
+    this.register<StoryNodeType.CallEvent>({
+      type: StoryNodeType.CallEvent,
+      version: 1,
+      label: 'Call Event',
+      category: 'logic',
+      color: '#d979b5',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({ arguments: {} }),
+    });
+
+    this.register<StoryNodeType.WaitSignal>({
+      type: StoryNodeType.WaitSignal,
+      version: 1,
+      label: 'Wait for Signal',
+      category: 'logic',
+      color: '#8c6ed8',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Received', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({}),
+    });
+
     this.register<StoryNodeType.CallSubstory>({
       type: StoryNodeType.CallSubstory,
       version: 1,

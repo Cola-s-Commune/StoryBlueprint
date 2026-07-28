@@ -164,6 +164,44 @@
   cursor: not-allowed;
 }
 
+.eventArguments {
+  display: grid;
+  gap: 6px;
+  user-select: text;
+}
+
+.eventArgument {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.35fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid #3b4652;
+  border-radius: 4px;
+  background: #242a31;
+}
+
+.eventArgument strong {
+  overflow: hidden;
+  color: #d58bb9;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eventArgument code {
+  overflow-wrap: anywhere;
+  color: #d6dde6;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.eventArgumentEmpty {
+  color: #6f7884;
+  font-size: 11px;
+}
+
 .variables {
   overflow: auto;
   padding: 12px;

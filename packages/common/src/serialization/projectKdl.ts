@@ -8,6 +8,8 @@ import {
   type ProjectStoryReference,
   type StoryProjectDocument,
 } from '../types/project';
+import type { EventSource, SignalSource } from '../types/source';
+import type { ValueType } from '../types/values';
 import { StoryFormatError } from './storyKdl';
 
 function requiredString(value: unknown, path: string): string {
@@ -127,7 +129,8 @@ function validateProject(project: StoryProjectDocument): void {
     if (!isStableId(asset.id, 'asset')) throw new StoryFormatError(`Invalid asset ID ${asset.id}`);
     if (assetIds.has(asset.id)) throw new StoryFormatError(`Duplicate asset ID ${asset.id}`);
     assetIds.add(asset.id);
-    if (assetNames.has(asset.name)) throw new StoryFormatError(`Duplicate asset name ${asset.name}`);
+    if (assetNames.has(asset.name))
+      throw new StoryFormatError(`Duplicate asset name ${asset.name}`);
     assetNames.add(asset.name);
     if (asset.path) {
       if (
@@ -147,6 +150,47 @@ function validateProject(project: StoryProjectDocument): void {
       }
     }
   }
+  const eventIds = new Set<string>();
+  const eventNames = new Set<string>();
+  for (const event of project.events) {
+    if (!isStableId(event.id, 'event')) throw new StoryFormatError(`Invalid event ID ${event.id}`);
+    if (eventIds.has(event.id)) throw new StoryFormatError(`Duplicate event ID ${event.id}`);
+    if (eventNames.has(event.name))
+      throw new StoryFormatError(`Duplicate event name ${event.name}`);
+    eventIds.add(event.id);
+    eventNames.add(event.name);
+    if (event.returnType && !['boolean', 'number', 'string'].includes(event.returnType.kind)) {
+      throw new StoryFormatError(`Unsupported return type in event ${event.name}`);
+    }
+    const parameterNames = new Set<string>();
+    for (const parameter of event.parameters) {
+      if (!parameter.name || parameterNames.has(parameter.name)) {
+        throw new StoryFormatError(`Invalid or duplicate parameter in event ${event.name}`);
+      }
+      parameterNames.add(parameter.name);
+      if (!['boolean', 'number', 'string'].includes(parameter.valueType.kind)) {
+        throw new StoryFormatError(`Unsupported parameter type in event ${event.name}`);
+      }
+    }
+  }
+  const signalIds = new Set<string>();
+  const signalNames = new Set<string>();
+  for (const signal of project.signals) {
+    if (!isStableId(signal.id, 'signal')) {
+      throw new StoryFormatError(`Invalid signal ID ${signal.id}`);
+    }
+    if (signalIds.has(signal.id)) throw new StoryFormatError(`Duplicate signal ID ${signal.id}`);
+    if (!signal.name || signalNames.has(signal.name)) {
+      throw new StoryFormatError(`Invalid or duplicate signal name ${signal.name}`);
+    }
+    signalIds.add(signal.id);
+    signalNames.add(signal.name);
+  }
+}
+
+function scalarValueType(name: string, path: string): ValueType {
+  if (name === 'boolean' || name === 'number' || name === 'string') return { kind: name };
+  throw new StoryFormatError(`${path} has unsupported value type ${name}`);
 }
 
 function appendUsage(target: Node, storyIds: readonly string[]): void {
@@ -224,6 +268,43 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
     }
     root.appendNode(assets);
   }
+  if (project.events.length > 0) {
+    const events = Node.create('events');
+    for (const event of [...project.events].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const node = Node.create('event');
+      node.addArgument(event.id);
+      node.setProperty('name', event.name);
+      if (event.displayName !== event.name) node.setProperty('display-name', event.displayName);
+      if (event.description) node.setProperty('description', event.description);
+      node.setProperty('resumable', event.resumable);
+      node.setProperty('side-effect', event.sideEffect);
+      if (event.returnType) node.setProperty('return-type', event.returnType.kind);
+      for (const parameter of event.parameters) {
+        const parameterNode = Node.create('parameter');
+        parameterNode.addArgument(parameter.name);
+        parameterNode.setProperty('type', parameter.valueType.kind);
+        node.appendNode(parameterNode);
+      }
+      events.appendNode(node);
+    }
+    root.appendNode(events);
+  }
+  if (project.signals.length > 0) {
+    const signals = Node.create('signals');
+    for (const signal of [...project.signals].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const node = Node.create('signal');
+      node.addArgument(signal.id);
+      node.setProperty('name', signal.name);
+      if (signal.displayName !== signal.name) node.setProperty('display-name', signal.displayName);
+      if (signal.description) node.setProperty('description', signal.description);
+      signals.appendNode(node);
+    }
+    root.appendNode(signals);
+  }
   return format(new Document([root]));
 }
 
@@ -257,8 +338,8 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     'entry-story',
     'output-directory',
   ]);
-  assertChildren(root, 'project', ['stories', 'characters', 'assets']);
-  for (const section of ['stories', 'characters', 'assets']) {
+  assertChildren(root, 'project', ['stories', 'characters', 'assets', 'events', 'signals']);
+  for (const section of ['stories', 'characters', 'assets', 'events', 'signals']) {
     if (root.findNodesByName(section).length > 1) {
       throw new StoryFormatError(`Project may contain at most one ${section} section`);
     }
@@ -361,6 +442,93 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     },
   );
 
+  const eventsContainer = root.findNodeByName('events');
+  if (eventsContainer) {
+    assertArguments(eventsContainer, 'events', 0);
+    assertProperties(eventsContainer, 'events', []);
+    assertChildren(eventsContainer, 'events', ['event']);
+  }
+  const events: EventSource[] = (eventsContainer?.findNodesByName('event') ?? []).map(
+    (node, index) => {
+      const path = `events[${index}]`;
+      assertArguments(node, path, 1);
+      assertProperties(node, path, [
+        'name',
+        'display-name',
+        'description',
+        'resumable',
+        'side-effect',
+        'return-type',
+      ]);
+      assertChildren(node, path, ['parameter']);
+      const name = requiredString(node.getProperty('name'), `${path}.name`);
+      const resumable = node.getProperty('resumable');
+      if (typeof resumable !== 'boolean') {
+        throw new StoryFormatError(`${path}.resumable must be a boolean`);
+      }
+      const sideEffect = requiredString(node.getProperty('side-effect'), `${path}.side-effect`);
+      if (!['none', 'read', 'write'].includes(sideEffect)) {
+        throw new StoryFormatError(`${path}.side-effect is invalid`);
+      }
+      return {
+        id: requiredId(node.getArgument(0), 'event', `${path}.id`),
+        name,
+        displayName: (node.getProperty('display-name') as string | undefined) ?? name,
+        description:
+          node.getProperty('description') === undefined
+            ? undefined
+            : requiredString(node.getProperty('description'), `${path}.description`),
+        parameters: node.findNodesByName('parameter').map((parameter, parameterIndex) => {
+          const parameterPath = `${path}.parameter[${parameterIndex}]`;
+          assertArguments(parameter, parameterPath, 1);
+          assertProperties(parameter, parameterPath, ['type']);
+          assertChildren(parameter, parameterPath, []);
+          return {
+            name: requiredString(parameter.getArgument(0), `${parameterPath}.name`),
+            valueType: scalarValueType(
+              requiredString(parameter.getProperty('type'), `${parameterPath}.type`),
+              parameterPath,
+            ),
+          };
+        }),
+        returnType:
+          node.getProperty('return-type') === undefined
+            ? undefined
+            : scalarValueType(
+                requiredString(node.getProperty('return-type'), `${path}.return-type`),
+                `${path}.return-type`,
+              ),
+        resumable,
+        sideEffect: sideEffect as EventSource['sideEffect'],
+      };
+    },
+  );
+
+  const signalsContainer = root.findNodeByName('signals');
+  if (signalsContainer) {
+    assertArguments(signalsContainer, 'signals', 0);
+    assertProperties(signalsContainer, 'signals', []);
+    assertChildren(signalsContainer, 'signals', ['signal']);
+  }
+  const signals: SignalSource[] = (signalsContainer?.findNodesByName('signal') ?? []).map(
+    (node, index) => {
+      const path = `signals[${index}]`;
+      assertArguments(node, path, 1);
+      assertProperties(node, path, ['name', 'display-name', 'description']);
+      assertChildren(node, path, []);
+      const signalName = requiredString(node.getProperty('name'), `${path}.name`);
+      return {
+        id: requiredId(node.getArgument(0), 'signal', `${path}.id`),
+        name: signalName,
+        displayName: (node.getProperty('display-name') as string | undefined) ?? signalName,
+        description:
+          node.getProperty('description') === undefined
+            ? undefined
+            : requiredString(node.getProperty('description'), `${path}.description`),
+      };
+    },
+  );
+
   const project: StoryProjectDocument = {
     format: STORY_PROJECT_FORMAT,
     version: STORY_PROJECT_VERSION,
@@ -377,6 +545,8 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     stories,
     characters,
     assets,
+    events,
+    signals,
   };
   validateProject(project);
   return project;

@@ -100,6 +100,8 @@ export interface CreateWorkspaceProjectRequest {
 export interface UpdateProjectSettingsRequest {
   entryStoryId?: string;
   outputDirectory?: string;
+  events?: readonly EventSource[];
+  signals?: readonly SignalSource[];
 }
 
 export interface ElectronAPI {
@@ -149,4 +151,10 @@ export interface ElectronAPI {
   onSaveBeforeClose: (listener: () => void) => () => void;
   finishClose: (saved: boolean) => void;
 }
-import type { AssetSource, CharacterSource, StoryProjectDocument } from '@story-blueprint/common';
+import type {
+  AssetSource,
+  CharacterSource,
+  EventSource,
+  SignalSource,
+  StoryProjectDocument,
+} from '@story-blueprint/common';
