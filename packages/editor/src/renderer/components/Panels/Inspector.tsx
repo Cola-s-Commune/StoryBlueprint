@@ -18,6 +18,7 @@ import {
 } from '@story-blueprint/common';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import type { EditorGraphState } from '../../graph/editorGraph';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
 import { formatDialogueInk, parseDialogueInk } from '../../dialogue/dialogueInk';
 import { StoryDataInspector } from './StoryData';
@@ -263,11 +264,22 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
 }
 
 function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeData }) {
-  const { characters, assets, checkpoint, updateNodeData } = useStoryGraphStore();
+  const {
+    characters,
+    assets,
+    nodes,
+    edges,
+    checkpoint,
+    updateNodeData,
+    source,
+    activeGraphId,
+    saveStory,
+  } = useStoryGraphStore();
   const [draggedLineId, setDraggedLineId] = useState<DialogueLineId>();
   const [expandedLineIds, setExpandedLineIds] = useState<Set<DialogueLineId>>(() => new Set());
   const [view, setView] = useState<'lines' | 'ink'>('lines');
   const [inkFocusLine, setInkFocusLine] = useState<number>();
+  const inkUndoSnapshotRef = useRef<EditorGraphState>();
   const canonicalInk = useMemo(
     () => formatDialogueInk(data, characters, assets),
     [assets, characters, data],
@@ -282,6 +294,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
     setView('lines');
     setExpandedLineIds(new Set());
     setInkFocusLine(undefined);
+    inkUndoSnapshotRef.current = undefined;
     setInkDraft(canonicalInk);
     setInkDirty(false);
   }, [nodeId]);
@@ -309,15 +322,66 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
       return next;
     });
   };
-  const applyInk = (): boolean => {
-    if (!inkDirty) return true;
+  const sourceWithDialogueLines = (lines: DialogueLine[]) => {
+    const updateGraph = (graph: typeof source.root) => ({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.id === nodeId && node.type === StoryNodeType.Dialogue
+          ? { ...node, data: { ...node.data, lines } }
+          : node,
+      ),
+    });
+    return activeGraphId === 'root'
+      ? { ...source, root: updateGraph(source.root) }
+      : {
+          ...source,
+          chapters: source.chapters.map((chapter) =>
+            chapter.id === activeGraphId
+              ? { ...chapter, graph: updateGraph(chapter.graph) }
+              : chapter,
+          ),
+        };
+  };
+  const graphWithDialogueLines = (lines: DialogueLine[]): EditorGraphState => ({
+    nodes: nodes.map((node) =>
+      node.id === nodeId && node.type === StoryNodeType.Dialogue
+        ? { ...node, data: { ...node.data, lines } }
+        : node,
+    ),
+    edges,
+  });
+  const enterInk = (focusLine?: number) => {
+    inkUndoSnapshotRef.current = structuredClone({ nodes, edges });
+    setInkFocusLine(focusLine);
+    setView('ink');
+  };
+  const saveInk = (saveAs = false, leaving = false): boolean => {
+    if (!inkDirty) {
+      void saveStory(saveAs);
+      return true;
+    }
     if (!parsedInk.lines) return false;
-    checkpoint();
-    updateLines(parsedInk.lines);
-    setInkDraft(formatDialogueInk({ ...data, lines: parsedInk.lines }, characters, assets));
-    setInkDirty(false);
+    const lines = parsedInk.lines;
+    checkpoint(inkUndoSnapshotRef.current ?? { nodes, edges });
+    updateLines(lines);
+    inkUndoSnapshotRef.current = structuredClone(graphWithDialogueLines(lines));
+    if (!leaving) {
+      setInkDraft(formatDialogueInk({ ...data, lines }, characters, assets));
+      setInkDirty(false);
+    }
+    void saveStory(saveAs, sourceWithDialogueLines(lines));
     return true;
   };
+  const viewRef = useRef(view);
+  const saveInkRef = useRef(saveInk);
+  viewRef.current = view;
+  saveInkRef.current = saveInk;
+  useEffect(
+    () => () => {
+      if (viewRef.current === 'ink') saveInkRef.current(false, true);
+    },
+    [],
+  );
 
   return (
     <>
@@ -327,7 +391,8 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
             type="button"
             className={view === 'lines' ? styles.activeTab : undefined}
             onClick={() => {
-              if (view === 'ink' && !applyInk()) return;
+              if (view === 'ink' && !saveInk(false)) return;
+              inkUndoSnapshotRef.current = undefined;
               setView('lines');
             }}
           >
@@ -337,8 +402,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
             type="button"
             className={view === 'ink' ? styles.activeTab : undefined}
             onClick={() => {
-              setInkFocusLine(undefined);
-              setView('ink');
+              enterInk();
             }}
           >
             Ink
@@ -381,7 +445,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
               setInkDraft(value);
               setInkDirty(value !== canonicalInk);
             }}
-            onApply={applyInk}
+            onSave={saveInk}
             onRevert={() => {
               setInkDraft(canonicalInk);
               setInkDirty(false);
@@ -446,8 +510,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                     type="button"
                     title={`Edit line ${index + 1} in Ink`}
                     onClick={() => {
-                      setInkFocusLine(index + 1);
-                      setView('ink');
+                      enterInk(index + 1);
                     }}
                   >
                     Ink
@@ -682,7 +745,7 @@ export function Inspector() {
       }
       case StoryNodeType.Dialogue: {
         const data = node.data as DialogueNodeData;
-        return <DialogueEditor nodeId={node.id} data={data} />;
+        return <DialogueEditor key={node.id} nodeId={node.id} data={data} />;
       }
       case StoryNodeType.Choice: {
         const data = node.data as ChoiceNodeData;

@@ -87,7 +87,7 @@ export function DialogueInkEditor({
   dirty,
   focusLine,
   onChange,
-  onApply,
+  onSave,
   onRevert,
 }: {
   nodeId: string;
@@ -96,16 +96,16 @@ export function DialogueInkEditor({
   dirty: boolean;
   focusLine?: number;
   onChange: (value: string) => void;
-  onApply: () => void;
+  onSave: (saveAs?: boolean) => void;
   onRevert: () => void;
 }) {
   const editorRef = useRef<Parameters<OnMount>[0]>();
   const monacoRef = useRef<Monaco>();
-  const applyRef = useRef(onApply);
+  const saveRef = useRef(onSave);
   const focusLineRef = useRef(focusLine);
   const [zoom, setZoom] = useState(initialZoom);
   const [expanded, setExpanded] = useState(false);
-  applyRef.current = onApply;
+  saveRef.current = onSave;
   focusLineRef.current = focusLine;
 
   const revealLine = (editor: Parameters<OnMount>[0], requestedLine?: number) => {
@@ -127,10 +127,10 @@ export function DialogueInkEditor({
     editorRef.current = editor;
     monacoRef.current = monaco;
     editor.addAction({
-      id: 'story-dialogue-ink.apply',
-      label: 'Apply Dialogue Ink',
+      id: 'story-dialogue-ink.save',
+      label: 'Save Dialogue Ink',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-      run: () => applyRef.current(),
+      run: () => saveRef.current(false),
     });
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => {
       void copyEditorSelection(editor);
@@ -141,6 +141,12 @@ export function DialogueInkEditor({
     editor.onKeyDown((event) => {
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.browserEvent.key;
+      if (key.toLocaleLowerCase() === 's' && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        saveRef.current(event.shiftKey);
+        return;
+      }
       if (key !== '+' && key !== '=' && key !== '-' && key !== '0') return;
       event.preventDefault();
       event.stopPropagation();
@@ -243,12 +249,12 @@ export function DialogueInkEditor({
         </div>
       )}
       <div className={styles.inkActions}>
-        <span>{dirty ? 'Unapplied changes' : 'Lines and Ink are synchronized'}</span>
+        <span>{dirty ? 'Unsaved changes' : 'Lines and Ink are synchronized'}</span>
         <button type="button" disabled={!dirty} onClick={onRevert}>
           Revert
         </button>
-        <button type="button" disabled={!dirty || diagnostics.length > 0} onClick={onApply}>
-          Apply · Ctrl+Enter
+        <button type="button" disabled={diagnostics.length > 0} onClick={() => onSave(false)}>
+          Save · Ctrl+S
         </button>
       </div>
     </div>

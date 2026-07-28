@@ -25,6 +25,10 @@ npm run dev
 - Monaco Ink 编辑器支持持久化字号缩放、`Ctrl++ / Ctrl+- / Ctrl+0` 与大高度编辑区。
 - Dialogue Ink 说话人改用 `Character: text` 剧本前缀，明确拒绝早期行尾 `# speaker` 试验格式。
 - `.story` 升级为不兼容 v3：Dialogue 删除所有节点级默认字段，Speaker / Emotion / Voice 完全归属各 Line，不提供迁移。
+- Monaco 内 `Ctrl+S / Ctrl+Shift+S` 会先校验并原子写回当前 Ink Lines，再保存 Story；错误草稿不会覆盖磁盘。
+- Renderer CSP 为 Monaco 错误装饰开放 `img-src 'self' data:`，修复内嵌 SVG 波浪线被拦截，同时不放宽脚本策略。
+- Ink 视图改为离开时自动写回 Lines 并保存 Story，移除 Apply 按钮；存在诊断时阻止切回 Lines。
+- Ink 自动应用使用进入编辑器时的蓝图快照建立单一 Undo 事务，离开 Monaco 后可完整撤销 Dialogue 修改。
 - Inspector 支持新增、复制、删除、上下移动和拖动排序 Line；画布紧凑预览前三句和总数，整节点复制时重新生成全部 Line / Text ID。
 - `.story` KDL 使用紧凑 `line <lineId> <textId> <text>` 结构，仍可读取旧单 `text` Dialogue；Compiler 生成逐句暂停的连续 Dialogue 指令。
 - Pin 的透明拉线热区使用十字准星；普通节点使用四向移动光标。Reroute 按 UE Knot 语义划分为四向箭头外圈移动区，以及十字准星内圈输入/输出拉线区。

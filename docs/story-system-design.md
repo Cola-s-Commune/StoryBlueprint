@@ -396,8 +396,8 @@ v3 只接受 `line` 结构，旧单 `text` Dialogue 与节点级默认属性均�
 
 Inspector 为同一份 `DialogueData.lines` 提供 `Lines` 与 Monaco `Ink` 两种视图。Lines 始终是
 节点的唯一权威数据；Ink 是可编辑投影，不作为第二份源数据保存。结构化新增、删除、排序或修改
-Line 后，Ink 文本立即重建；Ink 草稿只有在无诊断时才作为一次可撤销事务写回 Lines。切换回
-Lines 会尝试应用有效草稿，错误草稿则保留在 Monaco 中且不污染节点。
+Line 后，Ink 文本立即重建。离开 Ink 视图时，无诊断草稿会作为一次可撤销事务写回 Lines 并保存
+Story，不提供独立 Apply 按钮；切回 Lines 时若存在错误则保持在 Monaco 中且不污染节点。
 
 当前编辑视图采用 Dialogue 专用 Ink Profile：一个物理行严格对应一个 Dialogue Line。每行必须以
 `Character: ` 或 `Narrator: ` 开头；说话人按唯一 `name` / `displayName` 解析，规范输出优先使用

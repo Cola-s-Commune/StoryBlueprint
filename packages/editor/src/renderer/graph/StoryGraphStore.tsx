@@ -331,7 +331,7 @@ interface StoryGraphStoreValue {
   markDirty: () => void;
   newStory: () => void;
   openStory: () => Promise<void>;
-  saveStory: (saveAs?: boolean) => Promise<void>;
+  saveStory: (saveAs?: boolean, sourceOverride?: StorySourceDocument) => Promise<void>;
   saveAllStories: () => Promise<void>;
   switchStory: (id: StoryId, graphId?: ActiveGraphId) => void;
   closeStory: (id: StoryId) => Promise<void>;
@@ -1778,7 +1778,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const saveStory = useCallback(
-    async (saveAs = false) => {
+    async (saveAs = false, sourceOverride?: StorySourceDocument) => {
       if (!hasActiveStory || !window.electronAPI) return;
       try {
         const savingDocumentId = document.id;
@@ -1786,7 +1786,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         const result = await window.electronAPI.saveStory({
           filePath: document.filePath,
           fileToken: document.fileToken,
-          content: serializeStorySource(source),
+          content: serializeStorySource(sourceOverride ?? source),
           saveAs,
         });
         if (result.canceled) return;
