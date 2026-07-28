@@ -999,6 +999,17 @@ Dry Run 的语义 Diff 使用绿色、黄色和红色区分新增、修改与删
 黄色短时高亮，画布自动聚焦变更范围，并提供 Accept 和 Undo AI Changes；高亮属于临时 UI 状态，不写入
 Story Source。
 
+Command v1 同时导出 Draft 2020-12 JSON Schema、内置节点 Data/Port Catalog 和随当前 Revision 更新的完整
+事务示例。AI Context 必须包含这三部分，并明确顶层字段为 `operations`、Graph 是对象、Port 由编辑器推导。
+`baseRevision` 是必填字段。Runtime Validator 不静默归一化模型猜测的格式，会在一次校验中尽可能报告所有
+顶层和 Operation 形状错误，包括未知字段；面板的 Copy Retry Context 将诊断、原响应、最新 Schema、节点
+目录和 Snapshot 一并交回模型重写。
+
+项目模式下，角色与资产可以位于独立资源文件，Event 与 Signal 位于 Project Registry；它们不会重复嵌入
+`.story`。AI Semantic Snapshot、Semantic Revision、Dry Run 返回快照和提交前 Compiler 必须使用项目解析后
+的统一资源视图，否则合法的 `speakerId`、`voiceId` 或接口 ID 会被误判缺失。该解析视图只参与上下文和校验，
+命令结果仍保存原 Story 自己拥有的数据，禁止把共享资源静默复制进 Story Source。
+
 每次 AI 修改必须：
 
 - 通过 JSON Schema、端口和数据类型校验。

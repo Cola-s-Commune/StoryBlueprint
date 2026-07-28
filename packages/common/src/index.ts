@@ -64,9 +64,16 @@ export {
   type BlueprintCommandDiagnostic,
 } from './ai/blueprintCommands';
 export {
+  BLUEPRINT_COMMAND_JSON_SCHEMA,
+  BLUEPRINT_NODE_CATALOG,
+  BLUEPRINT_COMMAND_EXAMPLE,
+} from './ai/commandSchema';
+export {
   validateBlueprintCommandTransaction,
   executeBlueprintCommandTransaction,
   type BlueprintTransactionResult,
+  type BlueprintSemanticContext,
+  type BlueprintTransactionOptions,
 } from './ai/commandExecutor';
 
 // ---- Typed graph connection rules ----

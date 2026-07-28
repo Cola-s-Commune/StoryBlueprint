@@ -670,6 +670,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 为 Story / Chapter / Node / Port / Resource 定义稳定 ID
 - [x] Typed Story Graph Schema
 - [x] 面向 AI 的精简语义视图（不包含坐标、Definition Version 和 UI 状态）
+- [x] AI Snapshot / Revision 使用项目解析后的角色、资产、事件和信号视图
 - [ ] 按 Chapter / Subgraph 构建局部上下文
 - [x] 确定性 Semantic Revision / Conflict Detection
 
@@ -695,8 +696,10 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 ## Safe Editing
 
 - [x] AI Commands 面板：复制上下文 / Snapshot、粘贴事务、Dry Run、语义 Diff、Apply
-- [ ] JSON Schema 校验 AI 命令
+- [x] 导出 Blueprint Command Draft 2020-12 JSON Schema
+- [x] Runtime 形状校验与 Schema 同步拒绝未知顶层、Operation 和 add-node 字段
 - [x] 端口、数据类型、Source Schema 与 Editor Compiler 校验
+- [x] 项目级共享资源引用参与 AI Dry Run / Compiler 校验，但不回写进 Story Source
 - [x] 批量 Transaction
 - [x] Dry Run / Revision Precondition / Atomic Rollback
 - [x] 单个活动 Graph + Story Variable 事务与 Undo / Redo 集成
@@ -709,6 +712,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] AI 新增节点连接感知自动布局，不移动已有节点
 - [x] 画布 Accept / Undo AI Changes 快捷入口
 - [x] 失败时返回 Operation ID / Index / Path 结构化 Diagnostics
+- [x] Copy Retry Context：携带错误、原响应、Schema、节点目录和最新 Snapshot
 - [ ] 删除与改型前引用检查
 - [x] Transaction 内 Operation ID 去重
 - [ ] 跨请求 Operation ID 幂等记录

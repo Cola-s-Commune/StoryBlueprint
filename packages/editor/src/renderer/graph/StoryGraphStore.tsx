@@ -479,7 +479,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
     ],
   );
-  const semanticSnapshot = useMemo(() => createStorySemanticSnapshot(source), [source]);
   const resolvedCharacters = useMemo(() => {
     const external = workspace?.characterResources.map((resource) => resource.character) ?? [];
     const externalIds = new Set(external.map((character) => character.id));
@@ -490,6 +489,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     const externalIds = new Set(external.map((asset) => asset.id));
     return [...external, ...assets.filter((asset) => !externalIds.has(asset.id))];
   }, [assets, workspace?.assetResources]);
+  const aiSemanticContext = useMemo(
+    () => ({
+      characters: resolvedCharacters,
+      assets: resolvedAssets,
+      events,
+      signals,
+    }),
+    [events, resolvedAssets, resolvedCharacters, signals],
+  );
+  const semanticSnapshot = useMemo(
+    () => createStorySemanticSnapshot({ ...source, ...aiSemanticContext }),
+    [aiSemanticContext, source],
+  );
 
   const markDirty = useCallback(() => {
     if (!hasActiveStory) return;
@@ -695,9 +707,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           };
         }
       }
-      const result = executeBlueprintCommandTransaction(source, transactionValue, options);
+      const result = executeBlueprintCommandTransaction(source, transactionValue, {
+        dryRun: options.dryRun,
+        semanticContext: aiSemanticContext,
+      });
       if (!result.ok) return result;
-      const compiled = compileStory({ ...result.document, events, signals });
+      const compiled = compileStory({
+        ...result.document,
+        characters: resolvedCharacters,
+        assets: resolvedAssets,
+        events,
+        signals,
+      });
       const compileErrors = compiled.diagnostics.filter(
         (diagnostic) => diagnostic.severity === 'error',
       );
@@ -748,7 +769,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
       return result;
     },
-    [activeGraphId, checkpoint, events, graph, markDirty, restoreGraph, signals, source],
+    [
+      activeGraphId,
+      aiSemanticContext,
+      checkpoint,
+      events,
+      graph,
+      markDirty,
+      resolvedAssets,
+      resolvedCharacters,
+      restoreGraph,
+      signals,
+      source,
+    ],
   );
 
   const addNode = useCallback(

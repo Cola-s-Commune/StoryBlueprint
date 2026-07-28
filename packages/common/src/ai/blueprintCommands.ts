@@ -166,7 +166,7 @@ export interface BlueprintCommandTransaction {
   format: typeof BLUEPRINT_COMMAND_FORMAT;
   version: typeof BLUEPRINT_COMMAND_VERSION;
   /** Rejects edits based on a stale Semantic Snapshot. */
-  baseRevision?: string;
+  baseRevision: string;
   operations: readonly BlueprintCommand[];
 }
 

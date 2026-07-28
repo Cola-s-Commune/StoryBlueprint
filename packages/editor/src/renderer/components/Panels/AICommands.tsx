@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   BLUEPRINT_COMMAND_FORMAT,
+  BLUEPRINT_COMMAND_EXAMPLE,
+  BLUEPRINT_COMMAND_JSON_SCHEMA,
+  BLUEPRINT_NODE_CATALOG,
   BLUEPRINT_COMMAND_VERSION,
   StoryNodeType,
   type BlueprintTransactionResult,
@@ -172,31 +175,27 @@ function commandTemplate(revision: string): string {
 }
 
 function aiContext(snapshot: StorySemanticSnapshot): string {
+  const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
   return [
     'Edit this Story Blueprint using only a Blueprint Command transaction.',
     'Return one JSON object and no Markdown fences or explanation.',
-    `Use format ${BLUEPRINT_COMMAND_FORMAT} version ${BLUEPRINT_COMMAND_VERSION}.`,
-    'Every operation requires a unique operationId; graph operations also require a graph target.',
-    'Supported kinds:',
-    '- add-node: { operationId, kind, graph, node: { id, type, name?, data } }',
-    '- update-node: { operationId, kind, graph, nodeId, patch: { name?, data? } }',
-    '- remove-node: { operationId, kind, graph, nodeId }',
-    '- connect/disconnect: { operationId, kind, graph, from: { nodeId, portId }, to: { nodeId, portId } }',
-    '- add-variable: { operationId, kind, variable: { id, name, displayName, scope, valueType, defaultValue } }',
-    '- update-variable: { operationId, kind, variableId, patch }',
-    '- add-dialogue-line: { operationId, kind, graph, nodeId, afterLineId?, line: { id, textId, text, speakerId?, voiceId?, emotion?, tags? } }',
-    '- update-dialogue-line: { operationId, kind, graph, nodeId, lineId, patch: { text?, speakerId?, voiceId?, emotion?, tags? } }',
-    '- remove-dialogue-line: { operationId, kind, graph, nodeId, lineId }',
-    '- add-choice-option: { operationId, kind, graph, nodeId, afterOptionId?, option: { id, text, visibleIf?, enabledIf? } }',
-    '- update-choice-option: { operationId, kind, graph, nodeId, optionId, patch: { text?, visibleIf?, enabledIf? } }',
-    '- remove-choice-option: { operationId, kind, graph, nodeId, optionId }',
-    '- set-expression: { operationId, kind, graph, nodeId, target, source }; source is plain expression text',
-    'Expression targets: branch-condition, set-variable-value, choice-visible/choice-enabled with optionId, event-argument/signal-match with parameterName.',
-    'New stable IDs use prefixes v_, n_, ln_, t_, and o_ followed by at least three lowercase letters, digits, underscores, or hyphens.',
-    'Variable valueType.kind is boolean, number, or string; defaultValue must have the same type.',
+    `The response MUST validate against the ${BLUEPRINT_COMMAND_FORMAT}@${BLUEPRINT_COMMAND_VERSION} JSON Schema below.`,
+    'The top-level array is named operations, never commands.',
+    'A graph is an object such as { "kind": "root" }, never the string "root".',
+    'Never emit ports, positions, definitionVersion, UI state, or fields not allowed by the schema.',
+    'Use the Node Catalog for add-node data and port IDs; ports are always derived by the editor.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
+    '',
+    'BLUEPRINT COMMAND JSON SCHEMA:',
+    JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2),
+    '',
+    'BUILT-IN NODE CATALOG:',
+    JSON.stringify(BLUEPRINT_NODE_CATALOG, null, 2),
+    '',
+    'VALID TRANSACTION EXAMPLE:',
+    JSON.stringify(example, null, 2),
     '',
     'CURRENT SEMANTIC SNAPSHOT:',
     JSON.stringify(snapshot, null, 2),
@@ -235,10 +234,26 @@ export function AICommands() {
   const [localError, setLocalError] = useState<string>();
   const snapshotText = useMemo(() => JSON.stringify(semanticSnapshot, null, 2), [semanticSnapshot]);
   const contextText = useMemo(() => aiContext(semanticSnapshot), [semanticSnapshot]);
+  const schemaText = useMemo(() => JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2), []);
   const currentToken = `${semanticSnapshot.revision}\n${commandText}`;
   const isDryRunCurrent = dryRunToken === currentToken;
   const diff = result?.ok && previewBase ? semanticDiff(previewBase, result.snapshot) : undefined;
   const errors = [clipboardError, localError, diagnosticText(result)].filter(Boolean).join('\n');
+  const retryContext = errors
+    ? [
+        'Your previous Story Blueprint command was rejected.',
+        'Return a complete corrected JSON transaction only. Do not explain the correction.',
+        `Use the current baseRevision ${semanticSnapshot.revision}.`,
+        '',
+        'VALIDATION DIAGNOSTICS:',
+        errors,
+        '',
+        'REJECTED RESPONSE:',
+        commandText,
+        '',
+        contextText,
+      ].join('\n')
+    : '';
 
   useEffect(() => {
     setDryRunToken(undefined);
@@ -247,19 +262,7 @@ export function AICommands() {
   const parseCommand = (): unknown => {
     setLocalError(undefined);
     try {
-      const command: unknown = JSON.parse(commandText);
-      if (
-        typeof command !== 'object' ||
-        command === null ||
-        !('baseRevision' in command) ||
-        command.baseRevision !== semanticSnapshot.revision
-      ) {
-        setLocalError(
-          `Command baseRevision must match the current revision ${semanticSnapshot.revision}`,
-        );
-        return undefined;
-      }
-      return command;
+      return JSON.parse(commandText) as unknown;
     } catch (error) {
       setLocalError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
@@ -298,6 +301,7 @@ export function AICommands() {
     <div className={styles.root}>
       <header className={styles.toolbar}>
         <CopyButton text={contextText} label="Copy AI Context" />
+        <CopyButton text={schemaText} label="Copy Schema" />
         <CopyButton text={snapshotText} label="Copy Snapshot" />
         <button
           type="button"
@@ -382,6 +386,7 @@ export function AICommands() {
                 : 'Dry Run is required before Apply'}
           </span>
           {errors && <CopyButton text={errors} label="Copy Result" />}
+          {errors && <CopyButton text={retryContext} label="Copy Retry Context" />}
         </div>
 
         {diff && (

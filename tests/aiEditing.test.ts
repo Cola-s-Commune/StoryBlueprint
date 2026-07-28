@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { compileStory } from '../packages/compiler/src';
 import {
   BLUEPRINT_COMMAND_FORMAT,
+  BLUEPRINT_COMMAND_JSON_SCHEMA,
   BLUEPRINT_COMMAND_VERSION,
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
@@ -151,6 +153,7 @@ describe('AI semantic editing foundation', () => {
     const transaction: BlueprintCommandTransaction = {
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'rename-first',
@@ -184,6 +187,7 @@ describe('AI semantic editing foundation', () => {
     const transaction: BlueprintCommandTransaction = {
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'rename-ending',
@@ -231,6 +235,7 @@ describe('AI semantic editing foundation', () => {
     const diagnostics = validateBlueprintCommandTransaction({
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'same',
@@ -252,11 +257,128 @@ describe('AI semantic editing foundation', () => {
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'INVALID_TRANSACTION')).toBe(true);
   });
 
+  it('reports guessed AI envelopes and extra node ports in one validation pass', () => {
+    expect(BLUEPRINT_COMMAND_JSON_SCHEMA.required).toEqual([
+      'format',
+      'version',
+      'baseRevision',
+      'operations',
+    ]);
+    const guessed = validateBlueprintCommandTransaction({ commands: [] });
+    expect(guessed.map((diagnostic) => diagnostic.path)).toEqual(
+      expect.arrayContaining(['commands', 'format', 'version', 'baseRevision', 'operations']),
+    );
+    expect(guessed.find((diagnostic) => diagnostic.path === 'commands')?.message).toContain(
+      'operations',
+    );
+
+    const malformedOperation = validateBlueprintCommandTransaction({
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(story()).revision,
+      operations: [
+        {
+          operationId: 'guessed-add',
+          kind: 'add-node',
+          graph: 'root',
+          node: {
+            id: 'n_guessed',
+            type: StoryNodeType.Dialogue,
+            data: { lines: [] },
+            ports: [],
+          },
+        },
+      ],
+    });
+    expect(malformedOperation.map((diagnostic) => diagnostic.path)).toEqual(
+      expect.arrayContaining(['operations.0.graph', 'operations.0.node.ports']),
+    );
+  });
+
+  it('uses resolved project resources for AI revision, snapshot, and compiler validation', () => {
+    const base = story();
+    const source: StorySourceDocument = {
+      ...base,
+      root: {
+        ...base.root,
+        nodes: base.root.nodes.map((node) =>
+          node.id === 'n_talk'
+            ? {
+                ...node,
+                data: {
+                  lines: [
+                    {
+                      id: 'ln_original',
+                      textId: 't_original',
+                      text: { source: 'Existing project character line' },
+                      speakerId: 'c_external',
+                    },
+                  ],
+                },
+              }
+            : node,
+        ),
+      },
+    };
+    const semanticContext = {
+      characters: [
+        {
+          id: 'c_external' as const,
+          name: 'external',
+          displayName: 'External Character',
+          emotions: {},
+        },
+      ],
+      assets: [],
+      events: [],
+      signals: [],
+    };
+    const revision = createStorySemanticSnapshot({ ...source, ...semanticContext }).revision;
+    const result = executeBlueprintCommandTransaction(
+      source,
+      {
+        format: BLUEPRINT_COMMAND_FORMAT,
+        version: BLUEPRINT_COMMAND_VERSION,
+        baseRevision: revision,
+        operations: [
+          {
+            operationId: 'append-external-speaker-line',
+            kind: 'add-dialogue-line',
+            graph: { kind: 'root' },
+            nodeId: 'n_talk',
+            line: {
+              id: 'ln_external',
+              textId: 't_external',
+              text: 'New project character line',
+              speakerId: 'c_external',
+            },
+          },
+        ],
+      },
+      { dryRun: true, semanticContext },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.snapshot.characters).toContainEqual(
+      expect.objectContaining({ id: 'c_external', name: 'external' }),
+    );
+    const unresolved = compileStory(result.document).diagnostics.filter((diagnostic) =>
+      diagnostic.message.includes('missing character'),
+    );
+    const resolved = compileStory({ ...result.document, ...semanticContext }).diagnostics.filter(
+      (diagnostic) => diagnostic.message.includes('missing character'),
+    );
+    expect(unresolved.length).toBeGreaterThan(0);
+    expect(resolved).toEqual([]);
+    expect(result.document.characters).toEqual([]);
+  });
+
   it('adds variables and edits Dialogue lines with stable line and text IDs', () => {
     const source = story();
     const transaction: BlueprintCommandTransaction = {
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'add-score',
@@ -343,6 +465,7 @@ describe('AI semantic editing foundation', () => {
     const transaction: BlueprintCommandTransaction = {
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'add-enabled',
@@ -407,6 +530,7 @@ describe('AI semantic editing foundation', () => {
     const result = executeBlueprintCommandTransaction(source, {
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'valid-first',
@@ -451,6 +575,7 @@ describe('AI semantic editing foundation', () => {
     const transaction: BlueprintCommandTransaction = {
       format: BLUEPRINT_COMMAND_FORMAT,
       version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
       operations: [
         {
           operationId: 'add-count',

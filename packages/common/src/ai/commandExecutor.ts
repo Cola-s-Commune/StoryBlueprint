@@ -60,6 +60,26 @@ export type BlueprintTransactionResult =
       diagnostics: readonly BlueprintCommandDiagnostic[];
     };
 
+export interface BlueprintSemanticContext {
+  characters: StorySourceDocument['characters'];
+  assets: StorySourceDocument['assets'];
+  events: StorySourceDocument['events'];
+  signals: NonNullable<StorySourceDocument['signals']>;
+}
+
+export interface BlueprintTransactionOptions {
+  dryRun?: boolean;
+  /** Resolved project resources used for Revision, AI Snapshot, and cross-resource validation. */
+  semanticContext?: BlueprintSemanticContext;
+}
+
+function withSemanticContext(
+  source: StorySourceDocument,
+  context: BlueprintSemanticContext | undefined,
+): StorySourceDocument {
+  return context ? { ...source, ...context } : source;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -172,23 +192,72 @@ function requiresGraphTarget(kind: unknown): boolean {
   return kind !== 'add-variable' && kind !== 'update-variable';
 }
 
+const operationKeys: Readonly<Record<string, readonly string[]>> = {
+  'add-node': ['operationId', 'kind', 'graph', 'node'],
+  'update-node': ['operationId', 'kind', 'graph', 'nodeId', 'patch'],
+  'remove-node': ['operationId', 'kind', 'graph', 'nodeId'],
+  connect: ['operationId', 'kind', 'graph', 'from', 'to', 'replaceExisting'],
+  disconnect: ['operationId', 'kind', 'graph', 'from', 'to'],
+  'add-variable': ['operationId', 'kind', 'variable'],
+  'update-variable': ['operationId', 'kind', 'variableId', 'patch'],
+  'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
+  'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
+  'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId'],
+  'add-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'option', 'afterOptionId'],
+  'update-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId', 'patch'],
+  'remove-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId'],
+  'set-expression': ['operationId', 'kind', 'graph', 'nodeId', 'target', 'source'],
+};
+
+function unexpectedKeyDiagnostics(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+  operationIndex?: number,
+): BlueprintCommandDiagnostic[] {
+  const allowedKeys = new Set(allowed);
+  return Object.keys(value)
+    .filter((key) => !allowedKeys.has(key))
+    .map((key) =>
+      invalidShape(
+        key === 'commands' && path === ''
+          ? 'Use operations instead of commands'
+          : `Unexpected field: ${key}`,
+        operationIndex,
+        path ? `${path}.${key}` : key,
+      ),
+    );
+}
+
 /** Runtime shape validation for untrusted JSON produced by an AI or plugin. */
 export function validateBlueprintCommandTransaction(
   value: unknown,
 ): readonly BlueprintCommandDiagnostic[] {
   if (!isRecord(value)) return [invalidShape('Command transaction must be an object')];
-  if (value.format !== BLUEPRINT_COMMAND_FORMAT || value.version !== BLUEPRINT_COMMAND_VERSION) {
-    return [
-      invalidShape(`Unsupported command format ${String(value.format)}@${String(value.version)}`),
-    ];
+  const diagnostics: BlueprintCommandDiagnostic[] = unexpectedKeyDiagnostics(
+    value,
+    ['format', 'version', 'baseRevision', 'operations'],
+    '',
+  );
+  if (value.format !== BLUEPRINT_COMMAND_FORMAT) {
+    diagnostics.push(
+      invalidShape(`format must be ${BLUEPRINT_COMMAND_FORMAT}`, undefined, 'format'),
+    );
   }
-  if (value.baseRevision !== undefined && typeof value.baseRevision !== 'string') {
-    return [invalidShape('baseRevision must be a string', undefined, 'baseRevision')];
+  if (value.version !== BLUEPRINT_COMMAND_VERSION) {
+    diagnostics.push(
+      invalidShape(`version must be ${BLUEPRINT_COMMAND_VERSION}`, undefined, 'version'),
+    );
+  }
+  if (typeof value.baseRevision !== 'string' || value.baseRevision.length === 0) {
+    diagnostics.push(
+      invalidShape('baseRevision is required and must be a string', undefined, 'baseRevision'),
+    );
   }
   if (!Array.isArray(value.operations)) {
-    return [invalidShape('operations must be an array', undefined, 'operations')];
+    diagnostics.push(invalidShape('operations must be an array', undefined, 'operations'));
+    return diagnostics;
   }
-  const diagnostics: BlueprintCommandDiagnostic[] = [];
   const operationIds = new Set<string>();
   value.operations.forEach((raw, operationIndex) => {
     const path = `operations.${operationIndex}`;
@@ -213,6 +282,9 @@ export function validateBlueprintCommandTransaction(
         operationIndex,
       });
     } else operationIds.add(operationId);
+    const allowedKeys = typeof raw.kind === 'string' ? operationKeys[raw.kind] : undefined;
+    if (allowedKeys)
+      diagnostics.push(...unexpectedKeyDiagnostics(raw, allowedKeys, path, operationIndex));
     if (requiresGraphTarget(raw.kind) && !validGraphTarget(raw.graph)) {
       diagnostics.push(
         invalidShape('Operation has an invalid graph target', operationIndex, `${path}.graph`),
@@ -220,6 +292,16 @@ export function validateBlueprintCommandTransaction(
     }
     switch (raw.kind) {
       case 'add-node':
+        if (isRecord(raw.node)) {
+          diagnostics.push(
+            ...unexpectedKeyDiagnostics(
+              raw.node,
+              ['id', 'type', 'name', 'data'],
+              `${path}.node`,
+              operationIndex,
+            ),
+          );
+        }
         if (
           !isRecord(raw.node) ||
           typeof raw.node.id !== 'string' ||
@@ -1079,15 +1161,17 @@ function validateFinalGraph(story: StorySourceDocument): BlueprintCommandDiagnos
 export function executeBlueprintCommandTransaction(
   source: StorySourceDocument,
   transactionValue: unknown,
-  options: { dryRun?: boolean } = {},
+  options: BlueprintTransactionOptions = {},
 ): BlueprintTransactionResult {
   const shapeDiagnostics = validateBlueprintCommandTransaction(transactionValue);
   if (shapeDiagnostics.length > 0) {
     return { ok: false, committed: false, document: source, diagnostics: shapeDiagnostics };
   }
   const transaction = transactionValue as BlueprintCommandTransaction;
-  const currentSnapshot = createStorySemanticSnapshot(source);
-  if (transaction.baseRevision && transaction.baseRevision !== currentSnapshot.revision) {
+  const currentSnapshot = createStorySemanticSnapshot(
+    withSemanticContext(source, options.semanticContext),
+  );
+  if (transaction.baseRevision !== currentSnapshot.revision) {
     return {
       ok: false,
       committed: false,
@@ -1116,7 +1200,7 @@ export function executeBlueprintCommandTransaction(
     ok: true,
     committed: options.dryRun !== true,
     document,
-    snapshot: createStorySemanticSnapshot(document),
+    snapshot: createStorySemanticSnapshot(withSemanticContext(document, options.semanticContext)),
     appliedOperationIds: transaction.operations.map((operation) => operation.operationId),
     diagnostics: [],
   };
