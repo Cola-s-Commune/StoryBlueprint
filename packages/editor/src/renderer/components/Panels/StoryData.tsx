@@ -476,6 +476,67 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
           }
         />
       </label>
+      <div className={styles.parameterHeader}>
+        <span>Parameters</span>
+        <button
+          type="button"
+          onClick={() => {
+            const used = new Set(signal.parameters.map((parameter) => parameter.name));
+            let index = signal.parameters.length + 1;
+            let name = `value${index}`;
+            while (used.has(name)) name = `value${++index}`;
+            updateSignal(signal.id, {
+              parameters: [...signal.parameters, { name, valueType: { kind: 'string' } }],
+            });
+          }}
+        >
+          Add
+        </button>
+      </div>
+      {signal.parameters.length === 0 && <div className={styles.empty}>No parameters</div>}
+      {signal.parameters.map((parameter, index) => (
+        <div className={styles.parameterRow} key={`${index}-${parameter.name}`}>
+          <ScriptNameInput
+            value={parameter.name}
+            onCommit={(name) =>
+              updateSignal(signal.id, {
+                parameters: signal.parameters.map((candidate, candidateIndex) =>
+                  candidateIndex === index ? { ...candidate, name } : candidate,
+                ),
+              })
+            }
+          />
+          <select
+            value={parameter.valueType.kind}
+            onChange={(change) =>
+              updateSignal(signal.id, {
+                parameters: signal.parameters.map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? { ...candidate, valueType: { kind: change.target.value as ScalarKind } }
+                    : candidate,
+                ),
+              })
+            }
+          >
+            <option value="boolean">Boolean</option>
+            <option value="number">Number</option>
+            <option value="string">String</option>
+          </select>
+          <button
+            type="button"
+            title="Remove parameter"
+            onClick={() =>
+              updateSignal(signal.id, {
+                parameters: signal.parameters.filter(
+                  (_, candidateIndex) => candidateIndex !== index,
+                ),
+              })
+            }
+          >
+            ×
+          </button>
+        </div>
+      ))}
       <div className={styles.infoText}>
         Wait for Signal pauses story execution until this notification arrives.
       </div>
@@ -491,6 +552,13 @@ function eventSignature(event: EventSource): string {
     .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
     .join(', ');
   return `${event.name}(${parameters}): ${event.returnType?.kind ?? 'void'}`;
+}
+
+function signalSignature(signal: SignalSource): string {
+  const parameters = signal.parameters
+    .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
+    .join(', ');
+  return `${signal.name}(${parameters})`;
 }
 
 function markdownCell(value: string): string {
@@ -521,7 +589,7 @@ function EventTable({
     '| --- | --- | --- |',
     ...signals.map(
       (signal) =>
-        `| \`${markdownCell(signal.name)}\` | \`${signal.id}\` | ${markdownCell(signal.description ?? '')} |`,
+        `| \`${markdownCell(signalSignature(signal))}\` | \`${signal.id}\` | ${markdownCell(signal.description ?? '')} |`,
     ),
   ].join('\n');
   return (
@@ -583,7 +651,7 @@ function EventTable({
                 >
                   <td>
                     <strong>{signal.displayName}</strong>
-                    <code>{signal.name}</code>
+                    <code>{signalSignature(signal)}</code>
                   </td>
                   <td>
                     <code>{signal.id}</code>
@@ -675,7 +743,9 @@ export function StoryData() {
     const query = resourceSearch.trim().toLowerCase();
     return query
       ? signals.filter((item) =>
-          `${item.name} ${item.displayName} ${item.description ?? ''}`
+          `${item.name} ${item.displayName} ${item.description ?? ''} ${item.parameters
+            .map((parameter) => `${parameter.name} ${parameter.valueType.kind}`)
+            .join(' ')}`
             .toLowerCase()
             .includes(query),
         )
@@ -832,7 +902,7 @@ export function StoryData() {
                 <span className={`${styles.typeDot} ${styles.event}`} />
                 <span className={styles.eventTableSummary}>
                   <strong>{signal.displayName}</strong>
-                  <code>{signal.name}</code>
+                  <code>{signalSignature(signal)}</code>
                   {signal.description && <small>{signal.description}</small>}
                 </span>
               </div>

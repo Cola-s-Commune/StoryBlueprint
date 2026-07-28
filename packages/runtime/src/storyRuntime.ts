@@ -17,6 +17,7 @@ import type {
   DialogueRequest,
   EventRequest,
   SignalRequest,
+  SignalPayload,
   RuntimeDiagnostic,
   RuntimeState,
 } from './types';
@@ -37,9 +38,24 @@ function cloneState(state: RuntimeState): RuntimeState {
     ...state,
     callStack: state.callStack.map((frame) => ({ ...frame, locals: { ...frame.locals } })),
     storyVariables: { ...state.storyVariables },
-    signalInbox: { ...state.signalInbox },
-    pending: state.pending ? { ...state.pending } : undefined,
+    signalInbox: Object.fromEntries(
+      Object.entries(state.signalInbox).map(([signalId, payloads]) => [
+        signalId,
+        payloads.map((payload) => ({ ...payload })),
+      ]),
+    ),
+    pending: state.pending
+      ? state.pending.kind === 'signal'
+        ? { ...state.pending, matches: { ...state.pending.matches } }
+        : { ...state.pending }
+      : undefined,
   };
+}
+
+function payloadMatches(payload: SignalPayload, matches: SignalPayload): boolean {
+  return Object.entries(matches).every(
+    ([name, expected]) => name in payload && Object.is(payload[name], expected),
+  );
 }
 
 export function createRuntimeState(program: RuntimeProgram): RuntimeState {
@@ -188,17 +204,18 @@ export class StoryRuntime {
   }
 
   /** Delivers a signal. Early signals are buffered in serializable runtime state. */
-  sendSignal(signalId: SignalId): RuntimeRunResult | undefined {
+  sendSignal(signalId: SignalId, payload: SignalPayload = {}): RuntimeRunResult | undefined {
     if (
       this.currentState.pending?.kind === 'signal' &&
-      this.currentState.pending.signalId === signalId
+      this.currentState.pending.signalId === signalId &&
+      payloadMatches(payload, this.currentState.pending.matches)
     ) {
       this.currentState.pending = undefined;
       this.currentState.status = 'running';
       this.currentState.instructionIndex += 1;
       return this.runUntilPause();
     }
-    this.currentState.signalInbox[signalId] = (this.currentState.signalInbox[signalId] ?? 0) + 1;
+    (this.currentState.signalInbox[signalId] ??= []).push({ ...payload });
     return undefined;
   }
 
@@ -263,10 +280,17 @@ export class StoryRuntime {
         return this.waiting(this.eventInteraction(instruction));
       }
       case 'wait-signal': {
-        const buffered = this.currentState.signalInbox[instruction.signalId] ?? 0;
-        if (buffered > 0) {
-          if (buffered === 1) delete this.currentState.signalInbox[instruction.signalId];
-          else this.currentState.signalInbox[instruction.signalId] = buffered - 1;
+        const matches = Object.fromEntries(
+          Object.entries(instruction.matches).map(([name, expression]) => [
+            name,
+            evaluateExpression(expression, this.readVariable),
+          ]),
+        );
+        const buffered = this.currentState.signalInbox[instruction.signalId] ?? [];
+        const matchIndex = buffered.findIndex((payload) => payloadMatches(payload, matches));
+        if (matchIndex >= 0) {
+          buffered.splice(matchIndex, 1);
+          if (buffered.length === 0) delete this.currentState.signalInbox[instruction.signalId];
           this.currentState.instructionIndex += 1;
           return undefined;
         }
@@ -275,11 +299,12 @@ export class StoryRuntime {
           requestId: instruction.id,
           instructionId: instruction.id,
           signalId: instruction.signalId,
+          matches,
         };
         this.currentState.status = 'waiting';
         return this.waiting({
           kind: 'signal',
-          request: { requestId: instruction.id, signalId: instruction.signalId },
+          request: { requestId: instruction.id, signalId: instruction.signalId, matches },
         });
       }
       case 'branch': {
@@ -400,7 +425,11 @@ export class StoryRuntime {
     if (this.currentState.pending?.kind === 'signal' && instruction?.op === 'wait-signal') {
       return {
         kind: 'signal',
-        request: { requestId: instruction.id, signalId: instruction.signalId },
+        request: {
+          requestId: instruction.id,
+          signalId: instruction.signalId,
+          matches: this.currentState.pending.matches,
+        },
       };
     }
     return undefined;

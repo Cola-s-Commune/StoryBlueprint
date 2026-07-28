@@ -29,9 +29,9 @@ export class StoryRuntimeDriver {
             break;
           }
           case 'signal': {
-            await this.adapter.waitForSignal(result.interaction.request, signal);
+            const payload = await this.adapter.waitForSignal(result.interaction.request, signal);
             result =
-              this.runtime.sendSignal(result.interaction.request.signalId) ??
+              this.runtime.sendSignal(result.interaction.request.signalId, payload) ??
               this.runtime.runUntilPause();
             break;
           }

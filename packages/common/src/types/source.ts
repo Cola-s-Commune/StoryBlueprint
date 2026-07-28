@@ -100,6 +100,7 @@ export interface SignalSource {
   name: string;
   displayName: string;
   description?: string;
+  parameters: readonly { name: string; valueType: ValueType }[];
 }
 
 export interface LocalizedTextSource {

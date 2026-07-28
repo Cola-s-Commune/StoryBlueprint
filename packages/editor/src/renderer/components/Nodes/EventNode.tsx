@@ -61,6 +61,9 @@ export function WaitSignalNode({ data }: NodeProps) {
       </div>
       <div className={styles.terminalBody}>
         {signal?.displayName ?? (wait.signalId ? 'Missing Signal' : 'Select Signal')}
+        {Object.keys(wait.matches ?? {}).length > 0
+          ? ` · ${Object.keys(wait.matches).length} filter${Object.keys(wait.matches).length === 1 ? '' : 's'}`
+          : ''}
       </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}

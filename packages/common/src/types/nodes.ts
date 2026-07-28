@@ -123,6 +123,8 @@ export interface CallEventNodeData {
 /** Pauses story execution until the engine emits a project-defined signal. */
 export interface WaitSignalNodeData {
   signalId?: SignalId;
+  /** Present entries constrain matching; omitted parameters accept any value. */
+  matches: Record<string, ExpressionSource>;
 }
 
 /** Calls another blueprint contained by the current Story asset. */

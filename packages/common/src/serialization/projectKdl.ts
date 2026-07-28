@@ -185,6 +185,16 @@ function validateProject(project: StoryProjectDocument): void {
     }
     signalIds.add(signal.id);
     signalNames.add(signal.name);
+    const parameterNames = new Set<string>();
+    for (const parameter of signal.parameters) {
+      if (!parameter.name || parameterNames.has(parameter.name)) {
+        throw new StoryFormatError(`Invalid or duplicate parameter in signal ${signal.name}`);
+      }
+      parameterNames.add(parameter.name);
+      if (!['boolean', 'number', 'string'].includes(parameter.valueType.kind)) {
+        throw new StoryFormatError(`Unsupported parameter type in signal ${signal.name}`);
+      }
+    }
   }
 }
 
@@ -301,6 +311,12 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       node.setProperty('name', signal.name);
       if (signal.displayName !== signal.name) node.setProperty('display-name', signal.displayName);
       if (signal.description) node.setProperty('description', signal.description);
+      for (const parameter of signal.parameters) {
+        const parameterNode = Node.create('parameter');
+        parameterNode.addArgument(parameter.name);
+        parameterNode.setProperty('type', parameter.valueType.kind);
+        node.appendNode(parameterNode);
+      }
       signals.appendNode(node);
     }
     root.appendNode(signals);
@@ -515,7 +531,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
       const path = `signals[${index}]`;
       assertArguments(node, path, 1);
       assertProperties(node, path, ['name', 'display-name', 'description']);
-      assertChildren(node, path, []);
+      assertChildren(node, path, ['parameter']);
       const signalName = requiredString(node.getProperty('name'), `${path}.name`);
       return {
         id: requiredId(node.getArgument(0), 'signal', `${path}.id`),
@@ -525,6 +541,19 @@ export function parseStoryProject(text: string): StoryProjectDocument {
           node.getProperty('description') === undefined
             ? undefined
             : requiredString(node.getProperty('description'), `${path}.description`),
+        parameters: node.findNodesByName('parameter').map((parameter, parameterIndex) => {
+          const parameterPath = `${path}.parameter[${parameterIndex}]`;
+          assertArguments(parameter, parameterPath, 1);
+          assertProperties(parameter, parameterPath, ['type']);
+          assertChildren(parameter, parameterPath, []);
+          return {
+            name: requiredString(parameter.getArgument(0), `${parameterPath}.name`),
+            valueType: scalarValueType(
+              requiredString(parameter.getProperty('type'), `${parameterPath}.type`),
+              parameterPath,
+            ),
+          };
+        }),
       };
     },
   );

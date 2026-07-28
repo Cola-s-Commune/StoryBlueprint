@@ -147,7 +147,7 @@ describe('project events', () => {
       callEvent: async (request) => {
         calls.push(request);
       },
-      waitForSignal: async () => undefined,
+      waitForSignal: async () => ({}),
       resolveText: async () => undefined,
       readExternalVariable: async () => null,
       writeExternalVariable: async () => undefined,
@@ -168,7 +168,17 @@ describe('project events', () => {
     const signalId = 'sig_continue' as const;
     const withSignal: StorySourceDocument = {
       ...source,
-      signals: [{ id: signalId, name: 'continue', displayName: 'Continue' }],
+      signals: [
+        {
+          id: signalId,
+          name: 'continue',
+          displayName: 'Continue',
+          parameters: [
+            { name: 'character', valueType: { kind: 'string' } },
+            { name: 'animation', valueType: { kind: 'string' } },
+          ],
+        },
+      ],
       root: {
         nodes: [
           ...source.root.nodes.filter((node) => node.id !== 'n_end'),
@@ -177,7 +187,10 @@ describe('project events', () => {
             type: StoryNodeType.WaitSignal,
             definitionVersion: 1,
             position: { x: 400, y: 0 },
-            data: { signalId },
+            data: {
+              signalId,
+              matches: { animation: { source: '"Smile"', bindings: {} } },
+            },
           },
           source.root.nodes.find((node) => node.id === 'n_end')!,
         ],
@@ -188,6 +201,10 @@ describe('project events', () => {
         ],
       },
     };
+    const parsed = parseStorySource(serializeStorySource({ ...withSignal, events: [], signals: [] }));
+    expect(parsed.root.nodes.find((node) => node.id === 'n_wait')?.data).toEqual(
+      withSignal.root.nodes.find((node) => node.id === 'n_wait')?.data,
+    );
     const compiled = compileStory(withSignal);
     if (!compiled.ok) throw new Error('Expected signal story to compile');
 
@@ -196,12 +213,20 @@ describe('project events', () => {
     expect(event.kind === 'waiting' && event.interaction.kind).toBe('event');
     const waiting = runtime.continueEvent();
     expect(waiting.kind === 'waiting' && waiting.interaction.kind).toBe('signal');
-    expect(runtime.sendSignal(signalId)?.kind).toBe('completed');
+    if (waiting.kind !== 'waiting' || waiting.interaction.kind !== 'signal') return;
+    expect(waiting.interaction.request.matches).toEqual({ animation: 'Smile' });
+    expect(runtime.sendSignal(signalId, { character: 'alice', animation: 'Idle' })).toBeUndefined();
+    expect(runtime.state.status).toBe('waiting');
+    expect(runtime.sendSignal(signalId, { character: 'alice', animation: 'Smile' })?.kind).toBe(
+      'completed',
+    );
 
     const earlyRuntime = new StoryRuntime(compiled.program);
-    expect(earlyRuntime.sendSignal(signalId)).toBeUndefined();
+    expect(earlyRuntime.sendSignal(signalId, { animation: 'Idle' })).toBeUndefined();
+    expect(earlyRuntime.sendSignal(signalId, { animation: 'Smile' })).toBeUndefined();
     const restoredRuntime = new StoryRuntime(compiled.program, earlyRuntime.state);
     restoredRuntime.runUntilPause();
     expect(restoredRuntime.continueEvent().kind).toBe('completed');
+    expect(restoredRuntime.state.signalInbox[signalId]).toEqual([{ animation: 'Idle' }]);
   });
 });

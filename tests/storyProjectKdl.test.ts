@@ -57,6 +57,10 @@ function projectDocument(): StoryProjectDocument {
         name: 'animationFinished',
         displayName: 'Animation Finished',
         description: 'Sent after the current character animation ends.',
+        parameters: [
+          { name: 'character', valueType: { kind: 'string' } },
+          { name: 'animation', valueType: { kind: 'string' } },
+        ],
       },
     ],
   };
@@ -75,6 +79,7 @@ describe('story project KDL', () => {
     expect(serialized).toContain('parameter amount type=number');
     expect(serialized).toContain('description="Adds a reward to the player inventory."');
     expect(serialized).toContain('signal sig_animationfinished');
+    expect(serialized).toContain('parameter animation type=string');
   });
 
   it('rejects paths outside the project and dangling resource usage', () => {

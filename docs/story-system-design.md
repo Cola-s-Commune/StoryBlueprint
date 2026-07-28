@@ -361,9 +361,13 @@ EventRequest，Adapter 将其派发给引擎后故事立即继续。故事不观
 因此节点只有 `Next` 输出，也没有 Fire-and-forget / Wait for Completion 模式开关。
 
 需要显式同步时使用独立的 Wait for Signal。Signal Definition 与 Event 一样保存在 `.storyproject`，包含
-稳定 ID、Name、Display Name 和供程序员阅读的 Description。Wait 节点到达时暂停，直到引擎发送对应
-Signal。RuntimeState 保存提前到达的 Signal 计数，因而 Event 派发后立刻收到 Signal、但故事稍后才走到
-Wait 节点时不会丢失通知。第一阶段 Signal 不携带 Payload；复杂参数等出现明确用例后再扩展。
+稳定 ID、Name、Display Name、Description 和 Boolean / Number / String 参数 Schema。引擎发送 Signal
+时附带完整 Payload；Wait 节点可对任意参数选择 `Any value`，或填写 Literal / Variable / Expression
+作为期望值。所有启用的参数过滤器按 AND 组合，Runtime 消费同一 Signal ID 下第一条匹配 Payload。
+
+过滤表达式在到达 Wait 节点时求值一次，求值结果随 PendingInteraction 存档。RuntimeState 保存提前到达
+和未匹配的完整 Payload 队列，因而通知早于 Wait 到达不会丢失，其他 Payload 也不会被错误消费。首版
+只对稳定标量使用严格相等匹配；CharacterRef、AssetRef 和复杂 JSON 等有明确需求后再扩展。
 
 编辑器还提供独立的 Project Interface Table 人类视图，列出 Event / Signal 的稳定 ID 和 Description，
 并可复制为 Markdown 交给引擎程序员。该视图是接口文档，不以 Runtime 调试界面或机器 JSON 代替。
@@ -812,7 +816,7 @@ interface StoryAdapter {
   showDialogue(request: DialogueRequest, signal: AbortSignal): Promise<void>;
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
   callEvent(request: EventRequest, signal: AbortSignal): Promise<void>;
-  waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<void>;
+  waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<SignalPayload>;
   resolveText(textId: string, locale: string): Promise<string | undefined>;
   readExternalVariable(id: string): Promise<RuntimeValue>;
   writeExternalVariable(id: string, value: RuntimeValue): Promise<void>;

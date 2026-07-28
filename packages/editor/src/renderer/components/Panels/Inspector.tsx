@@ -343,6 +343,98 @@ function EventArgumentEditor({
   );
 }
 
+function SignalMatchEditor({
+  nodeId,
+  name,
+  kind,
+  value,
+  matches,
+}: {
+  nodeId: NodeId;
+  name: string;
+  kind: 'boolean' | 'number' | 'string';
+  value?: WaitSignalNodeData['matches'][string];
+  matches: WaitSignalNodeData['matches'];
+}) {
+  const { checkpoint, updateNodeData } = useStoryGraphStore();
+  const enabled = value !== undefined;
+  const source = value?.source ?? (kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
+  const decodedLiteral = decodeStringLiteral(source);
+  const [mode, setMode] = useState<'literal' | 'expression'>(() =>
+    kind === 'string' && decodedLiteral !== undefined ? 'literal' : 'expression',
+  );
+
+  useEffect(() => {
+    setMode(
+      kind === 'string' && decodeStringLiteral(source) !== undefined ? 'literal' : 'expression',
+    );
+  }, [kind, name, nodeId]);
+
+  const updateSource = (nextSource: string) =>
+    updateNodeData(nodeId, StoryNodeType.WaitSignal, {
+      matches: { ...matches, [name]: { source: nextSource, bindings: {} } },
+    });
+
+  return (
+    <>
+      <label className={styles.field}>
+        <span>{name} Filter</span>
+        <select
+          value={enabled ? 'match' : 'any'}
+          onChange={(event) => {
+            checkpoint();
+            if (event.target.value === 'match') updateSource(source);
+            else {
+              const nextMatches = { ...matches };
+              delete nextMatches[name];
+              updateNodeData(nodeId, StoryNodeType.WaitSignal, { matches: nextMatches });
+            }
+          }}
+        >
+          <option value="any">Any value</option>
+          <option value="match">Match</option>
+        </select>
+      </label>
+      {enabled && kind === 'string' && (
+        <label className={styles.field}>
+          <span>{name} Mode</span>
+          <select
+            value={mode}
+            onChange={(event) => {
+              checkpoint();
+              const nextMode = event.target.value as 'literal' | 'expression';
+              setMode(nextMode);
+              if (nextMode === 'literal' && decodedLiteral === undefined) {
+                updateSource(JSON.stringify(source));
+              }
+            }}
+          >
+            <option value="literal">Text</option>
+            <option value="expression">Expression</option>
+          </select>
+        </label>
+      )}
+      {enabled &&
+        (kind === 'string' && mode === 'literal' ? (
+          <PropertyField
+            label={`${name} · string`}
+            value={decodedLiteral ?? source}
+            onBeginEdit={checkpoint}
+            onChange={(text) => updateSource(JSON.stringify(text))}
+          />
+        ) : (
+          <PropertyField
+            label={`${name} · ${kind}`}
+            value={source}
+            variableMode="expression"
+            onBeginEdit={checkpoint}
+            onChange={updateSource}
+          />
+        ))}
+    </>
+  );
+}
+
 function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }) {
   const { nodes, edges, setEdges, checkpoint, updateNodeData, source, activeGraphId, saveStory } =
     useStoryGraphStore();
@@ -1275,6 +1367,7 @@ export function Inspector() {
                   checkpoint();
                   updateNodeData(node.id, StoryNodeType.WaitSignal, {
                     signalId: (event.target.value || undefined) as WaitSignalNodeData['signalId'],
+                    matches: {},
                   });
                 }}
               >
@@ -1289,6 +1382,16 @@ export function Inspector() {
             {selectedSignal?.description && (
               <div className={styles.info}>{selectedSignal.description}</div>
             )}
+            {selectedSignal?.parameters.map((parameter) => (
+              <SignalMatchEditor
+                key={`${data.signalId}-${parameter.name}`}
+                nodeId={node.id}
+                name={parameter.name}
+                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string'}
+                value={(data.matches ?? {})[parameter.name]}
+                matches={data.matches ?? {}}
+              />
+            ))}
             <div className={styles.info}>Pauses here until the engine sends this signal.</div>
           </>
         );

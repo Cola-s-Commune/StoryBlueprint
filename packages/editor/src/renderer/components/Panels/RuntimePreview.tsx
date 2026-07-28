@@ -43,12 +43,14 @@ export function RuntimePreview() {
   const [session, setSession] = useState<PreviewSession>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly CompilerDiagnostic[]>([]);
+  const [signalPayload, setSignalPayload] = useState<Record<string, RuntimeValue>>({});
   const dispatchedEventResult = useRef<RuntimeRunResult>();
 
   useEffect(() => {
     setSession(undefined);
     setHistory([]);
     setDiagnostics([]);
+    setSignalPayload({});
     dispatchedEventResult.current = undefined;
   }, [source]);
 
@@ -165,6 +167,24 @@ export function RuntimePreview() {
   const result = session?.result;
   const state = result?.state;
   const interaction = result?.kind === 'waiting' ? result.interaction : undefined;
+
+  useEffect(() => {
+    if (!session || interaction?.kind !== 'signal') return;
+    const definition = session.signals.find((signal) => signal.id === interaction.request.signalId);
+    setSignalPayload(
+      Object.fromEntries(
+        (definition?.parameters ?? []).map((parameter) => [
+          parameter.name,
+          interaction.request.matches[parameter.name] ??
+            (parameter.valueType.kind === 'boolean'
+              ? false
+              : parameter.valueType.kind === 'number'
+                ? 0
+                : ''),
+        ]),
+      ),
+    );
+  }, [interaction?.kind, interaction?.request.requestId, session?.runtime]);
 
   useEffect(() => {
     if (!session || interaction?.kind !== 'event') return;
@@ -307,12 +327,53 @@ export function RuntimePreview() {
                 {session?.signals.find((signal) => signal.id === interaction.request.signalId)
                   ?.displayName ?? interaction.request.signalId}
               </div>
+              <div className={styles.eventArguments}>
+                {(
+                  session?.signals.find((signal) => signal.id === interaction.request.signalId)
+                    ?.parameters ?? []
+                ).map((parameter) => (
+                  <label className={styles.eventArgument} key={parameter.name}>
+                    <strong>{parameter.name}</strong>
+                    {parameter.valueType.kind === 'boolean' ? (
+                      <select
+                        value={String(signalPayload[parameter.name] ?? false)}
+                        onChange={(event) =>
+                          setSignalPayload((current) => ({
+                            ...current,
+                            [parameter.name]: event.target.value === 'true',
+                          }))
+                        }
+                      >
+                        <option value="false">false</option>
+                        <option value="true">true</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={parameter.valueType.kind === 'number' ? 'number' : 'text'}
+                        value={String(signalPayload[parameter.name] ?? '')}
+                        onChange={(event) =>
+                          setSignalPayload((current) => ({
+                            ...current,
+                            [parameter.name]:
+                              parameter.valueType.kind === 'number'
+                                ? Number(event.target.value)
+                                : event.target.value,
+                          }))
+                        }
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
               <button
                 type="button"
                 className={styles.continueButton}
                 onClick={() => {
                   if (!session) return;
-                  const next = session.runtime.sendSignal(interaction.request.signalId);
+                  const next = session.runtime.sendSignal(
+                    interaction.request.signalId,
+                    signalPayload,
+                  );
                   if (next) acceptResult(session.runtime, next);
                 }}
               >

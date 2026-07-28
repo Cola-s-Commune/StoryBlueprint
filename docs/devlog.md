@@ -32,7 +32,7 @@ npm run dev
 - Choice Option 对齐 Dialogue Line 的折叠卡片、排序和增删操作，并支持 Monaco 编辑 Prompt、`* Option` 及条件标签；离开自动保存可整体撤销，删除 Option 会同步清理其输出连线。
 - 项目文件新增 Event Definition Registry；Story Data 可编辑稳定 Event ID、名称、Description 与 Boolean / Number / String 参数，并可拖到画布创建 Call Event。
 - Call Event 简化为单向派发并立即继续，不再暴露完成、返回值或失败分支；Preview 自动记录派发。
-- 新增项目级 Signal Registry 与 Wait for Signal 节点，贯通 KDL、Compiler、Runtime、Preview 和 Adapter；提前到达的 Signal 会进入可序列化缓冲，稍后由对应 Wait 节点消费。
+- Signal 支持 Boolean / Number / String 参数 Schema 和 Payload；Wait 节点可逐项选择 Any 或 Match Expression，Runtime 消费第一条匹配项，未匹配及提前到达的完整 Payload 队列参与存档恢复。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
 - Project Events / Signals 提供统一的人类可读 Project Interface Table，可横向查看完整接口并一键复制 Markdown 交付程序员；点击表格行可返回具体定义编辑。

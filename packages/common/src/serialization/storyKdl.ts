@@ -188,8 +188,17 @@ function serializeSourceNode(source: SourceNode): Node {
       break;
     }
     case StoryNodeType.WaitSignal: {
-      const signalId = (data as StoryNodeDataMap[StoryNodeType.WaitSignal]).signalId;
+      const waitSignal = data as StoryNodeDataMap[StoryNodeType.WaitSignal];
+      const signalId = waitSignal.signalId;
       if (signalId) target.setProperty('signal', signalId);
+      for (const [name, value] of Object.entries(waitSignal.matches).sort(([left], [right]) =>
+        left.localeCompare(right),
+      )) {
+        const match = Node.create('match');
+        match.addArgument(name);
+        match.addArgument(value.source);
+        target.appendNode(match);
+      }
       break;
     }
     case StoryNodeType.CallSubstory: {
@@ -438,7 +447,7 @@ function parseSourceNode(node: Node): SourceNode {
     [StoryNodeType.GetVariable]: [],
     [StoryNodeType.SetVariable]: [],
     [StoryNodeType.CallEvent]: ['argument'],
-    [StoryNodeType.WaitSignal]: [],
+    [StoryNodeType.WaitSignal]: ['match'],
     [StoryNodeType.CallSubstory]: [],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: [],
@@ -563,6 +572,16 @@ function parseSourceNode(node: Node): SourceNode {
         signalId: node.getProperty('signal')
           ? requiredId(node.getProperty('signal'), 'signal', `${id}.signal`)
           : undefined,
+        matches: Object.fromEntries(
+          node.findNodesByName('match').map((match, index) => {
+            const path = `${id}.match[${index}]`;
+            assertShape(match, path, { arguments: 2 });
+            return [
+              requiredString(match.getArgument(0), `${path}.name`),
+              expressionSource(match.getArgument(1), `${path}.value`),
+            ];
+          }),
+        ),
       };
       break;
     case StoryNodeType.CallSubstory:

@@ -73,6 +73,7 @@ export interface CallEventInstruction extends RuntimeInstructionBase {
 export interface WaitSignalInstruction extends RuntimeInstructionBase {
   op: 'wait-signal';
   signalId: SignalId;
+  matches: Readonly<Record<string, TypedExpression>>;
 }
 
 export interface ChoiceOptionInstruction {

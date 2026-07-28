@@ -7,6 +7,7 @@ export type {
   ChoiceRequest,
   EventRequest,
   SignalRequest,
+  SignalPayload,
   StoryAdapter,
   RuntimeDiagnosticCode,
   RuntimeDiagnostic,

@@ -334,12 +334,47 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 sourceNodeId: node.id,
               });
             }
+            const compiledMatches: Record<string, ReturnType<typeof compileExpression>> = {};
+            if (signal) {
+              for (const [name, expression] of Object.entries(data.matches)) {
+                const parameter = signal.parameters.find((candidate) => candidate.name === name);
+                if (!parameter) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Wait for Signal references missing parameter ${name}`,
+                    sourceNodeId: node.id,
+                  });
+                  continue;
+                }
+                const compiled = compileSafe(node, () =>
+                  compileExpression(expression, source.variables),
+                );
+                if (
+                  compiled &&
+                  compiled.valueType.kind !== 'any' &&
+                  compiled.valueType.kind !== parameter.valueType.kind
+                ) {
+                  diagnostics.push({
+                    code: 'EXPRESSION_ERROR',
+                    severity: 'error',
+                    message: `Signal match ${name} expects ${parameter.valueType.kind}, got ${compiled.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (compiled) compiledMatches[name] = compiled;
+              }
+            }
             const target = requireTarget(node, 'out');
-            if (signal && target) {
+            if (
+              signal &&
+              target &&
+              Object.keys(compiledMatches).length === Object.keys(data.matches).length
+            ) {
               instructions.push({
                 id: instructionId(node.id),
                 op: 'wait-signal',
                 signalId: signal.id,
+                matches: compiledMatches,
               });
               instructions.push(jump(node, target));
             }

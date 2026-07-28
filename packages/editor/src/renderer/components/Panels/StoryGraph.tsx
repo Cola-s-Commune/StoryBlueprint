@@ -845,7 +845,7 @@ export function StoryGraph() {
               ),
             });
           } else if (payload.kind === 'signal') {
-            addNode(StoryNodeType.WaitSignal, position, { signalId: payload.id });
+            addNode(StoryNodeType.WaitSignal, position, { signalId: payload.id, matches: {} });
           }
         }}
       >

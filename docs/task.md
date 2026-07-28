@@ -292,12 +292,14 @@
 
 ## Wait for Signal Node
 
-- [x] 项目级 Signal Definition、稳定 Signal ID、Display Name 与 Description
+- [x] 项目级 Signal Definition、稳定 Signal ID、Display Name、Description 与类型化参数 Schema
 - [x] Signal 与 Event 合并为可复制 Markdown 的程序员接口表
 - [x] Wait for Signal 节点、KDL、Compiler、Runtime 与 Preview 闭环
-- [x] RuntimeState 序列化提前到达的 Signal 缓冲；Wait 节点到达后消费
+- [x] RuntimeState 序列化提前到达的 Signal Payload 队列；Wait 节点消费第一条匹配项
 - [x] Pending Signal 可保存、恢复和通过 AbortSignal 取消 Adapter 等待
-- [ ] Signal 参数 / Payload；需要明确用例后再设计，首版仅表示通知
+- [x] Boolean / Number / String Signal Payload；Wait 参数可逐项选择 Any 或 Match Expression
+- [x] Match Expression 到达 Wait 时求值并进入 PendingInteraction；未匹配 Payload 继续缓存
+- [ ] CharacterRef / AssetRef 与复杂 JSON Payload；首版不做对象深度相等匹配
 
 ---
 

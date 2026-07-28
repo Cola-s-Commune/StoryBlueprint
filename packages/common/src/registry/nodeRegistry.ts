@@ -175,7 +175,7 @@ export class NodeRegistry {
       color: '#8c6ed8',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Received', kind: 'execution', direction: 'output' }],
-      defaultData: () => ({}),
+      defaultData: () => ({ matches: {} }),
     });
 
     this.register<StoryNodeType.CallSubstory>({

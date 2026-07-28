@@ -1224,7 +1224,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     let index = signals.length + 1;
     let name = `signal${index}`;
     while (used.has(name)) name = `signal${++index}`;
-    writeProjectSignals([...signals, { id, name, displayName: name }]);
+    writeProjectSignals([...signals, { id, name, displayName: name, parameters: [] }]);
     return id;
   }, [signals, workspace?.project, writeProjectSignals]);
 
@@ -1236,11 +1236,60 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
           : update;
-      writeProjectSignals(
-        signals.map((signal) => (signal.id === id ? { ...signal, ...nextUpdate, id } : signal)),
-      );
+      const nextSignal = { ...previous, ...nextUpdate, id };
+      if (nextUpdate.parameters) {
+        const renamed = new Map<string, string>();
+        const previousNames = new Set(previous.parameters.map((parameter) => parameter.name));
+        if (previous.parameters.length === nextSignal.parameters.length) {
+          previous.parameters.forEach((parameter, index) => {
+            const nextName = nextSignal.parameters[index]?.name;
+            if (nextName && nextName !== parameter.name && !previousNames.has(nextName)) {
+              renamed.set(parameter.name, nextName);
+            }
+          });
+        }
+        const updateWaits = (candidate: EditorGraphState): EditorGraphState => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) => {
+            if (node.type !== StoryNodeType.WaitSignal) return node;
+            const wait = node.data as StoryNodeDataMap[StoryNodeType.WaitSignal];
+            if (wait.signalId !== id) return node;
+            const matches = { ...(wait.matches ?? {}) };
+            for (const [oldName, newName] of renamed) {
+              if (matches[oldName]) matches[newName] = matches[oldName];
+              delete matches[oldName];
+            }
+            const allowed = new Set(nextSignal.parameters.map((parameter) => parameter.name));
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                matches: Object.fromEntries(
+                  Object.entries(matches).filter(([name]) => allowed.has(name)),
+                ),
+              },
+            };
+          }),
+        });
+        setNodes((current) => updateWaits({ nodes: current, edges }).nodes);
+        updateInactiveGraphs(updateWaits);
+        setWorkspaceStories((current) =>
+          current.map((story) => ({
+            ...story,
+            rootGraph: updateWaits(story.rootGraph),
+            chapters: story.chapters.map((chapter) => ({
+              ...chapter,
+              graph: updateWaits(chapter.graph),
+            })),
+            document: { ...story.document, dirty: true },
+            revision: story.revision + 1,
+          })),
+        );
+        markDirty();
+      }
+      writeProjectSignals(signals.map((signal) => (signal.id === id ? nextSignal : signal)));
     },
-    [signals, writeProjectSignals],
+    [edges, markDirty, setNodes, signals, updateInactiveGraphs, writeProjectSignals],
   );
 
   const removeSignal = useCallback(
