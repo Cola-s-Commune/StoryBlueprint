@@ -16,10 +16,11 @@ import { ConsolePanel } from '../Panels/Console';
 import { StoryData } from '../Panels/StoryData';
 import { RuntimePreview } from '../Panels/RuntimePreview';
 import { Problems } from '../Panels/Problems';
+import { AICommands } from '../Panels/AICommands';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v4';
+const layoutStorageKey = 'story-blueprint:dock-layout:v5';
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
@@ -29,11 +30,12 @@ const dockComponents = {
   console: (_props: IDockviewPanelProps) => <ConsolePanel />,
   preview: (_props: IDockviewPanelProps) => <RuntimePreview />,
   problems: (_props: IDockviewPanelProps) => <Problems />,
+  aiCommands: (_props: IDockviewPanelProps) => <AICommands />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
   if (panelId === 'resources' || panelId === 'storyData') return 'left';
-  if (panelId === 'console' || panelId === 'preview') return 'bottom';
+  if (panelId === 'console' || panelId === 'preview' || panelId === 'aiCommands') return 'bottom';
   return 'right';
 }
 
@@ -92,6 +94,13 @@ function createDefaultLayout(api: DockviewApi) {
     title: 'Problems',
     position: { referencePanel: consolePanel },
     minimumHeight: 120,
+  });
+  api.addPanel({
+    id: 'aiCommands',
+    component: 'aiCommands',
+    title: 'AI Commands',
+    position: { referencePanel: consolePanel },
+    minimumHeight: 180,
   });
 
   resources.api.group.api.setSize({ width: 240 });
@@ -190,6 +199,22 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       });
       break;
     }
+    case 'aiCommands': {
+      const consolePanel = api.getPanel('console');
+      api.addPanel({
+        ...common,
+        title: 'AI Commands',
+        ...((consolePanel ?? graph) && {
+          position: {
+            referencePanel: consolePanel ?? graph!,
+            ...(consolePanel ? {} : { direction: 'below' as const }),
+          },
+        }),
+        initialHeight: 320,
+        minimumHeight: 180,
+      });
+      break;
+    }
   }
 }
 
@@ -276,7 +301,8 @@ export function MainLayout() {
                           height:
                             panel.id === 'console' ||
                             panel.id === 'preview' ||
-                            panel.id === 'problems'
+                            panel.id === 'problems' ||
+                            panel.id === 'aiCommands'
                               ? 420
                               : 640,
                         }),

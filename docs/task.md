@@ -692,20 +692,22 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 
 ## Safe Editing
 
+- [x] AI Commands 面板：复制上下文 / Snapshot、粘贴事务、Dry Run、语义 Diff、Apply
 - [ ] JSON Schema 校验 AI 命令
 - [x] 端口、数据类型、Source Schema 与 Editor Compiler 校验
 - [x] 批量 Transaction
 - [x] Dry Run / Revision Precondition / Atomic Rollback
 - [x] 单个活动 Graph 事务与 Undo / Redo 集成
 - [ ] 跨 Graph / Chapter 原子历史快照与 Undo / Redo
-- [ ] 语义 Diff / 布局 Diff 分离
-- [ ] 高风险操作执行前 Diff Preview
+- [x] 第一版语义 Diff 不包含坐标或布局变化
+- [x] 所有面板操作执行前强制 Dry Run / Diff Preview
 - [ ] 低风险局部操作自动执行策略
 - [ ] 高亮 AI 新增、修改和删除内容
 - [x] 失败时返回 Operation ID / Index / Path 结构化 Diagnostics
 - [ ] 删除与改型前引用检查
 - [x] Transaction 内 Operation ID 去重
 - [ ] 跨请求 Operation ID 幂等记录
+- [ ] 内置模型 Provider、凭据配置与流式命令生成
 
 ---
 

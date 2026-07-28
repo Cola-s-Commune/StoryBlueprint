@@ -607,11 +607,24 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         const operations = (transactionValue as Partial<BlueprintCommandTransaction>).operations;
         if (
           Array.isArray(operations) &&
-          operations.some((operation) =>
-            activeGraphId === 'root'
-              ? operation.graph.kind !== 'root'
-              : operation.graph.kind !== 'chapter' || operation.graph.chapterId !== activeGraphId,
-          )
+          operations.some((operation) => {
+            if (
+              typeof operation !== 'object' ||
+              operation === null ||
+              !('graph' in operation) ||
+              typeof operation.graph !== 'object' ||
+              operation.graph === null ||
+              !('kind' in operation.graph)
+            ) {
+              return false;
+            }
+            const target = operation.graph;
+            return activeGraphId === 'root'
+              ? target.kind !== 'root'
+              : target.kind !== 'chapter' ||
+                  !('chapterId' in target) ||
+                  target.chapterId !== activeGraphId;
+          })
         ) {
           return {
             ok: false,

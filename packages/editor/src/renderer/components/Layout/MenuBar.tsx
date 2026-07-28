@@ -30,7 +30,14 @@ type SubMenuItem =
         | 'redo'
         | 'reset-layout';
       panelId?:
-        'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview' | 'problems';
+        | 'resources'
+        | 'storyData'
+        | 'graph'
+        | 'inspector'
+        | 'console'
+        | 'preview'
+        | 'problems'
+        | 'aiCommands';
     }
   | { type: 'separator' };
 
@@ -82,6 +89,7 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Story Graph', panelId: 'graph' },
       { type: 'item', label: 'Inspector', panelId: 'inspector' },
       { type: 'item', label: 'Console', panelId: 'console' },
+      { type: 'item', label: 'AI Commands', panelId: 'aiCommands' },
       { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
       { type: 'item', label: 'Problems', panelId: 'problems' },
       { type: 'separator' },
@@ -101,7 +109,15 @@ const menuItems: MenuItem[] = [
 interface MenuBarProps {
   onResetLayout: () => void;
   onShowPanel: (
-    panelId: 'resources' | 'storyData' | 'graph' | 'inspector' | 'console' | 'preview' | 'problems',
+    panelId:
+      | 'resources'
+      | 'storyData'
+      | 'graph'
+      | 'inspector'
+      | 'console'
+      | 'preview'
+      | 'problems'
+      | 'aiCommands',
   ) => void;
 }
 

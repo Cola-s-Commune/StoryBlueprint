@@ -982,6 +982,11 @@ AI 应提交结构化命令，而不是直接拼接源文件：
 执行器可以预演跨 Graph 事务，但在整份 Story 原子历史快照完成前，Editor 不允许提交跨 Chapter 修改。
 该限制防止“命令执行成功但 Undo 只能撤销其中一部分”。
 
+第一版编辑器通过可停靠的 AI Commands 面板提供与任意外部 AI 的手动桥接，不绑定具体模型或服务：作者复制
+AI Context（命令约束与当前 Semantic Snapshot），把 AI 返回的单个 JSON 事务粘贴回面板，先执行 Dry Run
+查看节点和连线的语义 Diff，再手动 Apply。Apply 只对与当前 Revision 完全相同的 Dry Run 开放；Story 在此期间
+发生任何语义修改都会使确认失效。未来接入内置模型 Provider 时仍复用同一协议、校验和确认流程。
+
 每次 AI 修改必须：
 
 - 通过 JSON Schema、端口和数据类型校验。
