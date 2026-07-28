@@ -19,6 +19,8 @@ import {
 } from '@xyflow/react';
 import {
   NodeFactory,
+  createStorySemanticSnapshot,
+  executeBlueprintCommandTransaction,
   parseStorySource,
   serializeStorySource,
   serializeStoryProject,
@@ -30,6 +32,9 @@ import {
   createStableId,
   nodeRegistry,
   type NodeId,
+  type BlueprintCommandTransaction,
+  type BlueprintTransactionResult,
+  type StorySemanticSnapshot,
   type ChapterId,
   type ChapterSource,
   type VariableId,
@@ -47,7 +52,11 @@ import {
   type StoryId,
   type StorySourceDocument,
 } from '@story-blueprint/common';
-import { compileProject, type ProjectCompilerDiagnostic } from '@story-blueprint/compiler';
+import {
+  compileProject,
+  compileStory,
+  type ProjectCompilerDiagnostic,
+} from '@story-blueprint/compiler';
 import {
   fromSourceGraph,
   extractSelectionToSubstory as extractGraphSelection,
@@ -318,6 +327,11 @@ interface StoryGraphStoreValue {
   assets: AssetSource[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  semanticSnapshot: StorySemanticSnapshot;
+  executeBlueprintCommands: (
+    transaction: unknown,
+    options?: { dryRun?: boolean },
+  ) => BlueprintTransactionResult;
   storyDataSelection?: StoryDataSelection;
   selectStoryData: (selection?: StoryDataSelection) => void;
   chapters: EditorChapter[];
@@ -445,6 +459,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
     ],
   );
+  const semanticSnapshot = useMemo(() => createStorySemanticSnapshot(source), [source]);
   const resolvedCharacters = useMemo(() => {
     const external = workspace?.characterResources.map((resource) => resource.character) ?? [];
     const externalIds = new Set(external.map((character) => character.id));
@@ -585,6 +600,71 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
     }
   }, [graph, history, markDirty, restoreGraph]);
+
+  const executeBlueprintCommands = useCallback(
+    (transactionValue: unknown, options: { dryRun?: boolean } = {}): BlueprintTransactionResult => {
+      if (!options.dryRun && typeof transactionValue === 'object' && transactionValue !== null) {
+        const operations = (transactionValue as Partial<BlueprintCommandTransaction>).operations;
+        if (
+          Array.isArray(operations) &&
+          operations.some((operation) =>
+            activeGraphId === 'root'
+              ? operation.graph.kind !== 'root'
+              : operation.graph.kind !== 'chapter' || operation.graph.chapterId !== activeGraphId,
+          )
+        ) {
+          return {
+            ok: false,
+            committed: false,
+            document: source,
+            diagnostics: [
+              {
+                code: 'INVALID_TRANSACTION',
+                message:
+                  'Editor commits currently require every operation to target the active graph',
+              },
+            ],
+          };
+        }
+      }
+      const result = executeBlueprintCommandTransaction(source, transactionValue, options);
+      if (!result.ok) return result;
+      const compiled = compileStory({ ...result.document, events, signals });
+      const compileErrors = compiled.diagnostics.filter(
+        (diagnostic) => diagnostic.severity === 'error',
+      );
+      if (compileErrors.length > 0) {
+        return {
+          ok: false,
+          committed: false,
+          document: source,
+          diagnostics: compileErrors.map((diagnostic) => ({
+            code: 'INVALID_GRAPH' as const,
+            message: diagnostic.message,
+            path: diagnostic.path,
+          })),
+        };
+      }
+      if (!result.committed) return result;
+      const nextSourceGraph =
+        activeGraphId === 'root'
+          ? result.document.root
+          : result.document.chapters.find((chapter) => chapter.id === activeGraphId)?.graph;
+      if (!nextSourceGraph) {
+        return {
+          ok: false,
+          committed: false,
+          document: source,
+          diagnostics: [{ code: 'UNKNOWN_GRAPH', message: 'Active graph no longer exists' }],
+        };
+      }
+      checkpoint();
+      restoreGraph(fromSourceGraph(nextSourceGraph));
+      markDirty();
+      return result;
+    },
+    [activeGraphId, checkpoint, events, markDirty, restoreGraph, signals, source],
+  );
 
   const addNode = useCallback(
     (
@@ -2226,6 +2306,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets: resolvedAssets,
       events,
       signals,
+      semanticSnapshot,
+      executeBlueprintCommands,
       storyDataSelection,
       selectStoryData,
       chapters,
@@ -2369,6 +2451,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets,
       events,
       signals,
+      semanticSnapshot,
+      executeBlueprintCommands,
       extractSelectionToSubstory,
     ],
   );

@@ -926,30 +926,61 @@ AI 应提交结构化命令，而不是直接拼接源文件：
 
 ```json
 {
-  "schemaVersion": 1,
-  "command": "transaction",
-  "operationId": "op_01J8...",
-  "description": "增加接受和拒绝任务的分支",
-  "baseRevision": 12,
-  "dryRun": true,
+  "format": "story-blueprint-commands",
+  "version": 1,
+  "baseRevision": "rev_1k8m4zr",
   "operations": [
     {
-      "op": "addChoice",
-      "id": "quest_choice",
-      "prompt": "是否接受任务？",
-      "options": [
-        { "id": "accept", "text": "接受" },
-        { "id": "refuse", "text": "拒绝" }
-      ]
+      "operationId": "disconnect-old-next",
+      "kind": "disconnect",
+      "graph": { "kind": "root" },
+      "from": { "nodeId": "n_quest_intro", "portId": "out" },
+      "to": { "nodeId": "n_quest_next", "portId": "in" }
     },
     {
-      "op": "connect",
-      "from": "quest_intro.out",
-      "to": "quest_choice.in"
+      "operationId": "add-warning",
+      "kind": "add-node",
+      "graph": { "kind": "root" },
+      "node": {
+        "id": "n_quest_warning",
+        "type": "dialogue",
+        "data": {
+          "lines": [
+            {
+              "id": "ln_quest_warning",
+              "textId": "t_quest_warning",
+              "text": { "source": "前方可能很危险。" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "connect-warning",
+      "kind": "connect",
+      "graph": { "kind": "root" },
+      "from": { "nodeId": "n_quest_intro", "portId": "out" },
+      "to": { "nodeId": "n_quest_warning", "portId": "in" }
+    },
+    {
+      "operationId": "connect-next",
+      "kind": "connect",
+      "graph": { "kind": "root" },
+      "from": { "nodeId": "n_quest_warning", "portId": "out" },
+      "to": { "nodeId": "n_quest_next", "portId": "in" }
     }
   ]
 }
 ```
+
+第一版已实现无坐标 Semantic Snapshot，以及 `add-node`、`update-node`、`remove-node`、`connect`、
+`disconnect` 原语。命令执行器只在 Story 副本上工作：先校验不可信 JSON 形状和基础 Revision，再逐条验证
+节点、端口与连接，最后验证 Source Schema。Editor Store 在应用前追加 Compiler 校验，并将成功提交记录为
+一个 Undo 检查点；Dry Run 只返回候选文档和新 Revision，不修改 Store。
+
+当前 Editor 历史只保存活动 Graph，因此第一版提交明确限制所有 Operation 指向同一个活动 Graph。纯数据
+执行器可以预演跨 Graph 事务，但在整份 Story 原子历史快照完成前，Editor 不允许提交跨 Chapter 修改。
+该限制防止“命令执行成功但 Undo 只能撤销其中一部分”。
 
 每次 AI 修改必须：
 

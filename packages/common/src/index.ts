@@ -28,6 +28,37 @@ export { NodeRegistry, nodeRegistry } from './registry/nodeRegistry';
 // ---- Factory ----
 export { NodeFactory, type NodeInstance } from './registry/nodeFactory';
 
+// ---- AI-safe semantic editing foundation ----
+export {
+  STORY_SEMANTIC_FORMAT,
+  STORY_SEMANTIC_VERSION,
+  createStorySemanticSnapshot,
+  type SemanticPort,
+  type SemanticNode,
+  type SemanticConnection,
+  type SemanticGraph,
+  type StorySemanticSnapshot,
+} from './ai/semanticModel';
+export {
+  BLUEPRINT_COMMAND_FORMAT,
+  BLUEPRINT_COMMAND_VERSION,
+  type BlueprintGraphTarget,
+  type AddNodeCommand,
+  type UpdateNodeCommand,
+  type RemoveNodeCommand,
+  type ConnectNodesCommand,
+  type DisconnectNodesCommand,
+  type BlueprintCommand,
+  type BlueprintCommandTransaction,
+  type BlueprintCommandDiagnosticCode,
+  type BlueprintCommandDiagnostic,
+} from './ai/blueprintCommands';
+export {
+  validateBlueprintCommandTransaction,
+  executeBlueprintCommandTransaction,
+  type BlueprintTransactionResult,
+} from './ai/commandExecutor';
+
 // ---- Typed graph connection rules ----
 export {
   resolveNodePorts,
