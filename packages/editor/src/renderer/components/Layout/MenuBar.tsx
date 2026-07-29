@@ -40,7 +40,8 @@ type SubMenuItem =
         | 'console'
         | 'preview'
         | 'problems'
-        | 'aiCommands';
+        | 'aiCommands'
+        | 'storyMerge';
     }
   | { type: 'separator' };
 
@@ -93,6 +94,7 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Inspector', panelId: 'inspector' },
       { type: 'item', label: 'Console', panelId: 'console' },
       { type: 'item', label: 'AI Commands', panelId: 'aiCommands' },
+      { type: 'item', label: 'Story Merge', panelId: 'storyMerge' },
       { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
       { type: 'item', label: 'Problems', panelId: 'problems' },
       { type: 'separator' },
@@ -120,7 +122,8 @@ interface MenuBarProps {
       | 'console'
       | 'preview'
       | 'problems'
-      | 'aiCommands',
+      | 'aiCommands'
+      | 'storyMerge',
   ) => void;
 }
 

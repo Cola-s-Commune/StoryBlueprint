@@ -798,8 +798,10 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 ## Collaboration
 
-- [ ] Git Diff
-- [ ] Merge
+- [x] 两个合法 `.story` 文件按稳定 ID 做字段级语义 Diff
+- [x] Story Merge 面板逐项选择 Local / Remote，批量选择、编译校验并作为单次 Undo 应用
+- [ ] Git 冲突标记检测与 Base / Local / Remote 三方合并
+- [ ] 项目级 Character / Asset / Event / Signal 资源冲突合并
 - [ ] Multi-user
 
 ---

@@ -17,6 +17,7 @@ import { StoryData } from '../Panels/StoryData';
 import { RuntimePreview } from '../Panels/RuntimePreview';
 import { Problems } from '../Panels/Problems';
 import { AICommands } from '../Panels/AICommands';
+import { StoryMerge } from '../Panels/StoryMerge';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
@@ -31,11 +32,18 @@ const dockComponents = {
   preview: (_props: IDockviewPanelProps) => <RuntimePreview />,
   problems: (_props: IDockviewPanelProps) => <Problems />,
   aiCommands: (_props: IDockviewPanelProps) => <AICommands />,
+  storyMerge: (_props: IDockviewPanelProps) => <StoryMerge />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
   if (panelId === 'resources' || panelId === 'storyData') return 'left';
-  if (panelId === 'console' || panelId === 'preview' || panelId === 'aiCommands') return 'bottom';
+  if (
+    panelId === 'console' ||
+    panelId === 'preview' ||
+    panelId === 'aiCommands' ||
+    panelId === 'storyMerge'
+  )
+    return 'bottom';
   return 'right';
 }
 
@@ -212,6 +220,22 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
         }),
         initialHeight: 320,
         minimumHeight: 180,
+      });
+      break;
+    }
+    case 'storyMerge': {
+      const consolePanel = api.getPanel('console');
+      api.addPanel({
+        ...common,
+        title: 'Story Merge',
+        ...((consolePanel ?? graph) && {
+          position: {
+            referencePanel: consolePanel ?? graph!,
+            ...(consolePanel ? {} : { direction: 'below' as const }),
+          },
+        }),
+        initialHeight: 360,
+        minimumHeight: 220,
       });
       break;
     }

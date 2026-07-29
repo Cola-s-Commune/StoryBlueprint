@@ -381,6 +381,7 @@ interface StoryGraphStoreValue {
     nodeId: NodeId,
     lineIds: readonly DialogueLineId[],
   ) => { ok: true } | { ok: false; message: string };
+  applyStoryMerge: (merged: StorySourceDocument) => { ok: true } | { ok: false; message: string };
   addVariable: () => VariableId;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => void;
   removeVariable: (id: VariableId) => void;
@@ -1042,6 +1043,60 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       return { ok: true };
     },
     [checkpoint, graph, markDirty, restoreGraph],
+  );
+
+  const applyStoryMerge = useCallback(
+    (merged: StorySourceDocument): { ok: true } | { ok: false; message: string } => {
+      if (merged.id !== source.id) {
+        return { ok: false, message: 'The merge result belongs to a different Story.' };
+      }
+      const compiled = compileStory({
+        ...merged,
+        characters: resolvedCharacters,
+        assets: resolvedAssets,
+        events,
+        signals,
+      });
+      const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
+      if (errors.length > 0) {
+        return {
+          ok: false,
+          message: errors.map((diagnostic) => diagnostic.message).join('\n'),
+        };
+      }
+      const nextRoot = fromSourceGraph(merged.root);
+      const nextChapters: EditorChapter[] = merged.chapters.map((chapter) => ({
+        ...structuredClone(chapter),
+        graph: fromSourceGraph(chapter.graph),
+      }));
+      const nextActiveGraphId =
+        activeGraphId !== 'root' && nextChapters.some((chapter) => chapter.id === activeGraphId)
+          ? activeGraphId
+          : 'root';
+      const nextGraph =
+        nextActiveGraphId === 'root'
+          ? nextRoot
+          : nextChapters.find((chapter) => chapter.id === nextActiveGraphId)!.graph;
+      checkpoint();
+      rootGraphRef.current = structuredClone(nextRoot);
+      setChapters(nextChapters);
+      setActiveGraphId(nextActiveGraphId);
+      restoreGraph(structuredClone(nextGraph));
+      setVariables([...structuredClone(merged.variables)]);
+      markDirty();
+      return { ok: true };
+    },
+    [
+      activeGraphId,
+      checkpoint,
+      events,
+      markDirty,
+      resolvedAssets,
+      resolvedCharacters,
+      restoreGraph,
+      signals,
+      source.id,
+    ],
   );
 
   const addVariable = useCallback((): VariableId => {
@@ -2574,6 +2629,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       extractSelectionToSubstory,
       mergeSelectedDialogues,
       splitDialogueLines,
+      applyStoryMerge,
       addVariable,
       updateVariable,
       removeVariable,
@@ -2727,6 +2783,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       extractSelectionToSubstory,
       mergeSelectedDialogues,
       splitDialogueLines,
+      applyStoryMerge,
     ],
   );
 

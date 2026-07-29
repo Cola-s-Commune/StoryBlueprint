@@ -1117,6 +1117,18 @@ AI、Compiler、Source Map 和协作功能都依赖稳定 ID。禁止使用数�
 - `operationId` 用于去重，重复提交同一操作不能产生重复节点。
 - AI Command Schema、Story Source Schema 和 Runtime Program Schema 分别版本化，不能共用一个模糊的全局版本号。
 
+### 14.5 Story 协作合并
+
+Story Merge 第一阶段接受两个可独立解析的同 ID `.story` 文件，以稳定 Chapter、Node、Line、Option
+和 Variable ID 对齐内容。Diff 下钻到实际字段，节点坐标、Dialogue 文本、Speaker、Choice 条件、
+新增或删除节点与连线分别选择 Local / Remote；默认保留 Local，也可批量选择。Line、Option、Variable
+等有序集合同时保留语义顺序，不能因为按 ID 合并而把远端新增项错误追加到末尾。
+
+Apply 前必须使用当前项目解析出的共享资源重新编译完整 Story；验证失败不得修改当前文档。Apply 作为
+单个跨 Graph Undo 快照写入内存并标记 Dirty，由作者显式保存。比较期间若 Local Revision 改变，
+原选择立即失效并要求重新比较。第一阶段不写回 `.storyproject` 共享资源；后续 Git 集成增加
+Base / Local / Remote 三方输入、冲突标记检测和可自动合并的非重叠修改。
+
 ---
 
 ## 15. 推荐实现顺序

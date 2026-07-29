@@ -54,6 +54,7 @@ npm run dev
 - Auto Layout 改为读取 React Flow 实测节点尺寸：横向按列最大宽度推进，纵向按每个节点实际高度累加，避免多 Line Dialogue 等大节点在整理后互相覆盖。
 - Auto Layout 不再把 Reroute 当作剧情层级：计算执行顺序时穿透 Knot，整理后将前向 Knot 放回端点之间，并把循环 / 返回线的 Knot 分配到图下方独立通道。
 - Graph 新增 Ctrl+F Story Search：跨 Main Story / Substory 检索节点、逐条 Dialogue、Choice Option 和 Story Data；支持多词过滤、键盘上下选择、Enter 定位，并自动切图、选中和缩放到目标节点。
+- 新增可停靠 Story Merge：选择另一个同 ID `.story` 后，按稳定 ID 展示字段级 Local / Remote 语义差异，支持逐项或批量取舍；有序 Line / Option 保持相对位置，Apply 前完整编译验证，并作为单个跨 Graph Undo 修改写入当前 Story。
 - 多选外框遮罩支持 Ctrl+左键穿透命中单个节点，在当前选择中切换移除 / 加回，并同步更新相关内部连线选择。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
