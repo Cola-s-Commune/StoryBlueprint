@@ -213,6 +213,20 @@
   filter: drop-shadow(0 0 10px rgb(215 170 77 / 48%));
 }
 
+.canvas :global(.react-flow__node.ai-proposal-added) {
+  border-radius: 9px;
+  outline: 2px dashed #69d98a;
+  outline-offset: 4px;
+  filter: drop-shadow(0 0 12px rgb(105 217 138 / 55%));
+}
+
+.canvas :global(.react-flow__node.ai-proposal-modified) {
+  border-radius: 9px;
+  outline: 2px dashed #dfb75f;
+  outline-offset: 4px;
+  filter: drop-shadow(0 0 10px rgb(223 183 95 / 45%));
+}
+
 .aiChangeBanner {
   position: absolute;
   z-index: 12;

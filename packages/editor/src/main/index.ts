@@ -45,6 +45,7 @@ import type {
   RecoverySnapshot,
   SaveStoryRequest,
   UpdateProjectSettingsRequest,
+  AIChatSession,
   AIProviderSettings,
   GenerateAICommandRequest,
   GenerateAICommandResult,
@@ -75,7 +76,11 @@ const MAX_AI_CONTEXT_BYTES = 8 * 1024 * 1024;
 const MAX_AI_INSTRUCTION_BYTES = 32 * 1024;
 const MAX_AI_HISTORY_BYTES = 512 * 1024;
 const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_AI_CHAT_SESSIONS = 200;
+const MAX_AI_CHAT_SESSION_BYTES = 2 * 1024 * 1024;
+const MAX_AI_CHAT_STORE_BYTES = 32 * 1024 * 1024;
 const aiRequests = new Map<string, AbortController>();
+let aiChatWriteQueue: Promise<void> = Promise.resolve();
 type WindowZoomAction = 'in' | 'out' | 'reset';
 
 function nextWindowZoom(current: number, action: WindowZoomAction): number {
@@ -120,6 +125,69 @@ function aiProviderSettingsFile(): string {
 
 function aiProviderKeyFile(): string {
   return join(app.getPath('userData'), 'ai-provider-key');
+}
+
+function aiChatSessionsFile(): string {
+  return join(app.getPath('userData'), 'ai-chat-sessions.json');
+}
+
+function isAIChatSession(value: unknown): value is AIChatSession {
+  if (typeof value !== 'object' || value === null) return false;
+  const session = value as Partial<AIChatSession>;
+  const validMessages = (messages: unknown): boolean =>
+    Array.isArray(messages) &&
+    messages.length <= 50 &&
+    messages.every(
+      (message) =>
+        typeof message === 'object' &&
+        message !== null &&
+        (message.role === 'user' || message.role === 'assistant') &&
+        typeof message.content === 'string' &&
+        message.content.length > 0,
+    );
+  return (
+    typeof session.id === 'string' &&
+    /^[a-zA-Z0-9_-]{8,128}$/.test(session.id) &&
+    typeof session.scopeKey === 'string' &&
+    session.scopeKey.length > 0 &&
+    session.scopeKey.length <= 4_096 &&
+    typeof session.title === 'string' &&
+    session.title.length > 0 &&
+    session.title.length <= 120 &&
+    typeof session.createdAt === 'string' &&
+    typeof session.updatedAt === 'string' &&
+    validMessages(session.messages) &&
+    validMessages(session.history) &&
+    Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_AI_CHAT_SESSION_BYTES
+  );
+}
+
+async function readAIChatSessions(): Promise<AIChatSession[]> {
+  const value = await readJsonFile(aiChatSessionsFile());
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isAIChatSession)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, MAX_AI_CHAT_SESSIONS);
+}
+
+async function writeAIChatSessions(sessions: readonly AIChatSession[]): Promise<void> {
+  const retained = [...sessions]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, MAX_AI_CHAT_SESSIONS);
+  while (
+    retained.length > 0 &&
+    Buffer.byteLength(JSON.stringify(retained), 'utf8') > MAX_AI_CHAT_STORE_BYTES
+  ) {
+    retained.pop();
+  }
+  await writeUserDataJson(aiChatSessionsFile(), retained);
+}
+
+function queueAIChatWrite(operation: () => Promise<void>): Promise<void> {
+  const next = aiChatWriteQueue.catch(() => undefined).then(operation);
+  aiChatWriteQueue = next.catch(() => undefined);
+  return next;
 }
 
 function isAIProviderSettings(value: unknown): value is StoredAIProviderSettings {
@@ -821,6 +889,49 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('ai:get-provider-settings', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readAIProviderSettings();
+  });
+  ipcMain.handle('ai:list-chat-sessions', async (event, scopeKey: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      typeof scopeKey !== 'string' ||
+      scopeKey.length === 0 ||
+      scopeKey.length > 4_096
+    ) {
+      throw new Error('Invalid AI chat scope');
+    }
+    await aiChatWriteQueue;
+    return (await readAIChatSessions()).filter((session) => session.scopeKey === scopeKey);
+  });
+  ipcMain.handle('ai:save-chat-session', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !isAIChatSession(value)) {
+      throw new Error('Invalid AI chat session');
+    }
+    await queueAIChatWrite(async () => {
+      const sessions = await readAIChatSessions();
+      const next = sessions.filter(
+        (session) => !(session.scopeKey === value.scopeKey && session.id === value.id),
+      );
+      next.unshift(structuredClone(value));
+      await writeAIChatSessions(next);
+    });
+  });
+  ipcMain.handle('ai:delete-chat-session', async (event, scopeKey: unknown, sessionId: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      typeof scopeKey !== 'string' ||
+      scopeKey.length === 0 ||
+      scopeKey.length > 4_096 ||
+      typeof sessionId !== 'string' ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(sessionId)
+    ) {
+      throw new Error('Invalid AI chat session');
+    }
+    await queueAIChatWrite(async () => {
+      const sessions = await readAIChatSessions();
+      await writeAIChatSessions(
+        sessions.filter((session) => !(session.scopeKey === scopeKey && session.id === sessionId)),
+      );
+    });
   });
   ipcMain.handle('ai:update-provider-settings', async (event, value: unknown) => {
     if (!isTrustedSender(event) || typeof value !== 'object' || value === null) {

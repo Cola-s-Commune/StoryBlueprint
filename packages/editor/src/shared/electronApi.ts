@@ -143,6 +143,17 @@ export interface AIConversationMessage {
   content: string;
 }
 
+export interface AIChatSession {
+  id: string;
+  scopeKey: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: readonly AIConversationMessage[];
+  /** Raw provider envelopes retained so follow-up turns remember proposed commands. */
+  history: readonly AIConversationMessage[];
+}
+
 export interface GenerateAICommandResult {
   content: string;
   model: string;
@@ -180,6 +191,9 @@ export interface ElectronAPI {
   ) => Promise<AIProviderSettings>;
   generateAICommand: (request: GenerateAICommandRequest) => Promise<GenerateAICommandResult>;
   cancelAICommand: (requestId: string) => void;
+  listAIChatSessions: (scopeKey: string) => Promise<AIChatSession[]>;
+  saveAIChatSession: (session: AIChatSession) => Promise<void>;
+  deleteAIChatSession: (scopeKey: string, sessionId: string) => Promise<void>;
   createProjectCharacter: (character: CharacterSource) => Promise<WorkspaceInfo>;
   updateProjectCharacter: (
     relativePath: string,

@@ -149,6 +149,21 @@ export function prepareAIGraphChanges(
   };
 }
 
+/** Applies user-arranged preview positions to the freshly validated AI result. */
+export function applyAIProposalPositions(
+  prepared: EditorGraphState,
+  proposal: EditorGraphState,
+): EditorGraphState {
+  const positions = new Map(proposal.nodes.map((node) => [node.id, node.position] as const));
+  return {
+    nodes: prepared.nodes.map((node) => ({
+      ...node,
+      position: positions.get(node.id) ?? node.position,
+    })),
+    edges: prepared.edges,
+  };
+}
+
 export interface GraphClipboard {
   nodes: EditorGraphNode[];
   edges: EditorGraphEdge[];

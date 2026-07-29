@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { StoryNodeType } from '../packages/common/src';
 import {
+  applyAIProposalPositions,
   prepareAIGraphChanges,
   type EditorGraphNode,
   type EditorGraphState,
@@ -89,5 +90,26 @@ describe('AI graph feedback', () => {
     expect(firstX).toBeGreaterThan(0);
     expect(secondX).toBeGreaterThan(firstX);
     expect(secondX).toBeLessThan(1120);
+  });
+
+  it('keeps preview node positions when the proposal is finally applied', () => {
+    const start = node('n_start', StoryNodeType.Start, 0, 0, { title: 'Start' });
+    const dialogue = node('n_added', StoryNodeType.Dialogue, 280, 0, {
+      lines: [{ id: 'ln_added', textId: 't_added', text: { source: 'Hello' } }],
+    });
+    const prepared: EditorGraphState = { nodes: [start, dialogue], edges: [] };
+    const preview: EditorGraphState = {
+      nodes: [start, { ...dialogue, position: { x: 460, y: 190 } }],
+      edges: [],
+    };
+    const applied = applyAIProposalPositions(prepared, preview);
+    expect(applied.nodes.find((candidate) => candidate.id === 'n_added')?.position).toEqual({
+      x: 460,
+      y: 190,
+    });
+    expect(applied.nodes.find((candidate) => candidate.id === 'n_start')?.position).toEqual({
+      x: 0,
+      y: 0,
+    });
   });
 });

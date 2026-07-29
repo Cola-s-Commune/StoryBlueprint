@@ -12,6 +12,7 @@ import {
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import type {
+  AIChatSession,
   AIConversationMessage,
   AIProviderSettings,
   AIReasoningEffort,
@@ -310,8 +311,12 @@ export function AICommands() {
   const {
     hasActiveStory,
     activeStoryId,
+    workspace,
     semanticSnapshot,
     executeBlueprintCommands,
+    aiProposal,
+    applyAIProposal,
+    discardAIProposal,
     activeGraphId,
     nodes,
   } = useStoryGraphStore();
@@ -332,6 +337,9 @@ export function AICommands() {
   const [modelReasoning, setModelReasoning] = useState<string>();
   const [conversation, setConversation] = useState<AIConversationMessage[]>([]);
   const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
+  const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
+  const [activeChatSessionId, setActiveChatSessionId] = useState('');
+  const [loadedChatScope, setLoadedChatScope] = useState('');
   const [lastUserRequest, setLastUserRequest] = useState('');
   const [pendingUserMessage, setPendingUserMessage] = useState<string>();
   const [generating, setGenerating] = useState(false);
@@ -339,6 +347,8 @@ export function AICommands() {
   const [showDiffDetails, setShowDiffDetails] = useState(false);
   const requestIdRef = useRef<string>();
   const conversationRef = useRef<HTMLDivElement>(null);
+  const chatCreatedAtRef = useRef(new Date().toISOString());
+  const skipNextChatSaveRef = useRef(false);
   const selectedNodeIds = useMemo(
     () => nodes.filter((node) => node.selected).map((node) => node.id),
     [nodes],
@@ -353,6 +363,9 @@ export function AICommands() {
     [activeGraphId, contextScope, scopedSemanticSnapshot, selectedNodeIds],
   );
   const schemaText = useMemo(() => JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2), []);
+  const chatScopeKey = activeStoryId
+    ? `${workspace?.rootPath ?? 'standalone'}::${activeStoryId}`
+    : '';
   const currentToken = `${semanticSnapshot.revision}\n${commandText}`;
   const isDryRunCurrent = dryRunToken === currentToken;
   const diff = result?.ok && previewBase ? semanticDiff(previewBase, result.snapshot) : undefined;
@@ -391,11 +404,89 @@ export function AICommands() {
   }, [semanticSnapshot.revision]);
 
   useEffect(() => {
+    let disposed = false;
+    const newSessionId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    setLoadedChatScope('');
+    setChatSessions([]);
+    setActiveChatSessionId(newSessionId);
+    chatCreatedAtRef.current = createdAt;
     setConversation([]);
     setConversationHistory([]);
     setLastUserRequest('');
     setModelReasoning(undefined);
-  }, [activeStoryId]);
+    setResult(undefined);
+    setPreviewBase(undefined);
+    setDryRunToken(undefined);
+    if (!chatScopeKey || !window.electronAPI) {
+      setLoadedChatScope(chatScopeKey);
+      return () => {
+        disposed = true;
+      };
+    }
+    void window.electronAPI
+      .listAIChatSessions(chatScopeKey)
+      .then((sessions) => {
+        if (disposed) return;
+        setChatSessions(sessions);
+        const latest = sessions[0];
+        if (latest) {
+          skipNextChatSaveRef.current = true;
+          setActiveChatSessionId(latest.id);
+          chatCreatedAtRef.current = latest.createdAt;
+          setConversation([...latest.messages]);
+          setConversationHistory([...latest.history]);
+          setLastUserRequest(
+            [...latest.messages].reverse().find((message) => message.role === 'user')?.content ??
+              '',
+          );
+        }
+        setLoadedChatScope(chatScopeKey);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setProviderError(error instanceof Error ? error.message : String(error));
+        setLoadedChatScope(chatScopeKey);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [chatScopeKey]);
+
+  useEffect(() => {
+    if (
+      !window.electronAPI ||
+      !chatScopeKey ||
+      loadedChatScope !== chatScopeKey ||
+      !activeChatSessionId ||
+      conversation.length === 0
+    ) {
+      return;
+    }
+    if (skipNextChatSaveRef.current) {
+      skipNextChatSaveRef.current = false;
+      return;
+    }
+    const now = new Date().toISOString();
+    const firstUserMessage = conversation.find((message) => message.role === 'user')?.content ?? '';
+    const title = compactText(firstUserMessage, 64) || 'New conversation';
+    const session: AIChatSession = {
+      id: activeChatSessionId,
+      scopeKey: chatScopeKey,
+      title,
+      createdAt: chatCreatedAtRef.current,
+      updatedAt: now,
+      messages: conversation,
+      history: conversationHistory,
+    };
+    setChatSessions((sessions) => [
+      session,
+      ...sessions.filter((candidate) => candidate.id !== session.id),
+    ]);
+    void window.electronAPI
+      .saveAIChatSession(session)
+      .catch((error) => setProviderError(error instanceof Error ? error.message : String(error)));
+  }, [activeChatSessionId, chatScopeKey, conversation, conversationHistory, loadedChatScope]);
 
   useEffect(() => {
     const element = conversationRef.current;
@@ -428,16 +519,6 @@ export function AICommands() {
     };
   }, []);
 
-  const parseCommand = (): unknown => {
-    setLocalError(undefined);
-    try {
-      return JSON.parse(commandText) as unknown;
-    } catch (error) {
-      setLocalError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
-      return undefined;
-    }
-  };
-
   const dryRunText = (text: string) => {
     setLocalError(undefined);
     let command: unknown;
@@ -453,7 +534,7 @@ export function AICommands() {
     const wasNormalized = JSON.stringify(normalizedCommand) !== JSON.stringify(command);
     const normalizedText = wasNormalized ? JSON.stringify(normalizedCommand, null, 2) : text;
     if (wasNormalized) setCommandText(normalizedText);
-    const next = executeBlueprintCommands(normalizedCommand, { dryRun: true });
+    const next = executeBlueprintCommands(normalizedCommand, { dryRun: true, stage: true });
     setResult(next);
     setPreviewBase(semanticSnapshot);
     setDryRunToken(next.ok ? `${semanticSnapshot.revision}\n${normalizedText}` : undefined);
@@ -464,11 +545,16 @@ export function AICommands() {
 
   const apply = () => {
     if (dryRunToken !== currentToken) return;
-    const command = parseCommand();
-    if (command === undefined) return;
-    const next = executeBlueprintCommands(command);
+    const next = applyAIProposal();
+    if (!next) return;
     setResult(next);
     setDryRunToken(undefined);
+  };
+
+  const discardPreview = () => {
+    discardAIProposal();
+    setDryRunToken(undefined);
+    setProviderStatus('Proposal discarded · Story unchanged');
   };
 
   const saveProviderSettings = async (apiKey?: string) => {
@@ -565,6 +651,7 @@ export function AICommands() {
         setProviderStatus(`Proposed${response.model ? ` by ${response.model}` : ''} · reviewing`);
         dryRunText(command);
       } else {
+        discardAIProposal();
         setResult(undefined);
         setPreviewBase(undefined);
         setDryRunToken(undefined);
@@ -577,6 +664,54 @@ export function AICommands() {
       if (requestIdRef.current === requestId) requestIdRef.current = undefined;
       setPendingUserMessage(undefined);
       setGenerating(false);
+    }
+  };
+
+  const clearProposal = () => {
+    discardAIProposal();
+    setResult(undefined);
+    setPreviewBase(undefined);
+    setDryRunToken(undefined);
+    setModelReasoning(undefined);
+    setProviderStatus(undefined);
+    setLocalError(undefined);
+  };
+
+  const activateChatSession = (session: AIChatSession) => {
+    skipNextChatSaveRef.current = true;
+    setActiveChatSessionId(session.id);
+    chatCreatedAtRef.current = session.createdAt;
+    setConversation([...session.messages]);
+    setConversationHistory([...session.history]);
+    setLastUserRequest(
+      [...session.messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+    );
+    setInstruction('');
+    clearProposal();
+  };
+
+  const startNewChat = () => {
+    setActiveChatSessionId(crypto.randomUUID());
+    chatCreatedAtRef.current = new Date().toISOString();
+    setConversation([]);
+    setConversationHistory([]);
+    setLastUserRequest('');
+    setInstruction('');
+    clearProposal();
+  };
+
+  const deleteActiveChat = async () => {
+    const session = chatSessions.find((candidate) => candidate.id === activeChatSessionId);
+    if (!session || !window.electronAPI) return;
+    if (!window.confirm(`Delete conversation "${session.title}"? This cannot be undone.`)) return;
+    try {
+      await window.electronAPI.deleteAIChatSession(chatScopeKey, session.id);
+      const remaining = chatSessions.filter((candidate) => candidate.id !== session.id);
+      setChatSessions(remaining);
+      if (remaining[0]) activateChatSession(remaining[0]);
+      else startNewChat();
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -600,18 +735,40 @@ export function AICommands() {
               {semanticSnapshot.story.displayName} · {semanticSnapshot.revision}
             </span>
           </div>
-          {conversation.length > 0 && (
+          {chatSessions.length > 0 && (
+            <select
+              className={styles.sessionPicker}
+              value={activeChatSessionId}
+              disabled={generating}
+              title="Conversation history"
+              onChange={(event) => {
+                const session = chatSessions.find(
+                  (candidate) => candidate.id === event.target.value,
+                );
+                if (session) activateChatSession(session);
+              }}
+            >
+              {!chatSessions.some((session) => session.id === activeChatSessionId) && (
+                <option value={activeChatSessionId}>New conversation</option>
+              )}
+              {chatSessions.map((session) => (
+                <option value={session.id} key={session.id}>
+                  {session.title}
+                </option>
+              ))}
+            </select>
+          )}
+          <button type="button" onClick={startNewChat} disabled={generating}>
+            New Chat
+          </button>
+          {chatSessions.some((session) => session.id === activeChatSessionId) && (
             <button
               type="button"
-              onClick={() => {
-                setConversation([]);
-                setConversationHistory([]);
-                setLastUserRequest('');
-                setModelReasoning(undefined);
-              }}
+              className={styles.deleteChatButton}
+              onClick={() => void deleteActiveChat()}
               disabled={generating}
             >
-              New Chat
+              Delete
             </button>
           )}
           <button
@@ -880,6 +1037,7 @@ export function AICommands() {
               <button
                 type="button"
                 onClick={() => {
+                  discardAIProposal();
                   setCommandText(commandTemplate(semanticSnapshot.revision));
                   setResult(undefined);
                   setPreviewBase(undefined);
@@ -895,6 +1053,7 @@ export function AICommands() {
                   setClipboardError(undefined);
                   void readClipboard()
                     .then((text) => {
+                      discardAIProposal();
                       setCommandText(text);
                       setResult(undefined);
                       setPreviewBase(undefined);
@@ -921,6 +1080,7 @@ export function AICommands() {
                   spellCheck={false}
                   value={commandText}
                   onChange={(event) => {
+                    discardAIProposal();
                     setCommandText(event.target.value);
                     setResult(undefined);
                     setPreviewBase(undefined);
@@ -943,15 +1103,20 @@ export function AICommands() {
                 Dry Run
               </button>
             )}
-            {result?.ok && !result.committed && (
-              <button
-                type="button"
-                className={styles.applyButton}
-                disabled={!isDryRunCurrent}
-                onClick={apply}
-              >
-                Apply
-              </button>
+            {result?.ok && !result.committed && aiProposal && (
+              <>
+                <button
+                  type="button"
+                  className={styles.applyButton}
+                  disabled={!isDryRunCurrent}
+                  onClick={apply}
+                >
+                  Apply Preview
+                </button>
+                <button type="button" onClick={discardPreview}>
+                  Discard
+                </button>
+              </>
             )}
             <span
               className={styles.resultStatus}
@@ -961,7 +1126,9 @@ export function AICommands() {
                 ? result.committed
                   ? 'Applied · Undo available'
                   : isDryRunCurrent
-                    ? 'Dry Run passed'
+                    ? aiProposal
+                      ? 'Preview ready · arrange green nodes on the canvas'
+                      : 'Preview discarded'
                     : 'Story changed · run Dry Run again'
                 : result
                   ? 'Rejected · no changes applied'

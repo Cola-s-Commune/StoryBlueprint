@@ -165,7 +165,7 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - Pin 快捷操作与 UE Blueprint 对齐：Alt+左键点击 Pin 断开该 Pin 的全部连线；Ctrl+左键从已连接 Pin 拖到同方向兼容 Pin，原子转移全部连线。两者都进入 Undo 历史。
 - Alt+左键点击 Wire 只断开被点击的单条连线，与 Alt+点击 Pin 的“全部断开”语义明确区分。
 - Graph 左上提供可展开的快捷键说明，且根据当前 Blueprint / Standard 操作模式显示对应的框选和平移方式。
-- Shift+框选与已有节点选择取并集；多选外框不阻断 Blueprint 模式的右键平移，Ctrl+左键可穿透外框切换单个节点的选择状态，并同步更新相关内部连线。AI Apply 后的高亮保持为待确认状态，只有显式 Accept、Undo、切换 Story/Graph 或开始后续图编辑才结束，不由空白点击或计时器隐式确认。
+- Shift+框选与已有节点选择取并集；多选外框不阻断 Blueprint 模式的右键平移，Ctrl+左键可穿透外框切换单个节点的选择状态，并同步更新相关内部连线。AI Dry Run 后使用独立 Proposal Graph 覆盖预览，空白点击和节点移动都不会写入 Story；只有显式 Apply 才提交，Discard 直接丢弃。
 - 编辑器窗口支持 Ctrl++、Ctrl+-、Ctrl+0 全局缩放，快捷键由 Electron 窗口层处理，输入框和 Monaco 聚焦时同样有效；View 菜单提供等价操作。
 - Story Entry 不能有执行输入。
 - End Story 和 Return 不能有执行输出。
@@ -994,7 +994,12 @@ AI Commands 同时是会话式 Story Assistant，而非只能生成命令的单�
 Semantic Snapshot；默认范围为整个 Story，也可收窄到活动 Graph 或选中节点及其一跳边界。模型以
 `{ reply, command }` 信封响应：`reply` 是面向作者的正常交流，可回答当前剧情、讨论设计或请求补充信息；
 `command` 可以为 `null`，仅在信息充分且确实需要修改时携带 Blueprint Command。命令仍必须经过既有的
-Dry Run、Diff 与手动 Apply。会话记录仅保留在当前 Story 的编辑器会话中，切换 Story 会清空，避免上下文串线。
+Dry Run、Diff 与手动 Apply。
+
+会话以 Workspace Root + Story ID 隔离，保存在 Electron 用户数据目录，不进入 `.story`、`.storyproject`、
+恢复快照或编译产物。编辑器保存面向作者的消息，以及供模型继续理解已提议命令的原始响应信封；Provider
+reasoning 不持久化。面板支持历史会话切换、New Chat 和带确认的删除。单会话限制 50 条 / 2 MB，总存储限制
+32 MB，超过上限时按最近更新时间保留，避免长期使用导致用户数据无限增长。
 
 Provider 的 Endpoint、Model、超时和结构化输出模式保存在编辑器用户数据中，API Key 只经 Electron 主进程访问，
 使用操作系统安全存储加密，绝不进入 Renderer、Story 或 Project 文件。远程 Endpoint 强制 HTTPS；仅
@@ -1014,10 +1019,10 @@ Provider 可选择 Auto、Enabled 或 Disabled 思考模式，并在显式启用
 “创建变量并接入分支”的 AI 事务能够整体 Undo / Redo。
 
 Dry Run 的语义 Diff 使用绿色、黄色和红色区分新增、修改与删除，节点条目包含类型、名称、台词或 Prompt
-摘要，以及发生变化的稳定子项和字段路径。Apply 后只对新增节点执行连接感知的横向布局：优先放在前驱与
-后继之间，空间不足时放到前驱右侧并避让已有节点；任何作者已有节点都不移动。新增节点以绿色、修改节点以
-黄色短时高亮，画布自动聚焦变更范围，并提供 Accept 和 Undo AI Changes；高亮属于临时 UI 状态，不写入
-Story Source。
+摘要，以及发生变化的稳定子项和字段路径。通过 Dry Run 后，编辑器建立独立于真实 Graph 的 AI Proposal
+Graph：新增节点先按连接关系横向布局，在画布上以绿色虚线高亮并允许作者调整位置；已有节点和连线编辑暂时
+锁定。移动预览节点不修改 Story、不标记 dirty、也不进入 Undo。Apply 将命令和调整后的整数坐标作为一个
+Undo 检查点原子提交，Discard 则删除整份暂存图。任何作者已有节点都不会被自动布局移动。
 
 Command v1 同时导出 Draft 2020-12 JSON Schema、内置节点 Data/Port Catalog 和随当前 Revision 更新的完整
 事务示例。AI Context 必须包含这三部分，并明确顶层字段为 `operations`、Graph 是对象、Port 由编辑器推导。

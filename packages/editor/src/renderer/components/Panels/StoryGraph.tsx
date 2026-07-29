@@ -145,6 +145,10 @@ export function StoryGraph() {
     problemFocus,
     aiChanges,
     clearAIChanges,
+    aiProposal,
+    updateAIProposalNodes,
+    applyAIProposal,
+    discardAIProposal,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<GraphControlMode>(initialGraphControlMode);
@@ -753,11 +757,36 @@ export function StoryGraph() {
     };
   }, [aiChanges, flowInstance]);
 
+  useEffect(() => {
+    if (!aiProposal || !flowInstance || aiProposal.addedNodeIds.length === 0) return;
+    const frame = requestAnimationFrame(() => {
+      void flowInstance.fitView({
+        nodes: aiProposal.addedNodeIds.map((id) => ({ id })),
+        padding: 0.75,
+        duration: 320,
+        maxZoom: 1.2,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [aiProposal?.nonce, flowInstance]);
+
   const onNodeDragStart = useCallback(() => {
+    if (aiProposal) return;
     dragSnapshot.current = structuredClone(graph);
-  }, [graph]);
+  }, [aiProposal, graph]);
   const onNodeDragStop = useCallback(
     (_event: unknown, node: EditorGraphNode) => {
+      if (aiProposal) {
+        updateAIProposalNodes([
+          {
+            type: 'position',
+            id: node.id,
+            position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+            dragging: false,
+          },
+        ]);
+        return;
+      }
       const snapshot = dragSnapshot.current;
       dragSnapshot.current = null;
       const original = snapshot?.nodes.find((candidate) => candidate.id === node.id);
@@ -780,7 +809,7 @@ export function StoryGraph() {
       checkpoint(snapshot);
       markDirty();
     },
-    [checkpoint, markDirty, setNodes],
+    [aiProposal, checkpoint, markDirty, setNodes, updateAIProposalNodes],
   );
   const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
   const activeName =
@@ -788,25 +817,36 @@ export function StoryGraph() {
       ? 'Main Story'
       : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
   const selectedCount = nodes.filter((node) => node.selected).length;
+  const canvasNodes = aiProposal?.graph.nodes ?? nodes;
+  const canvasEdges = aiProposal?.graph.edges ?? edges;
   const renderedNodes = useMemo<EditorGraphNode[]>(() => {
-    const added = new Set(aiChanges?.addedNodeIds ?? []);
-    const changed = new Set(aiChanges?.changedNodeIds ?? []);
-    return nodes.map((node) => ({
+    const added = new Set(aiProposal?.addedNodeIds ?? aiChanges?.addedNodeIds ?? []);
+    const changed = new Set(aiProposal?.changedNodeIds ?? aiChanges?.changedNodeIds ?? []);
+    return canvasNodes.map((node) => ({
       ...node,
+      draggable: aiProposal ? added.has(node.id) : node.draggable,
       className: [
         node.className,
-        added.has(node.id) ? 'ai-change-added' : changed.has(node.id) ? 'ai-change-modified' : '',
+        added.has(node.id)
+          ? aiProposal
+            ? 'ai-proposal-added'
+            : 'ai-change-added'
+          : changed.has(node.id)
+            ? aiProposal
+              ? 'ai-proposal-modified'
+              : 'ai-change-modified'
+            : '',
       ]
         .filter(Boolean)
         .join(' '),
     }));
-  }, [aiChanges, nodes]);
+  }, [aiChanges, aiProposal, canvasNodes]);
   const renderedEdges = useMemo<EditorGraphEdge[]>(() => {
-    const virtualEdges = nodes.flatMap((node): EditorGraphEdge[] => {
+    const virtualEdges = canvasNodes.flatMap((node): EditorGraphEdge[] => {
       if (node.type !== StoryNodeType.FlowJump) return [];
       const targetNodeId = (node.data as FlowJumpNodeData).targetNodeId;
       const target = targetNodeId
-        ? nodes.find((candidate) => candidate.id === targetNodeId)
+        ? canvasNodes.find((candidate) => candidate.id === targetNodeId)
         : undefined;
       if (!target || (!node.selected && !target.selected)) return [];
       return [
@@ -823,8 +863,8 @@ export function StoryGraph() {
         },
       ];
     });
-    return [...edges, ...virtualEdges];
-  }, [edges, nodes]);
+    return [...canvasEdges, ...virtualEdges];
+  }, [canvasEdges, canvasNodes]);
 
   if (!hasActiveStory) {
     return (
@@ -1011,8 +1051,8 @@ export function StoryGraph() {
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={renderedNodes}
           edges={renderedEdges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onNodesChange={aiProposal ? updateAIProposalNodes : onNodesChange}
+          onEdgesChange={aiProposal ? () => undefined : onEdgesChange}
           onEdgeClick={onEdgeClick}
           onEdgeContextMenu={openEdgeContextMenu}
           onEdgeDoubleClick={(event, edge) => {
@@ -1049,6 +1089,8 @@ export function StoryGraph() {
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
+          nodesConnectable={!aiProposal}
+          elementsSelectable={!aiProposal}
           defaultEdgeOptions={{
             type: 'smoothstep',
             style: { stroke: '#aeb7c4', strokeWidth: 2.25 },
@@ -1069,7 +1111,21 @@ export function StoryGraph() {
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" />
           <Controls />
         </ReactFlow>
-        {aiChanges && (
+        {aiProposal && (
+          <aside className={styles.aiChangeBanner}>
+            <div>
+              <strong>AI proposal preview</strong>
+              <span>Move the green nodes, then Apply or Discard. Story is unchanged.</span>
+            </div>
+            <button type="button" onClick={() => void applyAIProposal()}>
+              Apply
+            </button>
+            <button type="button" className={styles.aiUndoButton} onClick={discardAIProposal}>
+              Discard
+            </button>
+          </aside>
+        )}
+        {!aiProposal && aiChanges && (
           <aside className={styles.aiChangeBanner}>
             <div>
               <strong>AI changes awaiting confirmation</strong>

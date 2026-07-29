@@ -11,6 +11,7 @@ import {
   type SetStateAction,
 } from 'react';
 import {
+  applyNodeChanges,
   useEdgesState,
   useNodesState,
   type OnEdgesChange,
@@ -59,6 +60,7 @@ import {
 } from '@story-blueprint/compiler';
 import {
   fromSourceGraph,
+  applyAIProposalPositions,
   extractSelectionToSubstory as extractGraphSelection,
   prepareAIGraphChanges,
   toEditorGraphNode,
@@ -305,6 +307,11 @@ interface AIEditorChanges {
   variableChangeCount: number;
 }
 
+interface AIEditorProposal extends AIEditorChanges {
+  graph: EditorGraphState;
+  transaction: unknown;
+}
+
 interface StoryGraphStoreValue {
   source: StorySourceDocument;
   graph: EditorGraphState;
@@ -341,6 +348,10 @@ interface StoryGraphStoreValue {
   problemFocus?: { nodeId: NodeId; nonce: number };
   aiChanges?: AIEditorChanges;
   clearAIChanges: () => void;
+  aiProposal?: AIEditorProposal;
+  updateAIProposalNodes: OnNodesChange<EditorGraphNode>;
+  applyAIProposal: () => BlueprintTransactionResult | undefined;
+  discardAIProposal: () => void;
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -349,7 +360,7 @@ interface StoryGraphStoreValue {
   semanticSnapshot: StorySemanticSnapshot;
   executeBlueprintCommands: (
     transaction: unknown,
-    options?: { dryRun?: boolean },
+    options?: { dryRun?: boolean; stage?: boolean },
   ) => BlueprintTransactionResult;
   storyDataSelection?: StoryDataSelection;
   selectStoryData: (selection?: StoryDataSelection) => void;
@@ -443,6 +454,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [lastBuildPath, setLastBuildPath] = useState<string>();
   const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
   const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
+  const [aiProposal, setAIProposal] = useState<AIEditorProposal>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
   const [sessionReady, setSessionReady] = useState(false);
@@ -573,6 +585,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const checkpoint = useCallback(
     (snapshot?: EditorGraphState) => {
       setAIChanges(undefined);
+      setAIProposal(undefined);
       history.checkpoint({
         activeGraphId,
         graph: snapshot ?? graph,
@@ -584,7 +597,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [activeGraphId, chapters, graph, history, variables],
   );
 
-  useEffect(() => setAIChanges(undefined), [activeGraphId, document.id]);
+  useEffect(() => {
+    setAIChanges(undefined);
+    setAIProposal(undefined);
+  }, [activeGraphId, document.id]);
 
   const restoreGraph = useCallback(
     (next: EditorGraphState) => {
@@ -643,6 +659,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       restoreGraph(previous.graph);
       setVariables(previous.variables);
       setAIChanges(undefined);
+      setAIProposal(undefined);
       markDirty();
     }
   }, [activeGraphId, chapters, graph, history, markDirty, restoreGraph, variables]);
@@ -662,15 +679,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       restoreGraph(next.graph);
       setVariables(next.variables);
       setAIChanges(undefined);
+      setAIProposal(undefined);
       markDirty();
     }
   }, [activeGraphId, chapters, graph, history, markDirty, restoreGraph, variables]);
 
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
+  const discardAIProposal = useCallback(() => setAIProposal(undefined), []);
+  const updateAIProposalNodes = useCallback<OnNodesChange<EditorGraphNode>>((changes) => {
+    const allowed = changes.filter(
+      (change) =>
+        change.type === 'position' || change.type === 'dimensions' || change.type === 'select',
+    );
+    if (allowed.length === 0) return;
+    setAIProposal((current) =>
+      current
+        ? {
+            ...current,
+            graph: { ...current.graph, nodes: applyNodeChanges(allowed, current.graph.nodes) },
+          }
+        : current,
+    );
+  }, []);
 
   const executeBlueprintCommands = useCallback(
-    (transactionValue: unknown, options: { dryRun?: boolean } = {}): BlueprintTransactionResult => {
-      if (!options.dryRun && typeof transactionValue === 'object' && transactionValue !== null) {
+    (
+      transactionValue: unknown,
+      options: { dryRun?: boolean; stage?: boolean } = {},
+    ): BlueprintTransactionResult => {
+      if (options.stage) setAIProposal(undefined);
+      if (
+        (!options.dryRun || options.stage) &&
+        typeof transactionValue === 'object' &&
+        transactionValue !== null
+      ) {
         const operations = (transactionValue as Partial<BlueprintCommandTransaction>).operations;
         if (
           Array.isArray(operations) &&
@@ -734,7 +776,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           })),
         };
       }
-      if (!result.committed) return result;
       const nextSourceGraph =
         activeGraphId === 'root'
           ? result.document.root
@@ -756,21 +797,48 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const variableChangeCount = [...variableIds].filter(
         (id) => JSON.stringify(beforeVariables.get(id)) !== JSON.stringify(afterVariables.get(id)),
       ).length;
+      if (options.stage) {
+        setAIChanges(undefined);
+        setAIProposal({
+          nonce: Date.now(),
+          graph: prepared.graph,
+          transaction: structuredClone(transactionValue),
+          addedNodeIds: prepared.addedNodeIds,
+          changedNodeIds: prepared.changedNodeIds,
+          removedNodeIds: prepared.removedNodeIds,
+          variableChangeCount,
+        });
+        return result;
+      }
+      if (!result.committed) return result;
+      const stagedProposal =
+        aiProposal && JSON.stringify(aiProposal.transaction) === JSON.stringify(transactionValue)
+          ? aiProposal
+          : undefined;
+      const committedGraph = stagedProposal
+        ? applyAIProposalPositions(prepared.graph, stagedProposal.graph)
+        : prepared.graph;
       checkpoint();
-      restoreGraph(prepared.graph);
+      restoreGraph(committedGraph);
       setVariables([...structuredClone(result.document.variables)]);
-      setAIChanges({
-        nonce: Date.now(),
-        addedNodeIds: prepared.addedNodeIds,
-        changedNodeIds: prepared.changedNodeIds,
-        removedNodeIds: prepared.removedNodeIds,
-        variableChangeCount,
-      });
+      setAIProposal(undefined);
+      setAIChanges(
+        stagedProposal
+          ? undefined
+          : {
+              nonce: Date.now(),
+              addedNodeIds: prepared.addedNodeIds,
+              changedNodeIds: prepared.changedNodeIds,
+              removedNodeIds: prepared.removedNodeIds,
+              variableChangeCount,
+            },
+      );
       markDirty();
       return result;
     },
     [
       activeGraphId,
+      aiProposal,
       aiSemanticContext,
       checkpoint,
       events,
@@ -782,6 +850,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       signals,
       source,
     ],
+  );
+
+  const applyAIProposal = useCallback(
+    () => (aiProposal ? executeBlueprintCommands(aiProposal.transaction) : undefined),
+    [aiProposal, executeBlueprintCommands],
   );
 
   const addNode = useCallback(
@@ -2464,6 +2537,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       problemFocus,
       aiChanges,
       clearAIChanges,
+      aiProposal,
+      updateAIProposalNodes,
+      applyAIProposal,
+      discardAIProposal,
       markDirty,
       newStory,
       openStory,
@@ -2518,6 +2595,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       problemFocus,
       aiChanges,
       clearAIChanges,
+      aiProposal,
+      updateAIProposalNodes,
+      applyAIProposal,
+      discardAIProposal,
       edges,
       graph,
       activeGraphId,

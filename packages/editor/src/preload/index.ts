@@ -33,6 +33,10 @@ const electronAPI = {
     ipcRenderer.invoke('ai:update-provider-settings', settings),
   generateAICommand: (request) => ipcRenderer.invoke('ai:generate-command', request),
   cancelAICommand: (requestId) => ipcRenderer.send('ai:cancel-command', requestId),
+  listAIChatSessions: (scopeKey) => ipcRenderer.invoke('ai:list-chat-sessions', scopeKey),
+  saveAIChatSession: (session) => ipcRenderer.invoke('ai:save-chat-session', session),
+  deleteAIChatSession: (scopeKey, sessionId) =>
+    ipcRenderer.invoke('ai:delete-chat-session', scopeKey, sessionId),
   createProjectCharacter: (character) =>
     ipcRenderer.invoke('workspace:create-character', character),
   updateProjectCharacter: (relativePath, character) =>

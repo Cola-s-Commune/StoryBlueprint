@@ -31,14 +31,26 @@
 }
 
 .requestHeader {
+  flex-wrap: wrap;
   margin-bottom: 8px;
 }
 
 .assistantTitle {
   display: flex;
   min-width: 0;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
+}
+
+.sessionPicker {
+  width: min(180px, 34vw);
+  min-width: 110px;
+  padding: 5px 7px;
+}
+
+.deleteChatButton {
+  color: #dca0a5 !important;
 }
 
 .assistantTitle strong {
