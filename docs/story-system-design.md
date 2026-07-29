@@ -988,11 +988,22 @@ OpenAI-compatible Chat Completions 接口，可选择选中节点、当前 Graph
 作者查看节点和连线的语义 Diff 后仍需手动 Apply。验证失败可携带结构化诊断自动重试，生成中的请求可取消。
 手动流程仍允许复制 AI Context、调用任意外部模型并粘贴单个 JSON 事务。
 
+AI Commands 同时是会话式 Story Assistant，而非只能生成命令的单次表单。每轮请求都重新附加所选范围的最新
+Semantic Snapshot；默认范围为整个 Story，也可收窄到活动 Graph 或选中节点及其一跳边界。模型以
+`{ reply, command }` 信封响应：`reply` 是面向作者的正常交流，可回答当前剧情、讨论设计或请求补充信息；
+`command` 可以为 `null`，仅在信息充分且确实需要修改时携带 Blueprint Command。命令仍必须经过既有的
+Dry Run、Diff 与手动 Apply。会话记录仅保留在当前 Story 的编辑器会话中，切换 Story 会清空，避免上下文串线。
+
 Provider 的 Endpoint、Model、超时和结构化输出模式保存在编辑器用户数据中，API Key 只经 Electron 主进程访问，
 使用操作系统安全存储加密，绝不进入 Renderer、Story 或 Project 文件。远程 Endpoint 强制 HTTPS；仅
 localhost、127.0.0.1 与本机 IPv6 回环地址可使用 HTTP，便于连接本地模型。兼容性不足的服务可由 JSON Schema
 模式切换到 JSON Object 模式，但返回结果始终经过相同的命令 Schema、Revision、引用、Compiler 和 Dry Run
 校验。Apply 只对与当前 Revision 完全相同的 Dry Run 开放；Story 在此期间发生任何语义修改都会使确认失效。
+
+Provider 可选择 Auto、Enabled 或 Disabled 思考模式，并在显式启用时选择推理强度。Auto 不发送厂商专用参数，
+保持 OpenAI-compatible 服务之间的默认兼容性。若响应包含 `reasoning_content`（或兼容的 `reasoning`），编辑器
+在默认折叠的 Model Reasoning 区域中展示并允许复制；它只存在于当前 Renderer 会话，不写入 Story、Project、
+恢复快照或编译产物。Reasoning 仅供作者参考，命令 Schema、Compiler、Dry Run 与语义 Diff 仍是正确性的判据。
 
 剧情内容编辑不要求 AI 整体替换节点 `data`：协议提供 Variable、Dialogue Line、Choice Option 和 Expression
 专用命令。Line / Option 命令使用稳定子项 ID 完成插入、局部修改、删除和排序定位；删除 Option 同步清理其

@@ -41,6 +41,11 @@ npm run dev
 - Blueprint Command v1 导出 Draft 2020-12 JSON Schema、内置节点 Data/Port Catalog 和有效事务示例；`baseRevision` 改为必填。AI Context 明确禁止 `commands`、字符串 Graph 和模型自造 Ports，校验器一次返回多个路径诊断，面板新增 Copy Schema 与 Copy Retry Context。
 - 修复 AI Dry Run 将项目级共享角色误判为缺失：Semantic Snapshot、Revision、执行结果和 Editor Compiler 统一使用解析后的角色、资产、Event 与 Signal 资源视图，同时保持 `.story` 不重复保存项目共享资源。
 - AI Commands 接入内置 OpenAI-compatible Provider：支持选中节点 / 当前 Graph / 整个 Story 上下文、生成取消、验证诊断重试和生成后自动 Dry Run；API Key 仅由主进程通过操作系统安全存储读写，远程地址强制 HTTPS，本地模型允许回环 HTTP。手动复制 / 粘贴流程继续保留。
+- AI Commands 调整为自然语言优先的渐进式界面：Provider 与 Command Details 默认折叠，JSON / Snapshot / 外部 AI 工具仅在需要时展开；空闲时隐藏结果操作，Dry Run 后先展示紧凑变更计数，再按需展开非空 Diff 分类。
+- AI Commands 支持 Auto / Enabled / Disabled 思考模式与推理强度；Provider 返回的思考内容以默认折叠、可复制的会话面板展示，不写入 Story、Project 或编译产物。
+- AI Commands 升级为会话式 Story Assistant：每轮读取最新语义 Story 状态，可回答剧情问题或追问作者；回复携带可选 Blueprint Command，只有确实提议修改时才进入 Dry Run / Diff / Apply。
+- AI 命令适配器会自动把 Line / Option 专用操作中误用的 `{ source: text }` 规范化为纯字符串，同时保持 add-node 的 Source 数据形状不变，避免模型混淆两层文本协议。
+- Story Assistant 改为 Codex 风格的 chat-first 工作区：对话占据主体、Composer 固定在底部、Enter 发送、发送后立即展示请求与工作状态，并把 Blueprint 提案、验证和 Apply 作为独立审核卡片。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
 - Project Events / Signals 提供统一的人类可读 Project Interface Table，可横向查看完整接口并一键复制 Markdown 交付程序员；点击表格行可返回具体定义编辑。

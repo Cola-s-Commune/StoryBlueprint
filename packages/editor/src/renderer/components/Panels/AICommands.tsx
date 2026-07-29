@@ -11,7 +11,14 @@ import {
   type StorySemanticSnapshot,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
-import type { AIProviderSettings, AIStructuredOutputMode } from '../../../shared/electronApi';
+import type {
+  AIConversationMessage,
+  AIProviderSettings,
+  AIReasoningEffort,
+  AIStructuredOutputMode,
+  AIThinkingMode,
+} from '../../../shared/electronApi';
+import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
 import { CopyButton } from './CopyButton';
 import panelStyles from './Panel.module.css';
 import styles from './AICommands.module.css';
@@ -34,7 +41,21 @@ interface AIProviderDraft {
   model: string;
   timeoutSeconds: number;
   structuredOutput: AIStructuredOutputMode;
+  thinkingMode: AIThinkingMode;
+  reasoningEffort: AIReasoningEffort;
 }
+
+const AI_ASSISTANT_RESPONSE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reply', 'command'],
+  properties: {
+    reply: { type: 'string', minLength: 1 },
+    command: {
+      anyOf: [BLUEPRINT_COMMAND_JSON_SCHEMA, { type: 'null' }],
+    },
+  },
+} as const;
 
 function graphKey(graph: StorySemanticSnapshot['graphs'][number]): string {
   return graph.kind === 'root' ? 'root' : `chapter:${graph.chapterId}`;
@@ -228,13 +249,14 @@ function aiContext(
 ): string {
   const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
   return [
-    'Edit this Story Blueprint using only a Blueprint Command transaction.',
-    'Return one JSON object and no Markdown fences or explanation.',
-    `The response MUST validate against the ${BLUEPRINT_COMMAND_FORMAT}@${BLUEPRINT_COMMAND_VERSION} JSON Schema below.`,
+    'Use this semantic Story Blueprint state to answer the author or propose an edit.',
+    'Answer questions normally. Ask for clarification instead of guessing important story intent.',
+    `Any proposed command MUST validate against the ${BLUEPRINT_COMMAND_FORMAT}@${BLUEPRINT_COMMAND_VERSION} JSON Schema below.`,
     'The top-level array is named operations, never commands.',
     'A graph is an object such as { "kind": "root" }, never the string "root".',
     'Never emit ports, positions, definitionVersion, UI state, or fields not allowed by the schema.',
     'Use the Node Catalog for add-node data and port IDs; ports are always derived by the editor.',
+    'IMPORTANT TEXT SHAPES: add-node data uses { "source": "text" } as shown in the Node Catalog, but add-dialogue-line, update-dialogue-line, add-choice-option, and update-choice-option use a plain string for text.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
@@ -285,8 +307,14 @@ function diagnosticText(result: BlueprintTransactionResult | undefined): string 
 }
 
 export function AICommands() {
-  const { hasActiveStory, semanticSnapshot, executeBlueprintCommands, activeGraphId, nodes } =
-    useStoryGraphStore();
+  const {
+    hasActiveStory,
+    activeStoryId,
+    semanticSnapshot,
+    executeBlueprintCommands,
+    activeGraphId,
+    nodes,
+  } = useStoryGraphStore();
   const [commandText, setCommandText] = useState(() => commandTemplate(semanticSnapshot.revision));
   const [result, setResult] = useState<BlueprintTransactionResult>();
   const [previewBase, setPreviewBase] = useState<StorySemanticSnapshot>();
@@ -294,15 +322,23 @@ export function AICommands() {
   const [clipboardError, setClipboardError] = useState<string>();
   const [localError, setLocalError] = useState<string>();
   const [instruction, setInstruction] = useState('');
-  const [contextScope, setContextScope] = useState<AIContextScope>('graph');
+  const [contextScope, setContextScope] = useState<AIContextScope>('story');
   const [providerSettings, setProviderSettings] = useState<AIProviderSettings>();
   const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [providerError, setProviderError] = useState<string>();
   const [providerStatus, setProviderStatus] = useState<string>();
+  const [modelReasoning, setModelReasoning] = useState<string>();
+  const [conversation, setConversation] = useState<AIConversationMessage[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
+  const [lastUserRequest, setLastUserRequest] = useState('');
+  const [pendingUserMessage, setPendingUserMessage] = useState<string>();
   const [generating, setGenerating] = useState(false);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  const [showDiffDetails, setShowDiffDetails] = useState(false);
   const requestIdRef = useRef<string>();
+  const conversationRef = useRef<HTMLDivElement>(null);
   const selectedNodeIds = useMemo(
     () => nodes.filter((node) => node.selected).map((node) => node.id),
     [nodes],
@@ -320,6 +356,17 @@ export function AICommands() {
   const currentToken = `${semanticSnapshot.revision}\n${commandText}`;
   const isDryRunCurrent = dryRunToken === currentToken;
   const diff = result?.ok && previewBase ? semanticDiff(previewBase, result.snapshot) : undefined;
+  const diffCounts = diff
+    ? {
+        added: diff.addedVariables.length + diff.addedNodes.length + diff.addedConnections.length,
+        changed: diff.changedVariables.length + diff.changedNodes.length,
+        removed:
+          diff.removedVariables.length + diff.removedNodes.length + diff.removedConnections.length,
+      }
+    : undefined;
+  const diffChangeCount = diffCounts
+    ? diffCounts.added + diffCounts.changed + diffCounts.removed
+    : 0;
   const errors = [providerError, clipboardError, localError, diagnosticText(result)]
     .filter(Boolean)
     .join('\n');
@@ -344,6 +391,18 @@ export function AICommands() {
   }, [semanticSnapshot.revision]);
 
   useEffect(() => {
+    setConversation([]);
+    setConversationHistory([]);
+    setLastUserRequest('');
+    setModelReasoning(undefined);
+  }, [activeStoryId]);
+
+  useEffect(() => {
+    const element = conversationRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [conversation, generating, pendingUserMessage]);
+
+  useEffect(() => {
     let disposed = false;
     void window.electronAPI
       ?.getAIProviderSettings()
@@ -355,6 +414,8 @@ export function AICommands() {
           model: settings.model,
           timeoutSeconds: settings.timeoutMs / 1_000,
           structuredOutput: settings.structuredOutput,
+          thinkingMode: settings.thinkingMode,
+          reasoningEffort: settings.reasoningEffort,
         });
         setShowProviderSettings(!settings.model);
       })
@@ -384,13 +445,19 @@ export function AICommands() {
       command = JSON.parse(text) as unknown;
     } catch (error) {
       setLocalError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      setShowTechnicalDetails(true);
       return;
     }
     if (command === undefined) return;
-    const next = executeBlueprintCommands(command, { dryRun: true });
+    const normalizedCommand = normalizeAIBlueprintCommand(command);
+    const wasNormalized = JSON.stringify(normalizedCommand) !== JSON.stringify(command);
+    const normalizedText = wasNormalized ? JSON.stringify(normalizedCommand, null, 2) : text;
+    if (wasNormalized) setCommandText(normalizedText);
+    const next = executeBlueprintCommands(normalizedCommand, { dryRun: true });
     setResult(next);
     setPreviewBase(semanticSnapshot);
-    setDryRunToken(next.ok ? `${semanticSnapshot.revision}\n${text}` : undefined);
+    setDryRunToken(next.ok ? `${semanticSnapshot.revision}\n${normalizedText}` : undefined);
+    setShowDiffDetails(false);
   };
 
   const dryRun = () => dryRunText(commandText);
@@ -413,6 +480,8 @@ export function AICommands() {
         model: providerDraft.model,
         timeoutMs: Math.round(providerDraft.timeoutSeconds * 1_000),
         structuredOutput: providerDraft.structuredOutput,
+        thinkingMode: providerDraft.thinkingMode,
+        reasoningEffort: providerDraft.reasoningEffort,
         ...(apiKey === undefined ? {} : { apiKey }),
       });
       setProviderSettings(settings);
@@ -421,6 +490,8 @@ export function AICommands() {
         model: settings.model,
         timeoutSeconds: settings.timeoutMs / 1_000,
         structuredOutput: settings.structuredOutput,
+        thinkingMode: settings.thinkingMode,
+        reasoningEffort: settings.reasoningEffort,
       });
       setApiKeyDraft('');
       setProviderStatus(apiKey === '' ? 'API Key removed' : 'Provider settings saved');
@@ -435,8 +506,9 @@ export function AICommands() {
       setProviderError('AI generation is available only in the desktop editor');
       return;
     }
-    if (!instruction.trim()) {
-      setProviderError('Describe the Story change you want');
+    const requestInstruction = retry ? lastUserRequest : instruction.trim();
+    if (!requestInstruction) {
+      setProviderError(retry ? 'There is no previous request to retry' : 'Enter a message first');
       return;
     }
     if (contextScope === 'selection' && selectedNodeIds.length === 0) {
@@ -446,25 +518,64 @@ export function AICommands() {
     const requestId = crypto.randomUUID();
     requestIdRef.current = requestId;
     setGenerating(true);
+    setPendingUserMessage(
+      retry
+        ? 'Please correct the proposed change using the validation diagnostics.'
+        : requestInstruction,
+    );
+    setModelReasoning(undefined);
     setProviderError(undefined);
-    setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Generating command…');
+    setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Working…');
+    if (!retry) setLastUserRequest(requestInstruction);
     try {
       const response = await window.electronAPI.generateAICommand({
         requestId,
         instruction: retry
-          ? `Correct the rejected command for this request: ${instruction.trim()}`
-          : instruction.trim(),
+          ? `Correct the rejected command for this request: ${requestInstruction}`
+          : requestInstruction,
         context: retry && retryContext ? retryContext : contextText,
-        schema: BLUEPRINT_COMMAND_JSON_SCHEMA,
+        schema: AI_ASSISTANT_RESPONSE_SCHEMA,
+        history: conversationHistory,
       });
-      setCommandText(response.content);
-      setProviderStatus(`Generated${response.model ? ` with ${response.model}` : ''} · reviewing`);
-      dryRunText(response.content);
+      const assistant = parseAIAssistantResponse(response.content);
+      const userMessage = retry
+        ? 'Please correct the proposed change using the validation diagnostics.'
+        : requestInstruction;
+      setConversation((messages) => {
+        const next: AIConversationMessage[] = [
+          ...messages,
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: assistant.reply },
+        ];
+        return next.slice(-40);
+      });
+      setConversationHistory((messages) => {
+        const next: AIConversationMessage[] = [
+          ...messages,
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: response.content },
+        ];
+        return next.slice(-40);
+      });
+      setModelReasoning(response.reasoning);
+      setInstruction('');
+      if (assistant.command) {
+        const command = JSON.stringify(normalizeAIBlueprintCommand(assistant.command), null, 2);
+        setCommandText(command);
+        setProviderStatus(`Proposed${response.model ? ` by ${response.model}` : ''} · reviewing`);
+        dryRunText(command);
+      } else {
+        setResult(undefined);
+        setPreviewBase(undefined);
+        setDryRunToken(undefined);
+        setProviderStatus(`Answered${response.model ? ` by ${response.model}` : ''}`);
+      }
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : String(error));
       setProviderStatus(undefined);
     } finally {
       if (requestIdRef.current === requestId) requestIdRef.current = undefined;
+      setPendingUserMessage(undefined);
       setGenerating(false);
     }
   };
@@ -483,8 +594,31 @@ export function AICommands() {
     <div className={styles.root}>
       <section className={styles.requestPane}>
         <div className={styles.requestHeader}>
-          <strong>Ask AI to edit the Blueprint</strong>
-          <button type="button" onClick={() => setShowProviderSettings((visible) => !visible)}>
+          <div className={styles.assistantTitle}>
+            <strong>Story Assistant</strong>
+            <span>
+              {semanticSnapshot.story.displayName} · {semanticSnapshot.revision}
+            </span>
+          </div>
+          {conversation.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setConversation([]);
+                setConversationHistory([]);
+                setLastUserRequest('');
+                setModelReasoning(undefined);
+              }}
+              disabled={generating}
+            >
+              New Chat
+            </button>
+          )}
+          <button
+            type="button"
+            className={styles.providerButton}
+            onClick={() => setShowProviderSettings((visible) => !visible)}
+          >
             {showProviderSettings ? 'Hide Provider' : 'Provider Settings'}
           </button>
         </div>
@@ -540,6 +674,38 @@ export function AICommands() {
                 <option value="json-object">JSON Object (compatible)</option>
               </select>
             </label>
+            <label>
+              <span>Thinking</span>
+              <select
+                value={providerDraft.thinkingMode}
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    thinkingMode: event.target.value as AIThinkingMode,
+                  })
+                }
+              >
+                <option value="auto">Auto</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+            <label>
+              <span>Reasoning effort · when enabled</span>
+              <select
+                value={providerDraft.reasoningEffort}
+                disabled={providerDraft.thinkingMode !== 'enabled'}
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    reasoningEffort: event.target.value as AIReasoningEffort,
+                  })
+                }
+              >
+                <option value="high">High</option>
+                <option value="max">Max</option>
+              </select>
+            </label>
             <label className={styles.apiKeyField}>
               <span>
                 API Key {providerSettings?.hasApiKey ? '· securely saved' : '· optional locally'}
@@ -567,176 +733,295 @@ export function AICommands() {
             </div>
           </div>
         )}
-        <textarea
-          className={styles.instruction}
-          value={instruction}
-          disabled={generating}
-          onChange={(event) => setInstruction(event.target.value)}
-          placeholder="Describe the change, for example: Add two lines after the selected Choice, spoken by Alice, then reconnect to the existing ending."
-        />
-        <div className={styles.requestControls}>
-          <label>
-            <span>Context</span>
-            <select
-              value={contextScope}
-              disabled={generating}
-              onChange={(event) => setContextScope(event.target.value as AIContextScope)}
-            >
-              <option value="selection">Selection ({selectedNodeIds.length})</option>
-              <option value="graph">Current Graph</option>
-              <option value="story">Whole Story</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className={styles.primaryButton}
-            disabled={generating || !providerSettings?.model}
-            onClick={() => void generate()}
-          >
-            {generating ? 'Generating…' : 'Generate & Dry Run'}
-          </button>
+        <div className={styles.conversation} ref={conversationRef}>
+          <div className={styles.contextBar}>
+            <span>Latest context</span>
+            <strong>
+              {contextScope === 'story'
+                ? 'Whole Story'
+                : contextScope === 'graph'
+                  ? 'Current Graph'
+                  : `${selectedNodeIds.length} selected`}
+            </strong>
+          </div>
+          {conversation.length === 0 ? (
+            <div className={styles.welcomeMessage}>
+              <strong>What would you like to work on?</strong>
+              <span>
+                Ask about the current story, explore an idea, or request a Blueprint change. I will
+                inspect the latest story state before answering.
+              </span>
+            </div>
+          ) : (
+            conversation.map((message, index) => (
+              <div className={styles.chatMessage} data-role={message.role} key={index}>
+                <strong>{message.role === 'user' ? 'You' : 'AI'}</strong>
+                <span>{message.content}</span>
+              </div>
+            ))
+          )}
+          {pendingUserMessage && (
+            <div className={styles.chatMessage} data-role="user">
+              <strong>You</strong>
+              <span>{pendingUserMessage}</span>
+            </div>
+          )}
           {generating && (
+            <div className={styles.activityMessage}>
+              <span className={styles.activitySpinner} aria-hidden="true" />
+              <div>
+                <strong>Working on your request</strong>
+                <span>
+                  Reading the latest{' '}
+                  {contextScope === 'story'
+                    ? 'Story'
+                    : contextScope === 'graph'
+                      ? 'Graph'
+                      : 'selection'}{' '}
+                  and checking the Blueprint contract…
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className={styles.composer}>
+          <textarea
+            className={styles.instruction}
+            value={instruction}
+            disabled={generating}
+            onChange={(event) => setInstruction(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter' &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing &&
+                !generating
+              ) {
+                event.preventDefault();
+                void generate();
+              }
+            }}
+            placeholder="Ask about the story, discuss an idea, or request a change…"
+          />
+          <div className={styles.requestControls}>
+            <label>
+              <span>Context</span>
+              <select
+                value={contextScope}
+                disabled={generating}
+                onChange={(event) => setContextScope(event.target.value as AIContextScope)}
+              >
+                <option value="selection">Selection ({selectedNodeIds.length})</option>
+                <option value="graph">Current Graph</option>
+                <option value="story">Whole Story</option>
+              </select>
+            </label>
+            <span className={styles.composerHint}>Enter to send · Shift+Enter for newline</span>
             <button
               type="button"
-              onClick={() => {
-                if (requestIdRef.current) {
-                  window.electronAPI?.cancelAICommand(requestIdRef.current);
-                  setProviderStatus('Canceling…');
-                }
-              }}
+              className={styles.primaryButton}
+              disabled={generating || !providerSettings?.model || !instruction.trim()}
+              onClick={() => void generate()}
             >
-              Cancel
+              {generating ? 'Thinking…' : 'Send'}
             </button>
-          )}
-          {!generating && diagnosticText(result) && (
-            <button type="button" onClick={() => void generate(true)}>
-              Retry with Diagnostics
-            </button>
-          )}
-          <span className={styles.providerStatus}>
-            {providerStatus ??
-              (!providerSettings?.model ? 'Configure a provider and model to generate' : '')}
-          </span>
-        </div>
-      </section>
-
-      <header className={styles.toolbar}>
-        <CopyButton text={contextText} label="Copy AI Context" />
-        <CopyButton text={schemaText} label="Copy Schema" />
-        <CopyButton text={snapshotText} label="Copy Snapshot" />
-        <button
-          type="button"
-          onClick={() => {
-            setCommandText(commandTemplate(semanticSnapshot.revision));
-            setResult(undefined);
-            setPreviewBase(undefined);
-            setDryRunToken(undefined);
-            setLocalError(undefined);
-          }}
-        >
-          New Template
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setClipboardError(undefined);
-            void readClipboard()
-              .then((text) => {
-                setCommandText(text);
-                setResult(undefined);
-                setPreviewBase(undefined);
-                setDryRunToken(undefined);
-                setLocalError(undefined);
-              })
-              .catch((error) =>
-                setClipboardError(error instanceof Error ? error.message : String(error)),
-              );
-          }}
-        >
-          Paste Command
-        </button>
-        <span className={styles.revision}>{semanticSnapshot.revision}</span>
-      </header>
-
-      <div className={styles.editors}>
-        <label className={styles.editorPane}>
-          <span>Semantic Snapshot · read only</span>
-          <textarea readOnly spellCheck={false} value={snapshotText} />
-        </label>
-        <label className={styles.editorPane}>
-          <span>Blueprint Command JSON</span>
-          <textarea
-            spellCheck={false}
-            value={commandText}
-            onChange={(event) => {
-              setCommandText(event.target.value);
-              setResult(undefined);
-              setPreviewBase(undefined);
-              setDryRunToken(undefined);
-              setLocalError(undefined);
-            }}
-          />
-        </label>
-      </div>
-
-      <section className={styles.resultPane}>
-        <div className={styles.actionRow}>
-          <button type="button" className={styles.primaryButton} onClick={dryRun}>
-            Dry Run
-          </button>
-          <button
-            type="button"
-            className={styles.applyButton}
-            disabled={!isDryRunCurrent}
-            onClick={apply}
-          >
-            Apply
-          </button>
-          <span
-            className={styles.resultStatus}
-            data-status={result?.ok ? 'ok' : result ? 'error' : 'idle'}
-          >
-            {result?.ok
-              ? result.committed
-                ? 'Applied · Undo available'
-                : isDryRunCurrent
-                  ? 'Dry Run passed'
-                  : 'Story changed · run Dry Run again'
-              : result
-                ? 'Rejected · no changes applied'
-                : 'Dry Run is required before Apply'}
-          </span>
-          {errors && <CopyButton text={errors} label="Copy Result" />}
-          {errors && <CopyButton text={retryContext} label="Copy Retry Context" />}
-        </div>
-
-        {diff && (
-          <div className={styles.diffGrid}>
-            {(
-              [
-                ['Added variables', diff.addedVariables, 'added'],
-                ['Changed variables', diff.changedVariables, 'changed'],
-                ['Removed variables', diff.removedVariables, 'removed'],
-                ['Added nodes', diff.addedNodes, 'added'],
-                ['Changed nodes', diff.changedNodes, 'changed'],
-                ['Removed nodes', diff.removedNodes, 'removed'],
-                ['Added connections', diff.addedConnections, 'added'],
-                ['Removed connections', diff.removedConnections, 'removed'],
-              ] as const
-            ).map(([label, items, tone]) => (
-              <div className={styles.diffGroup} data-tone={tone} key={label}>
-                <strong>
-                  {label} · {items.length}
-                </strong>
-                {items.map((item) => (
-                  <code key={item}>{item}</code>
-                ))}
-              </div>
-            ))}
+            {generating && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (requestIdRef.current) {
+                    window.electronAPI?.cancelAICommand(requestIdRef.current);
+                    setProviderStatus('Canceling…');
+                  }
+                }}
+              >
+                Cancel
+              </button>
+            )}
+            {!generating && diagnosticText(result) && (
+              <button type="button" onClick={() => void generate(true)}>
+                Ask AI to Fix
+              </button>
+            )}
+            <span className={styles.providerStatus}>
+              {providerStatus ??
+                (!providerSettings?.model ? 'Configure a provider and model to generate' : '')}
+            </span>
           </div>
-        )}
-        {errors && <pre className={styles.errors}>{errors}</pre>}
+        </div>
       </section>
+
+      {modelReasoning && (
+        <details className={styles.reasoningPane}>
+          <summary>
+            <span>Model reasoning · {modelReasoning.length.toLocaleString()} characters</span>
+            <CopyButton text={modelReasoning} label="Copy Reasoning" />
+          </summary>
+          <p>Provider-supplied reasoning for reference; Dry Run remains the source of truth.</p>
+          <pre>{modelReasoning}</pre>
+        </details>
+      )}
+
+      <section className={styles.technicalPane} data-expanded={showTechnicalDetails}>
+        <div className={styles.technicalSummary}>
+          <button type="button" onClick={() => setShowTechnicalDetails((visible) => !visible)}>
+            <span className={styles.disclosure}>{showTechnicalDetails ? '▾' : '▸'}</span>
+            Command details
+          </button>
+          <span>JSON, semantic context and external AI tools</span>
+          <code>{semanticSnapshot.revision}</code>
+        </div>
+        {showTechnicalDetails && (
+          <>
+            <header className={styles.toolbar}>
+              <CopyButton text={contextText} label="Copy AI Context" />
+              <CopyButton text={schemaText} label="Copy Schema" />
+              <CopyButton text={snapshotText} label="Copy Snapshot" />
+              <button
+                type="button"
+                onClick={() => {
+                  setCommandText(commandTemplate(semanticSnapshot.revision));
+                  setResult(undefined);
+                  setPreviewBase(undefined);
+                  setDryRunToken(undefined);
+                  setLocalError(undefined);
+                }}
+              >
+                New Template
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setClipboardError(undefined);
+                  void readClipboard()
+                    .then((text) => {
+                      setCommandText(text);
+                      setResult(undefined);
+                      setPreviewBase(undefined);
+                      setDryRunToken(undefined);
+                      setLocalError(undefined);
+                    })
+                    .catch((error) =>
+                      setClipboardError(error instanceof Error ? error.message : String(error)),
+                    );
+                }}
+              >
+                Paste Command
+              </button>
+            </header>
+
+            <div className={styles.editors}>
+              <label className={styles.editorPane}>
+                <span>Semantic Snapshot · read only</span>
+                <textarea readOnly spellCheck={false} value={snapshotText} />
+              </label>
+              <label className={styles.editorPane}>
+                <span>Blueprint Command JSON</span>
+                <textarea
+                  spellCheck={false}
+                  value={commandText}
+                  onChange={(event) => {
+                    setCommandText(event.target.value);
+                    setResult(undefined);
+                    setPreviewBase(undefined);
+                    setDryRunToken(undefined);
+                    setLocalError(undefined);
+                  }}
+                />
+              </label>
+            </div>
+          </>
+        )}
+      </section>
+
+      {(result || errors || showTechnicalDetails) && (
+        <section className={styles.resultPane}>
+          <div className={styles.actionRow}>
+            {result && <strong className={styles.proposalTitle}>Blueprint proposal</strong>}
+            {showTechnicalDetails && (
+              <button type="button" className={styles.primaryButton} onClick={dryRun}>
+                Dry Run
+              </button>
+            )}
+            {result?.ok && !result.committed && (
+              <button
+                type="button"
+                className={styles.applyButton}
+                disabled={!isDryRunCurrent}
+                onClick={apply}
+              >
+                Apply
+              </button>
+            )}
+            <span
+              className={styles.resultStatus}
+              data-status={result?.ok ? 'ok' : result ? 'error' : 'idle'}
+            >
+              {result?.ok
+                ? result.committed
+                  ? 'Applied · Undo available'
+                  : isDryRunCurrent
+                    ? 'Dry Run passed'
+                    : 'Story changed · run Dry Run again'
+                : result
+                  ? 'Rejected · no changes applied'
+                  : 'Edit or paste a command, then run Dry Run'}
+            </span>
+            {errors && <CopyButton text={errors} label="Copy Result" />}
+            {errors && <CopyButton text={retryContext} label="Copy Retry Context" />}
+          </div>
+
+          {diff && (
+            <div className={styles.diffSection}>
+              <button
+                type="button"
+                className={styles.diffSummary}
+                onClick={() => setShowDiffDetails((visible) => !visible)}
+              >
+                <span className={styles.disclosure}>{showDiffDetails ? '▾' : '▸'}</span>
+                Review changes · {diffChangeCount}
+                {diffCounts && diffCounts.added > 0 && (
+                  <span data-tone="added">+{diffCounts.added}</span>
+                )}
+                {diffCounts && diffCounts.changed > 0 && (
+                  <span data-tone="changed">~{diffCounts.changed}</span>
+                )}
+                {diffCounts && diffCounts.removed > 0 && (
+                  <span data-tone="removed">−{diffCounts.removed}</span>
+                )}
+              </button>
+              {showDiffDetails && (
+                <div className={styles.diffGrid}>
+                  {(
+                    [
+                      ['Added variables', diff.addedVariables, 'added'],
+                      ['Changed variables', diff.changedVariables, 'changed'],
+                      ['Removed variables', diff.removedVariables, 'removed'],
+                      ['Added nodes', diff.addedNodes, 'added'],
+                      ['Changed nodes', diff.changedNodes, 'changed'],
+                      ['Removed nodes', diff.removedNodes, 'removed'],
+                      ['Added connections', diff.addedConnections, 'added'],
+                      ['Removed connections', diff.removedConnections, 'removed'],
+                    ] as const
+                  )
+                    .filter(([, items]) => items.length > 0)
+                    .map(([label, items, tone]) => (
+                      <div className={styles.diffGroup} data-tone={tone} key={label}>
+                        <strong>
+                          {label} · {items.length}
+                        </strong>
+                        {items.map((item) => (
+                          <code key={item}>{item}</code>
+                        ))}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+          {errors && <pre className={styles.errors}>{errors}</pre>}
+        </section>
+      )}
     </div>
   );
 }

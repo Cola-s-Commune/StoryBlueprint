@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractAIResponseContent,
+  normalizeAIBlueprintCommand,
+  parseAIAssistantResponse,
   resolveAICompletionsUrl,
 } from '../packages/editor/src/shared/aiProvider';
 
@@ -38,10 +40,85 @@ describe('OpenAI-compatible provider helpers', () => {
     ).toBe('{"a":1}');
   });
 
+  it('extracts provider-supplied reasoning when present', () => {
+    expect(
+      extractAIResponseContent({
+        model: 'deepseek-v4-pro',
+        choices: [
+          {
+            message: {
+              reasoning_content: 'I should reconnect the existing successor.',
+              content: '{"operations":[]}',
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      content: '{"operations":[]}',
+      model: 'deepseek-v4-pro',
+      reasoning: 'I should reconnect the existing successor.',
+    });
+  });
+
   it('rejects empty provider responses', () => {
     expect(() => extractAIResponseContent({ choices: [] })).toThrow(/choices/);
     expect(() => extractAIResponseContent({ choices: [{ message: { content: '' } }] })).toThrow(
       /empty/,
     );
+  });
+
+  it('parses conversational replies with optional commands', () => {
+    expect(
+      parseAIAssistantResponse('{"reply":"The current branch has two endings.","command":null}'),
+    ).toEqual({ reply: 'The current branch has two endings.' });
+    expect(
+      parseAIAssistantResponse(
+        '{"reply":"I added a line.","command":{"format":"story-blueprint-commands","operations":[]}}',
+      ),
+    ).toEqual({
+      reply: 'I added a line.',
+      command: { format: 'story-blueprint-commands', operations: [] },
+    });
+  });
+
+  it('accepts legacy direct command responses as a fallback', () => {
+    expect(
+      parseAIAssistantResponse('{"format":"story-blueprint-commands","operations":[]}'),
+    ).toEqual({
+      reply: 'I prepared a Blueprint change for review.',
+      command: { format: 'story-blueprint-commands', operations: [] },
+    });
+  });
+
+  it('normalizes Source-shaped text in compact line and option commands', () => {
+    expect(
+      normalizeAIBlueprintCommand({
+        format: 'story-blueprint-commands',
+        operations: [
+          {
+            kind: 'add-dialogue-line',
+            line: { id: 'ln_one', textId: 't_one', text: { source: 'Rob the vault.' } },
+          },
+          { kind: 'update-dialogue-line', patch: { text: { source: 'Leave quietly.' } } },
+          { kind: 'add-choice-option', option: { id: 'o_one', text: { source: 'Run' } } },
+          { kind: 'update-choice-option', patch: { text: { source: 'Hide' } } },
+          {
+            kind: 'add-node',
+            node: {
+              type: 'dialogue',
+              data: { lines: [{ text: { source: 'This shape must remain.' } }] },
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      operations: [
+        { line: { text: 'Rob the vault.' } },
+        { patch: { text: 'Leave quietly.' } },
+        { option: { text: 'Run' } },
+        { patch: { text: 'Hide' } },
+        { node: { data: { lines: [{ text: { source: 'This shape must remain.' } }] } } },
+      ],
+    });
   });
 });

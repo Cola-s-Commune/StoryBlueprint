@@ -717,6 +717,9 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Transaction 内 Operation ID 去重
 - [ ] 跨请求 Operation ID 幂等记录
 - [x] 内置 OpenAI-compatible Provider、系统安全凭据、取消 / 诊断重试与生成后自动 Dry Run
+- [x] Provider 思考模式与会话级 reasoning 展示（默认折叠、可复制、不进入项目数据）
+- [x] 会话式 Story Assistant：理解最新 Story 状态、回答 / 追问、可选命令提案与会话隔离
+- [x] Codex 风格 chat-first 交互：底部 Composer、键盘发送、自动滚动、上下文与工作状态、提案审核卡片
 - [ ] 流式命令生成与更多 Provider Adapter
 
 ---

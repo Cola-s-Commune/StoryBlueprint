@@ -1,5 +1,10 @@
 const LOCAL_AI_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
+export interface AIAssistantResponse {
+  reply: string;
+  command?: unknown;
+}
+
 export function resolveAICompletionsUrl(endpoint: string): string {
   let url: URL;
   try {
@@ -17,13 +22,19 @@ export function resolveAICompletionsUrl(endpoint: string): string {
   return url.toString();
 }
 
-export function extractAIResponseContent(value: unknown): { content: string; model: string } {
+export function extractAIResponseContent(value: unknown): {
+  content: string;
+  model: string;
+  reasoning?: string;
+} {
   if (typeof value !== 'object' || value === null) throw new Error('AI response is not an object');
   const response = value as { model?: unknown; choices?: unknown };
   if (!Array.isArray(response.choices) || response.choices.length === 0) {
     throw new Error('AI response does not contain choices');
   }
-  const first = response.choices[0] as { message?: { content?: unknown } };
+  const first = response.choices[0] as {
+    message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown };
+  };
   const raw = first?.message?.content;
   const content =
     typeof raw === 'string'
@@ -36,5 +47,81 @@ export function extractAIResponseContent(value: unknown): { content: string; mod
             .join('')
         : '';
   if (!content.trim()) throw new Error('AI response content is empty');
-  return { content, model: typeof response.model === 'string' ? response.model : '' };
+  const rawReasoning = first?.message?.reasoning_content ?? first?.message?.reasoning;
+  const reasoning = typeof rawReasoning === 'string' ? rawReasoning.trim() : '';
+  return {
+    content,
+    model: typeof response.model === 'string' ? response.model : '',
+    ...(reasoning ? { reasoning } : {}),
+  };
+}
+
+export function parseAIAssistantResponse(content: string): AIAssistantResponse {
+  let value: unknown;
+  try {
+    value = JSON.parse(content) as unknown;
+  } catch {
+    throw new Error('AI response is not valid JSON');
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('AI response must be an object');
+  }
+  const object = value as Record<string, unknown>;
+  if (object.format === 'story-blueprint-commands') {
+    return { reply: 'I prepared a Blueprint change for review.', command: value };
+  }
+  if (typeof object.reply !== 'string' || !object.reply.trim()) {
+    throw new Error('AI response does not contain a user-facing reply');
+  }
+  const command = object.command;
+  if (command !== undefined && command !== null && typeof command !== 'object') {
+    throw new Error('AI response command must be an object or null');
+  }
+  return {
+    reply: object.reply.trim(),
+    ...(command !== undefined && command !== null ? { command } : {}),
+  };
+}
+
+function sourceString(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const source = (value as Record<string, unknown>).source;
+  return typeof source === 'string' ? source : undefined;
+}
+
+/** Repairs the common AI mix-up between Source node data and compact command text fields. */
+export function normalizeAIBlueprintCommand(command: unknown): unknown {
+  if (typeof command !== 'object' || command === null || Array.isArray(command)) return command;
+  const normalized = structuredClone(command) as Record<string, unknown>;
+  if (!Array.isArray(normalized.operations)) return normalized;
+  for (const value of normalized.operations) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+    const operation = value as Record<string, unknown>;
+    if (operation.kind === 'add-dialogue-line') {
+      const line = operation.line;
+      if (typeof line === 'object' && line !== null && !Array.isArray(line)) {
+        const text = sourceString((line as Record<string, unknown>).text);
+        if (text !== undefined) (line as Record<string, unknown>).text = text;
+      }
+    } else if (operation.kind === 'update-dialogue-line') {
+      const patch = operation.patch;
+      if (typeof patch === 'object' && patch !== null && !Array.isArray(patch)) {
+        const text = sourceString((patch as Record<string, unknown>).text);
+        if (text !== undefined) (patch as Record<string, unknown>).text = text;
+      }
+    } else if (operation.kind === 'add-choice-option') {
+      const option = operation.option;
+      if (typeof option === 'object' && option !== null && !Array.isArray(option)) {
+        const text = sourceString((option as Record<string, unknown>).text);
+        if (text !== undefined) (option as Record<string, unknown>).text = text;
+      }
+    } else if (operation.kind === 'update-choice-option') {
+      const patch = operation.patch;
+      if (typeof patch === 'object' && patch !== null && !Array.isArray(patch)) {
+        const text = sourceString((patch as Record<string, unknown>).text);
+        if (text !== undefined) (patch as Record<string, unknown>).text = text;
+      }
+    }
+  }
+  return normalized;
 }

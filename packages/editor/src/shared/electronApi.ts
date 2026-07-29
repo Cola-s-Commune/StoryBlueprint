@@ -105,6 +105,8 @@ export interface UpdateProjectSettingsRequest {
 }
 
 export type AIStructuredOutputMode = 'json-schema' | 'json-object';
+export type AIThinkingMode = 'auto' | 'enabled' | 'disabled';
+export type AIReasoningEffort = 'high' | 'max';
 
 export interface AIProviderSettings {
   provider: 'openai-compatible';
@@ -112,6 +114,8 @@ export interface AIProviderSettings {
   model: string;
   timeoutMs: number;
   structuredOutput: AIStructuredOutputMode;
+  thinkingMode: AIThinkingMode;
+  reasoningEffort: AIReasoningEffort;
   hasApiKey: boolean;
 }
 
@@ -120,6 +124,8 @@ export interface UpdateAIProviderSettingsRequest {
   model: string;
   timeoutMs: number;
   structuredOutput: AIStructuredOutputMode;
+  thinkingMode: AIThinkingMode;
+  reasoningEffort: AIReasoningEffort;
   /** Omitted keeps the existing key; an empty string removes it. */
   apiKey?: string;
 }
@@ -129,11 +135,19 @@ export interface GenerateAICommandRequest {
   instruction: string;
   context: string;
   schema: unknown;
+  history?: readonly AIConversationMessage[];
+}
+
+export interface AIConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 export interface GenerateAICommandResult {
   content: string;
   model: string;
+  /** Provider-supplied reasoning, kept only in the current renderer session. */
+  reasoning?: string;
 }
 
 export interface ElectronAPI {
