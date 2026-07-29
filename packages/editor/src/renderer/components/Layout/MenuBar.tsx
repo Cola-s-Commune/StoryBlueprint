@@ -28,6 +28,9 @@ type SubMenuItem =
         | 'copy-text'
         | 'undo'
         | 'redo'
+        | 'zoom-in'
+        | 'zoom-out'
+        | 'zoom-reset'
         | 'reset-layout';
       panelId?:
         | 'resources'
@@ -95,9 +98,9 @@ const menuItems: MenuItem[] = [
       { type: 'separator' },
       { type: 'item', label: 'Reset Layout', action: 'reset-layout' },
       { type: 'separator' },
-      { type: 'item', label: 'Zoom In', shortcut: 'Ctrl+=' },
-      { type: 'item', label: 'Zoom Out', shortcut: 'Ctrl+-' },
-      { type: 'item', label: 'Reset Zoom', shortcut: 'Ctrl+0' },
+      { type: 'item', label: 'Zoom In', shortcut: 'Ctrl++', action: 'zoom-in' },
+      { type: 'item', label: 'Zoom Out', shortcut: 'Ctrl+-', action: 'zoom-out' },
+      { type: 'item', label: 'Reset Zoom', shortcut: 'Ctrl+0', action: 'zoom-reset' },
     ],
   },
   {
@@ -223,6 +226,15 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         break;
       case 'redo':
         redo();
+        break;
+      case 'zoom-in':
+        void window.electronAPI?.setWindowZoom('in');
+        break;
+      case 'zoom-out':
+        void window.electronAPI?.setWindowZoom('out');
+        break;
+      case 'zoom-reset':
+        void window.electronAPI?.setWindowZoom('reset');
         break;
       case 'exit':
         window.close();

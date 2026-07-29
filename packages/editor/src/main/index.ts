@@ -76,6 +76,15 @@ const MAX_AI_INSTRUCTION_BYTES = 32 * 1024;
 const MAX_AI_HISTORY_BYTES = 512 * 1024;
 const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
 const aiRequests = new Map<string, AbortController>();
+type WindowZoomAction = 'in' | 'out' | 'reset';
+
+function nextWindowZoom(current: number, action: WindowZoomAction): number {
+  if (action === 'reset') return 1;
+  return Math.max(
+    0.5,
+    Math.min(2, Math.round((current + (action === 'in' ? 0.1 : -0.1)) * 10) / 10),
+  );
+}
 
 const defaultAIProviderSettings: Omit<AIProviderSettings, 'hasApiKey'> = {
   provider: 'openai-compatible',
@@ -799,6 +808,14 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('clipboard:read-text', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return clipboard.readText();
+  });
+  ipcMain.handle('app:set-window-zoom', async (event, action: unknown) => {
+    if (!isTrustedSender(event) || (action !== 'in' && action !== 'out' && action !== 'reset')) {
+      throw new Error('Invalid window zoom action');
+    }
+    const next = nextWindowZoom(event.sender.getZoomFactor(), action);
+    event.sender.setZoomFactor(next);
+    return next;
   });
 
   ipcMain.handle('ai:get-provider-settings', async (event) => {
@@ -1557,6 +1574,24 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const key = input.key.toLowerCase();
+    const action: WindowZoomAction | undefined =
+      key === '+' || key === '=' || key === 'add'
+        ? 'in'
+        : key === '-' || key === 'subtract'
+          ? 'out'
+          : key === '0'
+            ? 'reset'
+            : undefined;
+    if (!action || !mainWindow) return;
+    event.preventDefault();
+    mainWindow.webContents.setZoomFactor(
+      nextWindowZoom(mainWindow.webContents.getZoomFactor(), action),
+    );
   });
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

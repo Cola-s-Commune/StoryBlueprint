@@ -155,6 +155,7 @@ export interface ElectronAPI {
   isElectron: true;
   copyText: (text: string) => Promise<void>;
   readClipboardText: () => Promise<string>;
+  setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
   openStory: () => Promise<OpenStoryResult>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
   revealStory: (filePath: string, fileToken: string) => Promise<void>;

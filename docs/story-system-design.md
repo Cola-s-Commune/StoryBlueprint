@@ -165,6 +165,8 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - Pin 快捷操作与 UE Blueprint 对齐：Alt+左键点击 Pin 断开该 Pin 的全部连线；Ctrl+左键从已连接 Pin 拖到同方向兼容 Pin，原子转移全部连线。两者都进入 Undo 历史。
 - Alt+左键点击 Wire 只断开被点击的单条连线，与 Alt+点击 Pin 的“全部断开”语义明确区分。
 - Graph 左上提供可展开的快捷键说明，且根据当前 Blueprint / Standard 操作模式显示对应的框选和平移方式。
+- Shift+框选与已有节点选择取并集；多选外框不阻断 Blueprint 模式的右键平移，Ctrl+左键可穿透外框切换单个节点的选择状态，并同步更新相关内部连线。AI Apply 后的高亮保持为待确认状态，只有显式 Accept、Undo、切换 Story/Graph 或开始后续图编辑才结束，不由空白点击或计时器隐式确认。
+- 编辑器窗口支持 Ctrl++、Ctrl+-、Ctrl+0 全局缩放，快捷键由 Electron 窗口层处理，输入框和 Monaco 聚焦时同样有效；View 菜单提供等价操作。
 - Story Entry 不能有执行输入。
 - End Story 和 Return 不能有执行输出。
 - 允许显式循环和自循环，以支持重试、循环对话和任务流程。

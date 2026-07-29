@@ -46,6 +46,8 @@ npm run dev
 - AI Commands 升级为会话式 Story Assistant：每轮读取最新语义 Story 状态，可回答剧情问题或追问作者；回复携带可选 Blueprint Command，只有确实提议修改时才进入 Dry Run / Diff / Apply。
 - AI 命令适配器会自动把 Line / Option 专用操作中误用的 `{ source: text }` 规范化为纯字符串，同时保持 add-node 的 Source 数据形状不变，避免模型混淆两层文本协议。
 - Story Assistant 改为 Codex 风格的 chat-first 工作区：对话占据主体、Composer 固定在底部、Enter 发送、发送后立即展示请求与工作状态，并把 Blueprint 提案、验证和 Apply 作为独立审核卡片。
+- 修复画布组合交互：多选外框支持右键平移，Shift+框选追加节点；AI 变更保持待确认直至 Accept / Undo，不再定时消失；窗口级 Ctrl++ / Ctrl+- / Ctrl+0 与 View 菜单缩放正式生效。
+- 多选外框遮罩支持 Ctrl+左键穿透命中单个节点，在当前选择中切换移除 / 加回，并同步更新相关内部连线选择。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
 - Project Events / Signals 提供统一的人类可读 Project Interface Table，可横向查看完整接口并一键复制 Markdown 交付程序员；点击表格行可返回具体定义编辑。

@@ -164,7 +164,18 @@ export function StoryGraph() {
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
-  const rightDragRef = useRef<{ x: number; y: number; moved: boolean }>();
+  const rightDragRef = useRef<{
+    x: number;
+    y: number;
+    lastX: number;
+    lastY: number;
+    moved: boolean;
+    manualPan: boolean;
+  }>();
+  const additiveSelectionRef = useRef<{
+    nodeIds: ReadonlySet<string>;
+    edgeIds: ReadonlySet<string>;
+  }>();
   const connectionTransferRef = useRef<{
     origin: GraphPinReference;
     fixedPoints: readonly { x: number; y: number }[];
@@ -402,6 +413,53 @@ export function StoryGraph() {
 
   const handleCanvasMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (event.button === 0 && event.ctrlKey && target?.closest('.react-flow__nodesselection')) {
+        const nodeElement = document
+          .elementsFromPoint(event.clientX, event.clientY)
+          .map((element) => element.closest<HTMLElement>('.react-flow__node[data-id]'))
+          .find((element): element is HTMLElement => Boolean(element));
+        const nodeId = nodeElement?.dataset.id;
+        const targetNode = nodes.find((node) => node.id === nodeId);
+        if (nodeId && targetNode) {
+          event.preventDefault();
+          event.stopPropagation();
+          const shouldSelect = !targetNode.selected;
+          const selectedNodeIds = new Set(
+            nodes
+              .filter((node) => (node.id === nodeId ? shouldSelect : node.selected))
+              .map((node) => node.id),
+          );
+          setNodes((current) =>
+            current.map((node) =>
+              node.id === nodeId ? { ...node, selected: shouldSelect } : node,
+            ),
+          );
+          setEdges((current) =>
+            current.map((edge) =>
+              edge.source === nodeId || edge.target === nodeId
+                ? {
+                    ...edge,
+                    selected:
+                      shouldSelect &&
+                      selectedNodeIds.has(edge.source) &&
+                      selectedNodeIds.has(edge.target),
+                  }
+                : edge,
+            ),
+          );
+          additiveSelectionRef.current = undefined;
+          return;
+        }
+      }
+      if (event.button === 0) {
+        additiveSelectionRef.current = event.shiftKey
+          ? {
+              nodeIds: new Set(nodes.filter((node) => node.selected).map((node) => node.id)),
+              edgeIds: new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id)),
+            }
+          : undefined;
+      }
       const pin = graphPinFromTarget(event.target);
       if (pin && event.button === 0 && event.altKey) {
         event.preventDefault();
@@ -454,11 +512,34 @@ export function StoryGraph() {
       }
 
       if (controlMode === 'blueprint' && event.button === 2) {
-        rightDragRef.current = { x: event.clientX, y: event.clientY, moved: false };
+        rightDragRef.current = {
+          x: event.clientX,
+          y: event.clientY,
+          lastX: event.clientX,
+          lastY: event.clientY,
+          moved: false,
+          manualPan: Boolean(target?.closest('.react-flow__nodesselection')),
+        };
       }
     },
-    [checkpoint, controlMode, edges, markDirty, setEdges],
+    [checkpoint, controlMode, edges, markDirty, nodes, setEdges, setNodes],
   );
+
+  const mergeAdditiveSelection = useCallback(() => {
+    const previous = additiveSelectionRef.current;
+    additiveSelectionRef.current = undefined;
+    if (!previous) return;
+    setNodes((current) =>
+      current.map((node) =>
+        previous.nodeIds.has(node.id) && !node.selected ? { ...node, selected: true } : node,
+      ),
+    );
+    setEdges((current) =>
+      current.map((edge) =>
+        previous.edgeIds.has(edge.id) && !edge.selected ? { ...edge, selected: true } : edge,
+      ),
+    );
+  }, [setEdges, setNodes]);
 
   const createNode = useCallback(
     (type: StoryNodeType) => {
@@ -667,12 +748,10 @@ export function StoryGraph() {
         maxZoom: 1.2,
       });
     });
-    const timer = window.setTimeout(clearAIChanges, 12_000);
     return () => {
       cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
     };
-  }, [aiChanges, clearAIChanges, flowInstance]);
+  }, [aiChanges, flowInstance]);
 
   const onNodeDragStart = useCallback(() => {
     dragSnapshot.current = structuredClone(graph);
@@ -826,6 +905,24 @@ export function StoryGraph() {
           if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 4) {
             drag.moved = true;
           }
+          if (drag.manualPan && flowInstance) {
+            event.preventDefault();
+            event.stopPropagation();
+            const viewport = flowInstance.getViewport();
+            void flowInstance.setViewport({
+              ...viewport,
+              x: viewport.x + event.clientX - drag.lastX,
+              y: viewport.y + event.clientY - drag.lastY,
+            });
+          }
+          drag.lastX = event.clientX;
+          drag.lastY = event.clientY;
+        }}
+        onContextMenuCapture={(event) => {
+          const target = event.target instanceof Element ? event.target : undefined;
+          if (!target?.closest('.react-flow__nodesselection')) return;
+          event.stopPropagation();
+          openContextMenu(event);
         }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes(storyDataMime)) {
@@ -947,6 +1044,7 @@ export function StoryGraph() {
           onInit={setFlowInstance}
           onPaneClick={() => setContextMenu(null)}
           onPaneContextMenu={openContextMenu}
+          onSelectionEnd={mergeAdditiveSelection}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
@@ -960,7 +1058,7 @@ export function StoryGraph() {
           colorMode="dark"
           fitView
           deleteKeyCode={null}
-          multiSelectionKeyCode="Control"
+          multiSelectionKeyCode={['Shift', 'Control']}
           selectionKeyCode={controlMode === 'blueprint' ? null : 'Shift'}
           selectionOnDrag={controlMode === 'blueprint'}
           selectionMode={SelectionMode.Partial}
@@ -974,7 +1072,7 @@ export function StoryGraph() {
         {aiChanges && (
           <aside className={styles.aiChangeBanner}>
             <div>
-              <strong>AI changes applied</strong>
+              <strong>AI changes awaiting confirmation</strong>
               <span>
                 +{aiChanges.addedNodeIds.length} nodes · ~{aiChanges.changedNodeIds.length} nodes ·
                 −{aiChanges.removedNodeIds.length} nodes · ~{aiChanges.variableChangeCount}{' '}
@@ -1029,6 +1127,12 @@ export function StoryGraph() {
               <dd>Copy, paste, or duplicate selected nodes</dd>
               <dt>Ctrl + Z / Y</dt>
               <dd>Undo or redo</dd>
+              <dt>Shift + Left-drag</dt>
+              <dd>Add another marquee selection without clearing selected nodes</dd>
+              <dt>Ctrl + Left-click Selected Node</dt>
+              <dd>Toggle one node in or out of the current multi-selection</dd>
+              <dt>Right-drag Selection Frame</dt>
+              <dd>Pan the graph without losing the current selection</dd>
               <dt>
                 {controlMode === 'blueprint'
                   ? 'Left-drag / Right-drag'

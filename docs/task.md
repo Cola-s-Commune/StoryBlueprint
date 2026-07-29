@@ -120,6 +120,8 @@
 - [x] MiniMap
 - [x] Background Grid
 - [x] 画布可选择并记住 Blueprint / Standard 操作模式；Blueprint 左键框选、右键平移，Standard 左键平移、Shift+左键框选
+- [x] Shift+框选追加已有选择；多选外框上的右键拖动继续平移画布
+- [x] 多选外框内 Ctrl+左键切换单个节点及其相关内部连线选择
 
 ---
 
@@ -629,6 +631,7 @@
 - [x] Ctrl + Shift + S
 - [x] Ctrl + Z
 - [x] Ctrl + Shift + Z
+- [x] Ctrl + Plus / Minus / 0 全窗口缩放与 View 菜单操作
 - [x] Ctrl + C
 - [x] Ctrl + V
 - [x] Delete
@@ -711,6 +714,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Apply 后高亮并聚焦 AI 新增、修改节点
 - [x] AI 新增节点连接感知自动布局，不移动已有节点
 - [x] 画布 Accept / Undo AI Changes 快捷入口
+- [x] AI 变更确认不会因空白点击或超时自动消失
 - [x] 失败时返回 Operation ID / Index / Path 结构化 Diagnostics
 - [x] Copy Retry Context：携带错误、原响应、Schema、节点目录和最新 Snapshot
 - [ ] 删除与改型前引用检查
