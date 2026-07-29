@@ -782,9 +782,12 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
     source,
     activeGraphId,
     saveStory,
+    splitDialogueLines,
   } = useStoryGraphStore();
   const [draggedLineId, setDraggedLineId] = useState<DialogueLineId>();
   const [expandedLineIds, setExpandedLineIds] = useState<Set<DialogueLineId>>(() => new Set());
+  const [selectedLineIds, setSelectedLineIds] = useState<Set<DialogueLineId>>(() => new Set());
+  const [lineOperationError, setLineOperationError] = useState<string>();
   const [view, setView] = useState<'lines' | 'ink'>('lines');
   const [inkFocusLine, setInkFocusLine] = useState<number>();
   const inkUndoSnapshotRef = useRef<EditorGraphState>();
@@ -801,6 +804,8 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
   useEffect(() => {
     setView('lines');
     setExpandedLineIds(new Set());
+    setSelectedLineIds(new Set());
+    setLineOperationError(undefined);
     setInkFocusLine(undefined);
     inkUndoSnapshotRef.current = undefined;
     setInkDraft(canonicalInk);
@@ -829,6 +834,15 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
       else next.add(lineId);
       return next;
     });
+  };
+  const toggleLineSelection = (lineId: DialogueLineId) => {
+    setSelectedLineIds((current) => {
+      const next = new Set(current);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+    setLineOperationError(undefined);
   };
   const sourceWithDialogueLines = (lines: DialogueLine[]) => {
     const updateGraph = (graph: typeof source.root) => ({
@@ -917,30 +931,56 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
           </button>
         </div>
         {view === 'lines' && (
-          <button
-            type="button"
-            onClick={() => {
-              const lineId = createStableId('line');
-              const previous = data.lines.at(-1);
-              checkpoint();
-              updateLines([
-                ...data.lines,
-                {
-                  id: lineId,
-                  textId: createStableId('text'),
-                  text: { source: '' },
-                  speakerId: previous?.speakerId,
-                  voiceId: previous?.voiceId,
-                  emotion: previous?.emotion,
-                },
-              ]);
-              setExpandedLineIds((current) => new Set(current).add(lineId));
-            }}
-          >
-            Add Line
-          </button>
+          <div className={styles.groupHeaderActions}>
+            {selectedLineIds.size > 0 && (
+              <>
+                <button
+                  type="button"
+                  disabled={selectedLineIds.size === data.lines.length}
+                  title="Split the selected Lines into an ordered Dialogue chain"
+                  onClick={() => {
+                    const result = splitDialogueLines(nodeId, [...selectedLineIds]);
+                    if (!result.ok) {
+                      setLineOperationError(result.message);
+                      return;
+                    }
+                    setSelectedLineIds(new Set());
+                    setLineOperationError(undefined);
+                  }}
+                >
+                  Split · {selectedLineIds.size}
+                </button>
+                <button type="button" onClick={() => setSelectedLineIds(new Set())}>
+                  Clear
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const lineId = createStableId('line');
+                const previous = data.lines.at(-1);
+                checkpoint();
+                updateLines([
+                  ...data.lines,
+                  {
+                    id: lineId,
+                    textId: createStableId('text'),
+                    text: { source: '' },
+                    speakerId: previous?.speakerId,
+                    voiceId: previous?.voiceId,
+                    emotion: previous?.emotion,
+                  },
+                ]);
+                setExpandedLineIds((current) => new Set(current).add(lineId));
+              }}
+            >
+              Add Line
+            </button>
+          </div>
         )}
       </div>
+      {lineOperationError && <div className={styles.operationError}>{lineOperationError}</div>}
       {view === 'ink' ? (
         <Suspense fallback={<div className={styles.inkLoading}>Loading editor…</div>}>
           <DialogueInkEditor
@@ -982,6 +1022,13 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
               }}
             >
               <div className={styles.lineHeader}>
+                <label className={styles.lineSelection} title={`Select Line ${index + 1}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedLineIds.has(line.id)}
+                    onChange={() => toggleLineSelection(line.id)}
+                  />
+                </label>
                 <span
                   className={styles.dragHandle}
                   draggable
@@ -1205,11 +1252,50 @@ export function Inspector() {
     checkpoint,
     updateNode,
     updateNodeData,
+    mergeSelectedDialogues,
     storyDataSelection,
   } = useStoryGraphStore();
+  const [multiNodeError, setMultiNodeError] = useState<string>();
   const selected = nodes.filter((node) => node.selected);
+  const selectedNodeKey = selected.map((node) => node.id).join('|');
+  useEffect(() => setMultiNodeError(undefined), [selectedNodeKey]);
 
   if (selected.length !== 1) {
+    const canMergeDialogues =
+      selected.length > 1 && selected.every((node) => node.type === StoryNodeType.Dialogue);
+    if (canMergeDialogues) {
+      const lineCount = selected.reduce(
+        (total, node) => total + (node.data as DialogueNodeData).lines.length,
+        0,
+      );
+      return (
+        <div className={panelStyles.panel}>
+          <div className={`${panelStyles.body} ${styles.body}`}>
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}>Dialogue Selection</div>
+              <p className={styles.selectionSummary}>
+                {selected.length} connected Dialogue nodes · {lineCount} Lines
+              </p>
+              <button
+                type="button"
+                className={styles.primaryOperation}
+                onClick={() => {
+                  const result = mergeSelectedDialogues();
+                  setMultiNodeError(result.ok ? undefined : result.message);
+                }}
+              >
+                Merge Dialogues
+              </button>
+              <p className={styles.operationHint}>
+                Nodes must form one continuous execution chain. Line order and stable IDs are
+                preserved.
+              </p>
+              {multiNodeError && <div className={styles.operationError}>{multiNodeError}</div>}
+            </section>
+          </div>
+        </div>
+      );
+    }
     if (storyDataSelection) {
       return (
         <div className={panelStyles.panel}>

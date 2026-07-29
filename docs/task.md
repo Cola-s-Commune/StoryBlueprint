@@ -218,6 +218,7 @@
 - [x] Voice / Portrait 资源选择器与按语言覆盖
 - [x] 稳定 Text ID
 - [x] Dialogue 改为可排序的多 Line 连续对话段，每句使用稳定 Line ID / Text ID
+- [x] 连续 Dialogue 节点可合并；Inspector 可勾选 Line 并按原顺序拆成 Dialogue 链
 - [x] 删除 Dialogue 节点级 Speaker / Emotion / Voice，所有对话属性只属于 Line
 - [x] Line 支持 Speaker、Text Template、Emotion、Voice、Tags
 - [x] Inspector 支持新增、删除、复制和拖动排序 Line
@@ -713,6 +714,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Dry Run 显示字段级语义 Diff 与删除摘要
 - [x] Dry Run 后以独立 Proposal Graph 高亮并聚焦 AI 新增、修改节点
 - [x] AI 新增节点连接感知自动布局且可在暂存态移动，不移动已有节点
+- [x] 画布支持从左到右整理选中节点、整个 Graph 或 AI Proposal；正式布局进入 Undo
 - [x] 画布与 AI 面板提供 Apply / Discard；Apply 时原子提交预览坐标
 - [x] 空白点击、移动预览节点或等待不会隐式 Apply
 - [x] 失败时返回 Operation ID / Index / Path 结构化 Diagnostics

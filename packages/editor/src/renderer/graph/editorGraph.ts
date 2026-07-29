@@ -2,11 +2,13 @@ import type { Edge, Node } from '@xyflow/react';
 import {
   createStableId,
   nodeRegistry,
+  resolveNodePorts,
   StoryNodeType,
   validateGraphConnection,
   type ChoiceNodeData,
   type ChapterId,
   type DialogueNodeData,
+  type DialogueLineId,
   type EdgeId,
   type FlowJumpNodeData,
   type NodeId,
@@ -42,6 +44,282 @@ export interface AIGraphChangeSet {
   addedNodeIds: NodeId[];
   changedNodeIds: NodeId[];
   removedNodeIds: NodeId[];
+}
+
+export type DialogueGraphEditResult =
+  { ok: true; graph: EditorGraphState; affectedNodeIds: NodeId[] } | { ok: false; message: string };
+
+const autoLayoutColumnGap = 300;
+const autoLayoutRowGap = 170;
+
+function isLayoutExecutionEdge(
+  edge: EditorGraphEdge,
+  nodesById: ReadonlyMap<NodeId, EditorGraphNode>,
+): boolean {
+  const source = nodesById.get(edge.source);
+  if (!source) return false;
+  return resolveNodePorts({ id: source.id, type: source.type, data: source.data }).ports.some(
+    (port) =>
+      port.id === edge.sourceHandle && port.direction === 'output' && port.kind === 'execution',
+  );
+}
+
+/** Arranges all or a selected subset of nodes from left to right without moving nodes outside it. */
+export function autoLayoutGraph(
+  graph: EditorGraphState,
+  nodeIds: readonly NodeId[] = graph.nodes.map((node) => node.id),
+): EditorGraphState {
+  const requested = new Set(nodeIds);
+  const affected = graph.nodes.filter((node) => requested.has(node.id));
+  if (affected.length < 2) return graph;
+
+  const affectedIds = new Set(affected.map((node) => node.id));
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+  const executionEdges = graph.edges.filter(
+    (edge) =>
+      affectedIds.has(edge.source) &&
+      affectedIds.has(edge.target) &&
+      isLayoutExecutionEdge(edge, nodesById),
+  );
+  const outgoing = new Map<NodeId, NodeId[]>();
+  const indegree = new Map<NodeId, number>(affected.map((node) => [node.id, 0]));
+  for (const edge of executionEdges) {
+    const targets = outgoing.get(edge.source) ?? [];
+    if (!targets.includes(edge.target)) targets.push(edge.target);
+    outgoing.set(edge.source, targets);
+    indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+  }
+
+  const originalOrder = [...affected].sort(
+    (left, right) =>
+      left.position.x - right.position.x ||
+      left.position.y - right.position.y ||
+      left.id.localeCompare(right.id),
+  );
+  const orderIndex = new Map(originalOrder.map((node, index) => [node.id, index] as const));
+  const sortIds = (ids: NodeId[]) =>
+    ids.sort((left, right) => (orderIndex.get(left) ?? 0) - (orderIndex.get(right) ?? 0));
+  for (const targets of outgoing.values()) sortIds(targets);
+
+  const layers = new Map<NodeId, number>();
+  const visited = new Set<NodeId>();
+  const roots = sortIds(
+    affected
+      .filter((node) => node.type === StoryNodeType.Start || (indegree.get(node.id) ?? 0) === 0)
+      .map((node) => node.id),
+  );
+  const visitFrom = (rootId: NodeId) => {
+    if (visited.has(rootId)) return;
+    const queue: Array<{ id: NodeId; layer: number }> = [{ id: rootId, layer: 0 }];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current.id)) continue;
+      visited.add(current.id);
+      layers.set(current.id, current.layer);
+      for (const targetId of outgoing.get(current.id) ?? []) {
+        if (!visited.has(targetId)) queue.push({ id: targetId, layer: current.layer + 1 });
+      }
+    }
+  };
+  for (const rootId of roots) visitFrom(rootId);
+  for (const node of originalOrder) visitFrom(node.id);
+
+  const byLayer = new Map<number, EditorGraphNode[]>();
+  for (const node of affected) {
+    const layer = layers.get(node.id) ?? 0;
+    const column = byLayer.get(layer) ?? [];
+    column.push(node);
+    byLayer.set(layer, column);
+  }
+  for (const column of byLayer.values()) {
+    column.sort(
+      (left, right) => left.position.y - right.position.y || left.id.localeCompare(right.id),
+    );
+  }
+
+  const originX = Math.round(Math.min(...affected.map((node) => node.position.x)));
+  const originY = Math.round(Math.min(...affected.map((node) => node.position.y)));
+  const positions = new Map<NodeId, { x: number; y: number }>();
+  for (const [layer, column] of [...byLayer.entries()].sort(([left], [right]) => left - right)) {
+    column.forEach((node, index) => {
+      positions.set(node.id, {
+        x: originX + layer * autoLayoutColumnGap,
+        y: originY + index * autoLayoutRowGap,
+      });
+    });
+  }
+
+  return {
+    nodes: graph.nodes.map((node) => {
+      const position = positions.get(node.id);
+      return position ? { ...node, position } : node;
+    }),
+    edges: graph.edges,
+  };
+}
+
+/** Merges a contiguous execution chain of Dialogue nodes into its first node. */
+export function mergeDialogueNodes(
+  graph: EditorGraphState,
+  nodeIds: readonly NodeId[],
+): DialogueGraphEditResult {
+  const selectedIds = new Set(nodeIds);
+  const selected = graph.nodes.filter((node) => selectedIds.has(node.id));
+  if (selected.length < 2) return { ok: false, message: 'Select at least two Dialogue nodes.' };
+  if (selected.some((node) => node.type !== StoryNodeType.Dialogue)) {
+    return { ok: false, message: 'Only Dialogue nodes can be merged.' };
+  }
+
+  const internal = graph.edges.filter(
+    (edge) =>
+      selectedIds.has(edge.source) &&
+      selectedIds.has(edge.target) &&
+      edge.sourceHandle === 'out' &&
+      edge.targetHandle === 'in',
+  );
+  const predecessorCount = new Map<NodeId, number>();
+  const successor = new Map<NodeId, NodeId>();
+  for (const edge of internal) {
+    if (successor.has(edge.source)) {
+      return { ok: false, message: 'Selected Dialogues must form one unbranched chain.' };
+    }
+    successor.set(edge.source, edge.target);
+    predecessorCount.set(edge.target, (predecessorCount.get(edge.target) ?? 0) + 1);
+  }
+  const heads = selected.filter((node) => !predecessorCount.has(node.id));
+  if (heads.length !== 1 || internal.length !== selected.length - 1) {
+    return { ok: false, message: 'Selected Dialogues must form one continuous chain.' };
+  }
+  if ([...predecessorCount.values()].some((count) => count !== 1)) {
+    return { ok: false, message: 'Selected Dialogues must not merge through multiple paths.' };
+  }
+
+  const ordered: EditorGraphNode[] = [];
+  const selectedById = new Map(selected.map((node) => [node.id, node] as const));
+  let current: EditorGraphNode | undefined = heads[0];
+  while (current && !ordered.some((node) => node.id === current!.id)) {
+    ordered.push(current);
+    current = successor.get(current.id) ? selectedById.get(successor.get(current.id)!) : undefined;
+  }
+  if (ordered.length !== selected.length) {
+    return { ok: false, message: 'Selected Dialogues contain a cycle or disconnected section.' };
+  }
+
+  const head = ordered[0];
+  const tail = ordered.at(-1)!;
+  const invalidBoundary = graph.edges.some(
+    (edge) =>
+      (!selectedIds.has(edge.source) && selectedIds.has(edge.target) && edge.target !== head.id) ||
+      (selectedIds.has(edge.source) && !selectedIds.has(edge.target) && edge.source !== tail.id),
+  );
+  if (invalidBoundary) {
+    return {
+      ok: false,
+      message: 'The selected chain has an external connection in its middle and cannot be merged.',
+    };
+  }
+
+  const removedIds = new Set(ordered.slice(1).map((node) => node.id));
+  const mergedLines = ordered.flatMap((node) =>
+    structuredClone((node.data as DialogueNodeData).lines),
+  );
+  return {
+    ok: true,
+    affectedNodeIds: [head.id],
+    graph: {
+      nodes: graph.nodes
+        .filter((node) => !removedIds.has(node.id))
+        .map((node) =>
+          node.id === head.id
+            ? { ...node, data: { ...node.data, lines: mergedLines }, selected: true }
+            : { ...node, selected: false },
+        ),
+      edges: graph.edges
+        .filter((edge) => !(selectedIds.has(edge.source) && selectedIds.has(edge.target)))
+        .map((edge) =>
+          edge.source === tail.id && !selectedIds.has(edge.target)
+            ? { ...edge, source: head.id }
+            : edge,
+        ),
+    },
+  };
+}
+
+/** Splits a Dialogue into ordered nodes at every selected/unselected line boundary. */
+export function splitDialogueLines(
+  graph: EditorGraphState,
+  nodeId: NodeId,
+  lineIds: readonly DialogueLineId[],
+  createNodeId: () => NodeId = () => createStableId('node'),
+  createEdgeId: () => EdgeId = () => createStableId('edge'),
+): DialogueGraphEditResult {
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node || node.type !== StoryNodeType.Dialogue) {
+    return { ok: false, message: 'Select one Dialogue node to split.' };
+  }
+  const data = node.data as DialogueNodeData;
+  const selectedIds = new Set(lineIds);
+  const selectedCount = data.lines.filter((line) => selectedIds.has(line.id)).length;
+  if (selectedCount === 0) return { ok: false, message: 'Select at least one Line to split.' };
+  if (selectedCount === data.lines.length) {
+    return { ok: false, message: 'Leave at least one Line outside the selection.' };
+  }
+
+  const segments: Array<{ selected: boolean; lines: DialogueNodeData['lines'] }> = [];
+  for (const line of data.lines) {
+    const isSelected = selectedIds.has(line.id);
+    const previous = segments.at(-1);
+    if (!previous || previous.selected !== isSelected) {
+      segments.push({ selected: isSelected, lines: [structuredClone(line)] });
+    } else {
+      previous.lines.push(structuredClone(line));
+    }
+  }
+  if (segments.length < 2) return { ok: false, message: 'The selected Lines cannot be split.' };
+
+  const segmentNodes = segments.map((segment, index): EditorGraphNode => {
+    if (index === 0) {
+      return {
+        ...node,
+        data: { ...node.data, lines: segment.lines },
+        selected: segment.selected,
+      };
+    }
+    return {
+      ...structuredClone(node),
+      id: createNodeId(),
+      name: undefined,
+      position: {
+        x: Math.round(node.position.x + index * autoLayoutColumnGap),
+        y: node.position.y,
+      },
+      data: { ...structuredClone(node.data), lines: segment.lines },
+      selected: segment.selected,
+    };
+  });
+  const lastNode = segmentNodes.at(-1)!;
+  const outgoing = graph.edges.map((edge) =>
+    edge.source === node.id ? { ...edge, source: lastNode.id } : edge,
+  );
+  const chainEdges: EditorGraphEdge[] = segmentNodes.slice(0, -1).map((segmentNode, index) => ({
+    id: createEdgeId(),
+    source: segmentNode.id,
+    sourceHandle: 'out',
+    target: segmentNodes[index + 1].id,
+    targetHandle: 'in',
+  }));
+  return {
+    ok: true,
+    affectedNodeIds: segmentNodes
+      .filter((_, index) => segments[index].selected)
+      .map((segmentNode) => segmentNode.id),
+    graph: {
+      nodes: graph.nodes.flatMap((candidate) =>
+        candidate.id === node.id ? segmentNodes : [{ ...candidate, selected: false }],
+      ),
+      edges: [...outgoing, ...chainEdges],
+    },
+  };
 }
 
 function semanticNodeValue(node: EditorGraphNode): string {

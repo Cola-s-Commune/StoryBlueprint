@@ -49,6 +49,7 @@ import {
   type SignalId,
   type SignalSource,
   type DialogueNodeData,
+  type DialogueLineId,
   type StoryNodeDataMap,
   type StoryId,
   type StorySourceDocument,
@@ -62,7 +63,9 @@ import {
   fromSourceGraph,
   applyAIProposalPositions,
   extractSelectionToSubstory as extractGraphSelection,
+  mergeDialogueNodes as mergeGraphDialogues,
   prepareAIGraphChanges,
+  splitDialogueLines as splitGraphDialogueLines,
   toEditorGraphNode,
   toSourceGraph,
   type EditorGraphEdge,
@@ -372,6 +375,11 @@ interface StoryGraphStoreValue {
   removeSubstory: (id: ChapterId) => string | undefined;
   extractSelectionToSubstory: () =>
     { ok: true; chapterId: ChapterId } | { ok: false; message: string };
+  mergeSelectedDialogues: () => { ok: true } | { ok: false; message: string };
+  splitDialogueLines: (
+    nodeId: NodeId,
+    lineIds: readonly DialogueLineId[],
+  ) => { ok: true } | { ok: false; message: string };
   addVariable: () => VariableId;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => void;
   removeVariable: (id: VariableId) => void;
@@ -801,7 +809,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         setAIChanges(undefined);
         setAIProposal({
           nonce: Date.now(),
-          graph: prepared.graph,
+          graph: {
+            nodes: prepared.graph.nodes.map((node) => ({ ...node, selected: false })),
+            edges: prepared.graph.edges.map((edge) => ({ ...edge, selected: false })),
+          },
           transaction: structuredClone(transactionValue),
           addedNodeIds: prepared.addedNodeIds,
           changedNodeIds: prepared.changedNodeIds,
@@ -982,6 +993,33 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     markDirty();
     return { ok: true, chapterId: id };
   }, [activeGraphId, checkpoint, graph, markDirty, nextSubstoryIdentity, restoreGraph]);
+
+  const mergeSelectedDialogues = useCallback((): { ok: true } | { ok: false; message: string } => {
+    const result = mergeGraphDialogues(
+      graph,
+      nodes.filter((node) => node.selected).map((node) => node.id),
+    );
+    if (!result.ok) return result;
+    checkpoint();
+    restoreGraph(result.graph);
+    markDirty();
+    return { ok: true };
+  }, [checkpoint, graph, markDirty, nodes, restoreGraph]);
+
+  const splitDialogueLines = useCallback(
+    (
+      nodeId: NodeId,
+      lineIds: readonly DialogueLineId[],
+    ): { ok: true } | { ok: false; message: string } => {
+      const result = splitGraphDialogueLines(graph, nodeId, lineIds);
+      if (!result.ok) return result;
+      checkpoint();
+      restoreGraph(result.graph);
+      markDirty();
+      return { ok: true };
+    },
+    [checkpoint, graph, markDirty, restoreGraph],
+  );
 
   const addVariable = useCallback((): VariableId => {
     const id = createStableId('variable');
@@ -2510,6 +2548,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateSubstory,
       removeSubstory,
       extractSelectionToSubstory,
+      mergeSelectedDialogues,
+      splitDialogueLines,
       addVariable,
       updateVariable,
       removeVariable,
@@ -2660,6 +2700,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       semanticSnapshot,
       executeBlueprintCommands,
       extractSelectionToSubstory,
+      mergeSelectedDialogues,
+      splitDialogueLines,
     ],
   );
 

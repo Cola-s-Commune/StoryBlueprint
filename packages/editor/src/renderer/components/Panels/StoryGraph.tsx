@@ -31,11 +31,13 @@ import {
   type GraphEdgeLike,
   type GraphNodeLike,
   type EdgeId,
+  type NodeId,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
 } from '@story-blueprint/common';
 import { nodeTypes } from '../Nodes';
 import {
+  autoLayoutGraph,
   createGraphClipboard,
   disconnectGraphPinConnections,
   moveGraphPinConnections,
@@ -819,6 +821,59 @@ export function StoryGraph() {
   const selectedCount = nodes.filter((node) => node.selected).length;
   const canvasNodes = aiProposal?.graph.nodes ?? nodes;
   const canvasEdges = aiProposal?.graph.edges ?? edges;
+  const arrangeGraph = useCallback(
+    (scope: 'selected' | 'all') => {
+      const targetIds: NodeId[] = aiProposal
+        ? [...aiProposal.addedNodeIds]
+        : scope === 'selected'
+          ? nodes.filter((node) => node.selected).map((node) => node.id)
+          : nodes.map((node) => node.id);
+      if (targetIds.length < 2) return;
+      const sourceGraph = aiProposal?.graph ?? graph;
+      const arranged = autoLayoutGraph(sourceGraph, targetIds);
+      const beforeById = new Map(
+        sourceGraph.nodes.map((node) => [node.id, node.position] as const),
+      );
+      const movedNodes = arranged.nodes.filter((node) => {
+        if (!targetIds.includes(node.id)) return false;
+        const before = beforeById.get(node.id);
+        return before?.x !== node.position.x || before.y !== node.position.y;
+      });
+      if (movedNodes.length === 0) return;
+      if (aiProposal) {
+        updateAIProposalNodes(
+          movedNodes.map((node) => ({
+            type: 'position' as const,
+            id: node.id,
+            position: node.position,
+            dragging: false,
+          })),
+        );
+      } else {
+        checkpoint();
+        restoreGraph(arranged);
+        markDirty();
+      }
+      requestAnimationFrame(() => {
+        void flowInstance?.fitView({
+          nodes: targetIds.map((id) => ({ id })),
+          padding: 0.35,
+          duration: 280,
+          maxZoom: 1.2,
+        });
+      });
+    },
+    [
+      aiProposal,
+      checkpoint,
+      flowInstance,
+      graph,
+      markDirty,
+      nodes,
+      restoreGraph,
+      updateAIProposalNodes,
+    ],
+  );
   const renderedNodes = useMemo<EditorGraphNode[]>(() => {
     const added = new Set(aiProposal?.addedNodeIds ?? aiChanges?.addedNodeIds ?? []);
     const changed = new Set(aiProposal?.changedNodeIds ?? aiChanges?.changedNodeIds ?? []);
@@ -1040,6 +1095,30 @@ export function StoryGraph() {
               <option value="standard">Standard</option>
             </select>
           </label>
+          <div className={styles.layoutActions}>
+            {!aiProposal && (
+              <button
+                type="button"
+                disabled={selectedCount < 2}
+                title="Arrange only the selected nodes from left to right"
+                onClick={() => arrangeGraph('selected')}
+              >
+                Layout Selected
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={aiProposal ? aiProposal.addedNodeIds.length < 2 : nodes.length < 2}
+              title={
+                aiProposal
+                  ? 'Arrange the AI-added preview nodes without applying them'
+                  : 'Arrange every node in the active story from left to right'
+              }
+              onClick={() => arrangeGraph('all')}
+            >
+              {aiProposal ? 'Layout Proposal' : 'Layout All'}
+            </button>
+          </div>
           <button
             type="button"
             className={styles.shortcutsButton}
@@ -1183,6 +1262,8 @@ export function StoryGraph() {
               <dd>Copy, paste, or duplicate selected nodes</dd>
               <dt>Ctrl + Z / Y</dt>
               <dd>Undo or redo</dd>
+              <dt>Layout Selected / All</dt>
+              <dd>Arrange nodes from left to right; the result can be undone</dd>
               <dt>Shift + Left-drag</dt>
               <dd>Add another marquee selection without clearing selected nodes</dd>
               <dt>Ctrl + Left-click Selected Node</dt>

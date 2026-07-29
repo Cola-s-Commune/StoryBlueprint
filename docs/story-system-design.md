@@ -190,6 +190,7 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - 支持节点和边的创建、删除、框选与多选。
 - 支持复制、粘贴、Duplicate。
 - 支持 Undo / Redo。
+- Graph 提供 Layout Selected 与 Layout All：只按执行连线从左到右分层，数据连线不改变叙事顺序；局部整理不得移动选区外节点。AI Proposal 状态下只整理新增预览节点，不隐式 Apply。
 - 支持 Reroute 和 Comment 整理大型蓝图。
 
 ### 4.5 长连线与循环整理
@@ -420,6 +421,11 @@ Line ID 和 Text ID。新增 Line 可复制上一句的 Speaker / Emotion / Voic
 立即写入新 Line，并非继承。Line 卡片默认折叠为说话人与台词摘要，按需展开完整属性；每条摘要可直接跳到
 Monaco 中一一对应的 Ink 物理行。画布只展示前三句及剩余总数，每句预览最多两行，完整内容在 Inspector 中编辑。
 v3 只接受 `line` 结构，旧单 `text` Dialogue 与节点级默认属性均明确拒绝。
+
+选中两个以上 Dialogue 节点时，只有它们构成无分支、无中段外部连线的连续执行链才允许合并；
+合并按执行顺序拼接 Line，并保留原有 Line ID / Text ID。单个 Dialogue 的 Lines 视图允许勾选
+若干 Line 拆分，编辑器按“选中 / 未选中”的连续区段生成 Dialogue 链，因此选择中间或不相邻的
+Line 也不会改变运行时播放顺序。合并和拆分都作为单个 Undo 事务。
 
 `emotion` 应引用最终说话人配置中的情绪 ID。立绘由 Runtime 根据说话人和情绪解析。
 

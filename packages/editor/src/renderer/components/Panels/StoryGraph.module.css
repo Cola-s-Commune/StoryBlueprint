@@ -422,6 +422,7 @@
 }
 
 .shortcutsButton,
+.layoutActions button,
 .shortcutsPanel button {
   border: 1px solid #46505c;
   border-radius: 3px;
@@ -437,7 +438,25 @@
   font-size: 9px;
 }
 
+.layoutActions {
+  display: flex;
+  align-self: end;
+  gap: 4px;
+}
+
+.layoutActions button {
+  padding: 3px 6px;
+  font-size: 9px;
+}
+
+.layoutActions button:disabled {
+  border-color: #3a424c;
+  color: #626c77;
+  cursor: default;
+}
+
 .shortcutsButton:hover,
+.layoutActions button:hover:not(:disabled),
 .shortcutsPanel button:hover {
   border-color: #6389ae;
   color: #f0f5fa;

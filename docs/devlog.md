@@ -22,6 +22,7 @@ npm run dev
 - Dialogue 支持可排序的多 Line 连续对话段；每句独立拥有稳定 Line ID / Text ID、Speaker、Emotion、Voice 和 Tags，节点不保存对话默认值。
 - Dialogue Inspector 增加本地打包的 Monaco `Lines / Ink` 双视图；结构化 Line 与 Dialogue Ink 子集双向同步，错误草稿不写回节点。
 - Dialogue Line 卡片默认折叠为说话人与台词摘要，可一键展开完整属性或跳转并选中对应 Ink 行；画布预览限制为前三句、每句两行。
+- 多选连续 Dialogue 节点可合并为一个连续段；Lines 视图可勾选若干 Line，并按原顺序拆成连续 Dialogue 链。两种操作保留 Line / Text ID、重写边界连线且可整体 Undo。
 - Monaco Ink 编辑器支持持久化字号缩放、`Ctrl++ / Ctrl+- / Ctrl+0` 与大高度编辑区。
 - Dialogue Ink 说话人改用 `Character: text` 剧本前缀，明确拒绝早期行尾 `# speaker` 试验格式。
 - `.story` 升级为不兼容 v3：Dialogue 删除所有节点级默认字段，Speaker / Emotion / Voice 完全归属各 Line，不提供迁移。
@@ -49,6 +50,7 @@ npm run dev
 - Story Assistant 会话按 Workspace + Story 持久化到编辑器本地用户数据，支持历史会话切换、New Chat 与可取消删除；保存可见对话及模型后续所需的命令信封，不保存 reasoning，也不写入项目资源。
 - 修复画布组合交互：多选外框支持右键平移，Shift+框选追加节点；AI 变更保持待确认直至 Accept / Undo，不再定时消失；窗口级 Ctrl++ / Ctrl+- / Ctrl+0 与 View 菜单缩放正式生效。
 - AI 节点确认改为真正的 Proposal Graph 暂存：Dry Run 后即可在画布移动新增节点，移动不改变 Story；Apply 才把命令与预览坐标作为单个 Undo 事务提交，Discard 无痕取消。
+- Graph 左上新增 Layout Selected / Layout All；按执行流从左到右分层，支持循环与独立分支，局部整理不移动选区外节点且可 Undo。AI 预览期间改为 Layout Proposal，只整理新增预览节点而不提前 Apply。
 - 多选外框遮罩支持 Ctrl+左键穿透命中单个节点，在当前选择中切换移除 / 加回，并同步更新相关内部连线选择。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
