@@ -49,8 +49,26 @@ export interface AIGraphChangeSet {
 export type DialogueGraphEditResult =
   { ok: true; graph: EditorGraphState; affectedNodeIds: NodeId[] } | { ok: false; message: string };
 
-const autoLayoutColumnGap = 300;
-const autoLayoutRowGap = 170;
+const autoLayoutColumnGap = 90;
+const autoLayoutRowGap = 56;
+const autoLayoutFallbackWidth = 220;
+const autoLayoutFallbackHeight = 120;
+const splitDialogueColumnOffset = 300;
+
+function layoutNodeWidth(node: EditorGraphNode): number {
+  return Math.ceil(node.measured?.width ?? node.width ?? autoLayoutFallbackWidth);
+}
+
+function layoutNodeHeight(node: EditorGraphNode): number {
+  if (node.measured?.height !== undefined || node.height !== undefined) {
+    return Math.ceil(node.measured?.height ?? node.height ?? autoLayoutFallbackHeight);
+  }
+  if (node.type === StoryNodeType.Dialogue) {
+    const lineCount = (node.data as DialogueNodeData).lines.length;
+    return 74 + Math.min(3, Math.max(1, lineCount)) * 54;
+  }
+  return autoLayoutFallbackHeight;
+}
 
 function isLayoutExecutionEdge(
   edge: EditorGraphEdge,
@@ -140,13 +158,18 @@ export function autoLayoutGraph(
   const originX = Math.round(Math.min(...affected.map((node) => node.position.x)));
   const originY = Math.round(Math.min(...affected.map((node) => node.position.y)));
   const positions = new Map<NodeId, { x: number; y: number }>();
-  for (const [layer, column] of [...byLayer.entries()].sort(([left], [right]) => left - right)) {
-    column.forEach((node, index) => {
+  let columnX = originX;
+  for (const [, column] of [...byLayer.entries()].sort(([left], [right]) => left - right)) {
+    let rowY = originY;
+    column.forEach((node) => {
       positions.set(node.id, {
-        x: originX + layer * autoLayoutColumnGap,
-        y: originY + index * autoLayoutRowGap,
+        x: columnX,
+        y: rowY,
       });
+      rowY += layoutNodeHeight(node) + autoLayoutRowGap;
     });
+    const columnWidth = Math.max(...column.map(layoutNodeWidth));
+    columnX += columnWidth + autoLayoutColumnGap;
   }
 
   return {
@@ -290,7 +313,7 @@ export function splitDialogueLines(
       id: createNodeId(),
       name: undefined,
       position: {
-        x: Math.round(node.position.x + index * autoLayoutColumnGap),
+        x: Math.round(node.position.x + index * splitDialogueColumnOffset),
         y: node.position.y,
       },
       data: { ...structuredClone(node.data), lines: segment.lines },

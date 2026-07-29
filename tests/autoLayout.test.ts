@@ -52,9 +52,35 @@ describe('automatic graph layout', () => {
     const result = autoLayoutGraph(graph);
     expect(result.nodes.map((candidate) => candidate.position)).toEqual([
       { x: 0, y: 0 },
-      { x: 300, y: 0 },
-      { x: 600, y: 0 },
+      { x: 310, y: 0 },
+      { x: 620, y: 0 },
     ]);
+  });
+
+  it('uses measured node sizes to prevent wide and tall nodes from overlapping', () => {
+    const start = {
+      ...node('n_start', StoryNodeType.Start, 0, 0, { title: 'Start' }),
+      measured: { width: 340, height: 100 },
+    };
+    const upper = {
+      ...node('n_upper', StoryNodeType.Dialogue, 0, 0, {
+        lines: [{ id: 'ln_upper', textId: 't_upper', text: { source: 'Upper' } }],
+      }),
+      measured: { width: 280, height: 260 },
+    };
+    const lower = {
+      ...node('n_lower', StoryNodeType.Dialogue, 0, 20, {
+        lines: [{ id: 'ln_lower', textId: 't_lower', text: { source: 'Lower' } }],
+      }),
+      measured: { width: 280, height: 360 },
+    };
+    const result = autoLayoutGraph({
+      nodes: [start, upper, lower],
+      edges: [edge('e_upper', 'n_start', 'n_upper'), edge('e_lower', 'n_start', 'n_lower')],
+    });
+    const positions = new Map(result.nodes.map((candidate) => [candidate.id, candidate.position]));
+    expect(positions.get('n_upper')!.x).toBeGreaterThanOrEqual(430);
+    expect(positions.get('n_lower')!.y - positions.get('n_upper')!.y).toBeGreaterThanOrEqual(316);
   });
 
   it('keeps nodes outside the selected layout untouched', () => {

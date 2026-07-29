@@ -190,7 +190,7 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - 支持节点和边的创建、删除、框选与多选。
 - 支持复制、粘贴、Duplicate。
 - 支持 Undo / Redo。
-- Graph 提供 Layout Selected 与 Layout All：只按执行连线从左到右分层，数据连线不改变叙事顺序；局部整理不得移动选区外节点。AI Proposal 状态下只整理新增预览节点，不隐式 Apply。
+- Graph 提供 Layout Selected 与 Layout All：只按执行连线从左到右分层，数据连线不改变叙事顺序；列间距取该列最大实测宽度，行间距逐个累加节点实测高度，长 Dialogue 不得重叠。局部整理不得移动选区外节点。AI Proposal 状态下只整理新增预览节点，不隐式 Apply。
 - 支持 Reroute 和 Comment 整理大型蓝图。
 
 ### 4.5 长连线与循环整理
