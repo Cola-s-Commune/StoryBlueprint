@@ -38,6 +38,7 @@ import {
   type StoryProjectDocument,
   type StorySourceDocument,
 } from '@story-blueprint/common';
+import { compileStory } from '@story-blueprint/compiler';
 import type {
   CreateWorkspaceProjectRequest,
   CreateWorkspaceStoryRequest,
@@ -47,6 +48,7 @@ import type {
   UpdateProjectSettingsRequest,
   AIChatSession,
   AIProviderSettings,
+  ApplyWorkspaceMergeFile,
   GenerateAICommandRequest,
   GenerateAICommandResult,
   RecentProject,
@@ -54,6 +56,7 @@ import type {
   WorkspaceEntry,
   WorkspaceInfo,
 } from '../shared/electronApi';
+import { readStoryGitConflict, readWorkspaceGitConflicts } from './storyGitConflict';
 import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
 
 let mainWindow: BrowserWindow | null = null;
@@ -487,11 +490,22 @@ async function scanWorkspaceDirectory(
 async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
   if (!workspaceRoot) return undefined;
   const entries = await scanWorkspaceDirectory(workspaceRoot, 0, { count: 0 });
+  const gitConflicts = await readWorkspaceGitConflicts(workspaceRoot);
+  const conflictByPath = new Map(gitConflicts.map((conflict) => [conflict.relativePath, conflict]));
   let project: StoryProjectDocument | undefined;
   let projectError: string | undefined;
   if (workspaceProjectFile) {
     try {
-      project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+      const relativePath = toWorkspaceRelative(workspaceProjectFile);
+      const diskContent = await readFile(workspaceProjectFile, 'utf8');
+      try {
+        project = parseStoryProject(diskContent);
+      } catch {
+        const conflict = conflictByPath.get(relativePath);
+        const fallback = conflict?.local ?? conflict?.remote ?? conflict?.base;
+        if (!fallback) throw new Error('Project file is invalid');
+        project = parseStoryProject(fallback);
+      }
     } catch (error) {
       projectError = error instanceof Error ? error.message : String(error);
     }
@@ -501,11 +515,19 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
   const resourceErrors: WorkspaceInfo['resourceErrors'] = [];
   for (const entry of collectEntries(entries, 'character')) {
     try {
+      const diskContent = await readFile(resolveWorkspacePath(entry.relativePath), 'utf8');
+      let character: CharacterSource;
+      try {
+        character = parseCharacterResource(diskContent);
+      } catch {
+        const conflict = conflictByPath.get(entry.relativePath);
+        const fallback = conflict?.local ?? conflict?.remote ?? conflict?.base;
+        if (!fallback) throw new Error('Character file is invalid');
+        character = parseCharacterResource(fallback);
+      }
       characterResources.push({
         relativePath: entry.relativePath,
-        character: parseCharacterResource(
-          await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'),
-        ),
+        character,
       });
     } catch (error) {
       resourceErrors.push({
@@ -516,9 +538,19 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
   }
   for (const entry of collectEntries(entries, 'asset')) {
     try {
+      const diskContent = await readFile(resolveWorkspacePath(entry.relativePath), 'utf8');
+      let asset: AssetSource;
+      try {
+        asset = parseAssetResource(diskContent);
+      } catch {
+        const conflict = conflictByPath.get(entry.relativePath);
+        const fallback = conflict?.local ?? conflict?.remote ?? conflict?.base;
+        if (!fallback) throw new Error('Asset file is invalid');
+        asset = parseAssetResource(fallback);
+      }
       assetResources.push({
         relativePath: entry.relativePath,
-        asset: parseAssetResource(await readFile(resolveWorkspacePath(entry.relativePath), 'utf8')),
+        asset,
       });
     } catch (error) {
       resourceErrors.push({
@@ -536,7 +568,224 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
     characterResources,
     assetResources,
     resourceErrors,
+    gitConflicts: gitConflicts.map(({ relativePath, kind }) => ({ relativePath, kind })),
   };
+}
+
+function parseWorkspaceMergeFile(file: ApplyWorkspaceMergeFile): unknown {
+  if (file.delete) return undefined;
+  if (typeof file.content !== 'string') throw new Error(`${file.relativePath} has no content`);
+  if (Buffer.byteLength(file.content, 'utf8') > MAX_STORY_BYTES) {
+    throw new Error(`${file.relativePath} is too large`);
+  }
+  if (file.kind === 'project') return parseStoryProject(file.content);
+  if (file.kind === 'character') return parseCharacterResource(file.content);
+  return parseAssetResource(file.content);
+}
+
+async function applyWorkspaceMerge(files: ApplyWorkspaceMergeFile[]): Promise<WorkspaceInfo> {
+  if (!workspaceRoot || !workspaceProjectFile) throw new Error('Open a Story project first');
+  const conflicts = await readWorkspaceGitConflicts(workspaceRoot);
+  const expected = new Map(conflicts.map((conflict) => [conflict.relativePath, conflict.kind]));
+  if (files.length !== expected.size) {
+    throw new Error('The Git conflict set changed. Reload Project Conflicts before applying.');
+  }
+  const parsed = new Map<string, unknown>();
+  const seen = new Set<string>();
+  for (const file of files) {
+    if (
+      seen.has(file.relativePath) ||
+      expected.get(file.relativePath) !== file.kind ||
+      !['project', 'character', 'asset'].includes(file.kind) ||
+      (file.delete === true) === (typeof file.content === 'string')
+    ) {
+      throw new Error('The Git conflict set changed. Reload Project Conflicts before applying.');
+    }
+    seen.add(file.relativePath);
+    parsed.set(file.relativePath, parseWorkspaceMergeFile(file));
+  }
+
+  const projectPath = toWorkspaceRelative(workspaceProjectFile);
+  const currentWorkspace = (await readWorkspace())!;
+  const projectResolution = files.find((file) => file.relativePath === projectPath);
+  const project = projectResolution
+    ? (parsed.get(projectPath) as StoryProjectDocument | undefined)
+    : currentWorkspace.project;
+  const characters = new Map(
+    currentWorkspace.characterResources.map(({ relativePath, character }) => [
+      relativePath,
+      character,
+    ]),
+  );
+  const assets = new Map(
+    currentWorkspace.assetResources.map(({ relativePath, asset }) => [relativePath, asset]),
+  );
+  for (const file of files) {
+    const value = parsed.get(file.relativePath);
+    if (file.kind === 'character') {
+      if (value) characters.set(file.relativePath, value as CharacterSource);
+      else characters.delete(file.relativePath);
+    }
+    if (file.kind === 'asset') {
+      if (value) assets.set(file.relativePath, value as AssetSource);
+      else assets.delete(file.relativePath);
+    }
+  }
+  if (project) {
+    const characterIds = new Set<string>();
+    const characterNames = new Set<string>();
+    for (const [relativePath, character] of characters) {
+      if (characterIds.has(character.id) || characterNames.has(character.name)) {
+        throw new Error(`Duplicate merged Character ID or name: ${character.displayName}`);
+      }
+      characterIds.add(character.id);
+      characterNames.add(character.name);
+      const reference = project.characters.find((candidate) => candidate.path === relativePath);
+      if (
+        !reference ||
+        reference.id !== character.id ||
+        reference.name !== character.name ||
+        reference.displayName !== character.displayName
+      ) {
+        throw new Error(`Project index does not match merged Character ${relativePath}`);
+      }
+    }
+    for (const reference of project.characters) {
+      if (reference.path && !characters.has(reference.path)) {
+        throw new Error(`Project references missing Character file ${reference.path}`);
+      }
+    }
+    const assetIds = new Set<string>();
+    const assetNames = new Set<string>();
+    for (const [relativePath, asset] of assets) {
+      if (assetIds.has(asset.id) || assetNames.has(asset.name)) {
+        throw new Error(`Duplicate merged Asset ID or name: ${asset.displayName}`);
+      }
+      assetIds.add(asset.id);
+      assetNames.add(asset.name);
+      const reference = project.assets.find((candidate) => candidate.path === relativePath);
+      if (
+        !reference ||
+        reference.id !== asset.id ||
+        reference.name !== asset.name ||
+        reference.displayName !== asset.displayName ||
+        reference.kind !== asset.kind ||
+        stableLocaleMap(reference.locales) !== stableLocaleMap(asset.locales ?? {})
+      ) {
+        throw new Error(`Project index does not match merged Asset ${relativePath}`);
+      }
+    }
+    for (const reference of project.assets) {
+      if (reference.path && !assets.has(reference.path)) {
+        throw new Error(`Project references missing Asset file ${reference.path}`);
+      }
+    }
+    for (const character of characters.values()) {
+      const portraitIds = [
+        character.defaultPortraitId,
+        ...Object.values(character.emotions).map((emotion) => emotion.portraitId),
+      ].filter(Boolean);
+      for (const portraitId of portraitIds) {
+        if (
+          ![...assets.values()].some(
+            (asset) => asset.id === portraitId && asset.kind === 'portrait',
+          )
+        ) {
+          throw new Error(
+            `Character ${character.displayName} references invalid portrait ${portraitId}`,
+          );
+        }
+      }
+    }
+    for (const storyReference of project.stories) {
+      const storyPath = await resolveExistingWorkspacePath(storyReference.path);
+      let story: StorySourceDocument;
+      const diskContent = await readFile(storyPath, 'utf8');
+      try {
+        story = parseStorySource(diskContent);
+      } catch {
+        const conflict = await readStoryGitConflict(storyPath);
+        if (!conflict) throw new Error(`Story is invalid: ${storyReference.path}`);
+        story = parseStorySource(conflict.local);
+      }
+      if (story.id !== storyReference.id) {
+        throw new Error(`Story ID does not match project index: ${storyReference.path}`);
+      }
+      const mergedCharacters = [...characters.values()];
+      const mergedAssets = [...assets.values()];
+      const externalCharacterIds = new Set(mergedCharacters.map((character) => character.id));
+      const externalAssetIds = new Set(mergedAssets.map((asset) => asset.id));
+      const compiled = compileStory({
+        ...story,
+        characters: [
+          ...mergedCharacters,
+          ...story.characters.filter((character) => !externalCharacterIds.has(character.id)),
+        ],
+        assets: [
+          ...mergedAssets,
+          ...story.assets.filter((asset) => !externalAssetIds.has(asset.id)),
+        ],
+        events: project.events,
+        signals: project.signals,
+      });
+      const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
+      if (errors.length > 0) {
+        throw new Error(
+          `${storyReference.path}: ${errors.map((diagnostic) => diagnostic.message).join('\n')}`,
+        );
+      }
+    }
+  }
+
+  const originals = new Map<string, string | undefined>();
+  const written: string[] = [];
+  try {
+    for (const file of files) {
+      const filePath = resolveWorkspacePath(file.relativePath);
+      try {
+        originals.set(filePath, await readFile(filePath, 'utf8'));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        originals.set(filePath, undefined);
+      }
+      if (file.delete) {
+        try {
+          await unlink(filePath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+        written.push(filePath);
+        continue;
+      }
+      const value = parsed.get(file.relativePath)!;
+      const content =
+        file.kind === 'project'
+          ? serializeStoryProject(value as StoryProjectDocument)
+          : file.kind === 'character'
+            ? serializeCharacterResource(value as CharacterSource)
+            : serializeAssetResource(value as AssetSource);
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content, 'utf8');
+      written.push(filePath);
+    }
+  } catch (error) {
+    await Promise.all(
+      written.map(async (filePath) => {
+        const original = originals.get(filePath);
+        if (original !== undefined) await writeFile(filePath, original, 'utf8');
+        else {
+          try {
+            await unlink(filePath);
+          } catch (rollbackError) {
+            if ((rollbackError as NodeJS.ErrnoException).code !== 'ENOENT') throw rollbackError;
+          }
+        }
+      }),
+    );
+    throw error;
+  }
+  if (projectResolution?.delete) workspaceProjectFile = undefined;
+  return (await readWorkspace())!;
 }
 
 function stableLocaleMap(locales: Readonly<Record<string, string>>): string {
@@ -778,12 +1027,19 @@ async function validateAssetResourceWrite(
 }
 
 async function openStoryFile(filePath: string) {
-  const content = await readFile(filePath, 'utf8');
+  const diskContent = await readFile(filePath, 'utf8');
+  const conflict = await readStoryGitConflict(filePath);
   const fileToken = randomUUID();
   const tokens = storyFileTokens.get(filePath) ?? new Set<string>();
   tokens.add(fileToken);
   storyFileTokens.set(filePath, tokens);
-  return { canceled: false as const, filePath, fileToken, content };
+  return {
+    canceled: false as const,
+    filePath,
+    fileToken,
+    content: conflict?.local ?? diskContent,
+    gitConflict: Boolean(conflict),
+  };
 }
 
 async function createInitialStoryFile(rootPath: string): Promise<{
@@ -1077,6 +1333,14 @@ function registerStoryFileHandlers(): void {
     return openStoryFile(filePath);
   });
 
+  ipcMain.handle(
+    'story:read-git-conflict',
+    async (event, filePath: unknown, fileToken: unknown) => {
+      if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+      return readStoryGitConflict(requireAuthorizedStoryFile(filePath, fileToken));
+    },
+  );
+
   ipcMain.handle('story:save', async (event, request: unknown) => {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
     if (!isSaveStoryRequest(request)) throw new Error('Invalid story save request');
@@ -1335,6 +1599,29 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('workspace:refresh', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readWorkspace();
+  });
+
+  ipcMain.handle('workspace:read-git-conflicts', async (event) => {
+    if (!isTrustedSender(event) || !workspaceRoot) throw new Error('Open a workspace first');
+    return readWorkspaceGitConflicts(workspaceRoot);
+  });
+
+  ipcMain.handle('workspace:apply-merge', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !Array.isArray(value) || value.length > MAX_WORKSPACE_ENTRIES) {
+      throw new Error('Invalid workspace merge request');
+    }
+    const files = value as Partial<ApplyWorkspaceMergeFile>[];
+    if (
+      files.some(
+        (file) =>
+          typeof file.relativePath !== 'string' ||
+          (typeof file.content === 'string') === (file.delete === true) ||
+          (file.kind !== 'project' && file.kind !== 'character' && file.kind !== 'asset'),
+      )
+    ) {
+      throw new Error('Invalid workspace merge request');
+    }
+    return applyWorkspaceMerge(files as ApplyWorkspaceMergeFile[]);
   });
 
   ipcMain.handle('workspace:reveal-item', async (event, relativePath: unknown) => {

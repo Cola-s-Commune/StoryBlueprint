@@ -73,7 +73,12 @@ import {
   type EditorGraphState,
 } from './editorGraph';
 import { useGraphHistory } from './useGraphHistory';
-import type { OpenStoryResult, RecentProject, WorkspaceInfo } from '../../shared/electronApi';
+import type {
+  ApplyWorkspaceMergeFile,
+  OpenStoryResult,
+  RecentProject,
+  WorkspaceInfo,
+} from '../../shared/electronApi';
 
 nodeRegistry.registerBuiltins();
 
@@ -242,6 +247,7 @@ export interface StoryDocumentInfo {
   fileToken?: string;
   dirty: boolean;
   error?: string;
+  gitConflict?: boolean;
 }
 
 export interface EditorChapter extends Omit<ChapterSource, 'graph'> {
@@ -381,7 +387,12 @@ interface StoryGraphStoreValue {
     nodeId: NodeId,
     lineIds: readonly DialogueLineId[],
   ) => { ok: true } | { ok: false; message: string };
-  applyStoryMerge: (merged: StorySourceDocument) => { ok: true } | { ok: false; message: string };
+  applyStoryMerge: (
+    merged: StorySourceDocument,
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  applyWorkspaceMerge: (
+    files: ApplyWorkspaceMergeFile[],
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
   addVariable: () => VariableId;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => void;
   removeVariable: (id: VariableId) => void;
@@ -1046,7 +1057,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const applyStoryMerge = useCallback(
-    (merged: StorySourceDocument): { ok: true } | { ok: false; message: string } => {
+    async (merged: StorySourceDocument): Promise<{ ok: true } | { ok: false; message: string }> => {
       if (merged.id !== source.id) {
         return { ok: false, message: 'The merge result belongs to a different Story.' };
       }
@@ -1077,20 +1088,44 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         nextActiveGraphId === 'root'
           ? nextRoot
           : nextChapters.find((chapter) => chapter.id === nextActiveGraphId)!.graph;
+      if (!window.electronAPI) {
+        return { ok: false, message: 'Story saving is unavailable outside Electron.' };
+      }
+      let saved: Awaited<ReturnType<typeof window.electronAPI.saveStory>>;
+      try {
+        saved = await window.electronAPI.saveStory({
+          filePath: document.filePath,
+          fileToken: document.fileToken,
+          content: serializeStorySource(merged),
+        });
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+      if (saved.canceled) return { ok: false, message: 'Merge save was canceled.' };
       checkpoint();
       rootGraphRef.current = structuredClone(nextRoot);
       setChapters(nextChapters);
       setActiveGraphId(nextActiveGraphId);
       restoreGraph(structuredClone(nextGraph));
       setVariables([...structuredClone(merged.variables)]);
-      markDirty();
+      revisionRef.current += 1;
+      window.electronAPI.setStoryDirty(false);
+      setDocument((current) => ({
+        ...current,
+        filePath: saved.filePath,
+        fileToken: saved.fileToken,
+        dirty: false,
+        error: undefined,
+        gitConflict: false,
+      }));
       return { ok: true };
     },
     [
       activeGraphId,
       checkpoint,
+      document.filePath,
+      document.fileToken,
       events,
-      markDirty,
       resolvedAssets,
       resolvedCharacters,
       restoreGraph,
@@ -1783,6 +1818,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (!window.electronAPI) return undefined;
       const saved: EditorStoryWorkspaceItem[] = [];
       for (const item of items) {
+        if (item.document.gitConflict) {
+          throw new Error(
+            `${item.document.displayName} has an unresolved Git conflict. Use Story Merge before saving.`,
+          );
+        }
         if (!item.document.dirty) {
           saved.push(item);
           continue;
@@ -1974,6 +2014,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           filePath: recovered.dirty ? recovered.filePath : result.filePath,
           fileToken: recovered.dirty ? recovered.fileToken : result.fileToken,
           dirty: recovered.dirty ?? false,
+          gitConflict: result.gitConflict,
         },
         rootGraph,
         chapters: source.chapters.map((chapter) => ({
@@ -2244,6 +2285,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const applyWorkspaceMerge = useCallback(async (files: ApplyWorkspaceMergeFile[]) => {
+    if (!window.electronAPI) {
+      return { ok: false as const, message: 'Project resource saving requires Electron.' };
+    }
+    try {
+      setWorkspace(await window.electronAPI.applyWorkspaceMerge(files));
+      setWorkspaceError(undefined);
+      return { ok: true as const };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setWorkspaceError(message);
+      return { ok: false as const, message };
+    }
+  }, []);
+
   const updateProjectSettings = useCallback(
     async (settings: { entryStoryId?: StoryId; outputDirectory?: string }) => {
       if (!window.electronAPI || !workspace?.project) return;
@@ -2458,6 +2514,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const saveStory = useCallback(
     async (saveAs = false, sourceOverride?: StorySourceDocument) => {
       if (!hasActiveStory || !window.electronAPI) return;
+      if (document.gitConflict) {
+        setDocument((current) => ({
+          ...current,
+          error: 'This Story has an unresolved Git conflict. Use View → Story Merge before saving.',
+        }));
+        return;
+      }
       try {
         const savingDocumentId = document.id;
         const savingRevision = revisionRef.current;
@@ -2630,6 +2693,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       mergeSelectedDialogues,
       splitDialogueLines,
       applyStoryMerge,
+      applyWorkspaceMerge,
       addVariable,
       updateVariable,
       removeVariable,
@@ -2784,6 +2848,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       mergeSelectedDialogues,
       splitDialogueLines,
       applyStoryMerge,
+      applyWorkspaceMerge,
     ],
   );
 

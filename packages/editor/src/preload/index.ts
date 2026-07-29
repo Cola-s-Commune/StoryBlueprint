@@ -8,6 +8,10 @@ const electronAPI = {
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   setWindowZoom: (action) => ipcRenderer.invoke('app:set-window-zoom', action),
   openStory: () => ipcRenderer.invoke('story:open'),
+  readStoryGitConflict: (filePath, fileToken) =>
+    ipcRenderer.invoke('story:read-git-conflict', filePath, fileToken),
+  readWorkspaceGitConflicts: () => ipcRenderer.invoke('workspace:read-git-conflicts'),
+  applyWorkspaceMerge: (files) => ipcRenderer.invoke('workspace:apply-merge', files),
   saveStory: (request) => ipcRenderer.invoke('story:save', request),
   revealStory: (filePath, fileToken) => ipcRenderer.invoke('story:reveal', filePath, fileToken),
   deleteStory: (filePath, fileToken) => ipcRenderer.invoke('story:delete', filePath, fileToken),

@@ -5,11 +5,15 @@ import { CopyButton } from '../Panels/CopyButton';
 export function StatusBar() {
   const { hasActiveStory, workspace, document, nodes, edges, chapters, activeGraphId } =
     useStoryGraphStore();
+  const projectConflictCount = workspace?.gitConflicts?.length ?? 0;
+  const projectConflictText = `${projectConflictCount} project resource Git conflict${projectConflictCount === 1 ? '' : 's'} · Open View → Story Merge`;
   if (!hasActiveStory) {
     return (
       <div className={styles.bar}>
         <div className={styles.left}>
-          <span className={styles.item}>Ready</span>
+          <span className={`${styles.item} ${projectConflictCount > 0 ? styles.errorItem : ''}`}>
+            {projectConflictCount > 0 ? projectConflictText : 'Ready'}
+          </span>
           <span className={styles.item}>
             {workspace?.project?.displayName ?? workspace?.name ?? 'No project open'}
           </span>
@@ -29,7 +33,13 @@ export function StatusBar() {
   return (
     <div className={styles.bar}>
       <div className={styles.left}>
-        {document.error ? (
+        {document.gitConflict ? (
+          <span className={`${styles.item} ${styles.errorItem}`}>
+            Git conflict · Open View → Story Merge
+          </span>
+        ) : projectConflictCount > 0 ? (
+          <span className={`${styles.item} ${styles.errorItem}`}>{projectConflictText}</span>
+        ) : document.error ? (
           <span className={`${styles.item} ${styles.errorItem}`}>
             Error: {document.error}
             <CopyButton text={document.error} label="Copy" />

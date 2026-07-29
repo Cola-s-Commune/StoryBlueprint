@@ -10,6 +10,18 @@ export interface StoryMergeConflict {
   remoteValue?: unknown;
 }
 
+export interface ThreeWayStoryDiff {
+  conflicts: StoryMergeConflict[];
+  autoMerged: MergeableStoryDocument;
+  autoChangeCount: number;
+}
+
+export interface ThreeWayValueDiff<T> {
+  conflicts: StoryMergeConflict[];
+  autoMerged: T;
+  autoChangeCount: number;
+}
+
 export type StoryMergeDecisions = Readonly<Record<string, StoryMergeChoice>>;
 
 export type MergeableStoryDocument = Pick<
@@ -32,6 +44,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function arrayItemKey(value: unknown, index: number): string | undefined {
+  if (typeof value === 'string') return `value:${value}`;
   if (!isRecord(value)) return undefined;
   if (typeof value.id === 'string') return `id:${value.id}`;
   const from = value.from;
@@ -39,6 +52,7 @@ function arrayItemKey(value: unknown, index: number): string | undefined {
   if (isRecord(from) && isRecord(to)) {
     return `edge:${String(from.nodeId)}:${String(from.portId)}>${String(to.nodeId)}:${String(to.portId)}`;
   }
+  if (typeof value.name === 'string') return `name:${value.name}`;
   return `index:${index}`;
 }
 
@@ -58,7 +72,13 @@ function childPath(path: string, segment: string): string {
 
 function orderMatters(path: string): boolean {
   const field = decodeURIComponent(path.split('/').at(-1) ?? '');
-  return field === 'lines' || field === 'options' || field === 'chapters' || field === 'variables';
+  return (
+    field === 'lines' ||
+    field === 'options' ||
+    field === 'chapters' ||
+    field === 'variables' ||
+    field === 'parameters'
+  );
 }
 
 function mergedKeyOrder(
@@ -176,6 +196,259 @@ export function diffStoryDocuments(
   const output: StoryMergeConflict[] = [];
   collectDiff(true, local, true, remote, 'story', output);
   return output;
+}
+
+function equivalent(
+  leftPresent: boolean,
+  leftValue: unknown,
+  rightPresent: boolean,
+  rightValue: unknown,
+): boolean {
+  return leftPresent === rightPresent && (!leftPresent || same(leftValue, rightValue));
+}
+
+function mergeThreeValue(
+  basePresent: boolean,
+  baseValue: unknown,
+  localPresent: boolean,
+  localValue: unknown,
+  remotePresent: boolean,
+  remoteValue: unknown,
+  path: string,
+  decisions: StoryMergeDecisions,
+  conflicts: StoryMergeConflict[],
+  autoPaths: Set<string>,
+): unknown | typeof missing {
+  if (equivalent(localPresent, localValue, remotePresent, remoteValue)) {
+    return localPresent ? clone(localValue) : missing;
+  }
+  if (equivalent(basePresent, baseValue, localPresent, localValue)) {
+    autoPaths.add(path);
+    return remotePresent ? clone(remoteValue) : missing;
+  }
+  if (equivalent(basePresent, baseValue, remotePresent, remoteValue)) {
+    autoPaths.add(path);
+    return localPresent ? clone(localValue) : missing;
+  }
+
+  if (
+    localPresent &&
+    remotePresent &&
+    Array.isArray(localValue) &&
+    Array.isArray(remoteValue) &&
+    (!basePresent || Array.isArray(baseValue))
+  ) {
+    const baseItems = keyedArray(basePresent ? (baseValue as unknown[]) : []);
+    const localItems = keyedArray(localValue);
+    const remoteItems = keyedArray(remoteValue);
+    if (baseItems && localItems && remoteItems) {
+      const keys = [...baseItems.keys(), ...localItems.keys(), ...remoteItems.keys()].filter(
+        (key, index, all) => all.indexOf(key) === index,
+      );
+      const mergedItems = new Map<string, unknown>();
+      for (const key of keys) {
+        const value = mergeThreeValue(
+          baseItems.has(key),
+          baseItems.get(key),
+          localItems.has(key),
+          localItems.get(key),
+          remoteItems.has(key),
+          remoteItems.get(key),
+          childPath(path, `@${key}`),
+          decisions,
+          conflicts,
+          autoPaths,
+        );
+        if (value !== missing) mergedItems.set(key, value);
+      }
+
+      const baseOrder = [...baseItems.keys()];
+      const localOrder = [...localItems.keys()];
+      const remoteOrder = [...remoteItems.keys()];
+      const baseInLocal = baseOrder.filter((key) => localItems.has(key));
+      const localBaseItems = localOrder.filter((key) => baseItems.has(key));
+      const baseInRemote = baseOrder.filter((key) => remoteItems.has(key));
+      const remoteBaseItems = remoteOrder.filter((key) => baseItems.has(key));
+      const localReordered = orderMatters(path) && !same(baseInLocal, localBaseItems);
+      const remoteReordered = orderMatters(path) && !same(baseInRemote, remoteBaseItems);
+      const orderPath = childPath(path, '@order');
+      let primary = localOrder;
+      let secondary = remoteOrder;
+      if (remoteReordered && !localReordered) {
+        autoPaths.add(orderPath);
+        primary = remoteOrder;
+        secondary = localOrder;
+      } else if (localReordered && remoteReordered && !same(localBaseItems, remoteBaseItems)) {
+        conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder));
+        if (decisions[orderPath] === 'remote') {
+          primary = remoteOrder;
+          secondary = localOrder;
+        }
+      }
+      return mergedKeyOrder(primary, secondary, new Set(mergedItems.keys())).map((key) =>
+        mergedItems.get(key)!,
+      );
+    }
+  }
+
+  if (
+    localPresent &&
+    remotePresent &&
+    isRecord(localValue) &&
+    isRecord(remoteValue) &&
+    (!basePresent || isRecord(baseValue))
+  ) {
+    const baseRecord = basePresent ? (baseValue as Record<string, unknown>) : {};
+    const result: Record<string, unknown> = {};
+    const keys = [
+      ...Object.keys(baseRecord),
+      ...Object.keys(localValue),
+      ...Object.keys(remoteValue),
+    ].filter((key, index, all) => all.indexOf(key) === index);
+    for (const key of keys) {
+      const value = mergeThreeValue(
+        Object.hasOwn(baseRecord, key),
+        baseRecord[key],
+        Object.hasOwn(localValue, key),
+        localValue[key],
+        Object.hasOwn(remoteValue, key),
+        remoteValue[key],
+        childPath(path, key),
+        decisions,
+        conflicts,
+        autoPaths,
+      );
+      if (value !== missing) result[key] = value;
+    }
+    return result;
+  }
+
+  conflicts.push(conflict(path, localPresent, localValue, remotePresent, remoteValue));
+  const useRemote = decisions[path] === 'remote';
+  if (useRemote) return remotePresent ? clone(remoteValue) : missing;
+  return localPresent ? clone(localValue) : missing;
+}
+
+function threeWayResult(
+  base: unknown,
+  local: unknown,
+  remote: unknown,
+  decisions: StoryMergeDecisions,
+  rootPath: string,
+) {
+  const conflicts: StoryMergeConflict[] = [];
+  const autoPaths = new Set<string>();
+  const merged = mergeThreeValue(
+    true,
+    base,
+    true,
+    local,
+    true,
+    remote,
+    rootPath,
+    decisions,
+    conflicts,
+    autoPaths,
+  );
+  return { conflicts, merged, autoChangeCount: autoPaths.size };
+}
+
+function threeWayOptionalResult<T>(
+  base: T | undefined,
+  local: T | undefined,
+  remote: T | undefined,
+  decisions: StoryMergeDecisions,
+  rootPath: string,
+) {
+  const conflicts: StoryMergeConflict[] = [];
+  const autoPaths = new Set<string>();
+  const merged = mergeThreeValue(
+    base !== undefined,
+    base,
+    local !== undefined,
+    local,
+    remote !== undefined,
+    remote,
+    rootPath,
+    decisions,
+    conflicts,
+    autoPaths,
+  );
+  return {
+    conflicts,
+    merged: merged === missing ? undefined : (merged as T),
+    autoChangeCount: autoPaths.size,
+  };
+}
+
+export function diffThreeWayStoryDocuments(
+  base: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
+): ThreeWayStoryDiff {
+  const result = threeWayResult(base, local, remote, {}, 'story');
+  return {
+    conflicts: result.conflicts,
+    autoMerged: result.merged as MergeableStoryDocument,
+    autoChangeCount: result.autoChangeCount,
+  };
+}
+
+export function mergeThreeWayStoryDocuments(
+  base: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
+  decisions: StoryMergeDecisions,
+): MergeableStoryDocument {
+  return threeWayResult(base, local, remote, decisions, 'story').merged as MergeableStoryDocument;
+}
+
+export function diffThreeWayValues<T>(
+  base: T,
+  local: T,
+  remote: T,
+  rootPath = 'resource',
+): ThreeWayValueDiff<T> {
+  const result = threeWayResult(base, local, remote, {}, rootPath);
+  return {
+    conflicts: result.conflicts,
+    autoMerged: result.merged as T,
+    autoChangeCount: result.autoChangeCount,
+  };
+}
+
+export function mergeThreeWayValues<T>(
+  base: T,
+  local: T,
+  remote: T,
+  decisions: StoryMergeDecisions,
+  rootPath = 'resource',
+): T {
+  return threeWayResult(base, local, remote, decisions, rootPath).merged as T;
+}
+
+export function diffThreeWayOptionalValues<T>(
+  base: T | undefined,
+  local: T | undefined,
+  remote: T | undefined,
+  rootPath = 'resource',
+): ThreeWayValueDiff<T | undefined> {
+  const result = threeWayOptionalResult(base, local, remote, {}, rootPath);
+  return {
+    conflicts: result.conflicts,
+    autoMerged: result.merged,
+    autoChangeCount: result.autoChangeCount,
+  };
+}
+
+export function mergeThreeWayOptionalValues<T>(
+  base: T | undefined,
+  local: T | undefined,
+  remote: T | undefined,
+  decisions: StoryMergeDecisions,
+  rootPath = 'resource',
+): T | undefined {
+  return threeWayOptionalResult(base, local, remote, decisions, rootPath).merged;
 }
 
 function mergeValue(

@@ -55,6 +55,9 @@ npm run dev
 - Auto Layout 不再把 Reroute 当作剧情层级：计算执行顺序时穿透 Knot，整理后将前向 Knot 放回端点之间，并把循环 / 返回线的 Knot 分配到图下方独立通道。
 - Graph 新增 Ctrl+F Story Search：跨 Main Story / Substory 检索节点、逐条 Dialogue、Choice Option 和 Story Data；支持多词过滤、键盘上下选择、Enter 定位，并自动切图、选中和缩放到目标节点。
 - 新增可停靠 Story Merge：选择另一个同 ID `.story` 后，按稳定 ID 展示字段级 Local / Remote 语义差异，支持逐项或批量取舍；有序 Line / Option 保持相对位置，Apply 前完整编译验证，并作为单个跨 Graph Undo 修改写入当前 Story。
+- Story Merge 支持读取 Git Index 的 Base / Local / Remote 三方版本：非重叠修改自动合并，只展示真正的字段冲突；冲突文件以 Local 安全打开，普通保存受保护，Apply & Save 编译通过后写回但不自动 Stage。
+- Story Merge 新增 Project Resource Merge：对 `.storyproject`、`.character`、`.asset` 做多文件三方语义合并，Event / Signal 参数按名称对齐；写回前校验项目索引、Portrait 引用并用合并后的资源编译全部 Story，状态栏显示待处理资源冲突数量。
+- Project Resource Merge 支持缺失 Git Stage：Add/Add 可按稳定 ID 字段合并或整文件选择，Modify/Delete 明确显示 Keep/Delete；新增、覆盖和删除参与同一批验证与失败恢复，仍由作者决定何时 Git Stage。
 - 多选外框遮罩支持 Ctrl+左键穿透命中单个节点，在当前选择中切换移除 / 加回，并同步更新相关内部连线选择。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。

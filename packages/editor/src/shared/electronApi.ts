@@ -1,5 +1,38 @@
 export type OpenStoryResult =
-  { canceled: true } | { canceled: false; filePath: string; fileToken: string; content: string };
+  | { canceled: true }
+  | {
+      canceled: false;
+      filePath: string;
+      fileToken: string;
+      content: string;
+      gitConflict?: boolean;
+    };
+
+export interface StoryGitConflictStages {
+  repositoryRoot: string;
+  relativePath: string;
+  base: string;
+  local: string;
+  remote: string;
+}
+
+export type WorkspaceMergeResourceKind = 'project' | 'character' | 'asset';
+
+export interface WorkspaceGitConflictStages {
+  repositoryRoot: string;
+  relativePath: string;
+  kind: WorkspaceMergeResourceKind;
+  base?: string;
+  local?: string;
+  remote?: string;
+}
+
+export interface ApplyWorkspaceMergeFile {
+  relativePath: string;
+  kind: WorkspaceMergeResourceKind;
+  content?: string;
+  delete?: boolean;
+}
 
 export interface SaveStoryRequest {
   filePath?: string;
@@ -27,6 +60,7 @@ export interface WorkspaceInfo {
   characterResources: { relativePath: string; character: CharacterSource }[];
   assetResources: { relativePath: string; asset: AssetSource }[];
   resourceErrors: { relativePath: string; message: string }[];
+  gitConflicts?: { relativePath: string; kind: WorkspaceMergeResourceKind }[];
 }
 
 export type OpenWorkspaceResult =
@@ -168,6 +202,12 @@ export interface ElectronAPI {
   readClipboardText: () => Promise<string>;
   setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
   openStory: () => Promise<OpenStoryResult>;
+  readStoryGitConflict: (
+    filePath: string,
+    fileToken: string,
+  ) => Promise<StoryGitConflictStages | undefined>;
+  readWorkspaceGitConflicts: () => Promise<WorkspaceGitConflictStages[]>;
+  applyWorkspaceMerge: (files: ApplyWorkspaceMergeFile[]) => Promise<WorkspaceInfo>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
   revealStory: (filePath: string, fileToken: string) => Promise<void>;
   deleteStory: (filePath: string, fileToken: string) => Promise<WorkspaceInfo | undefined>;

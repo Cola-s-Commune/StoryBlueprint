@@ -800,8 +800,9 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 - [x] 两个合法 `.story` 文件按稳定 ID 做字段级语义 Diff
 - [x] Story Merge 面板逐项选择 Local / Remote，批量选择、编译校验并作为单次 Undo 应用
-- [ ] Git 冲突标记检测与 Base / Local / Remote 三方合并
-- [ ] 项目级 Character / Asset / Event / Signal 资源冲突合并
+- [x] Git Index 冲突检测与 Base / Local / Remote 三方合并；普通保存受保护，合并结果显式写回但不自动 Stage
+- [x] 项目级 Character / Asset / Event / Signal 资源三方冲突合并与跨 Story 编译校验
+- [x] Git Add/Add、Modify/Delete 类型的项目资源冲突可视化 Keep/Delete 处理
 - [ ] Multi-user
 
 ---

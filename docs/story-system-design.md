@@ -1124,10 +1124,24 @@ Story Merge 第一阶段接受两个可独立解析的同 ID `.story` 文件，�
 新增或删除节点与连线分别选择 Local / Remote；默认保留 Local，也可批量选择。Line、Option、Variable
 等有序集合同时保留语义顺序，不能因为按 ID 合并而把远端新增项错误追加到末尾。
 
-Apply 前必须使用当前项目解析出的共享资源重新编译完整 Story；验证失败不得修改当前文档。Apply 作为
-单个跨 Graph Undo 快照写入内存并标记 Dirty，由作者显式保存。比较期间若 Local Revision 改变，
-原选择立即失效并要求重新比较。第一阶段不写回 `.storyproject` 共享资源；后续 Git 集成增加
-Base / Local / Remote 三方输入、冲突标记检测和可自动合并的非重叠修改。
+Apply 前必须使用当前项目解析出的共享资源重新编译完整 Story；验证失败不得修改当前文档。比较期间若
+Local Revision 改变，原选择立即失效并要求重新比较。普通双文件比较和 Git 冲突合并都通过
+`Apply & Save` 写回当前 `.story`，同时建立单个跨 Graph Undo 快照。
+
+Git 冲突模式直接读取 Index 的 Stage 1 / 2 / 3 作为 Base / Local / Remote，不解析工作树里的冲突标记。
+冲突 Story 打开时显示 Local 版本并在状态栏提示；在解决前，普通 Save 和 Save All 都不能覆盖冲突文件。
+三方合并自动接受只有一侧修改的字段和非重叠的稳定 ID 项，只把双方对同一语义字段的不同修改交给作者
+选择 Local / Remote。写回前仍执行完整编译校验；写回后不自动执行 `git add`，是否 Stage 由作者决定。
+项目资源模式读取工作区内 `.storyproject`、`.character` 和 `.asset` 的完整三方版本。Character、Asset
+以及项目文件中的 Event / Signal 均按稳定 ID、参数名称和实际字段合并；只有单侧发生的修改自动接受。
+Apply 前校验项目索引与独立资源的一致性、Character Portrait 引用，并用合并后的完整项目资源重新编译
+所有已登记 Story。全部验证通过后才写回所有涉及的文件；中途写入或删除失败会恢复已修改文件。工作树
+写回后仍不自动执行 `git add`。
+
+三方输入允许 Stage 缺失：没有 Base 且 Local / Remote 都存在表示 Add/Add；Base 存在但其中一侧缺失表示
+Modify/Delete。相同稳定 ID 的 Add/Add 继续按字段合并，不同稳定 ID 的同路径新增作为整文件冲突处理；
+Modify/Delete 在界面中明确显示 `Keep / Delete` 含义。删除资源前仍执行项目索引、引用和全 Story 编译
+校验；删除当前 `.storyproject` 时保留工作目录内未选择删除的普通资源文件。
 
 ---
 
