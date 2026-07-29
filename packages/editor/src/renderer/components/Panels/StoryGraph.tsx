@@ -156,10 +156,16 @@ export function StoryGraph() {
     updateAIProposalNodes,
     applyAIProposal,
     discardAIProposal,
+    storyMergePreview,
+    clearStoryMergePreview,
     semanticSnapshot,
     focusGraphNode,
     selectStoryData,
   } = useStoryGraphStore();
+  const activeMergePreview = storyMergePreview?.graphs.find(
+    (candidate) => candidate.id === activeGraphId,
+  );
+  const mergePreviewActive = Boolean(storyMergePreview);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<GraphControlMode>(initialGraphControlMode);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -289,6 +295,7 @@ export function StoryGraph() {
 
   const onEdgeClick = useCallback(
     (event: ReactMouseEvent, edge: EditorGraphEdge) => {
+      if (mergePreviewActive) return;
       if (!event.altKey) return;
       if (!edges.some((candidate) => candidate.id === edge.id)) return;
       event.preventDefault();
@@ -298,12 +305,13 @@ export function StoryGraph() {
       setConnectionError(null);
       markDirty();
     },
-    [checkpoint, edges, markDirty, setEdges],
+    [checkpoint, edges, markDirty, mergePreviewActive, setEdges],
   );
 
   const openEdgeContextMenu = useCallback(
     (event: ReactMouseEvent, edge: EditorGraphEdge) => {
       event.preventDefault();
+      if (mergePreviewActive) return;
       if (!flowInstance || !canvasRef.current) return;
       const actualEdge = edges.find((candidate) => candidate.id === edge.id);
       if (!actualEdge || !isExecutionEdge(actualEdge, nodes)) return;
@@ -315,7 +323,7 @@ export function StoryGraph() {
         edge: actualEdge,
       });
     },
-    [edges, flowInstance, nodes],
+    [edges, flowInstance, mergePreviewActive, nodes],
   );
 
   const deleteSelection = useCallback(() => {
@@ -366,6 +374,7 @@ export function StoryGraph() {
   const openContextMenu = useCallback(
     (event: globalThis.MouseEvent | ReactMouseEvent) => {
       event.preventDefault();
+      if (mergePreviewActive) return;
       if (controlMode === 'blueprint' && rightDragRef.current?.moved) {
         rightDragRef.current = undefined;
         return;
@@ -379,7 +388,7 @@ export function StoryGraph() {
         flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
       });
     },
-    [controlMode, flowInstance],
+    [controlMode, flowInstance, mergePreviewActive],
   );
 
   useEffect(() => {
@@ -763,6 +772,10 @@ export function StoryGraph() {
       const isHistoryShortcut = modifier && (key === 'z' || key === 'y');
       if (editingText && !isHistoryShortcut) return;
       if (modifier && key === 'c' && window.getSelection()?.toString()) return;
+      if (mergePreviewActive && (modifier || event.key === 'Delete' || event.key === 'Backspace')) {
+        event.preventDefault();
+        return;
+      }
 
       if (modifier && key === 'c') {
         event.preventDefault();
@@ -801,6 +814,7 @@ export function StoryGraph() {
     deleteSelection,
     duplicateSelection,
     hasActiveStory,
+    mergePreviewActive,
     paste,
     redo,
     openSearch,
@@ -828,6 +842,26 @@ export function StoryGraph() {
     });
     return () => cancelAnimationFrame(frame);
   }, [flowInstance, problemFocus]);
+
+  useEffect(() => {
+    if (!flowInstance || !activeMergePreview) return;
+    const highlightedIds = [
+      ...activeMergePreview.addedNodeIds,
+      ...activeMergePreview.changedNodeIds,
+      ...activeMergePreview.removedNodeIds,
+      ...activeMergePreview.conflictNodeIds,
+    ].filter((id, index, all) => all.indexOf(id) === index);
+    if (highlightedIds.length === 0) return;
+    const frame = requestAnimationFrame(() => {
+      void flowInstance.fitView({
+        nodes: highlightedIds.map((id) => ({ id })),
+        padding: 0.6,
+        duration: 260,
+        maxZoom: 1.15,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeMergePreview, flowInstance, storyMergePreview?.nonce]);
 
   useEffect(() => {
     if (!aiChanges) return;
@@ -906,8 +940,8 @@ export function StoryGraph() {
       ? 'Main Story'
       : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
   const selectedCount = nodes.filter((node) => node.selected).length;
-  const canvasNodes = aiProposal?.graph.nodes ?? nodes;
-  const canvasEdges = aiProposal?.graph.edges ?? edges;
+  const canvasNodes = aiProposal?.graph.nodes ?? activeMergePreview?.graph.nodes ?? nodes;
+  const canvasEdges = aiProposal?.graph.edges ?? activeMergePreview?.graph.edges ?? edges;
   const arrangeGraph = useCallback(
     (scope: 'selected' | 'all') => {
       const targetIds: NodeId[] = aiProposal
@@ -964,11 +998,24 @@ export function StoryGraph() {
   const renderedNodes = useMemo<EditorGraphNode[]>(() => {
     const added = new Set(aiProposal?.addedNodeIds ?? aiChanges?.addedNodeIds ?? []);
     const changed = new Set(aiProposal?.changedNodeIds ?? aiChanges?.changedNodeIds ?? []);
+    const mergeAdded = new Set(activeMergePreview?.addedNodeIds ?? []);
+    const mergeChanged = new Set(activeMergePreview?.changedNodeIds ?? []);
+    const mergeRemoved = new Set(activeMergePreview?.removedNodeIds ?? []);
+    const mergeConflicts = new Set(activeMergePreview?.conflictNodeIds ?? []);
     return canvasNodes.map((node) => ({
       ...node,
-      draggable: aiProposal ? added.has(node.id) : node.draggable,
+      draggable: activeMergePreview ? false : aiProposal ? added.has(node.id) : node.draggable,
       className: [
         node.className,
+        mergeConflicts.has(node.id)
+          ? 'merge-preview-conflict'
+          : mergeRemoved.has(node.id)
+            ? 'merge-preview-removed'
+            : mergeAdded.has(node.id)
+              ? 'merge-preview-added'
+              : mergeChanged.has(node.id)
+                ? 'merge-preview-modified'
+                : '',
         added.has(node.id)
           ? aiProposal
             ? 'ai-proposal-added'
@@ -982,7 +1029,7 @@ export function StoryGraph() {
         .filter(Boolean)
         .join(' '),
     }));
-  }, [aiChanges, aiProposal, canvasNodes]);
+  }, [activeMergePreview, aiChanges, aiProposal, canvasNodes]);
   const renderedEdges = useMemo<EditorGraphEdge[]>(() => {
     const virtualEdges = canvasNodes.flatMap((node): EditorGraphEdge[] => {
       if (node.type !== StoryNodeType.FlowJump) return [];
@@ -1005,8 +1052,25 @@ export function StoryGraph() {
         },
       ];
     });
-    return [...canvasEdges, ...virtualEdges];
-  }, [canvasEdges, canvasNodes]);
+    const mergeAdded = new Set(activeMergePreview?.addedEdgeIds ?? []);
+    const mergeRemoved = new Set(activeMergePreview?.removedEdgeIds ?? []);
+    const mergeConflicts = new Set(activeMergePreview?.conflictEdgeIds ?? []);
+    return [...canvasEdges, ...virtualEdges].map((edge) => ({
+      ...edge,
+      className: [
+        edge.className,
+        mergeConflicts.has(edge.id)
+          ? 'merge-preview-edge-conflict'
+          : mergeRemoved.has(edge.id)
+            ? 'merge-preview-edge-removed'
+            : mergeAdded.has(edge.id)
+              ? 'merge-preview-edge-added'
+              : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    }));
+  }, [activeMergePreview, canvasEdges, canvasNodes]);
 
   if (!hasActiveStory) {
     return (
@@ -1113,6 +1177,7 @@ export function StoryGraph() {
           }
         }}
         onDrop={(event) => {
+          if (mergePreviewActive) return;
           const payload = readStoryDataDrag(event.dataTransfer);
           if (!payload || !flowInstance) return;
           event.preventDefault();
@@ -1186,7 +1251,7 @@ export function StoryGraph() {
             {!aiProposal && (
               <button
                 type="button"
-                disabled={selectedCount < 2}
+                disabled={mergePreviewActive || selectedCount < 2}
                 title="Arrange only the selected nodes from left to right"
                 onClick={() => arrangeGraph('selected')}
               >
@@ -1195,7 +1260,10 @@ export function StoryGraph() {
             )}
             <button
               type="button"
-              disabled={aiProposal ? aiProposal.addedNodeIds.length < 2 : nodes.length < 2}
+              disabled={
+                mergePreviewActive ||
+                (aiProposal ? aiProposal.addedNodeIds.length < 2 : nodes.length < 2)
+              }
               title={
                 aiProposal
                   ? 'Arrange the AI-added preview nodes without applying them'
@@ -1225,8 +1293,14 @@ export function StoryGraph() {
         <ReactFlow<EditorGraphNode, EditorGraphEdge>
           nodes={renderedNodes}
           edges={renderedEdges}
-          onNodesChange={aiProposal ? updateAIProposalNodes : onNodesChange}
-          onEdgesChange={aiProposal ? () => undefined : onEdgesChange}
+          onNodesChange={
+            mergePreviewActive
+              ? () => undefined
+              : aiProposal
+                ? updateAIProposalNodes
+                : onNodesChange
+          }
+          onEdgesChange={mergePreviewActive || aiProposal ? () => undefined : onEdgesChange}
           onEdgeClick={onEdgeClick}
           onEdgeContextMenu={openEdgeContextMenu}
           onEdgeDoubleClick={(event, edge) => {
@@ -1239,6 +1313,7 @@ export function StoryGraph() {
             );
           }}
           onNodeDoubleClick={(_event, node) => {
+            if (mergePreviewActive) return;
             if (node.type !== StoryNodeType.FlowJump || !flowInstance) return;
             const targetNodeId = (node.data as FlowJumpNodeData).targetNodeId;
             const target = targetNodeId
@@ -1263,8 +1338,8 @@ export function StoryGraph() {
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
-          nodesConnectable={!aiProposal}
-          elementsSelectable={!aiProposal}
+          nodesConnectable={!aiProposal && !mergePreviewActive}
+          elementsSelectable={!aiProposal && !mergePreviewActive}
           defaultEdgeOptions={{
             type: 'smoothstep',
             style: { stroke: '#aeb7c4', strokeWidth: 2.25 },
@@ -1383,6 +1458,28 @@ export function StoryGraph() {
             </button>
             <button type="button" className={styles.aiUndoButton} onClick={discardAIProposal}>
               Discard
+            </button>
+          </aside>
+        )}
+        {activeMergePreview && !aiProposal && (
+          <aside className={`${styles.aiChangeBanner} ${styles.mergePreviewBanner}`}>
+            <div>
+              <strong>Story merge preview · {activeMergePreview.displayName}</strong>
+              <span>
+                +{activeMergePreview.addedNodeIds.length} · ~
+                {activeMergePreview.changedNodeIds.length} · −
+                {activeMergePreview.removedNodeIds.length} · !
+                {activeMergePreview.conflictNodeIds.length} nodes
+              </span>
+            </div>
+            <div className={styles.mergeLegend} aria-label="Merge preview legend">
+              <span className={styles.legendAdded}>Added</span>
+              <span className={styles.legendModified}>Modified</span>
+              <span className={styles.legendRemoved}>Removed</span>
+              <span className={styles.legendConflict}>Conflict</span>
+            </div>
+            <button type="button" className={styles.aiUndoButton} onClick={clearStoryMergePreview}>
+              Exit Preview
             </button>
           </aside>
         )}

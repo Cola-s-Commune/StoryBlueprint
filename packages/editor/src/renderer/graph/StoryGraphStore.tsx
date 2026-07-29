@@ -73,6 +73,8 @@ import {
   type EditorGraphState,
 } from './editorGraph';
 import { useGraphHistory } from './useGraphHistory';
+import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
+import type { StoryMergeConflict } from './storyMerge';
 import type {
   ApplyWorkspaceMergeFile,
   OpenStoryResult,
@@ -361,6 +363,13 @@ interface StoryGraphStoreValue {
   updateAIProposalNodes: OnNodesChange<EditorGraphNode>;
   applyAIProposal: () => BlueprintTransactionResult | undefined;
   discardAIProposal: () => void;
+  storyMergePreview?: StoryMergePreview;
+  showStoryMergePreview: (
+    merged: StorySourceDocument,
+    conflicts: readonly StoryMergeConflict[],
+  ) => void;
+  clearStoryMergePreview: () => void;
+  focusStoryMergePreviewNode: (graphId: ActiveGraphId, nodeId: NodeId) => boolean;
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -476,6 +485,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
   const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
   const [aiProposal, setAIProposal] = useState<AIEditorProposal>();
+  const [storyMergePreview, setStoryMergePreview] = useState<StoryMergePreview>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
   const [sessionReady, setSessionReady] = useState(false);
@@ -674,6 +684,29 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     },
     [activeGraphId, chapters, graph, restoreGraph, switchGraph],
   );
+
+  const showStoryMergePreview = useCallback(
+    (merged: StorySourceDocument, conflicts: readonly StoryMergeConflict[]) => {
+      setStoryMergePreview(buildStoryMergePreview(source, merged, conflicts));
+    },
+    [source],
+  );
+
+  const clearStoryMergePreview = useCallback(() => setStoryMergePreview(undefined), []);
+
+  const focusStoryMergePreviewNode = useCallback(
+    (graphId: ActiveGraphId, nodeId: NodeId): boolean => {
+      const previewGraph = storyMergePreview?.graphs.find((candidate) => candidate.id === graphId);
+      if (!previewGraph?.graph.nodes.some((node) => node.id === nodeId)) return false;
+      if (graphId !== activeGraphId) switchGraph(graphId);
+      setStoryDataSelection(undefined);
+      setProblemFocus({ nodeId, nonce: Date.now() });
+      return true;
+    },
+    [activeGraphId, storyMergePreview, switchGraph],
+  );
+
+  useEffect(() => setStoryMergePreview(undefined), [document.id]);
 
   const updateInactiveGraphs = useCallback(
     (transform: (graph: EditorGraphState) => EditorGraphState) => {
@@ -2725,6 +2758,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateAIProposalNodes,
       applyAIProposal,
       discardAIProposal,
+      storyMergePreview,
+      showStoryMergePreview,
+      clearStoryMergePreview,
+      focusStoryMergePreviewNode,
       markDirty,
       newStory,
       openStory,
@@ -2783,6 +2820,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateAIProposalNodes,
       applyAIProposal,
       discardAIProposal,
+      storyMergePreview,
+      showStoryMergePreview,
+      clearStoryMergePreview,
+      focusStoryMergePreviewNode,
       edges,
       graph,
       activeGraphId,

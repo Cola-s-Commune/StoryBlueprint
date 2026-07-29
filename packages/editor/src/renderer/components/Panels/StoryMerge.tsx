@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   parseAssetResource,
   parseCharacterResource,
@@ -286,8 +286,18 @@ function ProjectResourceMerge() {
 }
 
 export function StoryMerge() {
-  const { hasActiveStory, document, source, semanticSnapshot, applyStoryMerge } =
-    useStoryGraphStore();
+  const {
+    hasActiveStory,
+    document,
+    source,
+    semanticSnapshot,
+    applyStoryMerge,
+    aiProposal,
+    storyMergePreview,
+    showStoryMergePreview,
+    clearStoryMergePreview,
+    focusStoryMergePreviewNode,
+  } = useStoryGraphStore();
   const [base, setBase] = useState<MergeableStoryDocument>();
   const [localBase, setLocalBase] = useState<MergeableStoryDocument>();
   const [remote, setRemote] = useState<StorySourceDocument>();
@@ -334,6 +344,44 @@ export function StoryMerge() {
     localBase && mergedProjection && JSON.stringify(localBase) !== JSON.stringify(mergedProjection),
   );
 
+  const mergedStory = useMemo(
+    () => (mergedProjection ? applyMergedStory(source, mergedProjection) : undefined),
+    [mergedProjection, source],
+  );
+
+  useEffect(() => {
+    if (!mergedStory || !localBase || aiProposal) {
+      clearStoryMergePreview();
+      return;
+    }
+    try {
+      showStoryMergePreview(mergedStory, conflicts);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+    return clearStoryMergePreview;
+  }, [
+    aiProposal,
+    clearStoryMergePreview,
+    conflicts,
+    localBase,
+    mergedStory,
+    showStoryMergePreview,
+  ]);
+
+  const previewConflict = (conflict: StoryMergeConflict) => {
+    const nodeId = conflict.id
+      .split('/')
+      .map(decodeURIComponent)
+      .find((segment) => segment.startsWith('@id:n_'))
+      ?.slice(4) as Parameters<typeof focusStoryMergePreviewNode>[1] | undefined;
+    if (!nodeId) return;
+    const graph = storyMergePreview?.graphs.find((candidate) =>
+      candidate.graph.nodes.some((node) => node.id === nodeId),
+    );
+    if (graph) focusStoryMergePreviewNode(graph.id, nodeId);
+  };
+
   const choose = (id: string, choice: StoryMergeChoice) => {
     setDecisions((current) => ({ ...current, [id]: choice }));
     setError(undefined);
@@ -348,6 +396,10 @@ export function StoryMerge() {
 
   const compareStory = async () => {
     if (!window.electronAPI) return;
+    if (aiProposal) {
+      setError('Apply or discard the AI proposal before opening Story Merge Preview.');
+      return;
+    }
     setError(undefined);
     setStatus(undefined);
     try {
@@ -430,7 +482,7 @@ export function StoryMerge() {
     if (!mergedProjection || !localBase || stale) return;
     setApplying(true);
     try {
-      const result = await applyStoryMerge(applyMergedStory(source, mergedProjection));
+      const result = await applyStoryMerge(mergedStory!);
       if (!result.ok) {
         setError(result.message);
         return;
@@ -511,6 +563,13 @@ export function StoryMerge() {
               </button>
               <button
                 type="button"
+                disabled={!mergedStory || Boolean(aiProposal)}
+                onClick={() => mergedStory && showStoryMergePreview(mergedStory, conflicts)}
+              >
+                {storyMergePreview ? 'Refresh Preview' : 'Preview Graph'}
+              </button>
+              <button
+                type="button"
                 className={styles.applyButton}
                 disabled={stale || (!hasMergedChanges && mode !== 'git-three-way') || applying}
                 onClick={() => void apply()}
@@ -534,6 +593,14 @@ export function StoryMerge() {
                       <header>
                         <span>{conflict.kind}</span>
                         <code>{conflict.path}</code>
+                        {conflict.id
+                          .split('/')
+                          .map(decodeURIComponent)
+                          .some((segment) => segment.startsWith('@id:n_')) && (
+                          <button type="button" onClick={() => previewConflict(conflict)}>
+                            Show on Graph
+                          </button>
+                        )}
                       </header>
                       <div className={styles.choices}>
                         <button
