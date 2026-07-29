@@ -7,7 +7,7 @@ import type {
   StorySourceDocument,
 } from '@story-blueprint/common';
 import { fromSourceGraph, type EditorGraphState } from './editorGraph';
-import type { StoryMergeConflict } from './storyMerge';
+import type { StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 
 export type StoryMergePreviewGraphId = 'root' | ChapterId;
 
@@ -22,11 +22,15 @@ export interface StoryMergePreviewGraph {
   addedEdgeIds: EdgeId[];
   removedEdgeIds: EdgeId[];
   conflictEdgeIds: EdgeId[];
+  nodeConflictIds: Readonly<Record<string, readonly string[]>>;
+  edgeConflictIds: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface StoryMergePreview {
   nonce: number;
   graphs: StoryMergePreviewGraph[];
+  conflicts: readonly StoryMergeConflict[];
+  decisions: StoryMergeDecisions;
 }
 
 function same(left: unknown, right: unknown): boolean {
@@ -37,15 +41,24 @@ function edgeKey(edge: SourceEdge): string {
   return `${edge.from.nodeId}:${edge.from.portId}>${edge.to.nodeId}:${edge.to.portId}`;
 }
 
+function conflictTarget(conflict: StoryMergeConflict) {
+  let nodeId: NodeId | undefined;
+  let edge: string | undefined;
+  for (const encoded of conflict.id.split('/')) {
+    const segment = decodeURIComponent(encoded);
+    if (segment.startsWith('@id:n_')) nodeId = segment.slice(4) as NodeId;
+    if (segment.startsWith('@edge:')) edge = segment.slice(6);
+  }
+  return { conflict, nodeId, edge };
+}
+
 function conflictKeys(conflicts: readonly StoryMergeConflict[]) {
   const nodeIds = new Set<NodeId>();
   const edges = new Set<string>();
   for (const conflict of conflicts) {
-    for (const encoded of conflict.id.split('/')) {
-      const segment = decodeURIComponent(encoded);
-      if (segment.startsWith('@id:n_')) nodeIds.add(segment.slice(4) as NodeId);
-      if (segment.startsWith('@edge:')) edges.add(segment.slice(6));
-    }
+    const target = conflictTarget(conflict);
+    if (target.nodeId) nodeIds.add(target.nodeId);
+    if (target.edge) edges.add(target.edge);
   }
   return { nodeIds, edges };
 }
@@ -57,6 +70,7 @@ function previewGraph(
   merged: SourceGraph | undefined,
   conflictNodeIds: ReadonlySet<NodeId>,
   conflictEdges: ReadonlySet<string>,
+  allConflicts: readonly StoryMergeConflict[],
 ): StoryMergePreviewGraph {
   const target = merged ?? { nodes: [], edges: [] };
   const localNodes = new Map(local.nodes.map((node) => [node.id, node] as const));
@@ -99,6 +113,21 @@ function previewGraph(
       .map((key) => source.get(key)?.id)
       .filter((edgeId): edgeId is EdgeId => Boolean(edgeId));
   const graphNodeIds = new Set(combinedNodes.map((node) => node.id));
+  const nodeConflictIds: Record<string, string[]> = {};
+  const edgeConflictIds: Record<string, string[]> = {};
+  for (const conflict of allConflicts) {
+    const targetConflict = conflictTarget(conflict);
+    if (targetConflict.nodeId && graphNodeIds.has(targetConflict.nodeId)) {
+      (nodeConflictIds[targetConflict.nodeId] ??= []).push(conflict.id);
+    }
+    if (targetConflict.edge) {
+      const edgeIds = [
+        mergedEditorEdges.get(targetConflict.edge)?.id,
+        localEditorEdges.get(targetConflict.edge)?.id,
+      ].filter((edgeId): edgeId is EdgeId => Boolean(edgeId));
+      for (const edgeId of edgeIds) (edgeConflictIds[edgeId] ??= []).push(conflict.id);
+    }
+  }
 
   return {
     id,
@@ -114,6 +143,8 @@ function previewGraph(
       ...idsForKeys(conflictEdges, mergedEditorEdges),
       ...idsForKeys(conflictEdges, localEditorEdges),
     ].filter((edgeId, index, all) => all.indexOf(edgeId) === index),
+    nodeConflictIds,
+    edgeConflictIds,
   };
 }
 
@@ -121,23 +152,42 @@ export function buildStoryMergePreview(
   local: StorySourceDocument,
   merged: StorySourceDocument,
   conflicts: readonly StoryMergeConflict[],
+  decisions: StoryMergeDecisions = {},
 ): StoryMergePreview {
-  const conflict = conflictKeys(conflicts);
+  const unresolved = conflicts.filter((conflict) => decisions[conflict.id] === undefined);
+  const conflict = conflictKeys(unresolved);
+  const localChapters = new Map(local.chapters.map((chapter) => [chapter.id, chapter] as const));
   const mergedChapters = new Map(merged.chapters.map((chapter) => [chapter.id, chapter] as const));
+  const chapterIds = [...localChapters.keys(), ...mergedChapters.keys()].filter(
+    (id, index, all) => all.indexOf(id) === index,
+  );
   return {
     nonce: Date.now(),
+    conflicts,
+    decisions,
     graphs: [
-      previewGraph('root', 'Main Story', local.root, merged.root, conflict.nodeIds, conflict.edges),
-      ...local.chapters.map((chapter) =>
-        previewGraph(
-          chapter.id,
-          chapter.displayName,
-          chapter.graph,
-          mergedChapters.get(chapter.id)?.graph,
+      previewGraph(
+        'root',
+        'Main Story',
+        local.root,
+        merged.root,
+        conflict.nodeIds,
+        conflict.edges,
+        conflicts,
+      ),
+      ...chapterIds.map((chapterId) => {
+        const localChapter = localChapters.get(chapterId);
+        const mergedChapter = mergedChapters.get(chapterId);
+        return previewGraph(
+          chapterId,
+          mergedChapter?.displayName ?? localChapter?.displayName ?? 'Substory',
+          localChapter?.graph ?? { nodes: [], edges: [] },
+          mergedChapter?.graph,
           conflict.nodeIds,
           conflict.edges,
-        ),
-      ),
+          conflicts,
+        );
+      }),
     ],
   };
 }

@@ -74,7 +74,7 @@ import {
 } from './editorGraph';
 import { useGraphHistory } from './useGraphHistory';
 import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
-import type { StoryMergeConflict } from './storyMerge';
+import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 import type {
   ApplyWorkspaceMergeFile,
   OpenStoryResult,
@@ -364,11 +364,16 @@ interface StoryGraphStoreValue {
   applyAIProposal: () => BlueprintTransactionResult | undefined;
   discardAIProposal: () => void;
   storyMergePreview?: StoryMergePreview;
+  storyMergePreviewGraphId?: ActiveGraphId;
+  storyMergeDecisionRequest?: { id: string; choice: StoryMergeChoice; nonce: number };
   showStoryMergePreview: (
     merged: StorySourceDocument,
     conflicts: readonly StoryMergeConflict[],
+    decisions: StoryMergeDecisions,
   ) => void;
   clearStoryMergePreview: () => void;
+  setStoryMergePreviewGraph: (graphId: ActiveGraphId) => void;
+  chooseStoryMergePreviewConflict: (id: string, choice: StoryMergeChoice) => void;
   focusStoryMergePreviewNode: (graphId: ActiveGraphId, nodeId: NodeId) => boolean;
   variables: VariableDefinition[];
   characters: CharacterSource[];
@@ -486,6 +491,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
   const [aiProposal, setAIProposal] = useState<AIEditorProposal>();
   const [storyMergePreview, setStoryMergePreview] = useState<StoryMergePreview>();
+  const [storyMergePreviewGraphId, setStoryMergePreviewGraphIdState] = useState<ActiveGraphId>();
+  const [storyMergeDecisionRequest, setStoryMergeDecisionRequest] = useState<{
+    id: string;
+    choice: StoryMergeChoice;
+    nonce: number;
+  }>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
   const [sessionReady, setSessionReady] = useState(false);
@@ -686,27 +697,53 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const showStoryMergePreview = useCallback(
-    (merged: StorySourceDocument, conflicts: readonly StoryMergeConflict[]) => {
-      setStoryMergePreview(buildStoryMergePreview(source, merged, conflicts));
+    (
+      merged: StorySourceDocument,
+      conflicts: readonly StoryMergeConflict[],
+      decisions: StoryMergeDecisions,
+    ) => {
+      const preview = buildStoryMergePreview(source, merged, conflicts, decisions);
+      setStoryMergePreview(preview);
+      setStoryMergePreviewGraphIdState((current) =>
+        current && preview.graphs.some((graph) => graph.id === current) ? current : activeGraphId,
+      );
     },
-    [source],
+    [activeGraphId, source],
   );
 
-  const clearStoryMergePreview = useCallback(() => setStoryMergePreview(undefined), []);
+  const clearStoryMergePreview = useCallback(() => {
+    setStoryMergePreview(undefined);
+    setStoryMergePreviewGraphIdState(undefined);
+    setStoryMergeDecisionRequest(undefined);
+  }, []);
+
+  const setStoryMergePreviewGraph = useCallback(
+    (graphId: ActiveGraphId) => {
+      if (!storyMergePreview?.graphs.some((graph) => graph.id === graphId)) return;
+      setStoryMergePreviewGraphIdState(graphId);
+      const isLocalGraph = graphId === 'root' || chapters.some((chapter) => chapter.id === graphId);
+      if (isLocalGraph && graphId !== activeGraphId) switchGraph(graphId);
+    },
+    [activeGraphId, chapters, storyMergePreview, switchGraph],
+  );
+
+  const chooseStoryMergePreviewConflict = useCallback((id: string, choice: StoryMergeChoice) => {
+    setStoryMergeDecisionRequest({ id, choice, nonce: Date.now() });
+  }, []);
 
   const focusStoryMergePreviewNode = useCallback(
     (graphId: ActiveGraphId, nodeId: NodeId): boolean => {
       const previewGraph = storyMergePreview?.graphs.find((candidate) => candidate.id === graphId);
       if (!previewGraph?.graph.nodes.some((node) => node.id === nodeId)) return false;
-      if (graphId !== activeGraphId) switchGraph(graphId);
+      setStoryMergePreviewGraph(graphId);
       setStoryDataSelection(undefined);
       setProblemFocus({ nodeId, nonce: Date.now() });
       return true;
     },
-    [activeGraphId, storyMergePreview, switchGraph],
+    [setStoryMergePreviewGraph, storyMergePreview],
   );
 
-  useEffect(() => setStoryMergePreview(undefined), [document.id]);
+  useEffect(() => clearStoryMergePreview(), [clearStoryMergePreview, document.id]);
 
   const updateInactiveGraphs = useCallback(
     (transform: (graph: EditorGraphState) => EditorGraphState) => {
@@ -2759,8 +2796,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       applyAIProposal,
       discardAIProposal,
       storyMergePreview,
+      storyMergePreviewGraphId,
+      storyMergeDecisionRequest,
       showStoryMergePreview,
       clearStoryMergePreview,
+      setStoryMergePreviewGraph,
+      chooseStoryMergePreviewConflict,
       focusStoryMergePreviewNode,
       markDirty,
       newStory,
@@ -2821,8 +2862,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       applyAIProposal,
       discardAIProposal,
       storyMergePreview,
+      storyMergePreviewGraphId,
+      storyMergeDecisionRequest,
       showStoryMergePreview,
       clearStoryMergePreview,
+      setStoryMergePreviewGraph,
+      chooseStoryMergePreviewConflict,
       focusStoryMergePreviewNode,
       edges,
       graph,

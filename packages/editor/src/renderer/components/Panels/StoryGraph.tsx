@@ -49,7 +49,7 @@ import {
   type GraphClipboard,
   type GraphPinReference,
 } from '../../graph/editorGraph';
-import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { useStoryGraphStore, type ActiveGraphId } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag, storyDataMime } from '../../graph/storyDataDrag';
 import {
   buildStorySearchIndex,
@@ -71,6 +71,12 @@ function toGraphEdges(edges: readonly EditorGraphEdge[]): GraphEdgeLike[] {
     target: edge.target,
     targetPortId: edge.targetHandle,
   }));
+}
+
+function mergeValueText(value: unknown, present: boolean): string {
+  if (!present) return '(deleted)';
+  if (typeof value === 'string') return value || '(empty string)';
+  return JSON.stringify(value, null, 2);
 }
 
 function isExecutionEdge(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): boolean {
@@ -157,13 +163,16 @@ export function StoryGraph() {
     applyAIProposal,
     discardAIProposal,
     storyMergePreview,
+    storyMergePreviewGraphId,
     clearStoryMergePreview,
+    setStoryMergePreviewGraph,
+    chooseStoryMergePreviewConflict,
     semanticSnapshot,
     focusGraphNode,
     selectStoryData,
   } = useStoryGraphStore();
   const activeMergePreview = storyMergePreview?.graphs.find(
-    (candidate) => candidate.id === activeGraphId,
+    (candidate) => candidate.id === (storyMergePreviewGraphId ?? activeGraphId),
   );
   const mergePreviewActive = Boolean(storyMergePreview);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -185,6 +194,12 @@ export function StoryGraph() {
     flowPosition: { x: number; y: number };
     edge?: EditorGraphEdge;
   } | null>(null);
+  const [mergeConflictSelection, setMergeConflictSelection] = useState<{
+    graphId: ActiveGraphId;
+    nodeId?: NodeId;
+    edgeId?: EdgeId;
+    conflictIds: readonly string[];
+  }>();
   const canvasRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
@@ -295,7 +310,19 @@ export function StoryGraph() {
 
   const onEdgeClick = useCallback(
     (event: ReactMouseEvent, edge: EditorGraphEdge) => {
-      if (mergePreviewActive) return;
+      if (activeMergePreview) {
+        const conflictIds = activeMergePreview.edgeConflictIds[edge.id] ?? [];
+        if (conflictIds.length > 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          setMergeConflictSelection({
+            graphId: activeMergePreview.id,
+            edgeId: edge.id as EdgeId,
+            conflictIds,
+          });
+        }
+        return;
+      }
       if (!event.altKey) return;
       if (!edges.some((candidate) => candidate.id === edge.id)) return;
       event.preventDefault();
@@ -305,7 +332,7 @@ export function StoryGraph() {
       setConnectionError(null);
       markDirty();
     },
-    [checkpoint, edges, markDirty, mergePreviewActive, setEdges],
+    [activeMergePreview, checkpoint, edges, markDirty, setEdges],
   );
 
   const openEdgeContextMenu = useCallback(
@@ -936,9 +963,10 @@ export function StoryGraph() {
   );
   const hasStoryEntry = nodes.some((node) => node.type === StoryNodeType.Start);
   const activeName =
-    activeGraphId === 'root'
+    activeMergePreview?.displayName ??
+    (activeGraphId === 'root'
       ? 'Main Story'
-      : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory');
+      : (chapters.find((chapter) => chapter.id === activeGraphId)?.displayName ?? 'Substory'));
   const selectedCount = nodes.filter((node) => node.selected).length;
   const canvasNodes = aiProposal?.graph.nodes ?? activeMergePreview?.graph.nodes ?? nodes;
   const canvasEdges = aiProposal?.graph.edges ?? activeMergePreview?.graph.edges ?? edges;
@@ -1071,6 +1099,92 @@ export function StoryGraph() {
         .join(' '),
     }));
   }, [activeMergePreview, canvasEdges, canvasNodes]);
+  const selectedMergeConflicts = useMemo(() => {
+    if (!storyMergePreview || !mergeConflictSelection) return [];
+    const selected = new Set(mergeConflictSelection.conflictIds);
+    return storyMergePreview.conflicts.filter((conflict) => selected.has(conflict.id));
+  }, [mergeConflictSelection, storyMergePreview]);
+  const mergeConflictTargets = useMemo(() => {
+    if (!storyMergePreview) return [];
+    return storyMergePreview.conflicts
+      .filter((conflict) => storyMergePreview.decisions[conflict.id] === undefined)
+      .flatMap((conflict) => {
+        for (const previewGraph of storyMergePreview.graphs) {
+          const nodeEntry = Object.entries(previewGraph.nodeConflictIds).find(([, ids]) =>
+            ids.includes(conflict.id),
+          );
+          if (nodeEntry) {
+            return [
+              {
+                conflictId: conflict.id,
+                graphId: previewGraph.id,
+                nodeId: nodeEntry[0] as NodeId,
+                conflictIds: previewGraph.nodeConflictIds[nodeEntry[0]],
+              },
+            ];
+          }
+          const edgeEntry = Object.entries(previewGraph.edgeConflictIds).find(([, ids]) =>
+            ids.includes(conflict.id),
+          );
+          if (edgeEntry) {
+            const edge = previewGraph.graph.edges.find(
+              (candidate) => candidate.id === edgeEntry[0],
+            );
+            if (edge) {
+              return [
+                {
+                  conflictId: conflict.id,
+                  graphId: previewGraph.id,
+                  nodeId: edge.source,
+                  edgeId: edge.id,
+                  conflictIds: previewGraph.edgeConflictIds[edgeEntry[0]],
+                },
+              ];
+            }
+          }
+        }
+        return [];
+      });
+  }, [storyMergePreview]);
+
+  const navigateMergeConflict = useCallback(
+    (direction: -1 | 1) => {
+      if (mergeConflictTargets.length === 0) return;
+      const currentId = mergeConflictSelection?.conflictIds[0];
+      const currentIndex = mergeConflictTargets.findIndex(
+        (target) => target.conflictId === currentId,
+      );
+      const nextIndex =
+        (currentIndex + direction + mergeConflictTargets.length) % mergeConflictTargets.length;
+      const target = mergeConflictTargets[nextIndex];
+      const edgeId = ('edgeId' in target ? target.edgeId : undefined) as EdgeId | undefined;
+      setStoryMergePreviewGraph(target.graphId);
+      setMergeConflictSelection({
+        graphId: target.graphId,
+        nodeId: edgeId ? undefined : target.nodeId,
+        edgeId,
+        conflictIds: target.conflictIds,
+      });
+      requestAnimationFrame(() => {
+        void flowInstance?.fitView({
+          nodes: [{ id: target.nodeId }],
+          padding: 0.55,
+          duration: 220,
+          maxZoom: 1.2,
+        });
+      });
+    },
+    [
+      flowInstance,
+      mergeConflictSelection?.conflictIds,
+      mergeConflictTargets,
+      setStoryMergePreviewGraph,
+    ],
+  );
+
+  useEffect(() => {
+    if (!storyMergePreview) setMergeConflictSelection(undefined);
+  }, [storyMergePreview]);
 
   if (!hasActiveStory) {
     return (
@@ -1312,6 +1426,17 @@ export function StoryGraph() {
               flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
             );
           }}
+          onNodeClick={(event, node) => {
+            if (!activeMergePreview) return;
+            const conflictIds = activeMergePreview.nodeConflictIds[node.id] ?? [];
+            if (conflictIds.length === 0) return;
+            event.preventDefault();
+            setMergeConflictSelection({
+              graphId: activeMergePreview.id,
+              nodeId: node.id,
+              conflictIds,
+            });
+          }}
           onNodeDoubleClick={(_event, node) => {
             if (mergePreviewActive) return;
             if (node.type !== StoryNodeType.FlowJump || !flowInstance) return;
@@ -1478,9 +1603,89 @@ export function StoryGraph() {
               <span className={styles.legendRemoved}>Removed</span>
               <span className={styles.legendConflict}>Conflict</span>
             </div>
+            <label className={styles.mergeGraphSelect}>
+              <span>Graph</span>
+              <select
+                value={activeMergePreview.id}
+                onChange={(event) => setStoryMergePreviewGraph(event.target.value as ActiveGraphId)}
+              >
+                {storyMergePreview?.graphs.map((previewGraph) => (
+                  <option key={previewGraph.id} value={previewGraph.id}>
+                    {previewGraph.displayName}
+                    {!chapters.some((chapter) => chapter.id === previewGraph.id) &&
+                    previewGraph.id !== 'root'
+                      ? ' · Remote only'
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={mergeConflictTargets.length === 0}
+              onClick={() => navigateMergeConflict(-1)}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={mergeConflictTargets.length === 0}
+              onClick={() => navigateMergeConflict(1)}
+            >
+              Next
+            </button>
             <button type="button" className={styles.aiUndoButton} onClick={clearStoryMergePreview}>
               Exit Preview
             </button>
+          </aside>
+        )}
+        {activeMergePreview && selectedMergeConflicts.length > 0 && (
+          <aside className={styles.mergeConflictCard}>
+            <header>
+              <div>
+                <strong>
+                  {mergeConflictSelection?.nodeId
+                    ? `Node ${mergeConflictSelection.nodeId}`
+                    : 'Connection conflict'}
+                </strong>
+                <span>{selectedMergeConflicts.length} field conflict(s)</span>
+              </div>
+              <button type="button" onClick={() => setMergeConflictSelection(undefined)}>
+                ×
+              </button>
+            </header>
+            <div className={styles.mergeConflictFields}>
+              {selectedMergeConflicts.map((conflict) => {
+                const choice = storyMergePreview?.decisions[conflict.id];
+                return (
+                  <section key={conflict.id}>
+                    <code>{conflict.path}</code>
+                    <div>
+                      <button
+                        type="button"
+                        className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                        onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                      >
+                        <strong>Local</strong>
+                        <pre>
+                          {mergeValueText(conflict.localValue, conflict.kind !== 'remote-only')}
+                        </pre>
+                      </button>
+                      <button
+                        type="button"
+                        className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
+                        onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                      >
+                        <strong>Remote</strong>
+                        <pre>
+                          {mergeValueText(conflict.remoteValue, conflict.kind !== 'local-only')}
+                        </pre>
+                      </button>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
           </aside>
         )}
         {!aiProposal && aiChanges && (

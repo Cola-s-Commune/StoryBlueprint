@@ -1145,9 +1145,14 @@ Modify/Delete 在界面中明确显示 `Keep / Delete` 含义。删除资源前�
 
 Story 合并选择会同步生成只读 Graph Preview，不提前修改编辑器模型。预览图以合并结果为主体，同时把
 Local 中将被删除的节点和连线作为幽灵元素补回：新增为绿色、修改为黄色、删除为红色虚线半透明、真实
-冲突为橙红色。Main Story 和 Local 已存在的 Substory 分别生成预览图；冲突列表可根据稳定 Node ID
-切换 Graph 并聚焦。预览期间禁止节点拖动、连接、布局、删除、粘贴和资源拖入，退出预览后恢复普通编辑。
-远端全新 Substory 暂时作为章节级差异显示，不创建临时可导航的本地 Graph。
+冲突为橙红色。Main Story、双方已有的 Substory 以及远端新增 Substory 分别生成预览图；新增 Substory
+只存在于预览会话，不提前写入本地章节状态。冲突列表可根据稳定 Node ID 切换 Graph 并聚焦，预览顶部
+也可直接选择包括 Remote-only 在内的 Graph。
+
+点击冲突节点或连线会打开画布内冲突卡片，逐字段显示 Local / Remote 并直接修改同一份 Merge Decision；
+Story Merge 列表与画布选择双向同步。字段作出明确选择后仍可回看，但不再计为未解决冲突，节点从冲突色
+降级为普通修改色。Previous / Next Conflict 按 Graph 和稳定元素定位遍历尚未解决的节点及连线冲突。
+预览期间禁止节点拖动、连接、布局、删除、粘贴和资源拖入，退出预览后恢复普通编辑。
 
 ---
 

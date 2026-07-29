@@ -121,4 +121,44 @@ describe('Story merge graph preview', () => {
     ]);
     expect(preview.graphs[1].changedNodeIds).toEqual(['n_dialogue']);
   });
+
+  it('keeps resolved conflict metadata while removing its conflict highlight', () => {
+    const local = story(graph('Local'));
+    const merged = story(graph('Remote'));
+    const conflict = {
+      id: 'story/root/nodes/%40id%3An_dialogue/data/lines/%40id%3Aln_preview/text/source',
+      path: 'Dialogue text',
+      kind: 'changed' as const,
+      localValue: 'Local',
+      remoteValue: 'Remote',
+    };
+    const preview = buildStoryMergePreview(local, merged, [conflict], {
+      [conflict.id]: 'remote',
+    });
+
+    expect(preview.graphs[0].conflictNodeIds).toEqual([]);
+    expect(preview.graphs[0].nodeConflictIds.n_dialogue).toEqual([conflict.id]);
+    expect(preview.decisions[conflict.id]).toBe('remote');
+  });
+
+  it('creates a virtual preview graph for a remotely added Substory', () => {
+    const local = story(graph('Root'));
+    const merged = structuredClone(local);
+    merged.chapters = [
+      {
+        id: 'ch_remote',
+        name: 'remote',
+        displayName: 'Remote Chapter',
+        parameters: [],
+        localVariables: [],
+        graph: graph('Remote only'),
+      },
+    ];
+
+    const preview = buildStoryMergePreview(local, merged, []);
+    const remote = preview.graphs.find((item) => item.id === 'ch_remote');
+    expect(remote?.displayName).toBe('Remote Chapter');
+    expect(remote?.addedNodeIds).toEqual(['n_dialogue', 'n_endnode']);
+    expect(remote?.addedEdgeIds).toHaveLength(1);
+  });
 });

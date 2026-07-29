@@ -294,6 +294,7 @@ export function StoryMerge() {
     applyStoryMerge,
     aiProposal,
     storyMergePreview,
+    storyMergeDecisionRequest,
     showStoryMergePreview,
     clearStoryMergePreview,
     focusStoryMergePreviewNode,
@@ -355,7 +356,7 @@ export function StoryMerge() {
       return;
     }
     try {
-      showStoryMergePreview(mergedStory, conflicts);
+      showStoryMergePreview(mergedStory, conflicts, decisions);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -364,10 +365,21 @@ export function StoryMerge() {
     aiProposal,
     clearStoryMergePreview,
     conflicts,
+    decisions,
     localBase,
     mergedStory,
     showStoryMergePreview,
   ]);
+
+  useEffect(() => {
+    if (!storyMergeDecisionRequest) return;
+    setDecisions((current) => ({
+      ...current,
+      [storyMergeDecisionRequest.id]: storyMergeDecisionRequest.choice,
+    }));
+    setError(undefined);
+    setStatus(undefined);
+  }, [storyMergeDecisionRequest]);
 
   const previewConflict = (conflict: StoryMergeConflict) => {
     const nodeId = conflict.id
@@ -564,7 +576,9 @@ export function StoryMerge() {
               <button
                 type="button"
                 disabled={!mergedStory || Boolean(aiProposal)}
-                onClick={() => mergedStory && showStoryMergePreview(mergedStory, conflicts)}
+                onClick={() =>
+                  mergedStory && showStoryMergePreview(mergedStory, conflicts, decisions)
+                }
               >
                 {storyMergePreview ? 'Refresh Preview' : 'Preview Graph'}
               </button>
