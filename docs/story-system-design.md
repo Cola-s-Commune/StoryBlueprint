@@ -1154,6 +1154,16 @@ Story Merge 列表与画布选择双向同步。字段作出明确选择后仍�
 降级为普通修改色。Previous / Next Conflict 按 Graph 和稳定元素定位遍历尚未解决的节点及连线冲突。
 预览期间禁止节点拖动、连接、布局、删除、粘贴和资源拖入，退出预览后恢复普通编辑。
 
+合并选择不存在隐式默认值：未点击的字段保持 Unresolved，不能因为 UI 默认展示 Local 而被视为作者决定。
+Story 和项目资源都必须依次满足“未解决冲突为 0、Validate & Review 通过、当前审查 Key 未变化”才能 Apply。
+批量操作只填充尚未解决的字段，不覆盖已逐项作出的选择。最终审查汇总 Local / Remote 决策、自动合并
+组、节点与连线新增/修改/删除，以及项目资源写入/删除数量。
+
+Story 预检使用完整项目 Character、Asset、Event、Signal 编译合并结果但不写盘；项目资源预检复用正式
+Apply 的项目索引、Portrait 引用和全 Story 编译校验，但在写入阶段前返回。每个 Git 冲突的 Base / Local /
+Remote Stage 内容生成 SHA-256 Revision；Validate 和 Apply 都重新读取并比较 Revision，Story 最终写文件前
+主进程再次原子检查。任何选择、Story Revision 或 Git Stage 变化都会使旧验证结果失效并要求重新审查。
+
 ---
 
 ## 15. 推荐实现顺序

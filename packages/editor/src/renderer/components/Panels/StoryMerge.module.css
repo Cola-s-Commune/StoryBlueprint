@@ -135,6 +135,21 @@
   color: #d9f0e0;
 }
 
+.review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #343b44;
+  background: #1d2227;
+  color: #8f9aa6;
+  font-size: 9px;
+}
+
+.review strong {
+  color: #cbd4de;
+}
+
 .conflicts {
   display: grid;
   gap: 7px;

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 import type {
@@ -22,6 +23,20 @@ function runGit(args: readonly string[], cwd: string): Promise<string> {
       },
     );
   });
+}
+
+function conflictRevision(
+  base: string | undefined,
+  local: string | undefined,
+  remote: string | undefined,
+): string {
+  const hash = createHash('sha256');
+  for (const value of [base, local, remote]) {
+    hash.update(value === undefined ? 'missing' : `content:${Buffer.byteLength(value, 'utf8')}`);
+    if (value !== undefined) hash.update(value);
+    hash.update('\0');
+  }
+  return hash.digest('hex');
 }
 
 export async function readStoryGitConflict(
@@ -49,7 +64,14 @@ export async function readStoryGitConflict(
   const [base, local, remote] = await Promise.all(
     [1, 2, 3].map((stage) => runGit(['show', `:${stage}:${relativePath}`], repositoryRoot)),
   );
-  return { repositoryRoot, relativePath, base, local, remote };
+  return {
+    repositoryRoot,
+    relativePath,
+    revision: conflictRevision(base, local, remote),
+    base,
+    local,
+    remote,
+  };
 }
 
 function resourceKind(filePath: string): WorkspaceMergeResourceKind | undefined {
@@ -107,6 +129,7 @@ export async function readWorkspaceGitConflicts(
       repositoryRoot,
       relativePath: workspacePath.split(sep).join('/'),
       kind,
+      revision: conflictRevision(base, local, remote),
       base,
       local,
       remote,

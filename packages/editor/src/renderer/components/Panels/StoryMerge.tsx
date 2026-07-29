@@ -9,6 +9,7 @@ import {
   serializeStoryProject,
   type AssetSource,
   type CharacterSource,
+  type SourceEdge,
   type StoryProjectDocument,
   type StorySourceDocument,
 } from '@story-blueprint/common';
@@ -40,6 +41,50 @@ function valueText(value: unknown, present: boolean): string {
   if (typeof value === 'string') return value || '(empty string)';
   if (value === undefined) return '(undefined)';
   return JSON.stringify(value, null, 2);
+}
+
+function summarizeGraphChanges(
+  local: MergeableStoryDocument | undefined,
+  merged: MergeableStoryDocument | undefined,
+) {
+  const summary = {
+    addedNodes: 0,
+    changedNodes: 0,
+    removedNodes: 0,
+    addedEdges: 0,
+    removedEdges: 0,
+  };
+  if (!local || !merged) return summary;
+  const localGraphs = new Map([
+    ['root', local.root] as const,
+    ...local.chapters.map((chapter) => [chapter.id, chapter.graph] as const),
+  ]);
+  const mergedGraphs = new Map([
+    ['root', merged.root] as const,
+    ...merged.chapters.map((chapter) => [chapter.id, chapter.graph] as const),
+  ]);
+  const graphIds = [...localGraphs.keys(), ...mergedGraphs.keys()].filter(
+    (id, index, all) => all.indexOf(id) === index,
+  );
+  const edgeKey = (edge: SourceEdge) =>
+    `${edge.from.nodeId}:${edge.from.portId}>${edge.to.nodeId}:${edge.to.portId}`;
+  for (const graphId of graphIds) {
+    const before = localGraphs.get(graphId) ?? { nodes: [], edges: [] };
+    const after = mergedGraphs.get(graphId) ?? { nodes: [], edges: [] };
+    const beforeNodes = new Map(before.nodes.map((node) => [node.id, node] as const));
+    const afterNodes = new Map(after.nodes.map((node) => [node.id, node] as const));
+    summary.addedNodes += after.nodes.filter((node) => !beforeNodes.has(node.id)).length;
+    summary.removedNodes += before.nodes.filter((node) => !afterNodes.has(node.id)).length;
+    summary.changedNodes += after.nodes.filter((node) => {
+      const previous = beforeNodes.get(node.id);
+      return previous !== undefined && JSON.stringify(previous) !== JSON.stringify(node);
+    }).length;
+    const beforeEdges = new Set(before.edges.map(edgeKey));
+    const afterEdges = new Set(after.edges.map(edgeKey));
+    summary.addedEdges += [...afterEdges].filter((key) => !beforeEdges.has(key)).length;
+    summary.removedEdges += [...beforeEdges].filter((key) => !afterEdges.has(key)).length;
+  }
+  return summary;
 }
 
 type ProjectMergeValue = StoryProjectDocument | CharacterSource | AssetSource;
@@ -84,12 +129,14 @@ function compareProjectMergeFile(file: ProjectMergeFile) {
 }
 
 function ProjectResourceMerge() {
-  const { workspace, applyWorkspaceMerge } = useStoryGraphStore();
+  const { workspace, validateWorkspaceMerge, applyWorkspaceMerge } = useStoryGraphStore();
   const [files, setFiles] = useState<ProjectMergeFile[]>([]);
   const [decisions, setDecisions] = useState<Record<string, StoryMergeChoice>>({});
   const [error, setError] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [applying, setApplying] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validatedKey, setValidatedKey] = useState('');
   const comparisons = useMemo(
     () =>
       files.map((file) => ({
@@ -100,6 +147,32 @@ function ProjectResourceMerge() {
   );
   const conflicts = comparisons.flatMap(({ diff }) => diff.conflicts);
   const autoChangeCount = comparisons.reduce((count, { diff }) => count + diff.autoChangeCount, 0);
+  const unresolvedCount = conflicts.filter(
+    (conflict) => decisions[conflict.id] === undefined,
+  ).length;
+  const resolvedCount = conflicts.length - unresolvedCount;
+  const mergedFiles = useMemo(
+    () =>
+      files.map((file) => {
+        const root = projectMergeRoot(file);
+        const merged = file.atomic
+          ? decisions[root] === 'remote'
+            ? file.remote
+            : file.local
+          : mergeThreeWayOptionalValues(file.base, file.local, file.remote, decisions, root);
+        return {
+          relativePath: file.stages.relativePath,
+          kind: file.stages.kind,
+          conflictRevision: file.stages.revision,
+          ...(merged
+            ? { content: serializeProjectMergeValue(file.stages.kind, merged) }
+            : { delete: true }),
+        };
+      }),
+    [decisions, files],
+  );
+  const reviewKey = useMemo(() => JSON.stringify(mergedFiles), [mergedFiles]);
+  const validated = Boolean(validatedKey && validatedKey === reviewKey);
 
   const load = async () => {
     if (!window.electronAPI) return;
@@ -116,6 +189,7 @@ function ProjectResourceMerge() {
       });
       setFiles(next);
       setDecisions({});
+      setValidatedKey('');
       if (next.length === 0) setStatus('No supported project resource conflicts were found.');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -129,38 +203,45 @@ function ProjectResourceMerge() {
   };
 
   const chooseAll = (choice: StoryMergeChoice) => {
-    setDecisions(Object.fromEntries(conflicts.map((conflict) => [conflict.id, choice])));
+    setDecisions((current) =>
+      Object.fromEntries(
+        conflicts.map((conflict) => [conflict.id, current[conflict.id] ?? choice]),
+      ),
+    );
     setError(undefined);
     setStatus(undefined);
   };
 
+  const validate = async () => {
+    if (files.length === 0 || unresolvedCount > 0) return;
+    setValidating(true);
+    setError(undefined);
+    try {
+      const result = await validateWorkspaceMerge(mergedFiles);
+      if (!result.ok) {
+        setValidatedKey('');
+        setError(result.message);
+        return;
+      }
+      setValidatedKey(reviewKey);
+      setStatus('Project resource merge is valid and ready to apply.');
+    } finally {
+      setValidating(false);
+    }
+  };
+
   const apply = async () => {
-    if (files.length === 0) return;
+    if (files.length === 0 || unresolvedCount > 0 || !validated) return;
     setApplying(true);
     try {
-      const result = await applyWorkspaceMerge(
-        files.map((file) => {
-          const root = projectMergeRoot(file);
-          const merged = file.atomic
-            ? decisions[root] === 'remote'
-              ? file.remote
-              : file.local
-            : mergeThreeWayOptionalValues(file.base, file.local, file.remote, decisions, root);
-          return {
-            relativePath: file.stages.relativePath,
-            kind: file.stages.kind,
-            ...(merged
-              ? { content: serializeProjectMergeValue(file.stages.kind, merged) }
-              : { delete: true }),
-          };
-        }),
-      );
+      const result = await applyWorkspaceMerge(mergedFiles);
       if (!result.ok) {
         setError(result.message);
         return;
       }
       setFiles([]);
       setDecisions({});
+      setValidatedKey('');
       setError(undefined);
       setStatus(
         'Project resources were validated and saved. Git staging remains under your control.',
@@ -207,23 +288,48 @@ function ProjectResourceMerge() {
               <span>true conflicts</span>
             </div>
             <div>
+              <strong>
+                {resolvedCount}/{conflicts.length}
+              </strong>
+              <span>resolved</span>
+            </div>
+            <div>
               <strong>{autoChangeCount}</strong>
               <span>auto merged</span>
             </div>
             <button type="button" onClick={() => chooseAll('local')}>
-              All Local
+              Resolve Remaining Local
             </button>
             <button type="button" onClick={() => chooseAll('remote')}>
-              All Remote
+              Resolve Remaining Remote
+            </button>
+            <button
+              type="button"
+              disabled={unresolvedCount > 0 || validating || validated}
+              onClick={() => void validate()}
+            >
+              {validating ? 'Validating…' : validated ? 'Validated' : 'Validate & Review'}
             </button>
             <button
               type="button"
               className={styles.applyButton}
-              disabled={applying}
+              disabled={applying || unresolvedCount > 0 || !validated}
               onClick={() => void apply()}
             >
               {applying ? 'Saving…' : 'Apply Project Merge'}
             </button>
+          </div>
+          <div className={styles.review}>
+            <strong>Project merge review</strong>
+            <span>
+              Files: {mergedFiles.filter((file) => !('delete' in file && file.delete)).length} write
+              · {mergedFiles.filter((file) => 'delete' in file && file.delete).length} delete
+            </span>
+            <span>
+              Conflicts: {resolvedCount} resolved · {unresolvedCount} unresolved
+            </span>
+            <span>Automatic change groups: {autoChangeCount}</span>
+            <span>Validation: {validated ? 'passed' : 'required before Apply'}</span>
           </div>
           {conflicts.length === 0 ? (
             <div className={styles.empty}>
@@ -232,7 +338,7 @@ function ProjectResourceMerge() {
           ) : (
             <div className={styles.conflicts}>
               {conflicts.map((conflict) => {
-                const choice = decisions[conflict.id] ?? 'local';
+                const choice = decisions[conflict.id];
                 const file = files.find((candidate) =>
                   conflict.id.startsWith(projectMergeRoot(candidate)),
                 );
@@ -291,6 +397,7 @@ export function StoryMerge() {
     document,
     source,
     semanticSnapshot,
+    validateStoryMerge,
     applyStoryMerge,
     aiProposal,
     storyMergePreview,
@@ -309,6 +416,9 @@ export function StoryMerge() {
   const [status, setStatus] = useState<string>();
   const [mode, setMode] = useState<'two-way' | 'git-three-way'>('two-way');
   const [applying, setApplying] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validatedKey, setValidatedKey] = useState('');
+  const [gitConflictRevision, setGitConflictRevision] = useState('');
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
   const threeWayDiff = useMemo(
     () =>
@@ -340,6 +450,13 @@ export function StoryMerge() {
   const remoteChoiceCount = conflicts.filter(
     (conflict) => decisions[conflict.id] === 'remote',
   ).length;
+  const localChoiceCount = conflicts.filter(
+    (conflict) => decisions[conflict.id] === 'local',
+  ).length;
+  const unresolvedCount = conflicts.filter(
+    (conflict) => decisions[conflict.id] === undefined,
+  ).length;
+  const resolvedCount = conflicts.length - unresolvedCount;
   const stale = Boolean(baseRevision && baseRevision !== semanticSnapshot.revision);
   const hasMergedChanges = Boolean(
     localBase && mergedProjection && JSON.stringify(localBase) !== JSON.stringify(mergedProjection),
@@ -348,6 +465,23 @@ export function StoryMerge() {
   const mergedStory = useMemo(
     () => (mergedProjection ? applyMergedStory(source, mergedProjection) : undefined),
     [mergedProjection, source],
+  );
+  const reviewKey = useMemo(
+    () =>
+      mergedStory
+        ? JSON.stringify({
+            baseRevision,
+            gitConflictRevision,
+            decisions,
+            mergedStory,
+          })
+        : '',
+    [baseRevision, decisions, gitConflictRevision, mergedStory],
+  );
+  const validated = Boolean(validatedKey && validatedKey === reviewKey);
+  const graphReview = useMemo(
+    () => summarizeGraphChanges(localBase, mergedProjection),
+    [localBase, mergedProjection],
   );
 
   useEffect(() => {
@@ -401,9 +535,47 @@ export function StoryMerge() {
   };
 
   const chooseAll = (choice: StoryMergeChoice) => {
-    setDecisions(Object.fromEntries(conflicts.map((conflict) => [conflict.id, choice])));
+    setDecisions((current) =>
+      Object.fromEntries(
+        conflicts.map((conflict) => [conflict.id, current[conflict.id] ?? choice]),
+      ),
+    );
     setError(undefined);
     setStatus(undefined);
+  };
+
+  const ensureGitComparisonFresh = async () => {
+    if (mode !== 'git-three-way') return true;
+    if (!window.electronAPI || !document.filePath || !document.fileToken) return false;
+    const current = await window.electronAPI.readStoryGitConflict(
+      document.filePath,
+      document.fileToken,
+    );
+    if (!current || current.revision !== gitConflictRevision) {
+      setValidatedKey('');
+      setError('Git conflict stages changed. Reload Story Merge before continuing.');
+      return false;
+    }
+    return true;
+  };
+
+  const validate = async () => {
+    if (!mergedStory || stale || unresolvedCount > 0) return;
+    setValidating(true);
+    setError(undefined);
+    try {
+      if (!(await ensureGitComparisonFresh())) return;
+      const result = validateStoryMerge(mergedStory);
+      if (!result.ok) {
+        setValidatedKey('');
+        setError(result.message);
+        return;
+      }
+      setValidatedKey(reviewKey);
+      setStatus('Merge compiles successfully and is ready to apply.');
+    } finally {
+      setValidating(false);
+    }
   };
 
   const compareStory = async () => {
@@ -462,6 +634,8 @@ export function StoryMerge() {
         setBaseRevision(semanticSnapshot.revision);
         setDecisions({});
         setMode('git-three-way');
+        setGitConflictRevision(stages.revision);
+        setValidatedKey('');
         return;
       }
       if (document.gitConflict) {
@@ -484,6 +658,8 @@ export function StoryMerge() {
       setBaseRevision(semanticSnapshot.revision);
       setDecisions({});
       setMode('two-way');
+      setGitConflictRevision('');
+      setValidatedKey('');
       setStatus(undefined);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -491,10 +667,14 @@ export function StoryMerge() {
   };
 
   const apply = async () => {
-    if (!mergedProjection || !localBase || stale) return;
+    if (!mergedProjection || !localBase || stale || unresolvedCount > 0 || !validated) return;
     setApplying(true);
     try {
-      const result = await applyStoryMerge(mergedStory!);
+      if (!(await ensureGitComparisonFresh())) return;
+      const result = await applyStoryMerge(
+        mergedStory!,
+        mode === 'git-three-way' ? gitConflictRevision : undefined,
+      );
       if (!result.ok) {
         setError(result.message);
         return;
@@ -505,6 +685,8 @@ export function StoryMerge() {
       setRemotePath('');
       setBaseRevision('');
       setDecisions({});
+      setValidatedKey('');
+      setGitConflictRevision('');
       setError(undefined);
       setStatus('Merge validated, applied, and saved. Git staging remains under your control.');
     } catch (nextError) {
@@ -557,8 +739,16 @@ export function StoryMerge() {
                 <span>differences</span>
               </div>
               <div>
-                <strong>{remoteChoiceCount}</strong>
-                <span>using Remote</span>
+                <strong>
+                  {resolvedCount}/{conflicts.length}
+                </strong>
+                <span>resolved</span>
+              </div>
+              <div>
+                <strong>
+                  {localChoiceCount}/{remoteChoiceCount}
+                </strong>
+                <span>Local / Remote</span>
               </div>
               {threeWayDiff && (
                 <div>
@@ -568,10 +758,10 @@ export function StoryMerge() {
               )}
               <code title={remotePath}>{remotePath}</code>
               <button type="button" onClick={() => chooseAll('local')}>
-                All Local
+                Resolve Remaining Local
               </button>
               <button type="button" onClick={() => chooseAll('remote')}>
-                All Remote
+                Resolve Remaining Remote
               </button>
               <button
                 type="button"
@@ -584,19 +774,53 @@ export function StoryMerge() {
               </button>
               <button
                 type="button"
+                disabled={
+                  stale ||
+                  unresolvedCount > 0 ||
+                  validating ||
+                  validated ||
+                  (!hasMergedChanges && mode !== 'git-three-way')
+                }
+                onClick={() => void validate()}
+              >
+                {validating ? 'Validating…' : validated ? 'Validated' : 'Validate & Review'}
+              </button>
+              <button
+                type="button"
                 className={styles.applyButton}
-                disabled={stale || (!hasMergedChanges && mode !== 'git-three-way') || applying}
+                disabled={
+                  stale ||
+                  unresolvedCount > 0 ||
+                  !validated ||
+                  (!hasMergedChanges && mode !== 'git-three-way') ||
+                  applying
+                }
                 onClick={() => void apply()}
               >
                 {applying ? 'Saving…' : 'Apply & Save'}
               </button>
+            </div>
+            <div className={styles.review}>
+              <strong>Final review</strong>
+              <span>
+                Manual: {localChoiceCount} Local · {remoteChoiceCount} Remote · {unresolvedCount}{' '}
+                unresolved
+              </span>
+              <span>
+                Nodes: +{graphReview.addedNodes} · ~{graphReview.changedNodes} · −
+                {graphReview.removedNodes}
+              </span>
+              <span>
+                Connections: +{graphReview.addedEdges} · −{graphReview.removedEdges}
+              </span>
+              <span>Validation: {validated ? 'passed' : 'required before Apply'}</span>
             </div>
             {conflicts.length === 0 ? (
               <div className={styles.empty}>The two Story files are semantically identical.</div>
             ) : (
               <div className={styles.conflicts}>
                 {conflicts.map((conflict) => {
-                  const choice = decisions[conflict.id] ?? 'local';
+                  const choice = decisions[conflict.id];
                   const localText = valueText(conflict.localValue, conflict.kind !== 'remote-only');
                   const remoteText = valueText(
                     conflict.remoteValue,

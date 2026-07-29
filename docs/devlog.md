@@ -60,6 +60,7 @@ npm run dev
 - Project Resource Merge 支持缺失 Git Stage：Add/Add 可按稳定 ID 字段合并或整文件选择，Modify/Delete 明确显示 Keep/Delete；新增、覆盖和删除参与同一批验证与失败恢复，仍由作者决定何时 Git Stage。
 - Story Merge 新增只读 Graph Preview：合并选择实时投影到画布，新增/修改/删除/冲突节点及连线分别着色，删除内容以幽灵元素保留；冲突列表可一键切换 Main Story / Substory 并聚焦稳定 Node ID，预览期间所有图编辑操作被锁定。
 - Graph Preview 升级为交互式合并器：点击冲突节点或连线即可逐字段选择 Local / Remote，与 Story Merge 列表实时同步；已解决元素自动退出冲突色，Previous/Next 仅遍历未解决项，并支持在不写入本地章节的情况下浏览远端新增 Substory。
+- Story / Project Merge 增加完成门禁与 Final Review：未决字段不再隐式采用 Local，冲突归零并通过非写入式完整预检后才可 Apply；验证绑定当前选择、Story Revision 和 Git 三阶段 SHA-256 指纹，外部 Git 变化会拒绝旧审查结果。
 - 多选外框遮罩支持 Ctrl+左键穿透命中单个节点，在当前选择中切换移除 / 加回，并同步更新相关内部连线选择。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。

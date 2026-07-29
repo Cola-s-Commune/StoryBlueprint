@@ -11,6 +11,7 @@ export type OpenStoryResult =
 export interface StoryGitConflictStages {
   repositoryRoot: string;
   relativePath: string;
+  revision: string;
   base: string;
   local: string;
   remote: string;
@@ -22,6 +23,7 @@ export interface WorkspaceGitConflictStages {
   repositoryRoot: string;
   relativePath: string;
   kind: WorkspaceMergeResourceKind;
+  revision: string;
   base?: string;
   local?: string;
   remote?: string;
@@ -30,6 +32,7 @@ export interface WorkspaceGitConflictStages {
 export interface ApplyWorkspaceMergeFile {
   relativePath: string;
   kind: WorkspaceMergeResourceKind;
+  conflictRevision: string;
   content?: string;
   delete?: boolean;
 }
@@ -39,6 +42,7 @@ export interface SaveStoryRequest {
   fileToken?: string;
   content: string;
   saveAs?: boolean;
+  gitConflictRevision?: string;
 }
 
 export type SaveStoryResult =
@@ -207,6 +211,7 @@ export interface ElectronAPI {
     fileToken: string,
   ) => Promise<StoryGitConflictStages | undefined>;
   readWorkspaceGitConflicts: () => Promise<WorkspaceGitConflictStages[]>;
+  validateWorkspaceMerge: (files: ApplyWorkspaceMergeFile[]) => Promise<void>;
   applyWorkspaceMerge: (files: ApplyWorkspaceMergeFile[]) => Promise<WorkspaceInfo>;
   saveStory: (request: SaveStoryRequest) => Promise<SaveStoryResult>;
   revealStory: (filePath: string, fileToken: string) => Promise<void>;

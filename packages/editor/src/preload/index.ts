@@ -11,6 +11,7 @@ const electronAPI = {
   readStoryGitConflict: (filePath, fileToken) =>
     ipcRenderer.invoke('story:read-git-conflict', filePath, fileToken),
   readWorkspaceGitConflicts: () => ipcRenderer.invoke('workspace:read-git-conflicts'),
+  validateWorkspaceMerge: (files) => ipcRenderer.invoke('workspace:validate-merge', files),
   applyWorkspaceMerge: (files) => ipcRenderer.invoke('workspace:apply-merge', files),
   saveStory: (request) => ipcRenderer.invoke('story:save', request),
   revealStory: (filePath, fileToken) => ipcRenderer.invoke('story:reveal', filePath, fileToken),

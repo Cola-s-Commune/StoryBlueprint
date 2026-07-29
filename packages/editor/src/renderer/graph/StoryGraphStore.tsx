@@ -403,6 +403,13 @@ interface StoryGraphStoreValue {
   ) => { ok: true } | { ok: false; message: string };
   applyStoryMerge: (
     merged: StorySourceDocument,
+    gitConflictRevision?: string,
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  validateStoryMerge: (
+    merged: StorySourceDocument,
+  ) => { ok: true } | { ok: false; message: string };
+  validateWorkspaceMerge: (
+    files: ApplyWorkspaceMergeFile[],
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
   applyWorkspaceMerge: (
     files: ApplyWorkspaceMergeFile[],
@@ -1126,8 +1133,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [checkpoint, graph, markDirty, restoreGraph],
   );
 
-  const applyStoryMerge = useCallback(
-    async (merged: StorySourceDocument): Promise<{ ok: true } | { ok: false; message: string }> => {
+  const validateStoryMerge = useCallback(
+    (merged: StorySourceDocument): { ok: true } | { ok: false; message: string } => {
       if (merged.id !== source.id) {
         return { ok: false, message: 'The merge result belongs to a different Story.' };
       }
@@ -1145,6 +1152,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           message: errors.map((diagnostic) => diagnostic.message).join('\n'),
         };
       }
+      return { ok: true };
+    },
+    [events, resolvedAssets, resolvedCharacters, signals, source.id],
+  );
+
+  const applyStoryMerge = useCallback(
+    async (
+      merged: StorySourceDocument,
+      gitConflictRevision?: string,
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      const validation = validateStoryMerge(merged);
+      if (!validation.ok) return validation;
       const nextRoot = fromSourceGraph(merged.root);
       const nextChapters: EditorChapter[] = merged.chapters.map((chapter) => ({
         ...structuredClone(chapter),
@@ -1167,6 +1186,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           filePath: document.filePath,
           fileToken: document.fileToken,
           content: serializeStorySource(merged),
+          gitConflictRevision,
         });
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
@@ -1195,12 +1215,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       checkpoint,
       document.filePath,
       document.fileToken,
-      events,
       resolvedAssets,
       resolvedCharacters,
       restoreGraph,
-      signals,
       source.id,
+      validateStoryMerge,
     ],
   );
 
@@ -2370,6 +2389,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const validateWorkspaceMerge = useCallback(async (files: ApplyWorkspaceMergeFile[]) => {
+    if (!window.electronAPI) {
+      return { ok: false as const, message: 'Project resource validation requires Electron.' };
+    }
+    try {
+      await window.electronAPI.validateWorkspaceMerge(files);
+      return { ok: true as const };
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, []);
+
   const updateProjectSettings = useCallback(
     async (settings: { entryStoryId?: StoryId; outputDirectory?: string }) => {
       if (!window.electronAPI || !workspace?.project) return;
@@ -2763,6 +2797,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       mergeSelectedDialogues,
       splitDialogueLines,
       applyStoryMerge,
+      validateStoryMerge,
+      validateWorkspaceMerge,
       applyWorkspaceMerge,
       addVariable,
       updateVariable,
@@ -2934,6 +2970,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       mergeSelectedDialogues,
       splitDialogueLines,
       applyStoryMerge,
+      validateStoryMerge,
+      validateWorkspaceMerge,
       applyWorkspaceMerge,
     ],
   );

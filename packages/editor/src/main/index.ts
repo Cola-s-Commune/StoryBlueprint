@@ -374,7 +374,8 @@ function isSaveStoryRequest(value: unknown): value is SaveStoryRequest {
     Buffer.byteLength(request.content, 'utf8') <= MAX_STORY_BYTES &&
     (request.filePath === undefined || typeof request.filePath === 'string') &&
     (request.fileToken === undefined || typeof request.fileToken === 'string') &&
-    (request.saveAs === undefined || typeof request.saveAs === 'boolean')
+    (request.saveAs === undefined || typeof request.saveAs === 'boolean') &&
+    (request.gitConflictRevision === undefined || typeof request.gitConflictRevision === 'string')
   );
 }
 
@@ -583,19 +584,35 @@ function parseWorkspaceMergeFile(file: ApplyWorkspaceMergeFile): unknown {
   return parseAssetResource(file.content);
 }
 
-async function applyWorkspaceMerge(files: ApplyWorkspaceMergeFile[]): Promise<WorkspaceInfo> {
+function isWorkspaceMergeFiles(value: unknown): value is ApplyWorkspaceMergeFile[] {
+  if (!Array.isArray(value) || value.length > MAX_WORKSPACE_ENTRIES) return false;
+  return value.every(
+    (file: Partial<ApplyWorkspaceMergeFile>) =>
+      typeof file.relativePath === 'string' &&
+      typeof file.conflictRevision === 'string' &&
+      (typeof file.content === 'string') !== (file.delete === true) &&
+      (file.kind === 'project' || file.kind === 'character' || file.kind === 'asset'),
+  );
+}
+
+async function applyWorkspaceMerge(
+  files: ApplyWorkspaceMergeFile[],
+  writeChanges = true,
+): Promise<WorkspaceInfo> {
   if (!workspaceRoot || !workspaceProjectFile) throw new Error('Open a Story project first');
   const conflicts = await readWorkspaceGitConflicts(workspaceRoot);
-  const expected = new Map(conflicts.map((conflict) => [conflict.relativePath, conflict.kind]));
+  const expected = new Map(conflicts.map((conflict) => [conflict.relativePath, conflict]));
   if (files.length !== expected.size) {
     throw new Error('The Git conflict set changed. Reload Project Conflicts before applying.');
   }
   const parsed = new Map<string, unknown>();
   const seen = new Set<string>();
   for (const file of files) {
+    const expectedConflict = expected.get(file.relativePath);
     if (
       seen.has(file.relativePath) ||
-      expected.get(file.relativePath) !== file.kind ||
+      expectedConflict?.kind !== file.kind ||
+      expectedConflict.revision !== file.conflictRevision ||
       !['project', 'character', 'asset'].includes(file.kind) ||
       (file.delete === true) === (typeof file.content === 'string')
     ) {
@@ -736,6 +753,8 @@ async function applyWorkspaceMerge(files: ApplyWorkspaceMergeFile[]): Promise<Wo
       }
     }
   }
+
+  if (!writeChanges) return currentWorkspace;
 
   const originals = new Map<string, string | undefined>();
   const written: string[] = [];
@@ -1353,6 +1372,9 @@ function registerStoryFileHandlers(): void {
         ? request.filePath
         : undefined;
     if (!filePath) {
+      if (request.gitConflictRevision) {
+        throw new Error('The conflicted Story file is no longer authorized for merge saving');
+      }
       const result = await dialog.showSaveDialog(mainWindow, {
         title: 'Save Story',
         defaultPath: request.filePath ?? join(app.getPath('documents'), 'untitled.story'),
@@ -1360,6 +1382,12 @@ function registerStoryFileHandlers(): void {
       });
       if (result.canceled || !result.filePath) return { canceled: true };
       filePath = ensureStoryExtension(result.filePath);
+    }
+    if (request.gitConflictRevision) {
+      const conflict = await readStoryGitConflict(filePath);
+      if (!conflict || conflict.revision !== request.gitConflictRevision) {
+        throw new Error('Git conflict stages changed. Reload Story Merge before applying.');
+      }
     }
     await writeFile(filePath, request.content, 'utf8');
     const fileToken = randomUUID();
@@ -1606,22 +1634,18 @@ function registerStoryFileHandlers(): void {
     return readWorkspaceGitConflicts(workspaceRoot);
   });
 
+  ipcMain.handle('workspace:validate-merge', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !isWorkspaceMergeFiles(value)) {
+      throw new Error('Invalid workspace merge request');
+    }
+    await applyWorkspaceMerge(value, false);
+  });
+
   ipcMain.handle('workspace:apply-merge', async (event, value: unknown) => {
-    if (!isTrustedSender(event) || !Array.isArray(value) || value.length > MAX_WORKSPACE_ENTRIES) {
+    if (!isTrustedSender(event) || !isWorkspaceMergeFiles(value)) {
       throw new Error('Invalid workspace merge request');
     }
-    const files = value as Partial<ApplyWorkspaceMergeFile>[];
-    if (
-      files.some(
-        (file) =>
-          typeof file.relativePath !== 'string' ||
-          (typeof file.content === 'string') === (file.delete === true) ||
-          (file.kind !== 'project' && file.kind !== 'character' && file.kind !== 'asset'),
-      )
-    ) {
-      throw new Error('Invalid workspace merge request');
-    }
-    return applyWorkspaceMerge(files as ApplyWorkspaceMergeFile[]);
+    return applyWorkspaceMerge(value);
   });
 
   ipcMain.handle('workspace:reveal-item', async (event, relativePath: unknown) => {

@@ -57,6 +57,7 @@ describe('Story Git conflict stages', () => {
     expect(conflict?.repositoryRoot.replaceAll('\\', '/').toLowerCase()).toBe(
       repository.replaceAll('\\', '/').toLowerCase(),
     );
+    expect(conflict?.revision).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('returns undefined for a Story without an unmerged index entry', async () => {
@@ -105,6 +106,7 @@ describe('Story Git conflict stages', () => {
     expect(conflicts.every((conflict) => conflict.base === 'base\n')).toBe(true);
     expect(conflicts.every((conflict) => conflict.local === 'local\n')).toBe(true);
     expect(conflicts.every((conflict) => conflict.remote === 'remote\n')).toBe(true);
+    expect(conflicts.every((conflict) => /^[a-f0-9]{64}$/.test(conflict.revision))).toBe(true);
   });
 
   it('preserves missing stages for modify/delete and add/add conflicts', async () => {

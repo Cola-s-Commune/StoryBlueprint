@@ -805,6 +805,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] Git Add/Add、Modify/Delete 类型的项目资源冲突可视化 Keep/Delete 处理
 - [x] Story Merge 只读 Graph Preview：节点与连线新增、修改、删除、冲突高亮，冲突列表联动切图聚焦
 - [x] Graph Preview 内直接处理节点/连线冲突、Previous/Next 导航及远端新增 Substory 虚拟 Graph
+- [x] 合并完成门禁：显式冲突归零、最终变更审查、非写入式预检及 Git Stage 指纹失效保护
 - [ ] Multi-user
 
 ---
