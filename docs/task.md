@@ -671,7 +671,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Typed Story Graph Schema
 - [x] 面向 AI 的精简语义视图（不包含坐标、Definition Version 和 UI 状态）
 - [x] AI Snapshot / Revision 使用项目解析后的角色、资产、事件和信号视图
-- [ ] 按 Chapter / Subgraph 构建局部上下文
+- [x] 按选中节点 / 当前 Graph / 整个 Story 构建上下文（选中范围包含一跳边界节点）
 - [x] 确定性 Semantic Revision / Conflict Detection
 
 ---
@@ -716,7 +716,8 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [ ] 删除与改型前引用检查
 - [x] Transaction 内 Operation ID 去重
 - [ ] 跨请求 Operation ID 幂等记录
-- [ ] 内置模型 Provider、凭据配置与流式命令生成
+- [x] 内置 OpenAI-compatible Provider、系统安全凭据、取消 / 诊断重试与生成后自动 Dry Run
+- [ ] 流式命令生成与更多 Provider Adapter
 
 ---
 

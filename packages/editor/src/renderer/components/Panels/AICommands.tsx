@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_EXAMPLE,
@@ -11,6 +11,7 @@ import {
   type StorySemanticSnapshot,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import type { AIProviderSettings, AIStructuredOutputMode } from '../../../shared/electronApi';
 import { CopyButton } from './CopyButton';
 import panelStyles from './Panel.module.css';
 import styles from './AICommands.module.css';
@@ -24,6 +25,15 @@ interface SemanticDiff {
   changedNodes: string[];
   addedConnections: string[];
   removedConnections: string[];
+}
+
+type AIContextScope = 'selection' | 'graph' | 'story';
+
+interface AIProviderDraft {
+  endpoint: string;
+  model: string;
+  timeoutSeconds: number;
+  structuredOutput: AIStructuredOutputMode;
 }
 
 function graphKey(graph: StorySemanticSnapshot['graphs'][number]): string {
@@ -174,7 +184,48 @@ function commandTemplate(revision: string): string {
   );
 }
 
-function aiContext(snapshot: StorySemanticSnapshot): string {
+function scopedSnapshot(
+  snapshot: StorySemanticSnapshot,
+  scope: AIContextScope,
+  activeGraphId: string,
+  selectedNodeIds: readonly string[],
+): StorySemanticSnapshot {
+  if (scope === 'story') return snapshot;
+  const activeGraph = snapshot.graphs.find((graph) =>
+    activeGraphId === 'root'
+      ? graph.kind === 'root'
+      : graph.kind === 'chapter' && graph.chapterId === activeGraphId,
+  );
+  if (!activeGraph) return { ...snapshot, graphs: [] };
+  if (scope === 'graph') return { ...snapshot, graphs: [activeGraph] };
+
+  const selectedIds = new Set(selectedNodeIds);
+  const includedIds = new Set(selectedNodeIds);
+  for (const connection of activeGraph.connections) {
+    if (selectedIds.has(connection.from.nodeId) || selectedIds.has(connection.to.nodeId)) {
+      includedIds.add(connection.from.nodeId);
+      includedIds.add(connection.to.nodeId);
+    }
+  }
+  return {
+    ...snapshot,
+    graphs: [
+      {
+        ...activeGraph,
+        nodes: activeGraph.nodes.filter((node) => includedIds.has(node.id)),
+        connections: activeGraph.connections.filter(
+          (connection) =>
+            includedIds.has(connection.from.nodeId) && includedIds.has(connection.to.nodeId),
+        ),
+      },
+    ],
+  };
+}
+
+function aiContext(
+  snapshot: StorySemanticSnapshot,
+  scope?: { kind: AIContextScope; activeGraphId: string; selectedNodeIds: readonly string[] },
+): string {
   const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
   return [
     'Edit this Story Blueprint using only a Blueprint Command transaction.',
@@ -187,6 +238,15 @@ function aiContext(snapshot: StorySemanticSnapshot): string {
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
+    ...(scope
+      ? [
+          `The provided context scope is ${scope.kind}.`,
+          `All operations MUST target the active graph: ${scope.activeGraphId === 'root' ? '{ "kind": "root" }' : `{ "kind": "chapter", "chapterId": "${scope.activeGraphId}" }`}. Other graphs are read-only context.`,
+          scope.kind === 'selection'
+            ? `The explicitly selected node IDs are: ${scope.selectedNodeIds.join(', ')}. Neighbor nodes are included only to show connection boundaries.`
+            : '',
+        ].filter(Boolean)
+      : []),
     '',
     'BLUEPRINT COMMAND JSON SCHEMA:',
     JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2),
@@ -225,20 +285,44 @@ function diagnosticText(result: BlueprintTransactionResult | undefined): string 
 }
 
 export function AICommands() {
-  const { hasActiveStory, semanticSnapshot, executeBlueprintCommands } = useStoryGraphStore();
+  const { hasActiveStory, semanticSnapshot, executeBlueprintCommands, activeGraphId, nodes } =
+    useStoryGraphStore();
   const [commandText, setCommandText] = useState(() => commandTemplate(semanticSnapshot.revision));
   const [result, setResult] = useState<BlueprintTransactionResult>();
   const [previewBase, setPreviewBase] = useState<StorySemanticSnapshot>();
   const [dryRunToken, setDryRunToken] = useState<string>();
   const [clipboardError, setClipboardError] = useState<string>();
   const [localError, setLocalError] = useState<string>();
+  const [instruction, setInstruction] = useState('');
+  const [contextScope, setContextScope] = useState<AIContextScope>('graph');
+  const [providerSettings, setProviderSettings] = useState<AIProviderSettings>();
+  const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
+  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [showProviderSettings, setShowProviderSettings] = useState(false);
+  const [providerError, setProviderError] = useState<string>();
+  const [providerStatus, setProviderStatus] = useState<string>();
+  const [generating, setGenerating] = useState(false);
+  const requestIdRef = useRef<string>();
+  const selectedNodeIds = useMemo(
+    () => nodes.filter((node) => node.selected).map((node) => node.id),
+    [nodes],
+  );
+  const scopedSemanticSnapshot = useMemo(
+    () => scopedSnapshot(semanticSnapshot, contextScope, activeGraphId, selectedNodeIds),
+    [activeGraphId, contextScope, selectedNodeIds, semanticSnapshot],
+  );
   const snapshotText = useMemo(() => JSON.stringify(semanticSnapshot, null, 2), [semanticSnapshot]);
-  const contextText = useMemo(() => aiContext(semanticSnapshot), [semanticSnapshot]);
+  const contextText = useMemo(
+    () => aiContext(scopedSemanticSnapshot, { kind: contextScope, activeGraphId, selectedNodeIds }),
+    [activeGraphId, contextScope, scopedSemanticSnapshot, selectedNodeIds],
+  );
   const schemaText = useMemo(() => JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2), []);
   const currentToken = `${semanticSnapshot.revision}\n${commandText}`;
   const isDryRunCurrent = dryRunToken === currentToken;
   const diff = result?.ok && previewBase ? semanticDiff(previewBase, result.snapshot) : undefined;
-  const errors = [clipboardError, localError, diagnosticText(result)].filter(Boolean).join('\n');
+  const errors = [providerError, clipboardError, localError, diagnosticText(result)]
+    .filter(Boolean)
+    .join('\n');
   const retryContext = errors
     ? [
         'Your previous Story Blueprint command was rejected.',
@@ -259,6 +343,30 @@ export function AICommands() {
     setDryRunToken(undefined);
   }, [semanticSnapshot.revision]);
 
+  useEffect(() => {
+    let disposed = false;
+    void window.electronAPI
+      ?.getAIProviderSettings()
+      .then((settings) => {
+        if (disposed) return;
+        setProviderSettings(settings);
+        setProviderDraft({
+          endpoint: settings.endpoint,
+          model: settings.model,
+          timeoutSeconds: settings.timeoutMs / 1_000,
+          structuredOutput: settings.structuredOutput,
+        });
+        setShowProviderSettings(!settings.model);
+      })
+      .catch((error) => {
+        if (!disposed) setProviderError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      disposed = true;
+      if (requestIdRef.current) window.electronAPI?.cancelAICommand(requestIdRef.current);
+    };
+  }, []);
+
   const parseCommand = (): unknown => {
     setLocalError(undefined);
     try {
@@ -269,14 +377,23 @@ export function AICommands() {
     }
   };
 
-  const dryRun = () => {
-    const command = parseCommand();
+  const dryRunText = (text: string) => {
+    setLocalError(undefined);
+    let command: unknown;
+    try {
+      command = JSON.parse(text) as unknown;
+    } catch (error) {
+      setLocalError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     if (command === undefined) return;
     const next = executeBlueprintCommands(command, { dryRun: true });
     setResult(next);
     setPreviewBase(semanticSnapshot);
-    setDryRunToken(next.ok ? currentToken : undefined);
+    setDryRunToken(next.ok ? `${semanticSnapshot.revision}\n${text}` : undefined);
   };
+
+  const dryRun = () => dryRunText(commandText);
 
   const apply = () => {
     if (dryRunToken !== currentToken) return;
@@ -285,6 +402,71 @@ export function AICommands() {
     const next = executeBlueprintCommands(command);
     setResult(next);
     setDryRunToken(undefined);
+  };
+
+  const saveProviderSettings = async (apiKey?: string) => {
+    if (!providerDraft || !window.electronAPI) return;
+    setProviderError(undefined);
+    try {
+      const settings = await window.electronAPI.updateAIProviderSettings({
+        endpoint: providerDraft.endpoint,
+        model: providerDraft.model,
+        timeoutMs: Math.round(providerDraft.timeoutSeconds * 1_000),
+        structuredOutput: providerDraft.structuredOutput,
+        ...(apiKey === undefined ? {} : { apiKey }),
+      });
+      setProviderSettings(settings);
+      setProviderDraft({
+        endpoint: settings.endpoint,
+        model: settings.model,
+        timeoutSeconds: settings.timeoutMs / 1_000,
+        structuredOutput: settings.structuredOutput,
+      });
+      setApiKeyDraft('');
+      setProviderStatus(apiKey === '' ? 'API Key removed' : 'Provider settings saved');
+      if (settings.model) setShowProviderSettings(false);
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const generate = async (retry = false) => {
+    if (!window.electronAPI) {
+      setProviderError('AI generation is available only in the desktop editor');
+      return;
+    }
+    if (!instruction.trim()) {
+      setProviderError('Describe the Story change you want');
+      return;
+    }
+    if (contextScope === 'selection' && selectedNodeIds.length === 0) {
+      setProviderError('Select one or more nodes, or choose Current Graph / Whole Story');
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    requestIdRef.current = requestId;
+    setGenerating(true);
+    setProviderError(undefined);
+    setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Generating command…');
+    try {
+      const response = await window.electronAPI.generateAICommand({
+        requestId,
+        instruction: retry
+          ? `Correct the rejected command for this request: ${instruction.trim()}`
+          : instruction.trim(),
+        context: retry && retryContext ? retryContext : contextText,
+        schema: BLUEPRINT_COMMAND_JSON_SCHEMA,
+      });
+      setCommandText(response.content);
+      setProviderStatus(`Generated${response.model ? ` with ${response.model}` : ''} · reviewing`);
+      dryRunText(response.content);
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
+      setProviderStatus(undefined);
+    } finally {
+      if (requestIdRef.current === requestId) requestIdRef.current = undefined;
+      setGenerating(false);
+    }
   };
 
   if (!hasActiveStory) {
@@ -299,6 +481,145 @@ export function AICommands() {
 
   return (
     <div className={styles.root}>
+      <section className={styles.requestPane}>
+        <div className={styles.requestHeader}>
+          <strong>Ask AI to edit the Blueprint</strong>
+          <button type="button" onClick={() => setShowProviderSettings((visible) => !visible)}>
+            {showProviderSettings ? 'Hide Provider' : 'Provider Settings'}
+          </button>
+        </div>
+        {showProviderSettings && providerDraft && (
+          <div className={styles.providerSettings}>
+            <label>
+              <span>OpenAI-compatible endpoint</span>
+              <input
+                value={providerDraft.endpoint}
+                onChange={(event) =>
+                  setProviderDraft({ ...providerDraft, endpoint: event.target.value })
+                }
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <label>
+              <span>Model</span>
+              <input
+                value={providerDraft.model}
+                onChange={(event) =>
+                  setProviderDraft({ ...providerDraft, model: event.target.value })
+                }
+                placeholder="Provider model ID"
+              />
+            </label>
+            <label>
+              <span>Timeout (seconds)</span>
+              <input
+                type="number"
+                min={5}
+                max={600}
+                value={providerDraft.timeoutSeconds}
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    timeoutSeconds: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Structured output</span>
+              <select
+                value={providerDraft.structuredOutput}
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    structuredOutput: event.target.value as AIStructuredOutputMode,
+                  })
+                }
+              >
+                <option value="json-schema">JSON Schema</option>
+                <option value="json-object">JSON Object (compatible)</option>
+              </select>
+            </label>
+            <label className={styles.apiKeyField}>
+              <span>
+                API Key {providerSettings?.hasApiKey ? '· securely saved' : '· optional locally'}
+              </span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={apiKeyDraft}
+                onChange={(event) => setApiKeyDraft(event.target.value)}
+                placeholder={providerSettings?.hasApiKey ? 'Leave blank to keep saved key' : 'sk-…'}
+              />
+            </label>
+            <div className={styles.providerActions}>
+              <button
+                type="button"
+                onClick={() => void saveProviderSettings(apiKeyDraft || undefined)}
+              >
+                Save Settings
+              </button>
+              {providerSettings?.hasApiKey && (
+                <button type="button" onClick={() => void saveProviderSettings('')}>
+                  Remove Key
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        <textarea
+          className={styles.instruction}
+          value={instruction}
+          disabled={generating}
+          onChange={(event) => setInstruction(event.target.value)}
+          placeholder="Describe the change, for example: Add two lines after the selected Choice, spoken by Alice, then reconnect to the existing ending."
+        />
+        <div className={styles.requestControls}>
+          <label>
+            <span>Context</span>
+            <select
+              value={contextScope}
+              disabled={generating}
+              onChange={(event) => setContextScope(event.target.value as AIContextScope)}
+            >
+              <option value="selection">Selection ({selectedNodeIds.length})</option>
+              <option value="graph">Current Graph</option>
+              <option value="story">Whole Story</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className={styles.primaryButton}
+            disabled={generating || !providerSettings?.model}
+            onClick={() => void generate()}
+          >
+            {generating ? 'Generating…' : 'Generate & Dry Run'}
+          </button>
+          {generating && (
+            <button
+              type="button"
+              onClick={() => {
+                if (requestIdRef.current) {
+                  window.electronAPI?.cancelAICommand(requestIdRef.current);
+                  setProviderStatus('Canceling…');
+                }
+              }}
+            >
+              Cancel
+            </button>
+          )}
+          {!generating && diagnosticText(result) && (
+            <button type="button" onClick={() => void generate(true)}>
+              Retry with Diagnostics
+            </button>
+          )}
+          <span className={styles.providerStatus}>
+            {providerStatus ??
+              (!providerSettings?.model ? 'Configure a provider and model to generate' : '')}
+          </span>
+        </div>
+      </section>
+
       <header className={styles.toolbar}>
         <CopyButton text={contextText} label="Copy AI Context" />
         <CopyButton text={schemaText} label="Copy Schema" />

@@ -8,6 +8,131 @@
   font-size: 12px;
 }
 
+.requestPane {
+  flex: none;
+  padding: 10px;
+  border-bottom: 1px solid #30343a;
+  background: #1d2025;
+}
+
+.requestHeader,
+.requestControls,
+.providerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.requestHeader {
+  margin-bottom: 8px;
+}
+
+.requestHeader strong {
+  color: #e2e8f0;
+}
+
+.requestHeader button {
+  margin-left: auto;
+}
+
+.requestPane button,
+.requestPane select,
+.requestPane input {
+  border: 1px solid #434a54;
+  border-radius: 4px;
+  color: #dfe6ef;
+  background: #252a31;
+  font: inherit;
+}
+
+.requestPane button {
+  padding: 5px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.requestPane button:hover:not(:disabled) {
+  border-color: #728fbb;
+  background: #303b48;
+}
+
+.requestPane button:disabled {
+  color: #69707a;
+  cursor: not-allowed;
+}
+
+.providerSettings {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) 120px 180px;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 9px;
+  border: 1px solid #343a43;
+  border-radius: 5px;
+  background: #191c20;
+}
+
+.providerSettings label,
+.requestControls label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: #969faa;
+  font-size: 11px;
+}
+
+.providerSettings input,
+.providerSettings select,
+.requestControls select {
+  min-width: 0;
+  padding: 6px 7px;
+}
+
+.apiKeyField {
+  grid-column: span 2;
+}
+
+.providerActions {
+  grid-column: span 2;
+  align-self: end;
+}
+
+.instruction {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid #434a54;
+  border-radius: 5px;
+  outline: none;
+  padding: 8px;
+  color: #e2e8f0;
+  background: #15181c;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.instruction:focus {
+  border-color: #4b86bc;
+}
+
+.requestControls {
+  margin-top: 8px;
+}
+
+.requestControls label {
+  flex-direction: row;
+  align-items: center;
+}
+
+.providerStatus {
+  overflow: hidden;
+  color: #8e98a5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .toolbar,
 .actionRow {
   display: flex;
@@ -206,6 +331,15 @@
 }
 
 @media (max-width: 760px) {
+  .providerSettings {
+    grid-template-columns: 1fr;
+  }
+
+  .apiKeyField,
+  .providerActions {
+    grid-column: auto;
+  }
+
   .editors {
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, minmax(220px, 1fr));

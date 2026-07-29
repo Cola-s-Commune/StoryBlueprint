@@ -40,6 +40,7 @@ npm run dev
 - AI Apply 增加连接感知的横向布局，只移动新建节点；新增/修改节点分别绿色与黄色高亮并自动聚焦，画布提供 Accept / Undo AI Changes。Dry Run Diff 展示节点内容摘要、稳定子项字段路径，并以红色明确标示删除项。
 - Blueprint Command v1 导出 Draft 2020-12 JSON Schema、内置节点 Data/Port Catalog 和有效事务示例；`baseRevision` 改为必填。AI Context 明确禁止 `commands`、字符串 Graph 和模型自造 Ports，校验器一次返回多个路径诊断，面板新增 Copy Schema 与 Copy Retry Context。
 - 修复 AI Dry Run 将项目级共享角色误判为缺失：Semantic Snapshot、Revision、执行结果和 Editor Compiler 统一使用解析后的角色、资产、Event 与 Signal 资源视图，同时保持 `.story` 不重复保存项目共享资源。
+- AI Commands 接入内置 OpenAI-compatible Provider：支持选中节点 / 当前 Graph / 整个 Story 上下文、生成取消、验证诊断重试和生成后自动 Dry Run；API Key 仅由主进程通过操作系统安全存储读写，远程地址强制 HTTPS，本地模型允许回环 HTTP。手动复制 / 粘贴流程继续保留。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
 - Project Events / Signals 提供统一的人类可读 Project Interface Table，可横向查看完整接口并一键复制 Markdown 交付程序员；点击表格行可返回具体定义编辑。

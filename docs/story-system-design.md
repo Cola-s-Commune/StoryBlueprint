@@ -982,10 +982,17 @@ AI 应提交结构化命令，而不是直接拼接源文件：
 执行器可以预演跨 Graph 事务，但在整份 Story 原子历史快照完成前，Editor 不允许提交跨 Chapter 修改。
 该限制防止“命令执行成功但 Undo 只能撤销其中一部分”。
 
-第一版编辑器通过可停靠的 AI Commands 面板提供与任意外部 AI 的手动桥接，不绑定具体模型或服务：作者复制
-AI Context（命令约束与当前 Semantic Snapshot），把 AI 返回的单个 JSON 事务粘贴回面板，先执行 Dry Run
-查看节点和连线的语义 Diff，再手动 Apply。Apply 只对与当前 Revision 完全相同的 Dry Run 开放；Story 在此期间
-发生任何语义修改都会使确认失效。未来接入内置模型 Provider 时仍复用同一协议、校验和确认流程。
+编辑器通过可停靠的 AI Commands 面板同时提供内置生成与手动桥接。内置 Provider 第一版使用
+OpenAI-compatible Chat Completions 接口，可选择选中节点、当前 Graph 或整个 Story 作为上下文；选中范围额外包含
+一跳边界节点，让模型看见原有入口和出口。模型响应会自动填入命令区并执行 Dry Run，绝不会直接修改 Story；
+作者查看节点和连线的语义 Diff 后仍需手动 Apply。验证失败可携带结构化诊断自动重试，生成中的请求可取消。
+手动流程仍允许复制 AI Context、调用任意外部模型并粘贴单个 JSON 事务。
+
+Provider 的 Endpoint、Model、超时和结构化输出模式保存在编辑器用户数据中，API Key 只经 Electron 主进程访问，
+使用操作系统安全存储加密，绝不进入 Renderer、Story 或 Project 文件。远程 Endpoint 强制 HTTPS；仅
+localhost、127.0.0.1 与本机 IPv6 回环地址可使用 HTTP，便于连接本地模型。兼容性不足的服务可由 JSON Schema
+模式切换到 JSON Object 模式，但返回结果始终经过相同的命令 Schema、Revision、引用、Compiler 和 Dry Run
+校验。Apply 只对与当前 Revision 完全相同的 Dry Run 开放；Story 在此期间发生任何语义修改都会使确认失效。
 
 剧情内容编辑不要求 AI 整体替换节点 `data`：协议提供 Variable、Dialogue Line、Choice Option 和 Expression
 专用命令。Line / Option 命令使用稳定子项 ID 完成插入、局部修改、删除和排序定位；删除 Option 同步清理其

@@ -4,6 +4,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  safeStorage,
   shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -44,10 +45,15 @@ import type {
   RecoverySnapshot,
   SaveStoryRequest,
   UpdateProjectSettingsRequest,
+  AIProviderSettings,
+  GenerateAICommandRequest,
+  GenerateAICommandResult,
   RecentProject,
+  UpdateAIProviderSettingsRequest,
   WorkspaceEntry,
   WorkspaceInfo,
 } from '../shared/electronApi';
+import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
 
 let mainWindow: BrowserWindow | null = null;
 let storyDirty = false;
@@ -65,6 +71,18 @@ const MAX_RECENT_PROJECTS = 10;
 const MAX_SESSION_STORIES = 50;
 const MAX_RECOVERY_BYTES = 128 * 1024 * 1024;
 const MAX_COMPILED_PROJECT_BYTES = 128 * 1024 * 1024;
+const MAX_AI_CONTEXT_BYTES = 8 * 1024 * 1024;
+const MAX_AI_INSTRUCTION_BYTES = 32 * 1024;
+const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
+const aiRequests = new Map<string, AbortController>();
+
+const defaultAIProviderSettings: Omit<AIProviderSettings, 'hasApiKey'> = {
+  provider: 'openai-compatible',
+  endpoint: 'https://api.openai.com/v1',
+  model: '',
+  timeoutMs: 120_000,
+  structuredOutput: 'json-schema',
+};
 
 function recentProjectsFile(): string {
   return join(app.getPath('userData'), 'recent-projects.json');
@@ -76,6 +94,72 @@ function editorSessionFile(): string {
 
 function recoverySnapshotsFile(): string {
   return join(app.getPath('userData'), 'story-recovery.json');
+}
+
+function aiProviderSettingsFile(): string {
+  return join(app.getPath('userData'), 'ai-provider.json');
+}
+
+function aiProviderKeyFile(): string {
+  return join(app.getPath('userData'), 'ai-provider-key');
+}
+
+function isAIProviderSettings(value: unknown): value is Omit<AIProviderSettings, 'hasApiKey'> {
+  if (typeof value !== 'object' || value === null) return false;
+  const settings = value as Partial<AIProviderSettings>;
+  return (
+    settings.provider === 'openai-compatible' &&
+    typeof settings.endpoint === 'string' &&
+    typeof settings.model === 'string' &&
+    typeof settings.timeoutMs === 'number' &&
+    settings.timeoutMs >= 5_000 &&
+    settings.timeoutMs <= 600_000 &&
+    (settings.structuredOutput === 'json-schema' || settings.structuredOutput === 'json-object')
+  );
+}
+
+async function readAIProviderKey(): Promise<string | undefined> {
+  try {
+    const encrypted = await readFile(aiProviderKeyFile());
+    if (!safeStorage.isEncryptionAvailable()) return undefined;
+    return safeStorage.decryptString(encrypted);
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeAIProviderKey(apiKey: string): Promise<void> {
+  if (!apiKey) {
+    await unlink(aiProviderKeyFile()).catch(() => undefined);
+    return;
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Operating-system secure storage is unavailable; the API Key was not saved');
+  }
+  await mkdir(app.getPath('userData'), { recursive: true });
+  await writeFile(aiProviderKeyFile(), safeStorage.encryptString(apiKey));
+}
+
+async function readAIProviderSettings(): Promise<AIProviderSettings> {
+  const stored = await readJsonFile(aiProviderSettingsFile());
+  const settings = isAIProviderSettings(stored) ? stored : defaultAIProviderSettings;
+  return { ...settings, hasApiKey: Boolean(await readAIProviderKey()) };
+}
+
+function validGenerateAICommandRequest(value: unknown): value is GenerateAICommandRequest {
+  if (typeof value !== 'object' || value === null) return false;
+  const request = value as Partial<GenerateAICommandRequest>;
+  return (
+    typeof request.requestId === 'string' &&
+    /^[a-zA-Z0-9_-]{8,128}$/.test(request.requestId) &&
+    typeof request.instruction === 'string' &&
+    request.instruction.trim().length > 0 &&
+    Buffer.byteLength(request.instruction, 'utf8') <= MAX_AI_INSTRUCTION_BYTES &&
+    typeof request.context === 'string' &&
+    Buffer.byteLength(request.context, 'utf8') <= MAX_AI_CONTEXT_BYTES &&
+    typeof request.schema === 'object' &&
+    request.schema !== null
+  );
 }
 
 async function readJsonFile(filePath: string): Promise<unknown> {
@@ -685,6 +769,122 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('clipboard:read-text', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return clipboard.readText();
+  });
+
+  ipcMain.handle('ai:get-provider-settings', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return readAIProviderSettings();
+  });
+  ipcMain.handle('ai:update-provider-settings', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || typeof value !== 'object' || value === null) {
+      throw new Error('Invalid AI provider settings');
+    }
+    const request = value as Partial<UpdateAIProviderSettingsRequest>;
+    if (
+      typeof request.endpoint !== 'string' ||
+      typeof request.model !== 'string' ||
+      typeof request.timeoutMs !== 'number' ||
+      request.timeoutMs < 5_000 ||
+      request.timeoutMs > 600_000 ||
+      (request.structuredOutput !== 'json-schema' && request.structuredOutput !== 'json-object') ||
+      (request.apiKey !== undefined && typeof request.apiKey !== 'string')
+    ) {
+      throw new Error('Invalid AI provider settings');
+    }
+    resolveAICompletionsUrl(request.endpoint.trim());
+    const settings = {
+      provider: 'openai-compatible' as const,
+      endpoint: request.endpoint.trim().replace(/\/+$/, ''),
+      model: request.model.trim(),
+      timeoutMs: Math.round(request.timeoutMs),
+      structuredOutput: request.structuredOutput,
+    };
+    if (request.apiKey !== undefined) await writeAIProviderKey(request.apiKey.trim());
+    await writeUserDataJson(aiProviderSettingsFile(), settings);
+    return { ...settings, hasApiKey: Boolean(await readAIProviderKey()) };
+  });
+  ipcMain.handle('ai:generate-command', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !validGenerateAICommandRequest(value)) {
+      throw new Error('Invalid AI command request');
+    }
+    const settings = await readAIProviderSettings();
+    if (!settings.model) throw new Error('Configure an AI model before generating commands');
+    if (aiRequests.has(value.requestId)) throw new Error('AI request ID is already active');
+    const controller = new AbortController();
+    aiRequests.set(value.requestId, controller);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, settings.timeoutMs);
+    try {
+      const apiKey = await readAIProviderKey();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      const responseFormat =
+        settings.structuredOutput === 'json-schema'
+          ? {
+              type: 'json_schema',
+              json_schema: {
+                name: 'story_blueprint_commands',
+                strict: false,
+                schema: value.schema,
+              },
+            }
+          : { type: 'json_object' };
+      const response = await fetch(resolveAICompletionsUrl(settings.endpoint), {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: settings.model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You edit Story Blueprint graphs. Return exactly one Blueprint Command JSON object with no Markdown or explanation.',
+            },
+            {
+              role: 'user',
+              content: `${value.instruction.trim()}\n\n${value.context}`,
+            },
+          ],
+          response_format: responseFormat,
+        }),
+      });
+      const declaredLength = Number(response.headers.get('content-length'));
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_AI_RESPONSE_BYTES) {
+        throw new Error('AI provider response is too large');
+      }
+      const responseText = await response.text();
+      if (Buffer.byteLength(responseText, 'utf8') > MAX_AI_RESPONSE_BYTES) {
+        throw new Error('AI provider response is too large');
+      }
+      if (!response.ok) {
+        const details = responseText.slice(0, 4_000);
+        throw new Error(`AI provider returned HTTP ${response.status}: ${details}`);
+      }
+      let responseBody: unknown;
+      try {
+        responseBody = JSON.parse(responseText) as unknown;
+      } catch {
+        throw new Error('AI provider returned invalid JSON');
+      }
+      const result = extractAIResponseContent(responseBody);
+      return { ...result, model: result.model || settings.model } satisfies GenerateAICommandResult;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(timedOut ? 'AI request timed out' : 'AI request canceled');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      if (aiRequests.get(value.requestId) === controller) aiRequests.delete(value.requestId);
+    }
+  });
+  ipcMain.on('ai:cancel-command', (event, requestId: unknown) => {
+    if (!isTrustedSender(event) || typeof requestId !== 'string') return;
+    aiRequests.get(requestId)?.abort();
   });
 
   ipcMain.on('story:set-dirty', (event, dirty: unknown) => {

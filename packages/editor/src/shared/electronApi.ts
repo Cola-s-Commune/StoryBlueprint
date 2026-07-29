@@ -104,6 +104,38 @@ export interface UpdateProjectSettingsRequest {
   signals?: readonly SignalSource[];
 }
 
+export type AIStructuredOutputMode = 'json-schema' | 'json-object';
+
+export interface AIProviderSettings {
+  provider: 'openai-compatible';
+  endpoint: string;
+  model: string;
+  timeoutMs: number;
+  structuredOutput: AIStructuredOutputMode;
+  hasApiKey: boolean;
+}
+
+export interface UpdateAIProviderSettingsRequest {
+  endpoint: string;
+  model: string;
+  timeoutMs: number;
+  structuredOutput: AIStructuredOutputMode;
+  /** Omitted keeps the existing key; an empty string removes it. */
+  apiKey?: string;
+}
+
+export interface GenerateAICommandRequest {
+  requestId: string;
+  instruction: string;
+  context: string;
+  schema: unknown;
+}
+
+export interface GenerateAICommandResult {
+  content: string;
+  model: string;
+}
+
 export interface ElectronAPI {
   platform: string;
   isElectron: true;
@@ -127,6 +159,12 @@ export interface ElectronAPI {
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
+  getAIProviderSettings: () => Promise<AIProviderSettings>;
+  updateAIProviderSettings: (
+    settings: UpdateAIProviderSettingsRequest,
+  ) => Promise<AIProviderSettings>;
+  generateAICommand: (request: GenerateAICommandRequest) => Promise<GenerateAICommandResult>;
+  cancelAICommand: (requestId: string) => void;
   createProjectCharacter: (character: CharacterSource) => Promise<WorkspaceInfo>;
   updateProjectCharacter: (
     relativePath: string,

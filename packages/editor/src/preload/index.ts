@@ -27,6 +27,11 @@ const electronAPI = {
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
   updateProjectSettings: (settings) =>
     ipcRenderer.invoke('workspace:update-project-settings', settings),
+  getAIProviderSettings: () => ipcRenderer.invoke('ai:get-provider-settings'),
+  updateAIProviderSettings: (settings) =>
+    ipcRenderer.invoke('ai:update-provider-settings', settings),
+  generateAICommand: (request) => ipcRenderer.invoke('ai:generate-command', request),
+  cancelAICommand: (requestId) => ipcRenderer.send('ai:cancel-command', requestId),
   createProjectCharacter: (character) =>
     ipcRenderer.invoke('workspace:create-character', character),
   updateProjectCharacter: (relativePath, character) =>
