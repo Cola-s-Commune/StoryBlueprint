@@ -191,6 +191,7 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - 支持复制、粘贴、Duplicate。
 - 支持 Undo / Redo。
 - Graph 提供 Layout Selected 与 Layout All：只按执行连线从左到右分层，数据连线不改变叙事顺序；列间距取该列最大实测宽度，行间距逐个累加节点实测高度，长 Dialogue 不得重叠。局部整理不得移动选区外节点。AI Proposal 状态下只整理新增预览节点，不隐式 Apply。
+- Ctrl+F 打开当前 Story 搜索，索引 Main Story、全部 Substory 的节点名、Dialogue Line、Choice Option，以及 Variable、Character、Asset、Event、Signal。节点结果解析资源显示名，因此搜索角色名也能命中其 Dialogue 使用处；点击结果切换 Graph、选中并聚焦节点，资源结果则打开右侧 Inspector。
 - 支持 Reroute 和 Comment 整理大型蓝图。
 
 ### 4.5 长连线与循环整理

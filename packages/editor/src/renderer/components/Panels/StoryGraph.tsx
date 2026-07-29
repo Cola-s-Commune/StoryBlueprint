@@ -51,6 +51,11 @@ import {
 } from '../../graph/editorGraph';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag, storyDataMime } from '../../graph/storyDataDrag';
+import {
+  buildStorySearchIndex,
+  searchStoryIndex,
+  type StorySearchEntry,
+} from '../../graph/storySearch';
 import { CopyButton } from './CopyButton';
 import styles from './StoryGraph.module.css';
 
@@ -151,10 +156,16 @@ export function StoryGraph() {
     updateAIProposalNodes,
     applyAIProposal,
     discardAIProposal,
+    semanticSnapshot,
+    focusGraphNode,
+    selectStoryData,
   } = useStoryGraphStore();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<GraphControlMode>(initialGraphControlMode);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [transferPreview, setTransferPreview] = useState<{
     fixedPoints: readonly { x: number; y: number }[];
     pointer: { x: number; y: number };
@@ -169,6 +180,8 @@ export function StoryGraph() {
     edge?: EditorGraphEdge;
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchResultsRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
   const rightDragRef = useRef<{
     x: number;
@@ -678,11 +691,74 @@ export function StoryGraph() {
     [checkpoint, markDirty, nodes, setEdges, setNodes],
   );
 
+  const searchEntries = useMemo(() => buildStorySearchIndex(semanticSnapshot), [semanticSnapshot]);
+  const searchResults = useMemo(
+    () => searchStoryIndex(searchEntries, searchQuery),
+    [searchEntries, searchQuery],
+  );
+  useEffect(() => {
+    setActiveSearchIndex((current) => Math.min(current, Math.max(0, searchResults.length - 1)));
+  }, [searchResults.length]);
+  useEffect(() => {
+    if (!showSearch) return;
+    searchResultsRef.current
+      ?.querySelector<HTMLElement>('[data-active="true"]')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [activeSearchIndex, showSearch]);
+  useEffect(() => {
+    if (!showSearch) return;
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showSearch]);
+  const activateSearchResult = useCallback(
+    (result: StorySearchEntry) => {
+      if (aiProposal) {
+        setConnectionError('Apply or discard the AI proposal before navigating search results.');
+        return;
+      }
+      if (result.kind === 'node' && result.graphId && result.nodeId) {
+        focusGraphNode(result.graphId, result.nodeId);
+      } else if (result.selection) {
+        selectStoryData(result.selection);
+      }
+    },
+    [aiProposal, focusGraphNode, selectStoryData],
+  );
+  const moveSearchResult = useCallback(
+    (offset: number, activate = false) => {
+      if (searchResults.length === 0) return;
+      const next = (activeSearchIndex + offset + searchResults.length) % searchResults.length;
+      setActiveSearchIndex(next);
+      if (activate) activateSearchResult(searchResults[next]);
+    },
+    [activateSearchResult, activeSearchIndex, searchResults],
+  );
+  const openSearch = useCallback(() => {
+    setShowSearch(true);
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!hasActiveStory) return;
       const modifier = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
+      if (modifier && key === 'f') {
+        event.preventDefault();
+        openSearch();
+        return;
+      }
+      if (event.key === 'Escape' && showSearch) {
+        event.preventDefault();
+        setShowSearch(false);
+        return;
+      }
       const editingText = isTextEditingTarget(event.target);
       const isHistoryShortcut = modifier && (key === 'z' || key === 'y');
       if (editingText && !isHistoryShortcut) return;
@@ -713,13 +789,24 @@ export function StoryGraph() {
         connectionTransferRef.current = undefined;
         setTransferPreview(undefined);
         setShowShortcuts(false);
+        setShowSearch(false);
         setContextMenu(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [copySelection, deleteSelection, duplicateSelection, hasActiveStory, paste, redo, undo]);
+  }, [
+    copySelection,
+    deleteSelection,
+    duplicateSelection,
+    hasActiveStory,
+    paste,
+    redo,
+    openSearch,
+    showSearch,
+    undo,
+  ]);
 
   useEffect(() => {
     if (!flowInstance) return;
@@ -1122,6 +1209,14 @@ export function StoryGraph() {
           <button
             type="button"
             className={styles.shortcutsButton}
+            title="Search this Story (Ctrl+F)"
+            onClick={openSearch}
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            className={styles.shortcutsButton}
             onClick={() => setShowShortcuts((current) => !current)}
           >
             Shortcuts
@@ -1190,6 +1285,93 @@ export function StoryGraph() {
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" />
           <Controls />
         </ReactFlow>
+        {showSearch && (
+          <aside className={styles.searchPanel}>
+            <div className={styles.searchBar}>
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                placeholder="Search this Story…"
+                aria-label="Search this Story"
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setActiveSearchIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setShowSearch(false);
+                  } else if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    moveSearchResult(1);
+                  } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    moveSearchResult(-1);
+                  } else if (event.key === 'Enter' && searchResults[activeSearchIndex]) {
+                    event.preventDefault();
+                    activateSearchResult(searchResults[activeSearchIndex]);
+                  }
+                }}
+              />
+              <span className={styles.searchCount}>
+                {searchResults.length > 0
+                  ? `${activeSearchIndex + 1}/${searchResults.length}`
+                  : '0/0'}
+              </span>
+              <button
+                type="button"
+                title="Previous result"
+                disabled={searchResults.length === 0}
+                onClick={() => moveSearchResult(-1, true)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                title="Next result"
+                disabled={searchResults.length === 0}
+                onClick={() => moveSearchResult(1, true)}
+              >
+                ↓
+              </button>
+              <button type="button" title="Close search" onClick={() => setShowSearch(false)}>
+                ×
+              </button>
+            </div>
+            {searchQuery.trim() ? (
+              searchResults.length > 0 ? (
+                <div className={styles.searchResults} ref={searchResultsRef}>
+                  {searchResults.map((result, index) => (
+                    <button
+                      type="button"
+                      key={result.id}
+                      data-active={index === activeSearchIndex}
+                      className={
+                        index === activeSearchIndex ? styles.activeSearchResult : undefined
+                      }
+                      onMouseEnter={() => setActiveSearchIndex(index)}
+                      onClick={() => {
+                        setActiveSearchIndex(index);
+                        activateSearchResult(result);
+                      }}
+                    >
+                      <span className={styles.searchResultCategory}>{result.category}</span>
+                      <strong>{result.title}</strong>
+                      <small>{result.detail}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.searchEmpty}>No matching nodes or Story Data.</div>
+              )
+            ) : (
+              <div className={styles.searchEmpty}>
+                Search Dialogue, Choice, nodes, variables, characters, events, signals, and assets.
+              </div>
+            )}
+          </aside>
+        )}
         {aiProposal && (
           <aside className={styles.aiChangeBanner}>
             <div>
@@ -1262,6 +1444,8 @@ export function StoryGraph() {
               <dd>Copy, paste, or duplicate selected nodes</dd>
               <dt>Ctrl + Z / Y</dt>
               <dd>Undo or redo</dd>
+              <dt>Ctrl + F</dt>
+              <dd>Search nodes, dialogue, choices, and Story Data across this Story</dd>
               <dt>Layout Selected / All</dt>
               <dd>Arrange nodes from left to right; the result can be undone</dd>
               <dt>Shift + Left-drag</dt>

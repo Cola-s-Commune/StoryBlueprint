@@ -370,6 +370,7 @@ interface StoryGraphStoreValue {
   chapters: EditorChapter[];
   activeGraphId: ActiveGraphId;
   switchGraph: (id: ActiveGraphId) => void;
+  focusGraphNode: (graphId: ActiveGraphId, nodeId: NodeId) => boolean;
   addSubstory: () => ChapterId;
   updateSubstory: (id: ChapterId, update: { name?: string; displayName?: string }) => void;
   removeSubstory: (id: ChapterId) => string | undefined;
@@ -638,6 +639,28 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       history.clear();
     },
     [activeGraphId, chapters, graph, history, restoreGraph],
+  );
+
+  const focusGraphNode = useCallback(
+    (graphId: ActiveGraphId, nodeId: NodeId): boolean => {
+      const target =
+        graphId === activeGraphId
+          ? graph
+          : graphId === 'root'
+            ? rootGraphRef.current
+            : chapters.find((chapter) => chapter.id === graphId)?.graph;
+      if (!target?.nodes.some((node) => node.id === nodeId)) return false;
+      const focused: EditorGraphState = {
+        nodes: target.nodes.map((node) => ({ ...node, selected: node.id === nodeId })),
+        edges: target.edges.map((edge) => ({ ...edge, selected: false })),
+      };
+      if (graphId !== activeGraphId) switchGraph(graphId);
+      restoreGraph(focused);
+      setStoryDataSelection(undefined);
+      setProblemFocus({ nodeId, nonce: Date.now() });
+      return true;
+    },
+    [activeGraphId, chapters, graph, restoreGraph, switchGraph],
   );
 
   const updateInactiveGraphs = useCallback(
@@ -2545,6 +2568,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       chapters,
       activeGraphId,
       switchGraph,
+      focusGraphNode,
       updateSubstory,
       removeSubstory,
       extractSelectionToSubstory,
@@ -2684,6 +2708,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateProjectSettings,
       source,
       switchGraph,
+      focusGraphNode,
       undo,
       updateCharacter,
       updateAsset,

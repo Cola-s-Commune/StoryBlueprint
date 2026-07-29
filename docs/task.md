@@ -603,16 +603,16 @@
 
 ## Search
 
-- [ ] Search Node
-- [ ] Search Dialogue
-- [ ] Search Character
+- [x] Search Node
+- [x] Search Dialogue
+- [x] Search Character / Variable / Asset / Event / Signal
 
 ---
 
 ## Navigation
 
-- [ ] Zoom To Node
-- [ ] Focus Node
+- [x] Zoom To Node
+- [x] Focus Node（包含跨 Main Story / Substory 切换）
 
 ---
 
@@ -635,6 +635,7 @@
 - [x] Ctrl + Plus / Minus / 0 全窗口缩放与 View 菜单操作
 - [x] Ctrl + C
 - [x] Ctrl + V
+- [x] Ctrl + F 当前 Story 搜索
 - [x] Delete
 - [ ] F
 
