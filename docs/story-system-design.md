@@ -196,6 +196,7 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 ### 4.5 长连线与循环整理
 
 - 双击执行连线会在点击位置插入 Reroute；右键连线也可显式选择 Insert Reroute。Reroute 显示为单个 Knot，并根据相邻节点位于左侧还是右侧选择端口，让横向蓝图的回线穿过 Knot，避免小折返或 T 形短杆。
+- Auto Layout 计算故事层级时穿透 Reroute，不把视觉 Knot 当作额外剧情步骤；前向 Reroute 在端点之间插值排列，回线 Reroute 使用图下方的独立布线路径，避免长线横穿节点主体。
 - 右键执行连线选择 Convert to Flow Portal 后，原连线替换为靠近源端的 Flow Jump 和靠近目标端的 Flow Anchor。
 - Flow Jump 通过稳定 `targetNodeId` 引用同一 Graph 内的 Flow Anchor；Anchor 的显示标签可以修改，不参与引用身份。
 - Flow Jump 和 Flow Anchor 不使用一条永久跨画布长线。选中任一端时，编辑器临时显示虚拟虚线，并支持双击 Jump 定位 Anchor。

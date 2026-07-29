@@ -56,7 +56,11 @@ const autoLayoutFallbackHeight = 120;
 const splitDialogueColumnOffset = 300;
 
 function layoutNodeWidth(node: EditorGraphNode): number {
-  return Math.ceil(node.measured?.width ?? node.width ?? autoLayoutFallbackWidth);
+  return Math.ceil(
+    node.measured?.width ??
+      node.width ??
+      (node.type === StoryNodeType.Reroute ? 18 : autoLayoutFallbackWidth),
+  );
 }
 
 function layoutNodeHeight(node: EditorGraphNode): number {
@@ -67,6 +71,7 @@ function layoutNodeHeight(node: EditorGraphNode): number {
     const lineCount = (node.data as DialogueNodeData).lines.length;
     return 74 + Math.min(3, Math.max(1, lineCount)) * 54;
   }
+  if (node.type === StoryNodeType.Reroute) return 18;
   return autoLayoutFallbackHeight;
 }
 
@@ -89,26 +94,51 @@ export function autoLayoutGraph(
 ): EditorGraphState {
   const requested = new Set(nodeIds);
   const affected = graph.nodes.filter((node) => requested.has(node.id));
-  if (affected.length < 2) return graph;
+  if (affected.length === 0) return graph;
 
-  const affectedIds = new Set(affected.map((node) => node.id));
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
-  const executionEdges = graph.edges.filter(
-    (edge) =>
-      affectedIds.has(edge.source) &&
-      affectedIds.has(edge.target) &&
-      isLayoutExecutionEdge(edge, nodesById),
+  const layoutNodes = affected.filter((node) => node.type !== StoryNodeType.Reroute);
+  if (layoutNodes.length === 0) return graph;
+  const layoutIds = new Set(layoutNodes.map((node) => node.id));
+  const rerouteIds = new Set(
+    affected.filter((node) => node.type === StoryNodeType.Reroute).map((node) => node.id),
   );
-  const outgoing = new Map<NodeId, NodeId[]>();
-  const indegree = new Map<NodeId, number>(affected.map((node) => [node.id, 0]));
+  const executionEdges = graph.edges.filter((edge) => isLayoutExecutionEdge(edge, nodesById));
+  const executionFrom = new Map<NodeId, EditorGraphEdge[]>();
+  const executionTo = new Map<NodeId, EditorGraphEdge[]>();
   for (const edge of executionEdges) {
-    const targets = outgoing.get(edge.source) ?? [];
-    if (!targets.includes(edge.target)) targets.push(edge.target);
-    outgoing.set(edge.source, targets);
-    indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+    executionFrom.set(edge.source, [...(executionFrom.get(edge.source) ?? []), edge]);
+    executionTo.set(edge.target, [...(executionTo.get(edge.target) ?? []), edge]);
   }
 
-  const originalOrder = [...affected].sort(
+  const terminalTargets = (sourceId: NodeId): NodeId[] => {
+    const targets = new Set<NodeId>();
+    const pending = (executionFrom.get(sourceId) ?? []).map((edge) => edge.target);
+    const traversed = new Set<NodeId>();
+    while (pending.length > 0) {
+      const targetId = pending.shift()!;
+      if (traversed.has(targetId)) continue;
+      traversed.add(targetId);
+      const target = nodesById.get(targetId);
+      if (target?.type === StoryNodeType.Reroute) {
+        pending.push(...(executionFrom.get(targetId) ?? []).map((edge) => edge.target));
+      } else if (target && layoutIds.has(target.id)) {
+        targets.add(target.id);
+      }
+    }
+    return [...targets];
+  };
+  const outgoing = new Map<NodeId, NodeId[]>();
+  const indegree = new Map<NodeId, number>(layoutNodes.map((node) => [node.id, 0]));
+  for (const node of layoutNodes) {
+    const targets = terminalTargets(node.id);
+    outgoing.set(node.id, targets);
+    for (const targetId of targets) {
+      indegree.set(targetId, (indegree.get(targetId) ?? 0) + 1);
+    }
+  }
+
+  const originalOrder = [...layoutNodes].sort(
     (left, right) =>
       left.position.x - right.position.x ||
       left.position.y - right.position.y ||
@@ -122,7 +152,7 @@ export function autoLayoutGraph(
   const layers = new Map<NodeId, number>();
   const visited = new Set<NodeId>();
   const roots = sortIds(
-    affected
+    layoutNodes
       .filter((node) => node.type === StoryNodeType.Start || (indegree.get(node.id) ?? 0) === 0)
       .map((node) => node.id),
   );
@@ -143,7 +173,7 @@ export function autoLayoutGraph(
   for (const node of originalOrder) visitFrom(node.id);
 
   const byLayer = new Map<number, EditorGraphNode[]>();
-  for (const node of affected) {
+  for (const node of layoutNodes) {
     const layer = layers.get(node.id) ?? 0;
     const column = byLayer.get(layer) ?? [];
     column.push(node);
@@ -155,8 +185,8 @@ export function autoLayoutGraph(
     );
   }
 
-  const originX = Math.round(Math.min(...affected.map((node) => node.position.x)));
-  const originY = Math.round(Math.min(...affected.map((node) => node.position.y)));
+  const originX = Math.round(Math.min(...layoutNodes.map((node) => node.position.x)));
+  const originY = Math.round(Math.min(...layoutNodes.map((node) => node.position.y)));
   const positions = new Map<NodeId, { x: number; y: number }>();
   let columnX = originX;
   for (const [, column] of [...byLayer.entries()].sort(([left], [right]) => left - right)) {
@@ -171,6 +201,74 @@ export function autoLayoutGraph(
     const columnWidth = Math.max(...column.map(layoutNodeWidth));
     columnX += columnWidth + autoLayoutColumnGap;
   }
+
+  const positionedNode = (nodeId: NodeId): EditorGraphNode | undefined => {
+    const node = nodesById.get(nodeId);
+    const position = node && positions.get(nodeId);
+    return node && position ? { ...node, position } : node;
+  };
+  const findAnchor = (rerouteId: NodeId, direction: 'incoming' | 'outgoing') => {
+    let currentId = rerouteId;
+    const traversed = new Set<NodeId>();
+    while (!traversed.has(currentId)) {
+      traversed.add(currentId);
+      const candidates =
+        direction === 'incoming' ? executionTo.get(currentId) : executionFrom.get(currentId);
+      if (candidates?.length !== 1) return undefined;
+      const nextId = direction === 'incoming' ? candidates[0].source : candidates[0].target;
+      const next = positionedNode(nextId);
+      if (!next) return undefined;
+      if (next.type !== StoryNodeType.Reroute) return next;
+      currentId = next.id;
+    }
+    return undefined;
+  };
+
+  const regularNodes = graph.nodes
+    .filter((node) => node.type !== StoryNodeType.Reroute)
+    .map((node) => positionedNode(node.id)!);
+  const graphBottom = Math.max(
+    0,
+    ...regularNodes.map((node) => node.position.y + layoutNodeHeight(node)),
+  );
+  const processedReroutes = new Set<NodeId>();
+  let returnLane = 0;
+  const routeChain = (startId: NodeId) => {
+    const chain: EditorGraphNode[] = [];
+    let currentId: NodeId | undefined = startId;
+    while (currentId && rerouteIds.has(currentId) && !processedReroutes.has(currentId)) {
+      const current = nodesById.get(currentId);
+      if (!current) break;
+      chain.push(current);
+      processedReroutes.add(currentId);
+      const nextEdges: EditorGraphEdge[] = executionFrom.get(currentId) ?? [];
+      currentId = nextEdges.length === 1 ? nextEdges[0].target : undefined;
+    }
+    if (chain.length === 0) return;
+    const source = findAnchor(chain[0].id, 'incoming');
+    const target = findAnchor(chain.at(-1)!.id, 'outgoing');
+    if (!source || !target) return;
+    const sourceX = source.position.x + layoutNodeWidth(source);
+    const targetX = target.position.x;
+    const forward = targetX > sourceX;
+    const routeY = forward ? undefined : graphBottom + 100 + returnLane++ * (autoLayoutRowGap + 18);
+    chain.forEach((reroute, index) => {
+      const fraction = (index + 1) / (chain.length + 1);
+      const centerX = sourceX + (targetX - sourceX) * fraction;
+      const sourceY = source.position.y + layoutNodeHeight(source) / 2;
+      const targetY = target.position.y + layoutNodeHeight(target) / 2;
+      const centerY = routeY ?? sourceY + (targetY - sourceY) * fraction;
+      positions.set(reroute.id, {
+        x: Math.round(centerX - layoutNodeWidth(reroute) / 2),
+        y: Math.round(centerY - layoutNodeHeight(reroute) / 2),
+      });
+    });
+  };
+  for (const rerouteId of rerouteIds) {
+    const previous = executionTo.get(rerouteId) ?? [];
+    if (previous.length !== 1 || !rerouteIds.has(previous[0].source)) routeChain(rerouteId);
+  }
+  for (const rerouteId of rerouteIds) routeChain(rerouteId);
 
   return {
     nodes: graph.nodes.map((node) => {

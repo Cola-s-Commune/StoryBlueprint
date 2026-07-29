@@ -83,6 +83,38 @@ describe('automatic graph layout', () => {
     expect(positions.get('n_lower')!.y - positions.get('n_upper')!.y).toBeGreaterThanOrEqual(316);
   });
 
+  it('collapses Reroutes for story layering and sends return wires below the graph', () => {
+    const start = node('n_start', StoryNodeType.Start, 0, 0, { title: 'Start' });
+    const left = node('n_leftxx', StoryNodeType.Dialogue, 0, 0, {
+      lines: [{ id: 'ln_leftxx', textId: 't_leftxx', text: { source: 'Left' } }],
+    });
+    const right = node('n_rightx', StoryNodeType.Dialogue, 0, 0, {
+      lines: [{ id: 'ln_rightx', textId: 't_rightx', text: { source: 'Right' } }],
+    });
+    const reroute = {
+      ...node('n_routex', StoryNodeType.Reroute, 999, 20, {}),
+      measured: { width: 18, height: 18 },
+    };
+    const result = autoLayoutGraph({
+      nodes: [start, left, right, reroute],
+      edges: [
+        edge('e_entryx', 'n_start', 'n_leftxx'),
+        edge('e_nextxx', 'n_leftxx', 'n_rightx'),
+        edge('e_return', 'n_rightx', 'n_routex'),
+        edge('e_backxx', 'n_routex', 'n_leftxx'),
+      ],
+    });
+    const positions = new Map(result.nodes.map((candidate) => [candidate.id, candidate.position]));
+    expect(positions.get('n_start')!.x).toBeLessThan(positions.get('n_leftxx')!.x);
+    expect(positions.get('n_leftxx')!.x).toBeLessThan(positions.get('n_rightx')!.x);
+    const regularBottom = Math.max(
+      ...result.nodes
+        .filter((candidate) => candidate.type !== StoryNodeType.Reroute)
+        .map((candidate) => candidate.position.y + (candidate.measured?.height ?? 130)),
+    );
+    expect(positions.get('n_routex')!.y).toBeGreaterThan(regularBottom);
+  });
+
   it('keeps nodes outside the selected layout untouched', () => {
     const fixed = node('n_fixed', StoryNodeType.End, 777, 555);
     const first = node('n_first', StoryNodeType.Dialogue, 400, 300);

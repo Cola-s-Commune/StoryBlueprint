@@ -52,6 +52,7 @@ npm run dev
 - AI 节点确认改为真正的 Proposal Graph 暂存：Dry Run 后即可在画布移动新增节点，移动不改变 Story；Apply 才把命令与预览坐标作为单个 Undo 事务提交，Discard 无痕取消。
 - Graph 左上新增 Layout Selected / Layout All；按执行流从左到右分层，支持循环与独立分支，局部整理不移动选区外节点且可 Undo。AI 预览期间改为 Layout Proposal，只整理新增预览节点而不提前 Apply。
 - Auto Layout 改为读取 React Flow 实测节点尺寸：横向按列最大宽度推进，纵向按每个节点实际高度累加，避免多 Line Dialogue 等大节点在整理后互相覆盖。
+- Auto Layout 不再把 Reroute 当作剧情层级：计算执行顺序时穿透 Knot，整理后将前向 Knot 放回端点之间，并把循环 / 返回线的 Knot 分配到图下方独立通道。
 - 多选外框遮罩支持 Ctrl+左键穿透命中单个节点，在当前选择中切换移除 / 加回，并同步更新相关内部连线选择。
 - Call Event 的 String 参数默认使用无引号 Text 模式并自动编码字符串字面量；需要变量或组合逻辑时可显式切换为 Expression 模式。
 - Project Events 升级为可搜索的接口表，展示脚本签名与 Description；说明随 `.storyproject` 往返并进入 node-free 编译项目清单，供引擎程序实现 Handler。
