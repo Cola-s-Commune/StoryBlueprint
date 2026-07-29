@@ -55,6 +55,13 @@ export interface WorkspaceEntry {
   children?: WorkspaceEntry[];
 }
 
+export interface WorkspaceGitRepository {
+  available: boolean;
+  initialized: boolean;
+  repositoryRoot?: string;
+  branch?: string;
+}
+
 export interface WorkspaceInfo {
   name: string;
   rootPath: string;
@@ -64,6 +71,7 @@ export interface WorkspaceInfo {
   characterResources: { relativePath: string; character: CharacterSource }[];
   assetResources: { relativePath: string; asset: AssetSource }[];
   resourceErrors: { relativePath: string; message: string }[];
+  git: WorkspaceGitRepository;
   gitConflicts?: { relativePath: string; kind: WorkspaceMergeResourceKind }[];
 }
 
@@ -249,6 +257,7 @@ export interface ElectronAPI {
   updateProjectAsset: (relativePath: string, asset: AssetSource) => Promise<WorkspaceInfo>;
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
+  initializeWorkspaceGit: () => Promise<WorkspaceInfo>;
   revealWorkspaceItem: (relativePath: string) => Promise<void>;
   deleteWorkspaceStory: (relativePath: string) => Promise<WorkspaceInfo>;
   deleteWorkspaceProject: (relativePath: string) => Promise<WorkspaceInfo>;

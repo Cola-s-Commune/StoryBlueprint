@@ -117,6 +117,17 @@
   cursor: pointer;
 }
 
+.projectSummary .gitInitializeButton {
+  margin-left: 0;
+  border-color: #756137;
+  background: #342f22;
+  color: #d7c083;
+}
+
+.gitStatus {
+  color: #77b58a;
+}
+
 .projectSummary button:hover {
   border-color: #6389ad;
   color: #eef5fb;

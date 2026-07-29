@@ -445,6 +445,7 @@ interface StoryGraphStoreValue {
   removeRecentProject: (filePath: string) => Promise<void>;
   newProject: () => Promise<void>;
   refreshWorkspace: () => Promise<void>;
+  initializeWorkspaceGit: () => Promise<void>;
   revealWorkspaceItem: (relativePath: string) => Promise<void>;
   deleteWorkspaceStory: (relativePath: string) => Promise<void>;
   deleteWorkspaceProject: (relativePath: string) => Promise<void>;
@@ -2159,6 +2160,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const initializeWorkspaceGit = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      setWorkspace(await window.electronAPI.initializeWorkspaceGit());
+      setWorkspaceError(undefined);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
   const revealWorkspaceItem = useCallback(async (relativePath: string) => {
     if (!window.electronAPI) return;
     try {
@@ -2855,6 +2866,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeRecentProject,
       newProject,
       refreshWorkspace,
+      initializeWorkspaceGit,
       revealWorkspaceItem,
       deleteWorkspaceStory,
       deleteWorkspaceProject,
@@ -2937,6 +2949,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeRecentProject,
       newProject,
       refreshWorkspace,
+      initializeWorkspaceGit,
       revealWorkspaceItem,
       deleteWorkspaceStory,
       deleteWorkspaceProject,

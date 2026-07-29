@@ -218,6 +218,7 @@ export function ResourceBrowser() {
     openProject,
     newProject,
     refreshWorkspace,
+    initializeWorkspaceGit,
     revealWorkspaceItem,
     deleteWorkspaceStory,
     deleteWorkspaceProject,
@@ -446,6 +447,27 @@ export function ResourceBrowser() {
               <span>{workspace.project.stories.length} Stories</span>
               <span>{workspace.project.characters.length} Characters</span>
               <span>{workspace.project.assets.length} Assets</span>
+              {workspace.git.initialized ? (
+                <span
+                  className={styles.gitStatus}
+                  title={`Repository: ${workspace.git.repositoryRoot ?? workspace.rootPath}`}
+                >
+                  Git{workspace.git.branch ? ` · ${workspace.git.branch}` : ''}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.gitInitializeButton}
+                  title={
+                    workspace.git.available
+                      ? 'Create a Git repository in this project folder'
+                      : 'Git is not installed or unavailable on PATH'
+                  }
+                  onClick={() => void initializeWorkspaceGit()}
+                >
+                  Initialize Git
+                </button>
+              )}
               <button type="button" title="Build Project" onClick={() => void buildProject()}>
                 Build
               </button>

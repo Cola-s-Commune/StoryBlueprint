@@ -57,6 +57,8 @@ import type {
   WorkspaceInfo,
 } from '../shared/electronApi';
 import { readStoryGitConflict, readWorkspaceGitConflicts } from './storyGitConflict';
+import { createProjectGitignoreIfMissing } from './projectGitignore';
+import { initializeWorkspaceGitRepository, readWorkspaceGitRepository } from './workspaceGit';
 import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
 
 let mainWindow: BrowserWindow | null = null;
@@ -491,7 +493,10 @@ async function scanWorkspaceDirectory(
 async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
   if (!workspaceRoot) return undefined;
   const entries = await scanWorkspaceDirectory(workspaceRoot, 0, { count: 0 });
-  const gitConflicts = await readWorkspaceGitConflicts(workspaceRoot);
+  const [git, gitConflicts] = await Promise.all([
+    readWorkspaceGitRepository(workspaceRoot),
+    readWorkspaceGitConflicts(workspaceRoot),
+  ]);
   const conflictByPath = new Map(gitConflicts.map((conflict) => [conflict.relativePath, conflict]));
   let project: StoryProjectDocument | undefined;
   let projectError: string | undefined;
@@ -569,6 +574,7 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
     characterResources,
     assetResources,
     resourceErrors,
+    git,
     gitConflicts: gitConflicts.map(({ relativePath, kind }) => ({ relativePath, kind })),
   };
 }
@@ -1609,6 +1615,7 @@ function registerStoryFileHandlers(): void {
       signals: [],
     };
     await writeFile(projectFile, serializeStoryProject(project), 'utf8');
+    await createProjectGitignoreIfMissing(rootPath);
     const initialStory = await createInitialStoryFile(rootPath);
     await activateWorkspace(rootPath, projectFile);
     const synced = await syncWorkspaceProject();
@@ -1627,6 +1634,12 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('workspace:refresh', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readWorkspace();
+  });
+
+  ipcMain.handle('workspace:initialize-git', async (event) => {
+    if (!isTrustedSender(event) || !workspaceRoot) throw new Error('Open a workspace first');
+    await initializeWorkspaceGitRepository(workspaceRoot);
+    return (await readWorkspace())!;
   });
 
   ipcMain.handle('workspace:read-git-conflicts', async (event) => {
