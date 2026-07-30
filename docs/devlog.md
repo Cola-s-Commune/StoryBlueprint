@@ -13,6 +13,7 @@
 - Story Merge 将节点坐标作为 `{x, y}` 整体冲突，并提供批量保留 Local、采用 Remote 及仅移动冲突节点的自动布局操作；无冲突节点会作为固定锚点与避让区域。
 - Story Merge 自动检查远端新增节点与本地现有节点的视觉重叠，只重新安置发生碰撞的新增节点；避让使用节点估算宽高，较高的 Dialogue 节点不会再按固定中心距离误判。
 - Story Source v4 将 `x/y` 从节点声明移入 Graph 的独立 `layout` 区域，降低移动节点与编辑故事内容之间的 Git 冲突；坐标冲突新增 Local/Remote 顺序优先的局部邻域整理，且不会穿透 Rerouter。
+- AI Command v1 新增 `layout-selection` 与 `layout-neighborhood`：通用执行器只验证并返回布局请求，编辑器负责生成可移动、可撤销、需确认 Apply 的布局预览；AI 仍不能提交原始坐标。
 
 > 人机共读开发日志。新机器 clone 后看这里就能接上。
 

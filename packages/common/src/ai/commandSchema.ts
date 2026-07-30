@@ -204,6 +204,32 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             },
             ['graph', 'nodeId', 'target', 'source'],
           ),
+          operation(
+            'layout-selection',
+            {
+              graph,
+              nodeIds: {
+                type: 'array',
+                minItems: 1,
+                uniqueItems: true,
+                items: { type: 'string', pattern: stableIdPatterns.node },
+              },
+            },
+            ['graph', 'nodeIds'],
+          ),
+          operation(
+            'layout-neighborhood',
+            {
+              graph,
+              nodeIds: {
+                type: 'array',
+                minItems: 1,
+                uniqueItems: true,
+                items: { type: 'string', pattern: stableIdPatterns.node },
+              },
+            },
+            ['graph', 'nodeIds'],
+          ),
         ],
       },
     },

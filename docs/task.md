@@ -812,6 +812,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 合并完成门禁：显式冲突归零、最终变更审查、非写入式预检及 Git Stage 指纹失效保护
 - [x] 坐标冲突按 `{x, y}` 整体处理，支持批量保留 Local / Remote 与局部邻域自动整理
 - [x] Story v4 将节点逻辑与 `layout` 坐标分区持久化；坐标合并支持 Local/Remote 顺序优先的单步非 Rerouter 邻域整理
+- [x] AI Commands 支持 `layout-selection` 与 `layout-neighborhood` 布局意图，不允许 AI 直接生成 `x/y`
 - [ ] Multi-user
 
 ---

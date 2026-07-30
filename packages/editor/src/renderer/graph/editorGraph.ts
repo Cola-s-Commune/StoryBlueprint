@@ -5,6 +5,7 @@ import {
   resolveNodePorts,
   StoryNodeType,
   validateGraphConnection,
+  type BlueprintLayoutRequest,
   type ChapterId,
   type DialogueNodeData,
   type DialogueLineId,
@@ -326,6 +327,40 @@ export function autoLayoutGraph(
     }),
     edges: graph.edges,
   };
+}
+
+export function applyBlueprintLayoutRequests(
+  graph: EditorGraphState,
+  requests: readonly BlueprintLayoutRequest[],
+): EditorGraphState {
+  let result = graph;
+  for (const request of requests) {
+    if (request.kind === 'layout-selection') {
+      result = autoLayoutGraph(result, [...request.nodeIds]);
+      continue;
+    }
+    const seedIds = new Set(request.nodeIds);
+    const affected = new Set(request.nodeIds);
+    const nodesById = new Map(result.nodes.map((node) => [node.id, node] as const));
+    for (const edge of result.edges) {
+      if (seedIds.has(edge.source)) {
+        const neighbor = nodesById.get(edge.target);
+        if (neighbor?.type !== StoryNodeType.Reroute) affected.add(edge.target);
+      }
+      if (seedIds.has(edge.target)) {
+        const neighbor = nodesById.get(edge.source);
+        if (neighbor?.type !== StoryNodeType.Reroute) affected.add(edge.source);
+      }
+    }
+    const directEdges = result.edges.filter(
+      (edge) =>
+        nodesById.get(edge.source)?.type !== StoryNodeType.Reroute &&
+        nodesById.get(edge.target)?.type !== StoryNodeType.Reroute,
+    );
+    const arranged = autoLayoutGraph({ ...result, edges: directEdges }, [...affected]);
+    result = { ...arranged, edges: result.edges };
+  }
+  return result;
 }
 
 /** Merges a contiguous execution chain of Dialogue nodes into its first node. */

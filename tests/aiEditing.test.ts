@@ -130,6 +130,60 @@ describe('AI semantic editing foundation', () => {
     expect(createStorySemanticSnapshot(story()).revision).toBe(snapshot.revision);
   });
 
+  it('returns validated layout requests without letting AI write coordinates', () => {
+    const source = story();
+    const revision = createStorySemanticSnapshot(source).revision;
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'layout-selected-story-beat',
+          kind: 'layout-selection',
+          graph: { kind: 'root' },
+          nodeIds: ['n_start', 'n_talk'],
+        },
+        {
+          operationId: 'layout-around-dialogue',
+          kind: 'layout-neighborhood',
+          graph: { kind: 'root' },
+          nodeIds: ['n_talk'],
+        },
+      ],
+    };
+    expect(validateBlueprintCommandTransaction(transaction)).toEqual([]);
+    const result = executeBlueprintCommandTransaction(source, transaction, { dryRun: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.layoutRequests).toEqual(transaction.operations);
+    expect(result.document.root.nodes.map((node) => node.position)).toEqual(
+      source.root.nodes.map((node) => node.position),
+    );
+    expect(result.snapshot.revision).toBe(revision);
+    expect(JSON.stringify(transaction)).not.toContain('position');
+  });
+
+  it('rejects layout requests that target a missing node', () => {
+    const source = story();
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'layout-missing-node',
+          kind: 'layout-selection',
+          graph: { kind: 'root' },
+          nodeIds: ['n_missing'],
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics[0]).toMatchObject({ code: 'UNKNOWN_NODE' });
+  });
+
   it('dry-runs an atomic insertion without mutating the source', () => {
     const source = story();
     const revision = createStorySemanticSnapshot(source).revision;

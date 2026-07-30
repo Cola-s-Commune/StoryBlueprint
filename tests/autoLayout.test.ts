@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { nodeRegistry, StoryNodeType } from '@story-blueprint/common';
 import {
+  applyBlueprintLayoutRequests,
   autoLayoutGraph,
   type EditorGraphNode,
   type EditorGraphState,
@@ -171,5 +172,40 @@ describe('automatic graph layout', () => {
     expect(result.nodes.find((candidate) => candidate.id === 'n_first')!.position.x).toBeLessThan(
       result.nodes.find((candidate) => candidate.id === 'n_second')!.position.x,
     );
+  });
+
+  it('applies AI neighborhood layout to one direct step without crossing a Reroute', () => {
+    const graph: EditorGraphState = {
+      nodes: [
+        node('n_start', StoryNodeType.Start, 700, 400),
+        node('n_linea', StoryNodeType.Dialogue, 50, 50),
+        node('n_routex', StoryNodeType.Reroute, 480, 100),
+        node('n_endxx', StoryNodeType.End, 900, 100),
+      ],
+      edges: [
+        edge('e_first', 'n_start', 'n_linea'),
+        edge('e_routea', 'n_linea', 'n_routex'),
+        edge('e_routeb', 'n_routex', 'n_endxx'),
+      ],
+    };
+    const result = applyBlueprintLayoutRequests(graph, [
+      {
+        operationId: 'layout-near-line',
+        kind: 'layout-neighborhood',
+        graph: { kind: 'root' },
+        nodeIds: ['n_linea'],
+      },
+    ]);
+    expect(result.nodes.find((candidate) => candidate.id === 'n_start')!.position.x).toBeLessThan(
+      result.nodes.find((candidate) => candidate.id === 'n_linea')!.position.x,
+    );
+    expect(result.nodes.find((candidate) => candidate.id === 'n_routex')?.position).toEqual({
+      x: 480,
+      y: 100,
+    });
+    expect(result.nodes.find((candidate) => candidate.id === 'n_endxx')?.position).toEqual({
+      x: 900,
+      y: 100,
+    });
   });
 });

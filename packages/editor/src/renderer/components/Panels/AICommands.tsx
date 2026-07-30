@@ -380,6 +380,8 @@ export function AICommands() {
   const diffChangeCount = diffCounts
     ? diffCounts.added + diffCounts.changed + diffCounts.removed
     : 0;
+  const layoutNodeIds = result?.ok && aiProposal ? aiProposal.layoutNodeIds : [];
+  const reviewChangeCount = diffChangeCount + layoutNodeIds.length;
   const errors = [providerError, clipboardError, localError, diagnosticText(result)]
     .filter(Boolean)
     .join('\n');
@@ -1146,7 +1148,7 @@ export function AICommands() {
                 onClick={() => setShowDiffDetails((visible) => !visible)}
               >
                 <span className={styles.disclosure}>{showDiffDetails ? '▾' : '▸'}</span>
-                Review changes · {diffChangeCount}
+                Review changes · {reviewChangeCount}
                 {diffCounts && diffCounts.added > 0 && (
                   <span data-tone="added">+{diffCounts.added}</span>
                 )}
@@ -1155,6 +1157,9 @@ export function AICommands() {
                 )}
                 {diffCounts && diffCounts.removed > 0 && (
                   <span data-tone="removed">−{diffCounts.removed}</span>
+                )}
+                {layoutNodeIds.length > 0 && (
+                  <span data-tone="changed">Layout {layoutNodeIds.length}</span>
                 )}
               </button>
               {showDiffDetails && (
@@ -1169,6 +1174,7 @@ export function AICommands() {
                       ['Removed nodes', diff.removedNodes, 'removed'],
                       ['Added connections', diff.addedConnections, 'added'],
                       ['Removed connections', diff.removedConnections, 'removed'],
+                      ['Layout nodes', layoutNodeIds, 'changed'],
                     ] as const
                   )
                     .filter(([, items]) => items.length > 0)

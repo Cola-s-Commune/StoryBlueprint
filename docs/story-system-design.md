@@ -879,6 +879,8 @@ Runtime 不负责：
 
 Story Merge 将节点 `position` 视为 `{ x, y }` 原子值，不把同一节点拆成两个坐标冲突。坐标冲突提供四种批量策略：保留 Local、保留 Remote、Local 顺序优先局部整理、Remote 顺序优先局部整理。局部整理包含冲突节点及其一步直连的非 Rerouter 邻居，不穿透 Rerouter，也不影响 Runtime 逻辑。
 
+AI 语义接口不暴露坐标写入。需要整理画布时，AI 使用 `layout-selection` 指定准确节点集合，或使用 `layout-neighborhood` 指定种子节点并扩展到一步直连的非 Rerouter 邻居。Command Executor 返回布局意图，编辑器用当前节点尺寸生成 Proposal；作者仍可移动每个预览节点，再决定 Apply 或取消。
+
 远端自动合并进来的新增节点若与本地已有节点发生视觉重叠，编辑器会依据节点宽高和相邻流程锚点，只移动发生碰撞的新增节点。未碰撞的新增节点保留作者坐标。
 
 新建项目时同时创建一个 `main.story`（若重名则使用递增后缀），将其设为项目入口并直接打开。这样项目创建后立即具有可编辑、可运行的 Main Story，而不是空项目索引。

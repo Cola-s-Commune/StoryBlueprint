@@ -62,6 +62,7 @@ import {
 import {
   fromSourceGraph,
   applyAIProposalPositions,
+  applyBlueprintLayoutRequests,
   extractSelectionToSubstory as extractGraphSelection,
   mergeDialogueNodes as mergeGraphDialogues,
   prepareAIGraphChanges,
@@ -315,6 +316,7 @@ interface AIEditorChanges {
   addedNodeIds: NodeId[];
   changedNodeIds: NodeId[];
   removedNodeIds: NodeId[];
+  layoutNodeIds: NodeId[];
   variableChangeCount: number;
 }
 
@@ -909,7 +911,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           diagnostics: [{ code: 'UNKNOWN_GRAPH', message: 'Active graph no longer exists' }],
         };
       }
-      const prepared = prepareAIGraphChanges(graph, fromSourceGraph(nextSourceGraph));
+      const proposalGraph = applyBlueprintLayoutRequests(
+        fromSourceGraph(nextSourceGraph),
+        result.layoutRequests,
+      );
+      const prepared = prepareAIGraphChanges(graph, proposalGraph);
+      const movedNodeIds = proposalGraph.nodes
+        .filter((node) => {
+          const before = graph.nodes.find((candidate) => candidate.id === node.id);
+          return (
+            before !== undefined &&
+            (before.position.x !== node.position.x || before.position.y !== node.position.y)
+          );
+        })
+        .map((node) => node.id);
+      const changedNodeIds = [...new Set([...prepared.changedNodeIds, ...movedNodeIds])];
       const beforeVariables = new Map(source.variables.map((variable) => [variable.id, variable]));
       const afterVariables = new Map(
         result.document.variables.map((variable) => [variable.id, variable]),
@@ -928,8 +944,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           },
           transaction: structuredClone(transactionValue),
           addedNodeIds: prepared.addedNodeIds,
-          changedNodeIds: prepared.changedNodeIds,
+          changedNodeIds,
           removedNodeIds: prepared.removedNodeIds,
+          layoutNodeIds: movedNodeIds,
           variableChangeCount,
         });
         return result;
@@ -952,8 +969,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           : {
               nonce: Date.now(),
               addedNodeIds: prepared.addedNodeIds,
-              changedNodeIds: prepared.changedNodeIds,
+              changedNodeIds,
               removedNodeIds: prepared.removedNodeIds,
+              layoutNodeIds: movedNodeIds,
               variableChangeCount,
             },
       );

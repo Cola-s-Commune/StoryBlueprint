@@ -146,6 +146,18 @@ export interface SetExpressionCommand extends BlueprintGraphCommandBase {
   source: string | null;
 }
 
+export interface LayoutSelectionCommand extends BlueprintGraphCommandBase {
+  kind: 'layout-selection';
+  nodeIds: readonly NodeId[];
+}
+
+export interface LayoutNeighborhoodCommand extends BlueprintGraphCommandBase {
+  kind: 'layout-neighborhood';
+  nodeIds: readonly NodeId[];
+}
+
+export type BlueprintLayoutRequest = LayoutSelectionCommand | LayoutNeighborhoodCommand;
+
 export type BlueprintCommand =
   | AddNodeCommand
   | UpdateNodeCommand
@@ -160,7 +172,9 @@ export type BlueprintCommand =
   | AddChoiceOptionCommand
   | UpdateChoiceOptionCommand
   | RemoveChoiceOptionCommand
-  | SetExpressionCommand;
+  | SetExpressionCommand
+  | LayoutSelectionCommand
+  | LayoutNeighborhoodCommand;
 
 export interface BlueprintCommandTransaction {
   format: typeof BLUEPRINT_COMMAND_FORMAT;

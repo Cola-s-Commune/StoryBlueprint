@@ -22,6 +22,7 @@ import {
   type BlueprintCommandDiagnostic,
   type BlueprintCommandTransaction,
   type BlueprintGraphTarget,
+  type BlueprintLayoutRequest,
 } from './blueprintCommands';
 import { createStorySemanticSnapshot, type StorySemanticSnapshot } from './semanticModel';
 
@@ -51,6 +52,7 @@ export type BlueprintTransactionResult =
       document: StorySourceDocument;
       snapshot: StorySemanticSnapshot;
       appliedOperationIds: readonly string[];
+      layoutRequests: readonly BlueprintLayoutRequest[];
       diagnostics: readonly [];
     }
   | {
@@ -148,6 +150,15 @@ function validStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function validNodeIdArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    new Set(value).size === value.length &&
+    value.every((item) => typeof item === 'string' && isStableId(item, 'node'))
+  );
+}
+
 function validLineInput(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -207,6 +218,8 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'update-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId', 'patch'],
   'remove-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId'],
   'set-expression': ['operationId', 'kind', 'graph', 'nodeId', 'target', 'source'],
+  'layout-selection': ['operationId', 'kind', 'graph', 'nodeIds'],
+  'layout-neighborhood': ['operationId', 'kind', 'graph', 'nodeIds'],
 };
 
 function unexpectedKeyDiagnostics(
@@ -492,6 +505,18 @@ export function validateBlueprintCommandTransaction(
           diagnostics.push(invalidShape('set-expression is invalid', operationIndex, path));
         }
         break;
+      case 'layout-selection':
+      case 'layout-neighborhood':
+        if (!validNodeIdArray(raw.nodeIds)) {
+          diagnostics.push(
+            invalidShape(
+              `${raw.kind} requires one or more unique node IDs`,
+              operationIndex,
+              `${path}.nodeIds`,
+            ),
+          );
+        }
+        break;
       default:
         diagnostics.push(
           invalidShape(
@@ -671,6 +696,19 @@ function applyOperation(
       data: structuredClone(operation.node.data),
     } as unknown as SourceNode);
     return undefined;
+  }
+  if (operation.kind === 'layout-selection' || operation.kind === 'layout-neighborhood') {
+    const missingNodeId = operation.nodeIds.find(
+      (nodeId) => !graph.nodes.some((node) => node.id === nodeId),
+    );
+    return missingNodeId
+      ? operationDiagnostic(
+          operation,
+          operationIndex,
+          'UNKNOWN_NODE',
+          `Node does not exist: ${missingNodeId}`,
+        )
+      : undefined;
   }
   const nodeId =
     operation.kind === 'connect' || operation.kind === 'disconnect' ? undefined : operation.nodeId;
@@ -1202,6 +1240,10 @@ export function executeBlueprintCommandTransaction(
     document,
     snapshot: createStorySemanticSnapshot(withSemanticContext(document, options.semanticContext)),
     appliedOperationIds: transaction.operations.map((operation) => operation.operationId),
+    layoutRequests: transaction.operations.filter(
+      (operation): operation is BlueprintLayoutRequest =>
+        operation.kind === 'layout-selection' || operation.kind === 'layout-neighborhood',
+    ),
     diagnostics: [],
   };
 }
