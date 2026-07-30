@@ -16,7 +16,8 @@ import {
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import {
   applyMergedStory,
-  autoLayoutStoryConflictPositions,
+  autoLayoutStoryAddedNodeOverlaps,
+  autoLayoutStoryConflictNeighborhoods,
   diffThreeWayOptionalValues,
   diffThreeWayStoryDocuments,
   diffStoryDocuments,
@@ -24,6 +25,7 @@ import {
   mergeStoryDocuments,
   mergeThreeWayStoryDocuments,
   mergeThreeWayOptionalValues,
+  type CoordinateLayoutOrder,
   type MergeableStoryDocument,
   type StoryMergeChoice,
   type StoryMergeConflict,
@@ -426,7 +428,8 @@ export function StoryMerge() {
   const [validating, setValidating] = useState(false);
   const [validatedKey, setValidatedKey] = useState('');
   const [gitConflictRevision, setGitConflictRevision] = useState('');
-  const [autoLayoutCoordinates, setAutoLayoutCoordinates] = useState(false);
+  const [coordinateLayoutOrder, setCoordinateLayoutOrder] =
+    useState<CoordinateLayoutOrder>();
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
   const threeWayDiff = useMemo(
     () =>
@@ -473,23 +476,32 @@ export function StoryMerge() {
     [base, decisions, localBase, remoteMergeable],
   );
   const mergedProjection = useMemo(
-    () =>
-      rawMergedProjection && autoLayoutCoordinates
-        ? autoLayoutStoryConflictPositions(rawMergedProjection, coordinateNodeIds)
-        : rawMergedProjection,
-    [autoLayoutCoordinates, coordinateNodeIds, rawMergedProjection],
+    () => {
+      if (!rawMergedProjection || !localBase) return rawMergedProjection;
+      const overlapFree = autoLayoutStoryAddedNodeOverlaps(localBase, rawMergedProjection);
+      return coordinateLayoutOrder && remoteMergeable
+        ? autoLayoutStoryConflictNeighborhoods(
+            overlapFree,
+            localBase,
+            remoteMergeable,
+            coordinateNodeIds,
+            coordinateLayoutOrder,
+          )
+        : overlapFree;
+    },
+    [coordinateLayoutOrder, coordinateNodeIds, localBase, rawMergedProjection, remoteMergeable],
   );
   const remoteChoiceCount = conflicts.filter(
     (conflict) =>
-      !(autoLayoutCoordinates && coordinateConflictIds.has(conflict.id)) &&
+      !(coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)) &&
       decisions[conflict.id] === 'remote',
   ).length;
   const localChoiceCount = conflicts.filter(
     (conflict) =>
-      !(autoLayoutCoordinates && coordinateConflictIds.has(conflict.id)) &&
+      !(coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)) &&
       decisions[conflict.id] === 'local',
   ).length;
-  const autoCoordinateCount = autoLayoutCoordinates ? coordinateConflicts.length : 0;
+  const autoCoordinateCount = coordinateLayoutOrder ? coordinateConflicts.length : 0;
   const unresolvedCount = conflicts.filter(
     (conflict) => decisions[conflict.id] === undefined,
   ).length;
@@ -545,7 +557,7 @@ export function StoryMerge() {
   useEffect(() => {
     if (!storyMergeDecisionRequest) return;
     if (coordinateConflictIds.has(storyMergeDecisionRequest.id)) {
-      setAutoLayoutCoordinates(false);
+      setCoordinateLayoutOrder(undefined);
     }
     setDecisions((current) => ({
       ...current,
@@ -569,19 +581,19 @@ export function StoryMerge() {
   };
 
   const choose = (id: string, choice: StoryMergeChoice) => {
-    if (coordinateConflictIds.has(id)) setAutoLayoutCoordinates(false);
+    if (coordinateConflictIds.has(id)) setCoordinateLayoutOrder(undefined);
     setDecisions((current) => ({ ...current, [id]: choice }));
     setError(undefined);
     setStatus(undefined);
   };
 
   const chooseAll = (choice: StoryMergeChoice) => {
-    setAutoLayoutCoordinates(false);
+    setCoordinateLayoutOrder(undefined);
     setDecisions((current) =>
       Object.fromEntries(
         conflicts.map((conflict) => [
           conflict.id,
-          autoLayoutCoordinates && coordinateConflictIds.has(conflict.id)
+          coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)
             ? choice
             : (current[conflict.id] ?? choice),
         ]),
@@ -592,7 +604,7 @@ export function StoryMerge() {
   };
 
   const resolveCoordinateConflicts = (choice: StoryMergeChoice) => {
-    setAutoLayoutCoordinates(false);
+    setCoordinateLayoutOrder(undefined);
     setDecisions((current) => ({
       ...current,
       ...Object.fromEntries(coordinateConflicts.map((conflict) => [conflict.id, choice])),
@@ -606,15 +618,17 @@ export function StoryMerge() {
     );
   };
 
-  const autoArrangeCoordinateConflicts = () => {
+  const autoArrangeCoordinateConflicts = (order: CoordinateLayoutOrder) => {
     setDecisions((current) => ({
       ...current,
       ...Object.fromEntries(coordinateConflicts.map((conflict) => [conflict.id, 'local'])),
     }));
-    setAutoLayoutCoordinates(true);
+    setCoordinateLayoutOrder(order);
     setValidatedKey('');
     setError(undefined);
-    setStatus(`Auto-arranged ${coordinateConflicts.length} coordinate-conflicted node(s).`);
+    setStatus(
+      `Auto-arranged ${coordinateConflicts.length} coordinate conflict(s) with ${order === 'local-first' ? 'Local' : 'Remote'} ordering first.`,
+    );
   };
 
   const ensureGitComparisonFresh = async () => {
@@ -711,7 +725,7 @@ export function StoryMerge() {
         setRemotePath(`${stages.repositoryRoot} · ${stages.relativePath}`);
         setBaseRevision(semanticSnapshot.revision);
         setDecisions({});
-        setAutoLayoutCoordinates(false);
+        setCoordinateLayoutOrder(undefined);
         setMode('git-three-way');
         setGitConflictRevision(stages.revision);
         setValidatedKey('');
@@ -736,7 +750,7 @@ export function StoryMerge() {
       setRemotePath(selectedPath);
       setBaseRevision(semanticSnapshot.revision);
       setDecisions({});
-      setAutoLayoutCoordinates(false);
+      setCoordinateLayoutOrder(undefined);
       setMode('two-way');
       setGitConflictRevision('');
       setValidatedKey('');
@@ -765,7 +779,7 @@ export function StoryMerge() {
       setRemotePath('');
       setBaseRevision('');
       setDecisions({});
-      setAutoLayoutCoordinates(false);
+      setCoordinateLayoutOrder(undefined);
       setValidatedKey('');
       setGitConflictRevision('');
       setError(undefined);
@@ -848,6 +862,20 @@ export function StoryMerge() {
                 <>
                   <button
                     type="button"
+                    title="Auto-layout each conflict node and its directly connected non-Rerouter neighbors, using Local order first"
+                    onClick={() => autoArrangeCoordinateConflicts('local-first')}
+                  >
+                    Local Before Remote
+                  </button>
+                  <button
+                    type="button"
+                    title="Auto-layout each conflict node and its directly connected non-Rerouter neighbors, using Remote order first"
+                    onClick={() => autoArrangeCoordinateConflicts('remote-first')}
+                  >
+                    Remote Before Local
+                  </button>
+                  <button
+                    type="button"
                     title="Ignore coordinate conflicts and keep the current Local layout"
                     onClick={() => resolveCoordinateConflicts('local')}
                   >
@@ -859,13 +887,6 @@ export function StoryMerge() {
                     onClick={() => resolveCoordinateConflicts('remote')}
                   >
                     Keep Remote Positions
-                  </button>
-                  <button
-                    type="button"
-                    title="Auto-layout only nodes whose positions conflict"
-                    onClick={autoArrangeCoordinateConflicts}
-                  >
-                    Auto-layout Positions
                   </button>
                 </>
               )}
@@ -913,7 +934,10 @@ export function StoryMerge() {
                 unresolved
               </span>
               {autoCoordinateCount > 0 && (
-                <span>Coordinates: {autoCoordinateCount} auto-arranged</span>
+                <span>
+                  Coordinates: {autoCoordinateCount} auto-arranged ·{' '}
+                  {coordinateLayoutOrder === 'local-first' ? 'Local before Remote' : 'Remote before Local'}
+                </span>
               )}
               <span>
                 Nodes: +{graphReview.addedNodes} · ~{graphReview.changedNodes} · −
@@ -931,7 +955,7 @@ export function StoryMerge() {
                 {conflicts.map((conflict) => {
                   const coordinateConflict = coordinateConflictIds.has(conflict.id);
                   const choice =
-                    autoLayoutCoordinates && coordinateConflict
+                    coordinateLayoutOrder && coordinateConflict
                       ? undefined
                       : decisions[conflict.id];
                   const localText = valueText(conflict.localValue, conflict.kind !== 'remote-only');
@@ -943,7 +967,13 @@ export function StoryMerge() {
                     <article className={styles.conflict} key={conflict.id}>
                       <header>
                         <span>{conflict.kind}</span>
-                        {autoLayoutCoordinates && coordinateConflict && <span>auto-layout</span>}
+                        {coordinateLayoutOrder && coordinateConflict && (
+                          <span>
+                            {coordinateLayoutOrder === 'local-first'
+                              ? 'local-before-remote'
+                              : 'remote-before-local'}
+                          </span>
+                        )}
                         <code>{conflict.path}</code>
                         {conflict.id
                           .split('/')

@@ -41,7 +41,7 @@ function graph(text: string): SourceGraph {
 function story(root: SourceGraph): StorySourceDocument {
   return {
     format: 'story-blueprint',
-    version: 3,
+    version: 4,
     id: 's_preview',
     name: 'preview',
     displayName: 'Preview',

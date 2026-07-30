@@ -122,8 +122,10 @@ describe('Reroute and Flow Portal', () => {
   it('preserves portal references and reroutes through KDL round trips', () => {
     const serialized = serializeStorySource(portalStory());
     expect(serialized).toContain('reroute n_route');
-    expect(serialized).toContain('flow-anchor n_anchor x=900 y=0 label="After Dialogue"');
-    expect(serialized).toContain('flow-jump n_jump x=620 y=0 target=n_anchor');
+    expect(serialized).toContain('flow-anchor n_anchor label="After Dialogue"');
+    expect(serialized).toContain('flow-jump n_jump target=n_anchor');
+    expect(serialized).toContain('position n_jump x=620 y=0');
+    expect(serialized).toContain('position n_anchor x=900 y=0');
     expect(parseStorySource(serialized)).toEqual(portalStory());
   });
 

@@ -554,7 +554,7 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 ### 9.1 完整示例
 
 ```kdl
-story s_intro format=story-blueprint version=3 name=intro display-name=序章 {
+story s_intro format=story-blueprint version=4 name=intro display-name=序章 {
   variables {
     variable v_favor name=favor display-name=好感度 type=number default=0
     variable v_name name=playerName display-name=玩家姓名 type=string default=Player
@@ -566,26 +566,33 @@ story s_intro format=story-blueprint version=3 name=intro display-name=序章 {
     }
   }
   graph {
-    story-entry n_start x=80 y=120 title=序章
-    dialogue n_greet name=greeting x=320 y=120 {
+    story-entry n_start title=序章
+    dialogue n_greet name=greeting {
       line ln_greeting t_greeting "你好，{playerName}。" speaker=c_alice emotion=happy
     }
-    branch n_check x=600 y=120 condition="favor >= 10"
-    choice n_choose x=860 y=120 prompt=是否接受任务？ {
+    branch n_check condition="favor >= 10"
+    choice n_choose prompt=是否接受任务？ {
       option o_accept 接受任务 enabled-if="favor >= 10"
       option o_refuse 拒绝任务
     }
-    end-story n_end x=1120 y=300 title=结束
+    end-story n_end title=结束
     link n_start n_greet
     link n_greet n_check
     link n_check n_choose from=true
     link n_check n_end from=false
     link n_choose n_end from=o_accept
+    layout {
+      position n_start x=80 y=120
+      position n_greet x=320 y=120
+      position n_check x=600 y=120
+      position n_choose x=860 y=120
+      position n_end x=1120 y=300
+    }
   }
 }
 ```
 
-这是当前不兼容旧格式的 `story-blueprint@3` writer 输出。项目尚处早期，不提供 v1/v2 迁移或兼容读取。
+这是当前不兼容旧格式的 `story-blueprint@4` writer 输出。项目尚处早期，不提供旧版本迁移或兼容读取。节点逻辑与 `layout` 坐标分区保存，使内容修改和画布移动落在不同的 Git Diff 区域。
 节点、变量、角色、资源和选项使用短稳定 ID；节点 `name` 只有作者明确命名时才写入；Edge 不持久化 ID。
 
 `.story` 是唯一权威编辑源，包含：
@@ -870,7 +877,9 @@ Runtime 不负责：
 
 编辑器周期性检查当前分支、detached HEAD 位置和 Git Index 未合并条目，而不把同一分支上的普通提交视为工作区切换。检测到外部切换或 merge/rebase 进入、退出冲突状态后，重新扫描项目文件、共享资源，并按原标签集合从 Git Local Stage 或新分支重载已打开 Story；新分支不存在的 Story 会关闭并报告。当前活动 Story 和仍存在的 Substory 视图尽量保留。若存在未保存的 Story 或项目资源编辑，必须先明确选择丢弃并重载或保留编辑，禁止静默覆盖。
 
-Story Merge 将节点 `position` 视为 `{ x, y }` 原子值，不把同一节点拆成两个坐标冲突。坐标冲突可以批量保留 Local、批量采用 Remote，或基于完整 Graph 自动排列；自动排列只把新坐标写入发生冲突的节点，不移动无冲突节点，也不影响 Runtime 逻辑。
+Story Merge 将节点 `position` 视为 `{ x, y }` 原子值，不把同一节点拆成两个坐标冲突。坐标冲突提供四种批量策略：保留 Local、保留 Remote、Local 顺序优先局部整理、Remote 顺序优先局部整理。局部整理包含冲突节点及其一步直连的非 Rerouter 邻居，不穿透 Rerouter，也不影响 Runtime 逻辑。
+
+远端自动合并进来的新增节点若与本地已有节点发生视觉重叠，编辑器会依据节点宽高和相邻流程锚点，只移动发生碰撞的新增节点。未碰撞的新增节点保留作者坐标。
 
 新建项目时同时创建一个 `main.story`（若重名则使用递增后缀），将其设为项目入口并直接打开。这样项目创建后立即具有可编辑、可运行的 Main Story，而不是空项目索引。
 

@@ -86,7 +86,7 @@ function sourceDocument(): StorySourceDocument {
   };
 }
 
-describe('story KDL v2', () => {
+describe('story KDL v4', () => {
   it('has a stable serialize-parse-serialize round trip', () => {
     const serialized = serializeStorySource(sourceDocument());
     expect(serializeStorySource(parseStorySource(serialized))).toBe(serialized);
@@ -94,7 +94,8 @@ describe('story KDL v2', () => {
 
   it('uses compact links, optional names and integer coordinates', () => {
     const serialized = serializeStorySource(sourceDocument());
-    expect(serialized).toContain('story-entry n_start x=80 y=120');
+    expect(serialized).toContain('story-entry n_start');
+    expect(serialized).toContain('position n_start x=80 y=120');
     expect(serialized).toContain('link n_start n_talk');
     expect(serialized).not.toContain('definition-version');
     expect(serialized).not.toContain('edge_');
@@ -192,7 +193,7 @@ describe('story KDL v2', () => {
   });
 
   it('rejects the discarded v1 format without migration', () => {
-    const serialized = serializeStorySource(sourceDocument()).replace('version=3', 'version=2');
+    const serialized = serializeStorySource(sourceDocument()).replace('version=4', 'version=3');
     expect(() => parseStorySource(serialized)).toThrow(StoryFormatError);
   });
 });

@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { nodeRegistry, StoryNodeType, type StorySourceDocument } from '@story-blueprint/common';
 import {
-  autoLayoutStoryConflictPositions,
+  autoLayoutStoryAddedNodeOverlaps,
+  autoLayoutStoryConflictNeighborhoods,
   diffThreeWayStoryDocuments,
   diffThreeWayValues,
   diffThreeWayOptionalValues,
@@ -22,7 +23,7 @@ beforeAll(() => nodeRegistry.registerBuiltins());
 function story(text: string, includeEnd = true): StorySourceDocument {
   return {
     format: 'story-blueprint',
-    version: 3,
+    version: 4,
     id: 's_merge',
     name: 'merge',
     displayName: 'Merge',
@@ -139,33 +140,90 @@ describe('Story semantic merge', () => {
       .toEqual({ x: 900, y: -200 });
   });
 
-  it('auto-layouts only coordinate-conflicted nodes', () => {
-    const source = story('Local');
-    source.root.nodes.push({
-      id: 'n_orphanx',
-      type: StoryNodeType.Dialogue,
-      definitionVersion: 1,
-      position: { x: 520, y: 120 },
-      data: {
-        lines: [{ id: 'ln_orphanx', textId: 't_orphanx', text: { source: 'Orphan' } }],
-      },
-    });
-    const mergeable = mergeableStory(source);
-    const arranged = autoLayoutStoryConflictPositions(mergeable, new Set(['n_orphanx']));
+  it('auto-layouts a coordinate conflict with its direct non-Rerouter neighbor', () => {
+    const local = mergeableStory(story('Local'));
+    const remote = structuredClone(local);
+    remote.root.nodes[0].position = { x: 900, y: -200 };
+
+    const arranged = autoLayoutStoryConflictNeighborhoods(
+      local,
+      local,
+      remote,
+      new Set(['n_dialogue']),
+      'local-first',
+    );
 
     expect(arranged.root.nodes.find((node) => node.id === 'n_dialogue')?.position).toEqual({
       x: 100,
+      y: 200,
+    });
+    expect(arranged.root.nodes.find((node) => node.id === 'n_endxx')?.position.x).toBeGreaterThan(
+      100,
+    );
+  });
+
+  it('does not traverse a Rerouter when expanding a coordinate conflict neighborhood', () => {
+    const localSource = story('Local');
+    localSource.root.nodes.splice(1, 0, {
+      id: 'n_routex',
+      type: StoryNodeType.Reroute,
+      definitionVersion: 1,
+      position: { x: 300, y: 200 },
+      data: {},
+    });
+    localSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_routex', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_routex', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    const local = mergeableStory(localSource);
+    const remote = structuredClone(local);
+    remote.root.nodes[0].position = { x: 900, y: -200 };
+
+    const arranged = autoLayoutStoryConflictNeighborhoods(
+      local,
+      local,
+      remote,
+      new Set(['n_dialogue']),
+      'remote-first',
+    );
+
+    expect(arranged.root.nodes.find((node) => node.id === 'n_routex')?.position).toEqual({
+      x: 300,
       y: 200,
     });
     expect(arranged.root.nodes.find((node) => node.id === 'n_endxx')?.position).toEqual({
       x: 500,
       y: 200,
     });
-    expect(arranged.root.nodes.find((node) => node.id === 'n_orphanx')?.position.x).toBeGreaterThan(
-      100,
-    );
-    expect(arranged.root.nodes.find((node) => node.id === 'n_orphanx')?.position).not.toEqual({
-      x: 500,
+  });
+
+  it('relocates only incoming nodes that overlap existing nodes', () => {
+    const local = mergeableStory(story('Local'));
+    const merged = structuredClone(local);
+    merged.root.nodes.push({
+      id: 'n_addedxx',
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 100, y: 200 },
+      data: {
+        lines: [{ id: 'ln_addedxx', textId: 't_addedxx', text: { source: 'Added' } }],
+      },
+    });
+
+    const arranged = autoLayoutStoryAddedNodeOverlaps(local, merged);
+
+    expect(arranged.root.nodes.find((node) => node.id === 'n_dialogue')?.position).toEqual({
+      x: 100,
+      y: 200,
+    });
+    expect(arranged.root.nodes.find((node) => node.id === 'n_addedxx')?.position).not.toEqual({
+      x: 100,
       y: 200,
     });
   });

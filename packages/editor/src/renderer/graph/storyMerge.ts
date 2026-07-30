@@ -5,7 +5,12 @@ import {
   type SourceGraph,
   type StorySourceDocument,
 } from '@story-blueprint/common';
-import { fromSourceGraph, prepareAIGraphChanges } from './editorGraph';
+import {
+  arrangeOverlappingAddedNodes,
+  autoLayoutGraph,
+  avoidOverlappingNodes,
+  fromSourceGraph,
+} from './editorGraph';
 
 export type StoryMergeChoice = 'local' | 'remote';
 
@@ -668,34 +673,115 @@ export function applyMergedStory(
   return { ...local, ...clone(merged) };
 }
 
-export function autoLayoutStoryConflictPositions(
+export type CoordinateLayoutOrder = 'local-first' | 'remote-first';
+
+export function autoLayoutStoryConflictNeighborhoods(
   story: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
   nodeIds: ReadonlySet<string>,
+  order: CoordinateLayoutOrder,
 ): MergeableStoryDocument {
   const result = clone(story);
-  const layoutGraph = (graph: SourceGraph): SourceGraph => {
-    const affected = graph.nodes.filter((node) => nodeIds.has(node.id));
-    if (affected.length === 0) return graph;
+  const layoutGraph = (
+    graph: SourceGraph,
+    localGraph: SourceGraph | undefined,
+    remoteGraph: SourceGraph | undefined,
+  ): SourceGraph => {
+    const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+    const conflictIds = new Set(
+      graph.nodes
+        .filter((node) => nodeIds.has(node.id) && node.type !== StoryNodeType.Reroute)
+        .map((node) => node.id),
+    );
+    if (conflictIds.size === 0) return graph;
+    const affected = new Set(conflictIds);
+    for (const edge of graph.edges) {
+      if (conflictIds.has(edge.from.nodeId)) {
+        const neighbor = nodesById.get(edge.to.nodeId);
+        if (neighbor?.type !== StoryNodeType.Reroute) affected.add(edge.to.nodeId);
+      }
+      if (conflictIds.has(edge.to.nodeId)) {
+        const neighbor = nodesById.get(edge.from.nodeId);
+        if (neighbor?.type !== StoryNodeType.Reroute) affected.add(edge.from.nodeId);
+      }
+    }
+    const preferred = order === 'local-first' ? localGraph : remoteGraph;
+    const fallback = order === 'local-first' ? remoteGraph : localGraph;
+    const preferredPositions = new Map(
+      preferred?.nodes.map((node) => [node.id, node.position] as const) ?? [],
+    );
+    const fallbackPositions = new Map(
+      fallback?.nodes.map((node) => [node.id, node.position] as const) ?? [],
+    );
     const editorGraph = fromSourceGraph(graph, { allowInvalidConnections: true });
-    const layout = prepareAIGraphChanges(
-      {
-        nodes: editorGraph.nodes.filter((node) => !nodeIds.has(node.id)),
-        edges: editorGraph.edges,
-      },
-      editorGraph,
-    ).graph;
-    const positions = new Map(layout.nodes.map((node) => [node.id, node.position] as const));
+    const seeded = {
+      ...editorGraph,
+      nodes: editorGraph.nodes.map((node) => ({
+        ...node,
+        position: affected.has(node.id)
+          ? { ...(preferredPositions.get(node.id) ?? fallbackPositions.get(node.id) ?? node.position) }
+          : node.position,
+      })),
+      edges: editorGraph.edges.filter(
+        (edge) =>
+          nodesById.get(edge.source)?.type !== StoryNodeType.Reroute &&
+          nodesById.get(edge.target)?.type !== StoryNodeType.Reroute,
+      ),
+    };
+    const arranged = avoidOverlappingNodes(
+      autoLayoutGraph(seeded, [...affected]),
+      affected,
+    );
+    const positions = new Map(arranged.nodes.map((node) => [node.id, node.position] as const));
     return {
       ...graph,
       nodes: graph.nodes.map((node) =>
-        nodeIds.has(node.id) ? { ...node, position: { ...positions.get(node.id)! } } : node,
+        affected.has(node.id) ? { ...node, position: { ...positions.get(node.id)! } } : node,
       ),
     };
   };
-  result.root = layoutGraph(result.root);
+  const localChapters = new Map(local.chapters.map((chapter) => [chapter.id, chapter.graph] as const));
+  const remoteChapters = new Map(
+    remote.chapters.map((chapter) => [chapter.id, chapter.graph] as const),
+  );
+  result.root = layoutGraph(result.root, local.root, remote.root);
   result.chapters = result.chapters.map((chapter) => ({
     ...chapter,
-    graph: layoutGraph(chapter.graph),
+    graph: layoutGraph(
+      chapter.graph,
+      localChapters.get(chapter.id),
+      remoteChapters.get(chapter.id),
+    ),
+  }));
+  return result;
+}
+
+export function autoLayoutStoryAddedNodeOverlaps(
+  local: MergeableStoryDocument,
+  merged: MergeableStoryDocument,
+): MergeableStoryDocument {
+  const result = clone(merged);
+  const layoutGraph = (localGraph: SourceGraph | undefined, graph: SourceGraph): SourceGraph => {
+    const editorGraph = fromSourceGraph(graph, { allowInvalidConnections: true });
+    const layout = arrangeOverlappingAddedNodes(
+      fromSourceGraph(localGraph ?? { nodes: [], edges: [] }, { allowInvalidConnections: true }),
+      editorGraph,
+    );
+    const positions = new Map(layout.nodes.map((node) => [node.id, node.position] as const));
+    return {
+      ...graph,
+      nodes: graph.nodes.map((node) => ({
+        ...node,
+        position: { ...positions.get(node.id)! },
+      })),
+    };
+  };
+  const localChapters = new Map(local.chapters.map((chapter) => [chapter.id, chapter] as const));
+  result.root = layoutGraph(local.root, result.root);
+  result.chapters = result.chapters.map((chapter) => ({
+    ...chapter,
+    graph: layoutGraph(localChapters.get(chapter.id)?.graph, chapter.graph),
   }));
   return result;
 }

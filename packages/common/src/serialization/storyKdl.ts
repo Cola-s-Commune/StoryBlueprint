@@ -89,8 +89,6 @@ function addCommonNodeProperties(target: Node, source: SourceNode): void {
   if (source.name) target.setProperty('name', source.name);
   if (source.definitionVersion !== 1)
     target.setProperty('definition-version', source.definitionVersion);
-  target.setProperty('x', Math.round(source.position.x));
-  target.setProperty('y', Math.round(source.position.y));
 }
 
 function expressionSource(value: unknown, path: string) {
@@ -238,6 +236,15 @@ function serializeGraph(source: SourceGraph): Node {
     if (sourceEdge.to.portId !== 'in') link.setProperty('to', sourceEdge.to.portId);
     graph.appendNode(link);
   }
+  const layout = Node.create('layout');
+  for (const sourceNode of source.nodes) {
+    const position = Node.create('position');
+    position.addArgument(sourceNode.id);
+    position.setProperty('x', Math.round(sourceNode.position.x));
+    position.setProperty('y', Math.round(sourceNode.position.y));
+    layout.appendNode(position);
+  }
+  graph.appendNode(layout);
   return graph;
 }
 
@@ -416,13 +423,13 @@ export function serializeStorySource(source: StorySourceDocument): string {
   return format(new Document([story]));
 }
 
-function parseSourceNode(node: Node): SourceNode {
+function parseSourceNode(node: Node, position: { x: number; y: number }): SourceNode {
   const type = node.getName() as StoryNodeType;
   if (!Object.values(StoryNodeType).includes(type)) {
     throw new StoryFormatError(`Unsupported node type ${type}`);
   }
   const id = requiredId(node.getArgument(0), 'node', `${type}.id`);
-  const commonProperties = ['name', 'definition-version', 'x', 'y'] as const;
+  const commonProperties = ['name', 'definition-version'] as const;
   const typeProperties: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Start]: ['title'],
     [StoryNodeType.Dialogue]: [],
@@ -617,10 +624,7 @@ function parseSourceNode(node: Node): SourceNode {
       definitionVersionValue === undefined
         ? 1
         : requiredInteger(definitionVersionValue, `${id}.definition-version`),
-    position: {
-      x: requiredInteger(node.getProperty('x'), `${id}.x`),
-      y: requiredInteger(node.getProperty('y'), `${id}.y`),
-    },
+    position,
     data: data as unknown as Readonly<Record<string, unknown>>,
   };
 }
@@ -628,14 +632,36 @@ function parseSourceNode(node: Node): SourceNode {
 function parseGraph(graph: Node): SourceGraph {
   assertShape(graph, 'story.graph', {
     arguments: 0,
-    children: [...Object.values(StoryNodeType), 'link'],
+    children: [...Object.values(StoryNodeType), 'link', 'layout'],
   });
+  const layouts = graph.findNodesByName('layout');
+  if (layouts.length !== 1) throw new StoryFormatError('story.graph must contain one layout');
+  const layout = layouts[0];
+  assertShape(layout, 'story.graph.layout', { arguments: 0, children: ['position'] });
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const position of layout.findNodesByName('position')) {
+    assertShape(position, 'story.graph.layout.position', {
+      arguments: 1,
+      properties: ['x', 'y'],
+    });
+    const nodeId = requiredId(position.getArgument(0), 'node', 'layout.position.node');
+    if (positions.has(nodeId)) {
+      throw new StoryFormatError(`Duplicate layout position: ${nodeId}`);
+    }
+    positions.set(nodeId, {
+      x: requiredInteger(position.getProperty('x'), `${nodeId}.x`),
+      y: requiredInteger(position.getProperty('y'), `${nodeId}.y`),
+    });
+  }
   const nodes: SourceNode[] = [];
   const nodeIds = new Set<string>();
   const nodeNames = new Set<string>();
   for (const node of graph.children?.nodes ?? []) {
-    if (node.getName() === 'link') continue;
-    const sourceNode = parseSourceNode(node);
+    if (node.getName() === 'link' || node.getName() === 'layout') continue;
+    const nodeId = requiredId(node.getArgument(0), 'node', `${node.getName()}.id`);
+    const position = positions.get(nodeId);
+    if (!position) throw new StoryFormatError(`Missing layout position: ${nodeId}`);
+    const sourceNode = parseSourceNode(node, position);
     if (nodeIds.has(sourceNode.id))
       throw new StoryFormatError(`Duplicate node ID: ${sourceNode.id}`);
     nodeIds.add(sourceNode.id);
@@ -645,6 +671,9 @@ function parseGraph(graph: Node): SourceGraph {
       nodeNames.add(sourceNode.name);
     }
     nodes.push(sourceNode);
+  }
+  for (const nodeId of positions.keys()) {
+    if (!nodeIds.has(nodeId)) throw new StoryFormatError(`Layout references missing node: ${nodeId}`);
   }
   const edges: SourceEdge[] = graph.findNodesByName('link').map((link) => {
     assertShape(link, 'story.graph.link', {

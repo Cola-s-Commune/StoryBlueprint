@@ -74,6 +74,22 @@ function layoutNodeHeight(node: EditorGraphNode): number {
   return autoLayoutFallbackHeight;
 }
 
+function layoutNodesOverlap(
+  left: EditorGraphNode,
+  leftPosition: { x: number; y: number },
+  right: EditorGraphNode,
+  rightPosition: { x: number; y: number },
+): boolean {
+  const horizontalGap = 32;
+  const verticalGap = 24;
+  return (
+    leftPosition.x < rightPosition.x + layoutNodeWidth(right) + horizontalGap &&
+    leftPosition.x + layoutNodeWidth(left) + horizontalGap > rightPosition.x &&
+    leftPosition.y < rightPosition.y + layoutNodeHeight(right) + verticalGap &&
+    leftPosition.y + layoutNodeHeight(left) + verticalGap > rightPosition.y
+  );
+}
+
 function isLayoutExecutionEdge(
   edge: EditorGraphEdge,
   nodesById: ReadonlyMap<NodeId, EditorGraphNode>,
@@ -505,11 +521,17 @@ export function prepareAIGraphChanges(
       .filter((node) => !added.has(node.id))
       .map((node) => [node.id, { ...node.position }] as const),
   );
-  const occupied = [...positions.values()];
+  const occupied = [...positions].map(([nodeId, position]) => ({
+    node: afterById.get(nodeId)!,
+    position,
+  }));
   const pending = new Set(addedNodeIds);
   const horizontalGap = 280;
   const verticalGap = 170;
-  const existingRight = Math.max(0, ...occupied.map((position) => position.x));
+  const existingRight = Math.max(
+    0,
+    ...occupied.map(({ node, position }) => position.x + layoutNodeWidth(node)),
+  );
 
   const place = (nodeId: NodeId, allowFallback: boolean): boolean => {
     const predecessorPositions = after.edges
@@ -545,14 +567,15 @@ export function prepareAIGraphChanges(
         : occupied.length * verticalGap;
     x = Math.round(x);
     y = Math.round(y);
+    const node = afterById.get(nodeId)!;
     while (
-      occupied.some((position) => Math.abs(position.x - x) < 220 && Math.abs(position.y - y) < 120)
+      occupied.some((entry) => layoutNodesOverlap(node, { x, y }, entry.node, entry.position))
     ) {
       y += verticalGap;
     }
     const position = { x, y };
     positions.set(nodeId, position);
-    occupied.push(position);
+    occupied.push({ node, position });
     pending.delete(nodeId);
     return true;
   };
@@ -578,6 +601,85 @@ export function prepareAIGraphChanges(
     addedNodeIds,
     changedNodeIds,
     removedNodeIds,
+  };
+}
+
+/** Keeps non-overlapping incoming nodes authored in place and relocates only additions that collide. */
+export function arrangeOverlappingAddedNodes(
+  before: EditorGraphState,
+  after: EditorGraphState,
+): EditorGraphState {
+  const existingIds = new Set(before.nodes.map((node) => node.id));
+  const addedIds = new Set(
+    after.nodes.filter((node) => !existingIds.has(node.id)).map((node) => node.id),
+  );
+  const occupied: EditorGraphNode[] = after.nodes.filter((node) => !addedIds.has(node.id));
+  const relocate = new Set<NodeId>();
+  for (const node of after.nodes.filter((candidate) => addedIds.has(candidate.id))) {
+    if (
+      occupied.some((candidate) =>
+        layoutNodesOverlap(node, node.position, candidate, candidate.position),
+      )
+    ) {
+      relocate.add(node.id);
+    } else {
+      occupied.push(node);
+    }
+  }
+  if (relocate.size === 0) return after;
+  return prepareAIGraphChanges(
+    {
+      nodes: after.nodes.filter((node) => !relocate.has(node.id)),
+      edges: after.edges,
+    },
+    after,
+  ).graph;
+}
+
+/** Preserves proposed positions where possible and moves only selected nodes away from fixed nodes. */
+export function avoidOverlappingNodes(
+  graph: EditorGraphState,
+  nodeIds: ReadonlySet<NodeId>,
+): EditorGraphState {
+  const movable = graph.nodes
+    .filter((node) => nodeIds.has(node.id))
+    .sort(
+      (left, right) =>
+        left.position.x - right.position.x ||
+        left.position.y - right.position.y ||
+        left.id.localeCompare(right.id),
+    );
+  const occupied = graph.nodes
+    .filter((node) => !nodeIds.has(node.id))
+    .map((node) => ({ node, position: node.position }));
+  const positions = new Map<NodeId, { x: number; y: number }>();
+  for (const node of movable) {
+    const position = { ...node.position };
+    let collisions = occupied.filter((entry) =>
+      layoutNodesOverlap(node, position, entry.node, entry.position),
+    );
+    while (collisions.length > 0) {
+      position.y = Math.max(
+        position.y + 64,
+        ...collisions.map(
+          ({ node: obstacle, position: obstaclePosition }) =>
+            obstaclePosition.y + layoutNodeHeight(obstacle) + 24,
+        ),
+      );
+      collisions = occupied.filter((entry) =>
+        layoutNodesOverlap(node, position, entry.node, entry.position),
+      );
+    }
+    position.x = Math.round(position.x);
+    position.y = Math.round(position.y);
+    positions.set(node.id, position);
+    occupied.push({ node, position });
+  }
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node,
+    ),
   };
 }
 
