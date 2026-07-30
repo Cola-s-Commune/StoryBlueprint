@@ -16,6 +16,7 @@ import {
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import {
   applyMergedStory,
+  autoLayoutStoryConflictPositions,
   diffThreeWayOptionalValues,
   diffThreeWayStoryDocuments,
   diffStoryDocuments,
@@ -41,6 +42,12 @@ function valueText(value: unknown, present: boolean): string {
   if (typeof value === 'string') return value || '(empty string)';
   if (value === undefined) return '(undefined)';
   return JSON.stringify(value, null, 2);
+}
+
+function coordinateConflictNodeId(conflict: StoryMergeConflict): string | undefined {
+  const segments = conflict.id.split('/').map(decodeURIComponent);
+  if (segments.at(-1) !== 'position') return undefined;
+  return segments.find((segment) => segment.startsWith('@id:n_'))?.slice(4);
 }
 
 function summarizeGraphChanges(
@@ -419,6 +426,7 @@ export function StoryMerge() {
   const [validating, setValidating] = useState(false);
   const [validatedKey, setValidatedKey] = useState('');
   const [gitConflictRevision, setGitConflictRevision] = useState('');
+  const [autoLayoutCoordinates, setAutoLayoutCoordinates] = useState(false);
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
   const threeWayDiff = useMemo(
     () =>
@@ -433,7 +441,24 @@ export function StoryMerge() {
       (localBase && remoteMergeable ? diffStoryDocuments(localBase, remoteMergeable) : []),
     [localBase, remoteMergeable, threeWayDiff],
   );
-  const mergedProjection = useMemo(
+  const coordinateConflicts = useMemo(
+    () => conflicts.filter((conflict) => coordinateConflictNodeId(conflict) !== undefined),
+    [conflicts],
+  );
+  const coordinateConflictIds = useMemo(
+    () => new Set(coordinateConflicts.map((conflict) => conflict.id)),
+    [coordinateConflicts],
+  );
+  const coordinateNodeIds = useMemo(
+    () =>
+      new Set(
+        coordinateConflicts
+          .map(coordinateConflictNodeId)
+          .filter((nodeId): nodeId is string => Boolean(nodeId)),
+      ),
+    [coordinateConflicts],
+  );
+  const rawMergedProjection = useMemo(
     () =>
       localBase && remoteMergeable
         ? base
@@ -447,12 +472,24 @@ export function StoryMerge() {
         : undefined,
     [base, decisions, localBase, remoteMergeable],
   );
+  const mergedProjection = useMemo(
+    () =>
+      rawMergedProjection && autoLayoutCoordinates
+        ? autoLayoutStoryConflictPositions(rawMergedProjection, coordinateNodeIds)
+        : rawMergedProjection,
+    [autoLayoutCoordinates, coordinateNodeIds, rawMergedProjection],
+  );
   const remoteChoiceCount = conflicts.filter(
-    (conflict) => decisions[conflict.id] === 'remote',
+    (conflict) =>
+      !(autoLayoutCoordinates && coordinateConflictIds.has(conflict.id)) &&
+      decisions[conflict.id] === 'remote',
   ).length;
   const localChoiceCount = conflicts.filter(
-    (conflict) => decisions[conflict.id] === 'local',
+    (conflict) =>
+      !(autoLayoutCoordinates && coordinateConflictIds.has(conflict.id)) &&
+      decisions[conflict.id] === 'local',
   ).length;
+  const autoCoordinateCount = autoLayoutCoordinates ? coordinateConflicts.length : 0;
   const unresolvedCount = conflicts.filter(
     (conflict) => decisions[conflict.id] === undefined,
   ).length;
@@ -507,13 +544,16 @@ export function StoryMerge() {
 
   useEffect(() => {
     if (!storyMergeDecisionRequest) return;
+    if (coordinateConflictIds.has(storyMergeDecisionRequest.id)) {
+      setAutoLayoutCoordinates(false);
+    }
     setDecisions((current) => ({
       ...current,
       [storyMergeDecisionRequest.id]: storyMergeDecisionRequest.choice,
     }));
     setError(undefined);
     setStatus(undefined);
-  }, [storyMergeDecisionRequest]);
+  }, [coordinateConflictIds, storyMergeDecisionRequest]);
 
   const previewConflict = (conflict: StoryMergeConflict) => {
     const nodeId = conflict.id
@@ -529,19 +569,52 @@ export function StoryMerge() {
   };
 
   const choose = (id: string, choice: StoryMergeChoice) => {
+    if (coordinateConflictIds.has(id)) setAutoLayoutCoordinates(false);
     setDecisions((current) => ({ ...current, [id]: choice }));
     setError(undefined);
     setStatus(undefined);
   };
 
   const chooseAll = (choice: StoryMergeChoice) => {
+    setAutoLayoutCoordinates(false);
     setDecisions((current) =>
       Object.fromEntries(
-        conflicts.map((conflict) => [conflict.id, current[conflict.id] ?? choice]),
+        conflicts.map((conflict) => [
+          conflict.id,
+          autoLayoutCoordinates && coordinateConflictIds.has(conflict.id)
+            ? choice
+            : (current[conflict.id] ?? choice),
+        ]),
       ),
     );
     setError(undefined);
     setStatus(undefined);
+  };
+
+  const resolveCoordinateConflicts = (choice: StoryMergeChoice) => {
+    setAutoLayoutCoordinates(false);
+    setDecisions((current) => ({
+      ...current,
+      ...Object.fromEntries(coordinateConflicts.map((conflict) => [conflict.id, choice])),
+    }));
+    setValidatedKey('');
+    setError(undefined);
+    setStatus(
+      choice === 'local'
+        ? 'All coordinate conflicts now keep Local positions.'
+        : 'All coordinate conflicts now keep Remote positions.',
+    );
+  };
+
+  const autoArrangeCoordinateConflicts = () => {
+    setDecisions((current) => ({
+      ...current,
+      ...Object.fromEntries(coordinateConflicts.map((conflict) => [conflict.id, 'local'])),
+    }));
+    setAutoLayoutCoordinates(true);
+    setValidatedKey('');
+    setError(undefined);
+    setStatus(`Auto-arranged ${coordinateConflicts.length} coordinate-conflicted node(s).`);
   };
 
   const ensureGitComparisonFresh = async () => {
@@ -621,9 +694,14 @@ export function StoryMerge() {
           return;
         }
         const localStage = mergeableStory(parsedLocal);
-        if (JSON.stringify(mergeableStory(source)) !== JSON.stringify(localStage)) {
+        const localDifferences = diffStoryDocuments(mergeableStory(source), localStage);
+        if (localDifferences.length > 0) {
+          const paths = localDifferences
+            .slice(0, 5)
+            .map((difference) => difference.path)
+            .join(', ');
           setError(
-            'The in-memory Story no longer matches Git Local. Save or discard editor changes before resolving this conflict.',
+            `The in-memory Story no longer matches Git Local. Save or discard editor changes before resolving this conflict. Differences: ${paths}${localDifferences.length > 5 ? ` (+${localDifferences.length - 5} more)` : ''}`,
           );
           return;
         }
@@ -633,6 +711,7 @@ export function StoryMerge() {
         setRemotePath(`${stages.repositoryRoot} · ${stages.relativePath}`);
         setBaseRevision(semanticSnapshot.revision);
         setDecisions({});
+        setAutoLayoutCoordinates(false);
         setMode('git-three-way');
         setGitConflictRevision(stages.revision);
         setValidatedKey('');
@@ -657,6 +736,7 @@ export function StoryMerge() {
       setRemotePath(selectedPath);
       setBaseRevision(semanticSnapshot.revision);
       setDecisions({});
+      setAutoLayoutCoordinates(false);
       setMode('two-way');
       setGitConflictRevision('');
       setValidatedKey('');
@@ -685,6 +765,7 @@ export function StoryMerge() {
       setRemotePath('');
       setBaseRevision('');
       setDecisions({});
+      setAutoLayoutCoordinates(false);
       setValidatedKey('');
       setGitConflictRevision('');
       setError(undefined);
@@ -763,6 +844,31 @@ export function StoryMerge() {
               <button type="button" onClick={() => chooseAll('remote')}>
                 Resolve Remaining Remote
               </button>
+              {coordinateConflicts.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    title="Ignore coordinate conflicts and keep the current Local layout"
+                    onClick={() => resolveCoordinateConflicts('local')}
+                  >
+                    Keep Local Positions
+                  </button>
+                  <button
+                    type="button"
+                    title="Use all positions from the incoming branch"
+                    onClick={() => resolveCoordinateConflicts('remote')}
+                  >
+                    Keep Remote Positions
+                  </button>
+                  <button
+                    type="button"
+                    title="Auto-layout only nodes whose positions conflict"
+                    onClick={autoArrangeCoordinateConflicts}
+                  >
+                    Auto-layout Positions
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 disabled={!mergedStory || Boolean(aiProposal)}
@@ -806,6 +912,9 @@ export function StoryMerge() {
                 Manual: {localChoiceCount} Local · {remoteChoiceCount} Remote · {unresolvedCount}{' '}
                 unresolved
               </span>
+              {autoCoordinateCount > 0 && (
+                <span>Coordinates: {autoCoordinateCount} auto-arranged</span>
+              )}
               <span>
                 Nodes: +{graphReview.addedNodes} · ~{graphReview.changedNodes} · −
                 {graphReview.removedNodes}
@@ -820,7 +929,11 @@ export function StoryMerge() {
             ) : (
               <div className={styles.conflicts}>
                 {conflicts.map((conflict) => {
-                  const choice = decisions[conflict.id];
+                  const coordinateConflict = coordinateConflictIds.has(conflict.id);
+                  const choice =
+                    autoLayoutCoordinates && coordinateConflict
+                      ? undefined
+                      : decisions[conflict.id];
                   const localText = valueText(conflict.localValue, conflict.kind !== 'remote-only');
                   const remoteText = valueText(
                     conflict.remoteValue,
@@ -830,6 +943,7 @@ export function StoryMerge() {
                     <article className={styles.conflict} key={conflict.id}>
                       <header>
                         <span>{conflict.kind}</span>
+                        {autoLayoutCoordinates && coordinateConflict && <span>auto-layout</span>}
                         <code>{conflict.path}</code>
                         {conflict.id
                           .split('/')

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { StoryNodeType, type StorySourceDocument } from '@story-blueprint/common';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { nodeRegistry, StoryNodeType, type StorySourceDocument } from '@story-blueprint/common';
 import {
+  autoLayoutStoryConflictPositions,
   diffThreeWayStoryDocuments,
   diffThreeWayValues,
   diffThreeWayOptionalValues,
@@ -11,6 +12,12 @@ import {
   mergeThreeWayValues,
   mergeThreeWayOptionalValues,
 } from '../packages/editor/src/renderer/graph/storyMerge';
+import {
+  fromSourceGraph,
+  toSourceGraph,
+} from '../packages/editor/src/renderer/graph/editorGraph';
+
+beforeAll(() => nodeRegistry.registerBuiltins());
 
 function story(text: string, includeEnd = true): StorySourceDocument {
   return {
@@ -61,6 +68,34 @@ function story(text: string, includeEnd = true): StorySourceDocument {
 }
 
 describe('Story semantic merge', () => {
+  it('treats rehydrated graphs and object key order as the same in-memory Story', () => {
+    const localSource = story('Local');
+    localSource.root.nodes.push({
+      id: 'n_choice',
+      type: StoryNodeType.Choice,
+      definitionVersion: 1,
+      position: { x: 300, y: 400 },
+      data: {
+        prompt: { source: 'Choose' },
+        options: [{ id: 'opt_left', text: { source: 'Left' } }],
+      },
+    });
+    const rehydratedGraph = toSourceGraph(fromSourceGraph(localSource.root));
+    const rehydratedSource: StorySourceDocument = {
+      ...localSource,
+      root: {
+        edges: rehydratedGraph.edges,
+        nodes: rehydratedGraph.nodes,
+      },
+    };
+    const local = mergeableStory(localSource);
+    const rehydrated = mergeableStory(rehydratedSource);
+
+    expect(JSON.stringify(rehydrated)).not.toBe(JSON.stringify(local));
+    expect(diffStoryDocuments(rehydrated, local)).toEqual([]);
+    expect(rehydrated.root.nodes.find((node) => node.id === 'n_choice')?.dynamicPorts).toBeUndefined();
+  });
+
   it('diffs a Dialogue Line field by stable IDs instead of replacing the node', () => {
     const conflicts = diffStoryDocuments(
       mergeableStory(story('Local')),
@@ -87,6 +122,52 @@ describe('Story semantic merge', () => {
     const dialogue = merged.root.nodes.find((node) => node.id === 'n_dialogue')!;
     expect(dialogue.data.lines[0].text.source).toBe('Remote');
     expect(dialogue.position).toEqual({ x: 100, y: 200 });
+  });
+
+  it('groups x and y into one atomic position conflict', () => {
+    const local = mergeableStory(story('Same'));
+    const remoteSource = story('Same');
+    remoteSource.root.nodes[0].position = { x: 900, y: -200 };
+    const remote = mergeableStory(remoteSource);
+    const conflicts = diffStoryDocuments(local, remote);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].path.endsWith('position')).toBe(true);
+    expect(conflicts[0].localValue).toEqual({ x: 100, y: 200 });
+    expect(conflicts[0].remoteValue).toEqual({ x: 900, y: -200 });
+    expect(mergeStoryDocuments(local, remote, { [conflicts[0].id]: 'remote' }).root.nodes[0].position)
+      .toEqual({ x: 900, y: -200 });
+  });
+
+  it('auto-layouts only coordinate-conflicted nodes', () => {
+    const source = story('Local');
+    source.root.nodes.push({
+      id: 'n_orphanx',
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 520, y: 120 },
+      data: {
+        lines: [{ id: 'ln_orphanx', textId: 't_orphanx', text: { source: 'Orphan' } }],
+      },
+    });
+    const mergeable = mergeableStory(source);
+    const arranged = autoLayoutStoryConflictPositions(mergeable, new Set(['n_orphanx']));
+
+    expect(arranged.root.nodes.find((node) => node.id === 'n_dialogue')?.position).toEqual({
+      x: 100,
+      y: 200,
+    });
+    expect(arranged.root.nodes.find((node) => node.id === 'n_endxx')?.position).toEqual({
+      x: 500,
+      y: 200,
+    });
+    expect(arranged.root.nodes.find((node) => node.id === 'n_orphanx')?.position.x).toBeGreaterThan(
+      100,
+    );
+    expect(arranged.root.nodes.find((node) => node.id === 'n_orphanx')?.position).not.toEqual({
+      x: 500,
+      y: 200,
+    });
   });
 
   it('supports choosing a remote deletion without disturbing retained nodes', () => {
@@ -155,6 +236,51 @@ describe('Story semantic merge', () => {
       [result.conflicts[0].id]: 'remote',
     });
     expect(merged.root.nodes[0].data.lines[0].text.source).toBe('Remote');
+  });
+
+  it('asks which execution successor to keep when both branches reconnect the same output', () => {
+    const baseSource = story('Base');
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    localSource.root.nodes.push({
+      id: 'n_localend',
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 700, y: 100 },
+      data: { title: 'Local End' },
+    });
+    remoteSource.root.nodes.push({
+      id: 'n_remoteend',
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 700, y: 300 },
+      data: { title: 'Remote End' },
+    });
+    localSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_localend', portId: 'in' },
+      },
+    ];
+    remoteSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_remoteend', portId: 'in' },
+      },
+    ];
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const result = diffThreeWayStoryDocuments(base, local, remote);
+    const successor = result.conflicts.find((item) =>
+      item.id.includes('execution-successor%3Aout'),
+    );
+
+    expect(successor).toBeDefined();
+    expect(result.autoMerged.root.edges).toEqual(local.root.edges);
+    expect(
+      mergeThreeWayStoryDocuments(base, local, remote, { [successor!.id]: 'remote' }).root.edges,
+    ).toEqual(remote.root.edges);
   });
 
   it('auto-inserts a Line added only by Remote at the correct position', () => {

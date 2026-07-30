@@ -1,4 +1,11 @@
-import type { StorySourceDocument } from '@story-blueprint/common';
+import {
+  resolveNodePorts,
+  StoryNodeType,
+  type SourceEdge,
+  type SourceGraph,
+  type StorySourceDocument,
+} from '@story-blueprint/common';
+import { fromSourceGraph, prepareAIGraphChanges } from './editorGraph';
 
 export type StoryMergeChoice = 'local' | 'remote';
 
@@ -81,6 +88,10 @@ function orderMatters(path: string): boolean {
   );
 }
 
+function isPositionPath(path: string): boolean {
+  return decodeURIComponent(path.split('/').at(-1) ?? '') === 'position';
+}
+
 function mergedKeyOrder(
   primary: readonly string[],
   secondary: readonly string[],
@@ -132,6 +143,10 @@ function collectDiff(
   if (localPresent && remotePresent && same(localValue, remoteValue)) return;
   if (!localPresent || !remotePresent) {
     output.push(conflict(path, localPresent, localValue, remotePresent, remoteValue));
+    return;
+  }
+  if (isPositionPath(path) && isRecord(localValue) && isRecord(remoteValue)) {
+    output.push(conflict(path, true, localValue, true, remoteValue));
     return;
   }
   if (Array.isArray(localValue) && Array.isArray(remoteValue)) {
@@ -229,6 +244,17 @@ function mergeThreeValue(
   if (equivalent(basePresent, baseValue, remotePresent, remoteValue)) {
     autoPaths.add(path);
     return localPresent ? clone(localValue) : missing;
+  }
+
+  if (
+    isPositionPath(path) &&
+    localPresent &&
+    remotePresent &&
+    isRecord(localValue) &&
+    isRecord(remoteValue)
+  ) {
+    conflicts.push(conflict(path, true, localValue, true, remoteValue));
+    return clone(decisions[path] === 'remote' ? remoteValue : localValue);
   }
 
   if (
@@ -353,6 +379,115 @@ function threeWayResult(
   return { conflicts, merged, autoChangeCount: autoPaths.size };
 }
 
+function edgeKey(edge: SourceEdge): string {
+  return `${edge.from.nodeId}:${edge.from.portId}>${edge.to.nodeId}:${edge.to.portId}`;
+}
+
+function executionSuccessors(graph: SourceGraph): Map<string, SourceEdge[]> {
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node] as const));
+  const result = new Map<string, SourceEdge[]>();
+  for (const edge of graph.edges) {
+    const node = nodes.get(edge.from.nodeId);
+    if (!node) continue;
+    const executionOutput = resolveNodePorts({
+      id: node.id,
+      type: node.type as StoryNodeType,
+      data: node.data,
+    }).ports.some(
+      (port) =>
+        port.id === edge.from.portId &&
+        port.kind === 'execution' &&
+        port.direction === 'output',
+    );
+    if (!executionOutput) continue;
+    const key = `${edge.from.nodeId}\0${edge.from.portId}`;
+    result.set(key, [...(result.get(key) ?? []), edge]);
+  }
+  return result;
+}
+
+function sameEdgeSet(left: readonly SourceEdge[], right: readonly SourceEdge[]): boolean {
+  const leftKeys = left.map(edgeKey).sort();
+  const rightKeys = right.map(edgeKey).sort();
+  return same(leftKeys, rightKeys);
+}
+
+function storyGraphs(story: MergeableStoryDocument): Map<string, SourceGraph> {
+  return new Map([
+    ['root', story.root] as const,
+    ...story.chapters.map((chapter) => [chapter.id, chapter.graph] as const),
+  ]);
+}
+
+function resolveExecutionSuccessorConflicts(
+  base: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
+  merged: MergeableStoryDocument,
+  decisions: StoryMergeDecisions,
+  conflicts: StoryMergeConflict[],
+): void {
+  const baseGraphs = storyGraphs(base);
+  const localGraphs = storyGraphs(local);
+  const remoteGraphs = storyGraphs(remote);
+  const mergedGraphs = storyGraphs(merged);
+  for (const [graphId, baseGraph] of baseGraphs) {
+    const localGraph = localGraphs.get(graphId);
+    const remoteGraph = remoteGraphs.get(graphId);
+    const mergedGraph = mergedGraphs.get(graphId);
+    if (!localGraph || !remoteGraph || !mergedGraph) continue;
+    const baseOutputs = executionSuccessors(baseGraph);
+    const localOutputs = executionSuccessors(localGraph);
+    const remoteOutputs = executionSuccessors(remoteGraph);
+    const outputKeys = [...baseOutputs.keys(), ...localOutputs.keys(), ...remoteOutputs.keys()].filter(
+      (key, index, all) => all.indexOf(key) === index,
+    );
+    for (const outputKey of outputKeys) {
+      const baseEdges = baseOutputs.get(outputKey) ?? [];
+      const localEdges = localOutputs.get(outputKey) ?? [];
+      const remoteEdges = remoteOutputs.get(outputKey) ?? [];
+      if (
+        sameEdgeSet(baseEdges, localEdges) ||
+        sameEdgeSet(baseEdges, remoteEdges) ||
+        sameEdgeSet(localEdges, remoteEdges)
+      ) {
+        continue;
+      }
+      const [nodeId, portId] = outputKey.split('\0');
+      const path = childPath(
+        childPath(childPath(childPath('story', graphId), 'nodes'), `@id:${nodeId}`),
+        `execution-successor:${portId}`,
+      );
+      conflicts.push(conflict(path, true, localEdges, true, remoteEdges));
+      const chosen = decisions[path] === 'remote' ? remoteEdges : localEdges;
+      const competingKeys = new Set([...localEdges, ...remoteEdges].map(edgeKey));
+      mergedGraph.edges = [
+        ...mergedGraph.edges.filter((edge) => !competingKeys.has(edgeKey(edge))),
+        ...clone(chosen),
+      ];
+    }
+  }
+}
+
+function threeWayStoryResult(
+  base: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
+  decisions: StoryMergeDecisions,
+) {
+  const result = threeWayResult(base, local, remote, decisions, 'story');
+  const merged = result.merged as MergeableStoryDocument;
+  resolveExecutionSuccessorConflicts(
+    base,
+    local,
+    remote,
+    merged,
+    decisions,
+    result.conflicts,
+  );
+  return { ...result, merged };
+}
+
 function threeWayOptionalResult<T>(
   base: T | undefined,
   local: T | undefined,
@@ -386,7 +521,7 @@ export function diffThreeWayStoryDocuments(
   local: MergeableStoryDocument,
   remote: MergeableStoryDocument,
 ): ThreeWayStoryDiff {
-  const result = threeWayResult(base, local, remote, {}, 'story');
+  const result = threeWayStoryResult(base, local, remote, {});
   return {
     conflicts: result.conflicts,
     autoMerged: result.merged as MergeableStoryDocument,
@@ -400,7 +535,7 @@ export function mergeThreeWayStoryDocuments(
   remote: MergeableStoryDocument,
   decisions: StoryMergeDecisions,
 ): MergeableStoryDocument {
-  return threeWayResult(base, local, remote, decisions, 'story').merged as MergeableStoryDocument;
+  return threeWayStoryResult(base, local, remote, decisions).merged;
 }
 
 export function diffThreeWayValues<T>(
@@ -465,6 +600,9 @@ function mergeValue(
     if (useRemote) return remotePresent ? clone(remoteValue) : missing;
     return localPresent ? clone(localValue) : missing;
   }
+  if (isPositionPath(path) && isRecord(localValue) && isRecord(remoteValue)) {
+    return clone(decisions[path] === 'remote' ? remoteValue : localValue);
+  }
   if (Array.isArray(localValue) && Array.isArray(remoteValue)) {
     const localItems = keyedArray(localValue);
     const remoteItems = keyedArray(remoteValue);
@@ -528,4 +666,36 @@ export function applyMergedStory(
   merged: MergeableStoryDocument,
 ): StorySourceDocument {
   return { ...local, ...clone(merged) };
+}
+
+export function autoLayoutStoryConflictPositions(
+  story: MergeableStoryDocument,
+  nodeIds: ReadonlySet<string>,
+): MergeableStoryDocument {
+  const result = clone(story);
+  const layoutGraph = (graph: SourceGraph): SourceGraph => {
+    const affected = graph.nodes.filter((node) => nodeIds.has(node.id));
+    if (affected.length === 0) return graph;
+    const editorGraph = fromSourceGraph(graph, { allowInvalidConnections: true });
+    const layout = prepareAIGraphChanges(
+      {
+        nodes: editorGraph.nodes.filter((node) => !nodeIds.has(node.id)),
+        edges: editorGraph.edges,
+      },
+      editorGraph,
+    ).graph;
+    const positions = new Map(layout.nodes.map((node) => [node.id, node.position] as const));
+    return {
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        nodeIds.has(node.id) ? { ...node, position: { ...positions.get(node.id)! } } : node,
+      ),
+    };
+  };
+  result.root = layoutGraph(result.root);
+  result.chapters = result.chapters.map((chapter) => ({
+    ...chapter,
+    graph: layoutGraph(chapter.graph),
+  }));
+  return result;
 }

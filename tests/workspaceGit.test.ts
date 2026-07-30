@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   initializeWorkspaceGitRepository,
   readWorkspaceGitRepository,
+  workspaceGitCheckoutKey,
 } from '../packages/editor/src/main/workspaceGit';
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,42 @@ afterEach(async () => {
 });
 
 describe('workspace Git repository', () => {
+  it('changes checkout identity for branch switches but not commits on the same branch', () => {
+    const mainAtA = workspaceGitCheckoutKey({
+      available: true,
+      initialized: true,
+      repositoryRoot: 'C:/project',
+      branch: 'main',
+      headRevision: 'aaa',
+    });
+    const mainAtB = workspaceGitCheckoutKey({
+      available: true,
+      initialized: true,
+      repositoryRoot: 'C:/project',
+      branch: 'main',
+      headRevision: 'bbb',
+    });
+    const featureAtA = workspaceGitCheckoutKey({
+      available: true,
+      initialized: true,
+      repositoryRoot: 'C:/project',
+      branch: 'feature',
+      headRevision: 'aaa',
+    });
+    const mainWithConflict = workspaceGitCheckoutKey({
+      available: true,
+      initialized: true,
+      repositoryRoot: 'C:/project',
+      branch: 'main',
+      headRevision: 'aaa',
+      conflictRevision: 'conflict-a',
+    });
+
+    expect(mainAtA).toBe(mainAtB);
+    expect(featureAtA).not.toBe(mainAtA);
+    expect(mainWithConflict).not.toBe(mainAtA);
+  });
+
   it('initializes an unversioned workspace with main and a .gitignore', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'story-blueprint-workspace-git-'));
     temporaryDirectories.push(directory);

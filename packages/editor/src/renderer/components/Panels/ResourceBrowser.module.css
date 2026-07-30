@@ -249,6 +249,14 @@
   background: #e6aa55;
 }
 
+.conflictDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 2px;
+  background: #e05b5b;
+}
+
 .blueprintTree {
   position: relative;
   margin-left: 15px;

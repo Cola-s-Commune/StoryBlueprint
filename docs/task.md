@@ -464,6 +464,8 @@
 - [x] 新建项目自动创建并打开默认 Main Story
 - [x] 新建项目自动生成保守的 `.gitignore` 模板，且不覆盖目录内已有规则
 - [x] 工作区识别父级 Git 仓库；未受版本控制的项目可一键初始化 `main` 仓库
+- [x] 检测外部 Git 分支 / detached HEAD 切换并自动重载项目资源与已打开 Story；未保存编辑受保护
+- [x] 检测外部 merge / rebase 的 Git Index 冲突变化，从 Local Stage 安全载入 Story Merge
 - [x] 项目级共享角色与资产独立资源文件
 - [x] 独立资源的稳定 ID、重复定义与悬空引用校验
 - [x] `.story` KDL 允许引用项目级角色和资产，存在性由项目同步与 Compiler 校验
@@ -808,6 +810,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] Story Merge 只读 Graph Preview：节点与连线新增、修改、删除、冲突高亮，冲突列表联动切图聚焦
 - [x] Graph Preview 内直接处理节点/连线冲突、Previous/Next 导航及远端新增 Substory 虚拟 Graph
 - [x] 合并完成门禁：显式冲突归零、最终变更审查、非写入式预检及 Git Stage 指纹失效保护
+- [x] 坐标冲突按 `{x, y}` 整体处理，支持批量保留 Local / Remote 或仅自动排列冲突节点
 - [ ] Multi-user
 
 ---

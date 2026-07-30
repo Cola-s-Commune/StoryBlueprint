@@ -58,7 +58,11 @@ import type {
 } from '../shared/electronApi';
 import { readStoryGitConflict, readWorkspaceGitConflicts } from './storyGitConflict';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
-import { initializeWorkspaceGitRepository, readWorkspaceGitRepository } from './workspaceGit';
+import {
+  initializeWorkspaceGitRepository,
+  readWorkspaceGitRepository,
+  workspaceGitCheckoutKey,
+} from './workspaceGit';
 import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
 
 let mainWindow: BrowserWindow | null = null;
@@ -68,6 +72,8 @@ let workspaceRoot: string | undefined;
 let workspaceProjectFile: string | undefined;
 let closeAfterSave = false;
 let closeSavePending = false;
+let observedWorkspaceGitCheckout: string | undefined;
+let workspaceGitPollBusy = false;
 
 const MAX_STORY_BYTES = 64 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES = 10_000;
@@ -84,9 +90,36 @@ const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_AI_CHAT_SESSIONS = 200;
 const MAX_AI_CHAT_SESSION_BYTES = 2 * 1024 * 1024;
 const MAX_AI_CHAT_STORE_BYTES = 32 * 1024 * 1024;
+const WORKSPACE_GIT_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 let aiChatWriteQueue: Promise<void> = Promise.resolve();
 type WindowZoomAction = 'in' | 'out' | 'reset';
+
+async function pollWorkspaceGitCheckout(): Promise<void> {
+  if (workspaceGitPollBusy || !workspaceRoot || !mainWindow) return;
+  workspaceGitPollBusy = true;
+  const expectedRoot = workspaceRoot;
+  try {
+    const git = await readWorkspaceGitRepository(expectedRoot);
+    if (workspaceRoot !== expectedRoot) return;
+    const next = workspaceGitCheckoutKey(git);
+    const previous = observedWorkspaceGitCheckout;
+    if (previous && !next) return;
+    observedWorkspaceGitCheckout = next;
+    if (previous && next && previous !== next && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:git-changed', git);
+    }
+  } catch {
+    // A transient Git lock or checkout should be retried on the next poll.
+  } finally {
+    workspaceGitPollBusy = false;
+  }
+}
+
+function startWorkspaceGitPolling(): void {
+  const timer = setInterval(() => void pollWorkspaceGitCheckout(), WORKSPACE_GIT_POLL_INTERVAL_MS);
+  timer.unref();
+}
 
 function nextWindowZoom(current: number, action: WindowZoomAction): number {
   if (action === 'reset') return 1;
@@ -1145,7 +1178,9 @@ async function activateWorkspace(rootPath: string, projectFile?: string): Promis
     workspaceProjectFile = projectFiles[0] ? join(workspaceRoot, projectFiles[0].name) : undefined;
   }
   if (workspaceProjectFile) await rememberProject(workspaceProjectFile);
-  return (await readWorkspace())!;
+  const nextWorkspace = (await readWorkspace())!;
+  observedWorkspaceGitCheckout = workspaceGitCheckoutKey(nextWorkspace.git);
+  return nextWorkspace;
 }
 
 function registerStoryFileHandlers(): void {
@@ -1638,8 +1673,71 @@ function registerStoryFileHandlers(): void {
 
   ipcMain.handle('workspace:initialize-git', async (event) => {
     if (!isTrustedSender(event) || !workspaceRoot) throw new Error('Open a workspace first');
-    await initializeWorkspaceGitRepository(workspaceRoot);
+    const git = await initializeWorkspaceGitRepository(workspaceRoot);
+    observedWorkspaceGitCheckout = workspaceGitCheckoutKey(git);
     return (await readWorkspace())!;
+  });
+
+  ipcMain.handle('workspace:confirm-git-reload', async (event, storyNames: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      !mainWindow ||
+      !Array.isArray(storyNames) ||
+      storyNames.length > MAX_SESSION_STORIES ||
+      storyNames.some((name) => typeof name !== 'string' || name.length > 512)
+    ) {
+      throw new Error('Invalid Git reload confirmation');
+    }
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Git Workspace Changed',
+      message: 'Reload project files from Git?',
+      detail: `${storyNames.join(', ')} contain unsaved edits. A branch switch or merge conflict changed the files on disk; reloading will discard these editor changes.`,
+      buttons: ['Reload and Discard', 'Keep Editor Changes'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    return result.response === 0 ? 'reload' : 'keep';
+  });
+
+  ipcMain.handle('workspace:reload-after-git-change', async (event, stories: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      !workspaceRoot ||
+      !Array.isArray(stories) ||
+      stories.length > MAX_SESSION_STORIES
+    ) {
+      throw new Error('Invalid Git workspace reload');
+    }
+    const filePaths = stories.map((story) => {
+      if (
+        typeof story !== 'object' ||
+        story === null ||
+        !('filePath' in story) ||
+        !('fileToken' in story)
+      ) {
+        throw new Error('Invalid Story reload request');
+      }
+      return requireAuthorizedStoryFile(story.filePath, story.fileToken);
+    });
+    const rootPath = workspaceRoot;
+    const workspace = await activateWorkspace(rootPath);
+    const opened = [];
+    const missingStoryPaths: string[] = [];
+    for (const filePath of filePaths) {
+      if (!isPathInsideWorkspace(filePath)) continue;
+      try {
+        opened.push(await openStoryFile(filePath));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          missingStoryPaths.push(filePath);
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { workspace, stories: opened, missingStoryPaths };
   });
 
   ipcMain.handle('workspace:read-git-conflicts', async (event) => {
@@ -2067,6 +2165,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   registerStoryFileHandlers();
   createWindow();
+  startWorkspaceGitPolling();
 });
 
 app.on('window-all-closed', () => {

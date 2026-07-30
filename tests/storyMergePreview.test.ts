@@ -56,6 +56,29 @@ function story(root: SourceGraph): StorySourceDocument {
 }
 
 describe('Story merge graph preview', () => {
+  it('previews competing execution successors from an unresolved Git stage', () => {
+    const conflictedGraph = graph('Local');
+    conflictedGraph.nodes.push({
+      id: 'n_otherend',
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 500, y: 300 },
+      data: { title: 'Other End' },
+    });
+    conflictedGraph.edges.push({
+      from: { nodeId: 'n_dialogue', portId: 'out' },
+      to: { nodeId: 'n_otherend', portId: 'in' },
+    });
+
+    const preview = buildStoryMergePreview(
+      story(conflictedGraph),
+      story(structuredClone(conflictedGraph)),
+      [],
+    );
+
+    expect(preview.graphs[0].graph.edges).toHaveLength(2);
+  });
+
   it('classifies added, modified, removed, and conflicted graph elements', () => {
     const local = story(graph('Local'));
     const mergedGraph = graph('Remote');

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { ElectronAPI } from '../shared/electronApi';
 
 const electronAPI = {
@@ -54,6 +54,15 @@ const electronAPI = {
   deleteProjectAsset: (relativePath) => ipcRenderer.invoke('workspace:delete-asset', relativePath),
   refreshWorkspace: () => ipcRenderer.invoke('workspace:refresh'),
   initializeWorkspaceGit: () => ipcRenderer.invoke('workspace:initialize-git'),
+  reloadWorkspaceAfterGitChange: (stories) =>
+    ipcRenderer.invoke('workspace:reload-after-git-change', stories),
+  confirmGitReload: (storyNames) => ipcRenderer.invoke('workspace:confirm-git-reload', storyNames),
+  onWorkspaceGitChanged: (listener) => {
+    const handler = (_event: IpcRendererEvent, git: Parameters<typeof listener>[0]) =>
+      listener(git);
+    ipcRenderer.on('workspace:git-changed', handler);
+    return () => ipcRenderer.removeListener('workspace:git-changed', handler);
+  },
   revealWorkspaceItem: (relativePath) => ipcRenderer.invoke('workspace:reveal-item', relativePath),
   deleteWorkspaceStory: (relativePath) =>
     ipcRenderer.invoke('workspace:delete-story', relativePath),

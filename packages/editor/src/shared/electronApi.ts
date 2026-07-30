@@ -60,6 +60,14 @@ export interface WorkspaceGitRepository {
   initialized: boolean;
   repositoryRoot?: string;
   branch?: string;
+  headRevision?: string;
+  conflictRevision?: string;
+}
+
+export interface ReloadWorkspaceAfterGitChangeResult {
+  workspace: WorkspaceInfo;
+  stories: Exclude<OpenStoryResult, { canceled: true }>[];
+  missingStoryPaths: string[];
 }
 
 export interface WorkspaceInfo {
@@ -258,6 +266,11 @@ export interface ElectronAPI {
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
   initializeWorkspaceGit: () => Promise<WorkspaceInfo>;
+  reloadWorkspaceAfterGitChange: (
+    stories: { filePath: string; fileToken: string }[],
+  ) => Promise<ReloadWorkspaceAfterGitChangeResult>;
+  confirmGitReload: (storyNames: string[]) => Promise<'reload' | 'keep'>;
+  onWorkspaceGitChanged: (listener: (git: WorkspaceGitRepository) => void) => () => void;
   revealWorkspaceItem: (relativePath: string) => Promise<void>;
   deleteWorkspaceStory: (relativePath: string) => Promise<WorkspaceInfo>;
   deleteWorkspaceProject: (relativePath: string) => Promise<WorkspaceInfo>;

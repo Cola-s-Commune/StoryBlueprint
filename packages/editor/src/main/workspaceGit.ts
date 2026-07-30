@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { WorkspaceGitRepository } from '../shared/electronApi';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
@@ -18,6 +19,12 @@ function runGit(args: readonly string[], cwd: string): Promise<string> {
       },
     );
   });
+}
+
+export function workspaceGitCheckoutKey(git: WorkspaceGitRepository): string | undefined {
+  if (!git.initialized || !git.repositoryRoot) return undefined;
+  const checkout = git.branch ? `branch:${git.branch}` : `detached:${git.headRevision ?? 'unborn'}`;
+  return `${git.repositoryRoot}\0${checkout}\0conflicts:${git.conflictRevision ?? 'none'}`;
 }
 
 export async function readWorkspaceGitRepository(
@@ -41,11 +48,20 @@ export async function readWorkspaceGitRepository(
   try {
     branch = (await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], resolvedRoot)).trim();
   } catch {
-    try {
-      branch = (await runGit(['rev-parse', '--short', 'HEAD'], resolvedRoot)).trim();
-    } catch {
-      branch = undefined;
-    }
+    branch = undefined;
+  }
+  let headRevision: string | undefined;
+  try {
+    headRevision = (await runGit(['rev-parse', '--verify', 'HEAD'], resolvedRoot)).trim();
+  } catch {
+    headRevision = undefined;
+  }
+  let conflictRevision: string | undefined;
+  try {
+    const unmerged = await runGit(['ls-files', '-u', '-z'], resolvedRoot);
+    if (unmerged) conflictRevision = createHash('sha256').update(unmerged).digest('hex');
+  } catch {
+    conflictRevision = undefined;
   }
 
   return {
@@ -53,6 +69,8 @@ export async function readWorkspaceGitRepository(
     initialized: true,
     repositoryRoot,
     branch: branch || undefined,
+    headRevision: headRevision || undefined,
+    conflictRevision,
   };
 }
 

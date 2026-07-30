@@ -2,6 +2,15 @@
 
 - 新建 Story Blueprint 项目会自动生成 `.gitignore`：默认排除编译产物与常见本地杂项，并使用仅新建写入保证不覆盖用户已有规则。
 - Resource Browser 显示项目的 Git 仓库与分支状态；未建仓项目可一键初始化 `main`，位于父级仓库中的工作区不会创建嵌套仓库。
+- 外部切换 Git 分支或 detached HEAD 后，编辑器自动重扫项目并重载所有已打开 Story；未保存内容会先请求确认，同分支普通提交不会触发重载。
+- Git Index 进入或退出未合并状态也会触发安全重载；冲突 Story 使用 Local Stage 保持可解析，并提示通过 Story Merge 处理。
+- Story Merge 的 Git Local 一致性检查改用稳定 ID 语义 Diff，避免编辑器重建 Graph 后因对象字段顺序等非语义差异误报内存 Story 已变化。
+- 移除 `toSourceGraph` 中未被 KDL 持久化的 Choice `dynamicPorts` 派生字段；Choice Options 已是唯一权威来源，修复含 Choice 的 Git Local 一致性误报。
+- Git 冲突阶段允许临时载入违反单后继规则的全部连线，供 Story Merge 展示和取舍；普通文件加载和用户新建连线仍执行单后继校验。
+- Story Merge Graph Preview 同样使用宽松冲突图加载，避免 Local Stage 已载入后在自动生成预览时再次触发单后继异常。
+- 三方 Story Merge 按执行输出检测竞争后继：Local / Remote 同时把同一 Pin 改接到不同目标时生成显式连接冲突，选择一侧会替换整组候选边，避免自动合并成无效双后继。
+- Auto Layout 不再把所有零入度节点强制放到最左列：Start 主链仍从第 0 层开始，其他入口或孤立分量根据已连接目标和布局前最近的空间邻居选择起始层。
+- Story Merge 将节点坐标作为 `{x, y}` 整体冲突，并提供批量保留 Local、采用 Remote 及仅移动冲突节点的自动布局操作；无冲突节点会作为固定锚点与避让区域。
 
 > 人机共读开发日志。新机器 clone 后看这里就能接上。
 

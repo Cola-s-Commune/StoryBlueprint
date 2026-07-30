@@ -5,7 +5,6 @@ import {
   resolveNodePorts,
   StoryNodeType,
   validateGraphConnection,
-  type ChoiceNodeData,
   type ChapterId,
   type DialogueNodeData,
   type DialogueLineId,
@@ -151,14 +150,36 @@ export function autoLayoutGraph(
 
   const layers = new Map<NodeId, number>();
   const visited = new Set<NodeId>();
-  const roots = sortIds(
-    layoutNodes
-      .filter((node) => node.type === StoryNodeType.Start || (indegree.get(node.id) ?? 0) === 0)
-      .map((node) => node.id),
-  );
-  const visitFrom = (rootId: NodeId) => {
+  const originalOriginX = Math.min(...layoutNodes.map((node) => node.position.x));
+  const estimatedLayer = (node: EditorGraphNode) =>
+    Math.max(
+      0,
+      Math.round((node.position.x - originalOriginX) / (autoLayoutFallbackWidth + autoLayoutColumnGap)),
+    );
+  const nearestVisitedLayer = (node: EditorGraphNode): number | undefined => {
+    let nearest: { distance: number; layer: number } | undefined;
+    for (const candidate of layoutNodes) {
+      const layer = layers.get(candidate.id);
+      if (layer === undefined || candidate.id === node.id) continue;
+      const distance =
+        (candidate.position.x - node.position.x) ** 2 +
+        (candidate.position.y - node.position.y) ** 2;
+      if (!nearest || distance < nearest.distance) nearest = { distance, layer };
+    }
+    return nearest?.layer;
+  };
+  const startLayerFor = (node: EditorGraphNode): number => {
+    const connectedTargetLayers = (outgoing.get(node.id) ?? [])
+      .map((targetId) => layers.get(targetId))
+      .filter((layer): layer is number => layer !== undefined);
+    if (connectedTargetLayers.length > 0) {
+      return Math.max(0, Math.min(...connectedTargetLayers) - 1);
+    }
+    return nearestVisitedLayer(node) ?? estimatedLayer(node);
+  };
+  const visitFrom = (rootId: NodeId, startLayer: number) => {
     if (visited.has(rootId)) return;
-    const queue: Array<{ id: NodeId; layer: number }> = [{ id: rootId, layer: 0 }];
+    const queue: Array<{ id: NodeId; layer: number }> = [{ id: rootId, layer: startLayer }];
     while (queue.length > 0) {
       const current = queue.shift()!;
       if (visited.has(current.id)) continue;
@@ -169,8 +190,20 @@ export function autoLayoutGraph(
       }
     }
   };
-  for (const rootId of roots) visitFrom(rootId);
-  for (const node of originalOrder) visitFrom(node.id);
+  const startRoots = sortIds(
+    layoutNodes.filter((node) => node.type === StoryNodeType.Start).map((node) => node.id),
+  );
+  for (const rootId of startRoots) visitFrom(rootId, 0);
+  const otherRoots = sortIds(
+    layoutNodes
+      .filter((node) => node.type !== StoryNodeType.Start && (indegree.get(node.id) ?? 0) === 0)
+      .map((node) => node.id),
+  );
+  for (const rootId of otherRoots) {
+    const root = nodesById.get(rootId)!;
+    visitFrom(rootId, startLayerFor(root));
+  }
+  for (const node of originalOrder) visitFrom(node.id, startLayerFor(node));
 
   const byLayer = new Map<number, EditorGraphNode[]>();
   for (const node of layoutNodes) {
@@ -185,7 +218,7 @@ export function autoLayoutGraph(
     );
   }
 
-  const originX = Math.round(Math.min(...layoutNodes.map((node) => node.position.x)));
+  const originX = Math.round(originalOriginX);
   const originY = Math.round(Math.min(...layoutNodes.map((node) => node.position.y)));
   const positions = new Map<NodeId, { x: number; y: number }>();
   let columnX = originX;
@@ -827,15 +860,6 @@ export function toEditorGraphNode(instance: NodeInstance): EditorGraphNode {
 export function toSourceGraph(graph: EditorGraphState): SourceGraph {
   return {
     nodes: graph.nodes.map((node) => {
-      const dynamicPorts =
-        node.type === StoryNodeType.Choice
-          ? (node.data as ChoiceNodeData).options.map((option) => ({
-              id: option.id,
-              name: option.id,
-              displayName: option.text.source,
-            }))
-          : undefined;
-
       return {
         id: node.id,
         name: node.name,
@@ -843,7 +867,6 @@ export function toSourceGraph(graph: EditorGraphState): SourceGraph {
         definitionVersion: node.definitionVersion,
         position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
         data: node.data,
-        dynamicPorts,
       };
     }),
     edges: graph.edges.map((edge) => ({
@@ -853,7 +876,10 @@ export function toSourceGraph(graph: EditorGraphState): SourceGraph {
   };
 }
 
-export function fromSourceGraph(source: SourceGraph): EditorGraphState {
+export function fromSourceGraph(
+  source: SourceGraph,
+  options: { allowInvalidConnections?: boolean } = {},
+): EditorGraphState {
   const nodes: EditorGraphNode[] = source.nodes.map((node) => {
     if (!nodeRegistry.has(node.type as StoryNodeType)) {
       throw new Error(`Unsupported node type: ${node.type}`);
@@ -877,18 +903,20 @@ export function fromSourceGraph(source: SourceGraph): EditorGraphState {
       target: edge.to.nodeId,
       targetPortId: edge.to.portId,
     };
-    const result = validateGraphConnection(
-      candidate,
-      nodes.map((node) => ({ id: node.id, type: node.type, data: node.data })),
-      edges.map((existing) => ({
-        id: existing.id,
-        source: existing.source,
-        sourcePortId: existing.sourceHandle,
-        target: existing.target,
-        targetPortId: existing.targetHandle,
-      })),
-    );
-    if (!result.valid) throw new Error(`Invalid link: ${result.diagnostic.message}`);
+    if (!options.allowInvalidConnections) {
+      const result = validateGraphConnection(
+        candidate,
+        nodes.map((node) => ({ id: node.id, type: node.type, data: node.data })),
+        edges.map((existing) => ({
+          id: existing.id,
+          source: existing.source,
+          sourcePortId: existing.sourceHandle,
+          target: existing.target,
+          targetPortId: existing.targetHandle,
+        })),
+      );
+      if (!result.valid) throw new Error(`Invalid link: ${result.diagnostic.message}`);
+    }
     edges.push({
       id: createStableId('edge'),
       source: edge.from.nodeId,

@@ -57,6 +57,46 @@ describe('automatic graph layout', () => {
     ]);
   });
 
+  it('keeps zero-indegree orphan nodes near their previous neighboring column', () => {
+    const graph: EditorGraphState = {
+      nodes: [
+        node('n_start', StoryNodeType.Start, 0, 0),
+        node('n_linea', StoryNodeType.Dialogue, 310, 0),
+        node('n_endxx', StoryNodeType.End, 620, 0),
+        node('n_orphan', StoryNodeType.Dialogue, 650, 40),
+      ],
+      edges: [edge('e_first', 'n_start', 'n_linea'), edge('e_lastxx', 'n_linea', 'n_endxx')],
+    };
+
+    const result = autoLayoutGraph(graph);
+    const positions = new Map(result.nodes.map((candidate) => [candidate.id, candidate.position]));
+
+    expect(positions.get('n_orphan')!.x).toBe(positions.get('n_endxx')!.x);
+    expect(positions.get('n_orphan')!.x).toBeGreaterThan(positions.get('n_start')!.x);
+  });
+
+  it('places a secondary zero-indegree entry beside its connected target', () => {
+    const graph: EditorGraphState = {
+      nodes: [
+        node('n_start', StoryNodeType.Start, 0, 0),
+        node('n_linea', StoryNodeType.Dialogue, 310, 0),
+        node('n_endxx', StoryNodeType.End, 620, 0),
+        node('n_entryx', StoryNodeType.Dialogue, 600, 300),
+      ],
+      edges: [
+        edge('e_first', 'n_start', 'n_linea'),
+        edge('e_lastxx', 'n_linea', 'n_endxx'),
+        edge('e_entryx', 'n_entryx', 'n_endxx'),
+      ],
+    };
+
+    const result = autoLayoutGraph(graph);
+    const positions = new Map(result.nodes.map((candidate) => [candidate.id, candidate.position]));
+
+    expect(positions.get('n_entryx')!.x).toBe(positions.get('n_linea')!.x);
+    expect(positions.get('n_entryx')!.x).toBeLessThan(positions.get('n_endxx')!.x);
+  });
+
   it('uses measured node sizes to prevent wide and tall nodes from overlapping', () => {
     const start = {
       ...node('n_start', StoryNodeType.Start, 0, 0, { title: 'Start' }),

@@ -88,8 +88,9 @@ function previewGraph(
     })
     .map((node) => node.id);
 
-  const mergedEditor = fromSourceGraph(target);
-  const localEditor = fromSourceGraph(local);
+  const previewLoadOptions = { allowInvalidConnections: true };
+  const mergedEditor = fromSourceGraph(target, previewLoadOptions);
+  const localEditor = fromSourceGraph(local, previewLoadOptions);
   const combinedNodes = [
     ...mergedEditor.nodes,
     ...localEditor.nodes.filter((node) => !mergedNodes.has(node.id)),

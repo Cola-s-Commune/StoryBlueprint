@@ -3,9 +3,10 @@ import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { CopyButton } from '../Panels/CopyButton';
 
 export function StatusBar() {
-  const { hasActiveStory, workspace, document, nodes, edges, chapters, activeGraphId } =
+  const { hasActiveStory, workspace, stories, document, nodes, edges, chapters, activeGraphId } =
     useStoryGraphStore();
   const projectConflictCount = workspace?.gitConflicts?.length ?? 0;
+  const storyConflictCount = stories.filter((story) => story.document.gitConflict).length;
   const projectConflictText = `${projectConflictCount} project resource Git conflict${projectConflictCount === 1 ? '' : 's'} · Open View → Story Merge`;
   if (!hasActiveStory) {
     return (
@@ -36,6 +37,11 @@ export function StatusBar() {
         {document.gitConflict ? (
           <span className={`${styles.item} ${styles.errorItem}`}>
             Git conflict · Open View → Story Merge
+          </span>
+        ) : storyConflictCount > 0 ? (
+          <span className={`${styles.item} ${styles.errorItem}`}>
+            {storyConflictCount} open Story Git conflict{storyConflictCount === 1 ? '' : 's'} · Open
+            View → Story Merge
           </span>
         ) : projectConflictCount > 0 ? (
           <span className={`${styles.item} ${styles.errorItem}`}>{projectConflictText}</span>

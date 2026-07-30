@@ -4,7 +4,9 @@ import {
   nodeRegistry,
   validateGraphConnection,
   type GraphNodeLike,
-} from '../packages/common/src';
+  type SourceGraph,
+} from '@story-blueprint/common';
+import { fromSourceGraph } from '../packages/editor/src/renderer/graph/editorGraph';
 
 beforeAll(() => nodeRegistry.registerBuiltins());
 
@@ -49,5 +51,31 @@ describe('connection validation', () => {
       valid: false,
       diagnostic: { code: 'OUTPUT_ALREADY_CONNECTED' },
     });
+  });
+
+  it('preserves conflicting successors when loading a Git merge stage', () => {
+    const source: SourceGraph = {
+      nodes: nodes.map((node, index) => ({
+        ...node,
+        id: node.id as never,
+        definitionVersion: 1,
+        position: { x: index * 200, y: 0 },
+      })),
+      edges: [
+        {
+          from: { nodeId: 'start' as never, portId: 'out' },
+          to: { nodeId: 'dialogue' as never, portId: 'in' },
+        },
+        {
+          from: { nodeId: 'start' as never, portId: 'out' },
+          to: { nodeId: 'end' as never, portId: 'in' },
+        },
+      ],
+    };
+
+    expect(() => fromSourceGraph(source)).toThrow(
+      'Invalid link: An execution output can only connect to one successor',
+    );
+    expect(fromSourceGraph(source, { allowInvalidConnections: true }).edges).toHaveLength(2);
   });
 });

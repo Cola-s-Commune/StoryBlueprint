@@ -1139,6 +1139,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (merged.id !== source.id) {
         return { ok: false, message: 'The merge result belongs to a different Story.' };
       }
+      try {
+        fromSourceGraph(merged.root);
+        for (const chapter of merged.chapters) fromSourceGraph(chapter.graph);
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
       const compiled = compileStory({
         ...merged,
         characters: resolvedCharacters,
@@ -2087,16 +2093,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     loadStory(next);
   }, [captureActiveStory, hasActiveStory, loadStory, workspaceStories]);
 
-  const acceptOpenedStory = useCallback(
+  const storyItemFromOpenedStory = useCallback(
     (
       result: Exclude<OpenStoryResult, { canceled: true }>,
       recovered: { dirty?: boolean; filePath?: string; fileToken?: string } = {},
-      replaceSession = false,
-    ) => {
+    ): EditorStoryWorkspaceItem => {
       const source = parseStorySource(result.content);
-      const rootGraph = fromSourceGraph(source.root);
-      const current = !replaceSession && hasActiveStory ? captureActiveStory() : undefined;
-      const opened: EditorStoryWorkspaceItem = {
+      const graphLoadOptions = { allowInvalidConnections: result.gitConflict === true };
+      const rootGraph = fromSourceGraph(source.root, graphLoadOptions);
+      return {
         document: {
           id: source.id,
           name: source.name,
@@ -2109,13 +2114,25 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         rootGraph,
         chapters: source.chapters.map((chapter) => ({
           ...chapter,
-          graph: fromSourceGraph(chapter.graph),
+          graph: fromSourceGraph(chapter.graph, graphLoadOptions),
         })),
         variables: [...source.variables],
         characters: [...source.characters],
         assets: [...source.assets],
         revision: recovered.dirty ? 1 : 0,
       };
+    },
+    [],
+  );
+
+  const acceptOpenedStory = useCallback(
+    (
+      result: Exclude<OpenStoryResult, { canceled: true }>,
+      recovered: { dirty?: boolean; filePath?: string; fileToken?: string } = {},
+      replaceSession = false,
+    ) => {
+      const opened = storyItemFromOpenedStory(result, recovered);
+      const current = !replaceSession && hasActiveStory ? captureActiveStory() : undefined;
       setWorkspaceStories((items) => {
         if (replaceSession) return [opened];
         const withoutOpened = items.filter(
@@ -2133,8 +2150,79 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       loadStory(opened);
       return opened;
     },
-    [captureActiveStory, hasActiveStory, loadStory],
+    [captureActiveStory, hasActiveStory, loadStory, storyItemFromOpenedStory],
   );
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    let reloading = false;
+    return window.electronAPI.onWorkspaceGitChanged((git) => {
+      if (reloading) return;
+      reloading = true;
+      void (async () => {
+        try {
+          const items = currentStoryItemsRef.current();
+          const dirtyNames = items
+            .filter((item) => item.document.dirty)
+            .map((item) => item.document.displayName);
+          if (projectResourcesDirty) dirtyNames.push('Project resources');
+          if (dirtyNames.length > 0) {
+            const choice = await window.electronAPI!.confirmGitReload(dirtyNames);
+            if (choice === 'keep') {
+              setWorkspace((current) => (current ? { ...current, git } : current));
+              setWorkspaceError(
+                'Git workspace changed. Project reload was skipped to preserve unsaved editor changes.',
+              );
+              return;
+            }
+          }
+
+          if (projectResourceWritesRef.current.size > 0) {
+            await Promise.allSettled([...projectResourceWritesRef.current.values()]);
+          }
+          const activeFilePath = document.filePath;
+          const requests = items.flatMap((item) =>
+            item.document.filePath && item.document.fileToken
+              ? [{ filePath: item.document.filePath, fileToken: item.document.fileToken }]
+              : [],
+          );
+          const result = await window.electronAPI!.reloadWorkspaceAfterGitChange(requests);
+          const reloaded = result.stories.map((story) => storyItemFromOpenedStory(story));
+          setWorkspace(result.workspace);
+          setWorkspaceError(
+            result.missingStoryPaths.length > 0
+              ? `${result.missingStoryPaths.length} open Story file(s) do not exist on the new branch.`
+              : undefined,
+          );
+          setProjectResourcesDirty(false);
+          setWorkspaceStories(reloaded);
+          const active = reloaded.find((item) => item.document.filePath === activeFilePath);
+          const next = active ?? reloaded[0];
+          if (next) {
+            const nextGraph =
+              activeGraphId === 'root' || next.chapters.some((chapter) => chapter.id === activeGraphId)
+                ? activeGraphId
+                : 'root';
+            loadStory(next, nextGraph);
+          } else {
+            clearStorySession();
+            setWorkspace(result.workspace);
+          }
+        } catch (error) {
+          setWorkspaceError(error instanceof Error ? error.message : String(error));
+        } finally {
+          reloading = false;
+        }
+      })();
+    });
+  }, [
+    activeGraphId,
+    clearStorySession,
+    document.filePath,
+    loadStory,
+    projectResourcesDirty,
+    storyItemFromOpenedStory,
+  ]);
 
   const openStory = useCallback(async () => {
     if (!window.electronAPI) return;

@@ -452,7 +452,11 @@ export function ResourceBrowser() {
                   className={styles.gitStatus}
                   title={`Repository: ${workspace.git.repositoryRoot ?? workspace.rootPath}`}
                 >
-                  Git{workspace.git.branch ? ` · ${workspace.git.branch}` : ''}
+                  Git ·{' '}
+                  {workspace.git.branch ??
+                    (workspace.git.headRevision
+                      ? `detached @ ${workspace.git.headRevision.slice(0, 7)}`
+                      : 'unborn')}
                 </span>
               ) : (
                 <button
@@ -566,6 +570,9 @@ export function ResourceBrowser() {
                         <strong>{story.document.displayName}</strong>
                         <small>{story.document.filePath ?? 'Unsaved story'}</small>
                       </span>
+                    )}
+                    {story.document.gitConflict && (
+                      <span className={styles.conflictDot} title="Git conflict · Open Story Merge" />
                     )}
                     {story.document.dirty && <span className={styles.dirtyDot} title="Unsaved" />}
                   </div>
