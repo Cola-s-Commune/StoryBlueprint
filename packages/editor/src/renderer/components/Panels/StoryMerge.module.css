@@ -243,6 +243,12 @@
   font-size: 9px;
 }
 
+.choices span {
+  color: #7f8a96;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
 .choices pre {
   max-height: 150px;
   margin: 0;

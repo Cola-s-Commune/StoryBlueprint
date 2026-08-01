@@ -79,6 +79,99 @@ describe('Story merge graph preview', () => {
     expect(preview.graphs[0].graph.edges).toHaveLength(2);
   });
 
+  it('highlights concurrent inserted nodes and their competing entry edges', () => {
+    const localGraph = graph('Before');
+    const nodeA = {
+      id: 'n_nodea',
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 300, y: 0 },
+      data: { lines: [{ id: 'ln_nodea', textId: 't_nodea', text: { source: 'Node A' } }] },
+    } as const;
+    const nodeB = {
+      id: 'n_nodeb',
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 300, y: 250 },
+      data: { lines: [{ id: 'ln_nodeb', textId: 't_nodeb', text: { source: 'Node B' } }] },
+    } as const;
+    localGraph.nodes.push(nodeA);
+    localGraph.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_nodea', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_nodea', portId: 'out' },
+        to: { nodeId: 'n_endnode', portId: 'in' },
+      },
+    ];
+    const mergedGraph = structuredClone(localGraph);
+    mergedGraph.nodes.push(nodeB);
+    mergedGraph.edges.push(
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_nodeb', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_nodeb', portId: 'out' },
+        to: { nodeId: 'n_endnode', portId: 'in' },
+      },
+    );
+    const localEntry = localGraph.edges[0];
+    const remoteEntry = mergedGraph.edges[2];
+    const conflict = {
+      id: 'story/root/nodes/%40id%3An_dialogue/execution-successor%3Aout',
+      path: 'story › root › nodes › @id:n_dialogue › execution-successor:out',
+      kind: 'changed' as const,
+      localValue: [localEntry],
+      remoteValue: [remoteEntry],
+      resolution: {
+        kind: 'concurrent-insertion' as const,
+        localNodeId: 'n_nodea',
+        remoteNodeId: 'n_nodeb',
+        localLabel: 'Node A',
+        remoteLabel: 'Node B',
+      },
+    };
+
+    const preview = buildStoryMergePreview(story(localGraph), story(mergedGraph), [conflict]);
+    const root = preview.graphs[0];
+    expect(root.conflictNodeIds.sort()).toEqual(['n_nodea', 'n_nodeb']);
+    expect(root.resolvedNodeIds).toEqual([]);
+    expect(root.conflictNodeIds).not.toContain('n_dialogue');
+    expect(root.conflictEdgeIds).toHaveLength(2);
+    expect(root.nodeConflictIds.n_nodea).toEqual([conflict.id]);
+    expect(root.nodeConflictIds.n_nodeb).toEqual([conflict.id]);
+    expect(root.nodeConflictIds.n_dialogue).toBeUndefined();
+
+    const remoteGraph = graph('Before');
+    remoteGraph.nodes.push(nodeB);
+    remoteGraph.edges = [remoteEntry, mergedGraph.edges[3]];
+    const keepA = buildStoryMergePreview(
+      story(localGraph),
+      story(structuredClone(localGraph)),
+      [conflict],
+      { [conflict.id]: 'local' },
+      story(remoteGraph),
+    ).graphs[0];
+    expect(keepA.graph.nodes.map((node) => node.id)).toContain('n_nodeb');
+    expect(keepA.removedNodeIds).toContain('n_nodeb');
+    expect(keepA.resolvedNodeIds).toEqual(['n_nodea']);
+    expect(keepA.conflictNodeIds).toEqual([]);
+    expect(keepA.removedEdgeIds).toHaveLength(2);
+
+    const ordered = buildStoryMergePreview(
+      story(localGraph),
+      story(mergedGraph),
+      [conflict],
+      { [conflict.id]: 'local-first' },
+      story(remoteGraph),
+    ).graphs[0];
+    expect(ordered.resolvedNodeIds.sort()).toEqual(['n_nodea', 'n_nodeb']);
+    expect(ordered.removedNodeIds).toEqual([]);
+  });
+
   it('classifies added, modified, removed, and conflicted graph elements', () => {
     const local = story(graph('Local'));
     const mergedGraph = graph('Remote');
@@ -116,8 +209,22 @@ describe('Story merge graph preview', () => {
       'n_addedxx',
       'n_endnode',
     ]);
+    expect(root.graph.nodes.find((node) => node.id === 'n_endnode')?.position).not.toEqual(
+      root.graph.nodes.find((node) => node.id === 'n_addedxx')?.position,
+    );
     expect(root.addedEdgeIds).toHaveLength(1);
     expect(root.removedEdgeIds).toHaveLength(1);
+  });
+
+  it('does not classify a position-only layout change as a modified node', () => {
+    const local = story(graph('Same content'));
+    const merged = structuredClone(local);
+    merged.root.nodes[0].position = { x: 900, y: 500 };
+
+    const preview = buildStoryMergePreview(local, merged, []);
+
+    expect(preview.graphs[0].changedNodeIds).toEqual([]);
+    expect(preview.graphs[0].graph.nodes[0].position).toEqual({ x: 900, y: 500 });
   });
 
   it('keeps existing Substories available as separate preview graphs', () => {

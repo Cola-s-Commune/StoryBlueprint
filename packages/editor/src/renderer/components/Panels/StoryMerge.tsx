@@ -10,6 +10,7 @@ import {
   type AssetSource,
   type CharacterSource,
   type SourceEdge,
+  type SourceGraph,
   type StoryProjectDocument,
   type StorySourceDocument,
 } from '@story-blueprint/common';
@@ -77,6 +78,14 @@ function summarizeGraphChanges(
   );
   const edgeKey = (edge: SourceEdge) =>
     `${edge.from.nodeId}:${edge.from.portId}>${edge.to.nodeId}:${edge.to.portId}`;
+  const sameNodeContent = (
+    left: SourceGraph['nodes'][number],
+    right: SourceGraph['nodes'][number],
+  ) => {
+    const { position: _leftPosition, ...leftContent } = left;
+    const { position: _rightPosition, ...rightContent } = right;
+    return JSON.stringify(leftContent) === JSON.stringify(rightContent);
+  };
   for (const graphId of graphIds) {
     const before = localGraphs.get(graphId) ?? { nodes: [], edges: [] };
     const after = mergedGraphs.get(graphId) ?? { nodes: [], edges: [] };
@@ -86,7 +95,7 @@ function summarizeGraphChanges(
     summary.removedNodes += before.nodes.filter((node) => !afterNodes.has(node.id)).length;
     summary.changedNodes += after.nodes.filter((node) => {
       const previous = beforeNodes.get(node.id);
-      return previous !== undefined && JSON.stringify(previous) !== JSON.stringify(node);
+      return previous !== undefined && !sameNodeContent(previous, node);
     }).length;
     const beforeEdges = new Set(before.edges.map(edgeKey));
     const afterEdges = new Set(after.edges.map(edgeKey));
@@ -478,7 +487,26 @@ export function StoryMerge() {
   const mergedProjection = useMemo(
     () => {
       if (!rawMergedProjection || !localBase) return rawMergedProjection;
-      const overlapFree = autoLayoutStoryAddedNodeOverlaps(localBase, rawMergedProjection);
+      let overlapFree = autoLayoutStoryAddedNodeOverlaps(localBase, rawMergedProjection);
+      if (remoteMergeable) {
+        for (const conflict of conflicts) {
+          const choice = decisions[conflict.id];
+          const insertion = conflict.resolution;
+          if (
+            insertion?.kind !== 'concurrent-insertion' ||
+            (choice !== 'local-first' && choice !== 'remote-first')
+          ) {
+            continue;
+          }
+          overlapFree = autoLayoutStoryConflictNeighborhoods(
+            overlapFree,
+            localBase,
+            remoteMergeable,
+            new Set([insertion.localNodeId, insertion.remoteNodeId]),
+            choice,
+          );
+        }
+      }
       return coordinateLayoutOrder && remoteMergeable
         ? autoLayoutStoryConflictNeighborhoods(
             overlapFree,
@@ -489,7 +517,15 @@ export function StoryMerge() {
           )
         : overlapFree;
     },
-    [coordinateLayoutOrder, coordinateNodeIds, localBase, rawMergedProjection, remoteMergeable],
+    [
+      conflicts,
+      coordinateLayoutOrder,
+      coordinateNodeIds,
+      decisions,
+      localBase,
+      rawMergedProjection,
+      remoteMergeable,
+    ],
   );
   const remoteChoiceCount = conflicts.filter(
     (conflict) =>
@@ -500,6 +536,10 @@ export function StoryMerge() {
     (conflict) =>
       !(coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)) &&
       decisions[conflict.id] === 'local',
+  ).length;
+  const orderedChoiceCount = conflicts.filter(
+    (conflict) =>
+      decisions[conflict.id] === 'local-first' || decisions[conflict.id] === 'remote-first',
   ).length;
   const autoCoordinateCount = coordinateLayoutOrder ? coordinateConflicts.length : 0;
   const unresolvedCount = conflicts.filter(
@@ -539,7 +579,7 @@ export function StoryMerge() {
       return;
     }
     try {
-      showStoryMergePreview(mergedStory, conflicts, decisions);
+      showStoryMergePreview(mergedStory, conflicts, decisions, remote);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -551,6 +591,7 @@ export function StoryMerge() {
     decisions,
     localBase,
     mergedStory,
+    remote,
     showStoryMergePreview,
   ]);
 
@@ -568,11 +609,19 @@ export function StoryMerge() {
   }, [coordinateConflictIds, storyMergeDecisionRequest]);
 
   const previewConflict = (conflict: StoryMergeConflict) => {
-    const nodeId = conflict.id
-      .split('/')
-      .map(decodeURIComponent)
-      .find((segment) => segment.startsWith('@id:n_'))
-      ?.slice(4) as Parameters<typeof focusStoryMergePreviewNode>[1] | undefined;
+    const resolutionNodeId =
+      conflict.resolution?.kind === 'concurrent-insertion'
+        ? conflict.resolution.localNodeId
+        : conflict.resolution?.kind === 'connection-competition' ||
+            conflict.resolution?.kind === 'entry-nodes'
+          ? conflict.resolution.localNodeIds[0] ?? conflict.resolution.remoteNodeIds[0]
+          : undefined;
+    const nodeId = (resolutionNodeId ??
+      conflict.id
+        .split('/')
+        .map(decodeURIComponent)
+        .find((segment) => segment.startsWith('@id:n_'))
+        ?.slice(4)) as Parameters<typeof focusStoryMergePreviewNode>[1] | undefined;
     if (!nodeId) return;
     const graph = storyMergePreview?.graphs.find((candidate) =>
       candidate.graph.nodes.some((node) => node.id === nodeId),
@@ -845,6 +894,12 @@ export function StoryMerge() {
                 </strong>
                 <span>Local / Remote</span>
               </div>
+              {orderedChoiceCount > 0 && (
+                <div>
+                  <strong>{orderedChoiceCount}</strong>
+                  <span>ordered</span>
+                </div>
+              )}
               {threeWayDiff && (
                 <div>
                   <strong>{threeWayDiff.autoChangeCount}</strong>
@@ -894,7 +949,7 @@ export function StoryMerge() {
                 type="button"
                 disabled={!mergedStory || Boolean(aiProposal)}
                 onClick={() =>
-                  mergedStory && showStoryMergePreview(mergedStory, conflicts, decisions)
+                  mergedStory && showStoryMergePreview(mergedStory, conflicts, decisions, remote)
                 }
               >
                 {storyMergePreview ? 'Refresh Preview' : 'Preview Graph'}
@@ -933,6 +988,9 @@ export function StoryMerge() {
                 Manual: {localChoiceCount} Local · {remoteChoiceCount} Remote · {unresolvedCount}{' '}
                 unresolved
               </span>
+              {orderedChoiceCount > 0 && (
+                <span>Concurrent insertions: {orderedChoiceCount} ordered</span>
+              )}
               {autoCoordinateCount > 0 && (
                 <span>
                   Coordinates: {autoCoordinateCount} auto-arranged ·{' '}
@@ -963,6 +1021,20 @@ export function StoryMerge() {
                     conflict.remoteValue,
                     conflict.kind !== 'local-only',
                   );
+                  const insertion =
+                    conflict.resolution?.kind === 'concurrent-insertion'
+                      ? conflict.resolution
+                      : undefined;
+                  const connection =
+                    conflict.resolution?.kind === 'connection-competition'
+                      ? conflict.resolution
+                      : undefined;
+                  const entry =
+                    conflict.resolution?.kind === 'entry-nodes'
+                      ? conflict.resolution
+                      : undefined;
+                  const orderConflict =
+                    decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
                   return (
                     <article className={styles.conflict} key={conflict.id}>
                       <header>
@@ -975,32 +1047,141 @@ export function StoryMerge() {
                           </span>
                         )}
                         <code>{conflict.path}</code>
-                        {conflict.id
-                          .split('/')
-                          .map(decodeURIComponent)
-                          .some((segment) => segment.startsWith('@id:n_')) && (
+                        {(conflict.resolution ||
+                          conflict.id
+                            .split('/')
+                            .map(decodeURIComponent)
+                            .some((segment) => segment.startsWith('@id:n_'))) && (
                           <button type="button" onClick={() => previewConflict(conflict)}>
                             Show on Graph
                           </button>
                         )}
                       </header>
                       <div className={styles.choices}>
-                        <button
-                          type="button"
-                          className={choice === 'local' ? styles.selectedChoice : undefined}
-                          onClick={() => choose(conflict.id, 'local')}
-                        >
-                          <strong>Local</strong>
-                          <pre>{localText}</pre>
-                        </button>
-                        <button
-                          type="button"
-                          className={choice === 'remote' ? styles.selectedChoice : undefined}
-                          onClick={() => choose(conflict.id, 'remote')}
-                        >
-                          <strong>Remote</strong>
-                          <pre>{remoteText}</pre>
-                        </button>
+                        {insertion ? (
+                          <>
+                            <button
+                              type="button"
+                              className={
+                                choice === 'local-first' ? styles.selectedChoice : undefined
+                              }
+                              onClick={() => choose(conflict.id, 'local-first')}
+                            >
+                              <strong>
+                                {insertion.localLabel} → {insertion.remoteLabel}
+                              </strong>
+                              <span>Place the Local node before the Remote node.</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                choice === 'remote-first' ? styles.selectedChoice : undefined
+                              }
+                              onClick={() => choose(conflict.id, 'remote-first')}
+                            >
+                              <strong>
+                                {insertion.remoteLabel} → {insertion.localLabel}
+                              </strong>
+                              <span>Place the Remote node before the Local node.</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'local' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'local')}
+                            >
+                              <strong>Keep {insertion.localLabel}</strong>
+                              <span>
+                                Remove {insertion.remoteLabel} and keep only the Local insertion.
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'remote' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'remote')}
+                            >
+                              <strong>Keep {insertion.remoteLabel}</strong>
+                              <span>
+                                Remove {insertion.localLabel} and keep only the Remote insertion.
+                              </span>
+                            </button>
+                          </>
+                        ) : connection ? (
+                          <>
+                            <button
+                              type="button"
+                              className={choice === 'local' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'local')}
+                            >
+                              <strong>Use {connection.localLabel || 'Local source'}</strong>
+                              <span>Connect the input from the Local source.</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'remote' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'remote')}
+                            >
+                              <strong>Use {connection.remoteLabel || 'Remote source'}</strong>
+                              <span>Connect the input from the Remote source.</span>
+                            </button>
+                          </>
+                        ) : entry ? (
+                          <>
+                            <button
+                              type="button"
+                              className={choice === 'local' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'local')}
+                            >
+                              <strong>Keep Local Entry</strong>
+                              <span>Remove the competing Remote Start node.</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'remote' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'remote')}
+                            >
+                              <strong>Keep Remote Entry</strong>
+                              <span>Remove the competing Local Start node.</span>
+                            </button>
+                          </>
+                        ) : orderConflict ? (
+                          <>
+                            <button
+                              type="button"
+                              className={choice === 'local' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'local')}
+                            >
+                              <strong>Local Additions First</strong>
+                              <span>Keep both sides and place Local additions before Remote.</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'remote' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'remote')}
+                            >
+                              <strong>Remote Additions First</strong>
+                              <span>Keep both sides and place Remote additions before Local.</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className={choice === 'local' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'local')}
+                            >
+                              <strong>Local</strong>
+                              <pre>{localText}</pre>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'remote' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'remote')}
+                            >
+                              <strong>Remote</strong>
+                              <pre>{remoteText}</pre>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </article>
                   );

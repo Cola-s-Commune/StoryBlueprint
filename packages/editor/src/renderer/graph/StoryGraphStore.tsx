@@ -373,6 +373,7 @@ interface StoryGraphStoreValue {
     merged: StorySourceDocument,
     conflicts: readonly StoryMergeConflict[],
     decisions: StoryMergeDecisions,
+    remote?: StorySourceDocument,
   ) => void;
   clearStoryMergePreview: () => void;
   setStoryMergePreviewGraph: (graphId: ActiveGraphId) => void;
@@ -714,8 +715,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       merged: StorySourceDocument,
       conflicts: readonly StoryMergeConflict[],
       decisions: StoryMergeDecisions,
+      remote?: StorySourceDocument,
     ) => {
-      const preview = buildStoryMergePreview(source, merged, conflicts, decisions);
+      const preview = buildStoryMergePreview(source, merged, conflicts, decisions, remote);
       setStoryMergePreview(preview);
       setStoryMergePreviewGraphIdState((current) =>
         current && preview.graphs.some((graph) => graph.id === current) ? current : activeGraphId,
@@ -1161,6 +1163,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return { ok: false, message: 'The merge result belongs to a different Story.' };
       }
       try {
+        const graphs = [
+          { name: 'Main Story', graph: merged.root },
+          ...merged.chapters.map((chapter) => ({ name: chapter.displayName, graph: chapter.graph })),
+        ];
+        for (const candidate of graphs) {
+          const entryCount = candidate.graph.nodes.filter(
+            (node) => node.type === StoryNodeType.Start,
+          ).length;
+          if (entryCount > 1) {
+            return {
+              ok: false,
+              message: `${candidate.name} contains multiple Start nodes. Keep exactly one entry before applying the merge.`,
+            };
+          }
+        }
         fromSourceGraph(merged.root);
         for (const chapter of merged.chapters) fromSourceGraph(chapter.graph);
       } catch (error) {

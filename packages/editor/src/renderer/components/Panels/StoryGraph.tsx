@@ -1030,6 +1030,7 @@ export function StoryGraph() {
     const mergeChanged = new Set(activeMergePreview?.changedNodeIds ?? []);
     const mergeRemoved = new Set(activeMergePreview?.removedNodeIds ?? []);
     const mergeConflicts = new Set(activeMergePreview?.conflictNodeIds ?? []);
+    const mergeResolved = new Set(activeMergePreview?.resolvedNodeIds ?? []);
     return canvasNodes.map((node) => ({
       ...node,
       draggable: activeMergePreview ? false : aiProposal ? added.has(node.id) : node.draggable,
@@ -1039,6 +1040,8 @@ export function StoryGraph() {
           ? 'merge-preview-conflict'
           : mergeRemoved.has(node.id)
             ? 'merge-preview-removed'
+            : mergeResolved.has(node.id)
+              ? 'merge-preview-resolved'
             : mergeAdded.has(node.id)
               ? 'merge-preview-added'
               : mergeChanged.has(node.id)
@@ -1594,7 +1597,8 @@ export function StoryGraph() {
                 +{activeMergePreview.addedNodeIds.length} · ~
                 {activeMergePreview.changedNodeIds.length} · −
                 {activeMergePreview.removedNodeIds.length} · !
-                {activeMergePreview.conflictNodeIds.length} nodes
+                {activeMergePreview.conflictNodeIds.length} · ✓
+                {activeMergePreview.resolvedNodeIds.length} nodes
               </span>
             </div>
             <div className={styles.mergeLegend} aria-label="Merge preview legend">
@@ -1602,6 +1606,7 @@ export function StoryGraph() {
               <span className={styles.legendModified}>Modified</span>
               <span className={styles.legendRemoved}>Removed</span>
               <span className={styles.legendConflict}>Conflict</span>
+              <span className={styles.legendResolved}>Selected</span>
             </div>
             <label className={styles.mergeGraphSelect}>
               <span>Graph</span>
@@ -1657,30 +1662,150 @@ export function StoryGraph() {
             <div className={styles.mergeConflictFields}>
               {selectedMergeConflicts.map((conflict) => {
                 const choice = storyMergePreview?.decisions[conflict.id];
+                const insertion =
+                  conflict.resolution?.kind === 'concurrent-insertion'
+                    ? conflict.resolution
+                    : undefined;
+                const connection =
+                  conflict.resolution?.kind === 'connection-competition'
+                    ? conflict.resolution
+                    : undefined;
+                const entry =
+                  conflict.resolution?.kind === 'entry-nodes'
+                    ? conflict.resolution
+                    : undefined;
+                const orderConflict =
+                  decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
                 return (
                   <section key={conflict.id}>
                     <code>{conflict.path}</code>
                     <div>
-                      <button
-                        type="button"
-                        className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
-                        onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
-                      >
-                        <strong>Local</strong>
-                        <pre>
-                          {mergeValueText(conflict.localValue, conflict.kind !== 'remote-only')}
-                        </pre>
-                      </button>
-                      <button
-                        type="button"
-                        className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
-                        onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
-                      >
-                        <strong>Remote</strong>
-                        <pre>
-                          {mergeValueText(conflict.remoteValue, conflict.kind !== 'local-only')}
-                        </pre>
-                      </button>
+                      {insertion ? (
+                        <>
+                          <button
+                            type="button"
+                            className={
+                              choice === 'local-first' ? styles.mergeChoiceSelected : undefined
+                            }
+                            onClick={() =>
+                              chooseStoryMergePreviewConflict(conflict.id, 'local-first')
+                            }
+                          >
+                            <strong>
+                              {insertion.localLabel} → {insertion.remoteLabel}
+                            </strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              choice === 'remote-first' ? styles.mergeChoiceSelected : undefined
+                            }
+                            onClick={() =>
+                              chooseStoryMergePreviewConflict(conflict.id, 'remote-first')
+                            }
+                          >
+                            <strong>
+                              {insertion.remoteLabel} → {insertion.localLabel}
+                            </strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                          >
+                            <strong>Keep {insertion.localLabel}</strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                          >
+                            <strong>Keep {insertion.remoteLabel}</strong>
+                          </button>
+                        </>
+                      ) : connection ? (
+                        <>
+                          <button
+                            type="button"
+                            className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                          >
+                            <strong>Use {connection.localLabel || 'Local source'}</strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                          >
+                            <strong>Use {connection.remoteLabel || 'Remote source'}</strong>
+                          </button>
+                        </>
+                      ) : entry ? (
+                        <>
+                          <button
+                            type="button"
+                            className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                          >
+                            <strong>Keep Local Entry</strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                          >
+                            <strong>Keep Remote Entry</strong>
+                          </button>
+                        </>
+                      ) : orderConflict ? (
+                        <>
+                          <button
+                            type="button"
+                            className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                          >
+                            <strong>Local Additions First</strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                          >
+                            <strong>Remote Additions First</strong>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                          >
+                            <strong>Local</strong>
+                            <pre>
+                              {mergeValueText(
+                                conflict.localValue,
+                                conflict.kind !== 'remote-only',
+                              )}
+                            </pre>
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              choice === 'remote' ? styles.mergeChoiceSelected : undefined
+                            }
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                          >
+                            <strong>Remote</strong>
+                            <pre>
+                              {mergeValueText(
+                                conflict.remoteValue,
+                                conflict.kind !== 'local-only',
+                              )}
+                            </pre>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </section>
                 );

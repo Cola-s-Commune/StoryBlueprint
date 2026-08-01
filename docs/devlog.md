@@ -1,5 +1,10 @@
 # Dev Log
 
+- 有序集合三方合并检测同一 Base 间隙的双方并发插入；Dialogue Line、Choice Option、Event/Signal Parameter 等不再静默采用 Local-first，而是显式选择双方新增项顺序。
+- Story Merge 新增 Data Input 来源竞争与 Start 入口竞争的语义冲突：用户可直接选择 Local / Remote 来源或入口；选择 Start 时同步清理另一入口及其连线，预检拒绝多 Start Graph。
+- 并发插入冲突作出决策后增加蓝色 Selected 审查态：顺序合并高亮双方节点，只保留一侧时蓝色标记保留节点、红色幽灵标记舍弃节点，直至 Apply。
+- Story Merge 的 Modified 节点高亮与 Changed Nodes 统计忽略纯坐标变化；自动整理后的后继节点不再因位置移动被误标为黄色内容修改。
+- Story Merge 会识别同一 Base 执行边上的双分支并发节点插入，直接提供 Local→Remote、Remote→Local、只保留 Local、只保留 Remote 四种决策，并重建合法单后继执行链；未决预览展示并高亮两个插入节点及竞争入口连线，不再误标共同前驱；只保留一侧时仍以红色幽灵展示另一侧被舍弃的节点和连线，排序后自动整理局部链，幽灵节点主动避让保留节点。
 - Character Inspector 将 Emotion 从逗号文本升级为 Key / Display Name / Portrait 结构化列表；Emotion Key 重命名会同步已打开 Story 的 Dialogue Line，删除时确认并清除对应引用。
 - Dialogue 编译会解析角色立绘：优先使用 Emotion Portrait，缺省时回退 Default Portrait，并将最终 Asset ID 交给 Runtime / Engine Adapter。
 - 新建 Story Blueprint 项目会自动生成 `.gitignore`：默认排除编译产物与常见本地杂项，并使用仅新建写入保证不覆盖用户已有规则。

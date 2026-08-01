@@ -12,7 +12,29 @@ import {
   fromSourceGraph,
 } from './editorGraph';
 
-export type StoryMergeChoice = 'local' | 'remote';
+export type StoryMergeChoice = 'local' | 'remote' | 'local-first' | 'remote-first';
+
+export interface ConcurrentInsertionResolution {
+  kind: 'concurrent-insertion';
+  localNodeId: string;
+  remoteNodeId: string;
+  localLabel: string;
+  remoteLabel: string;
+}
+
+export interface ConnectionCompetitionResolution {
+  kind: 'connection-competition';
+  localNodeIds: string[];
+  remoteNodeIds: string[];
+  localLabel: string;
+  remoteLabel: string;
+}
+
+export interface EntryNodeResolution {
+  kind: 'entry-nodes';
+  localNodeIds: string[];
+  remoteNodeIds: string[];
+}
 
 export interface StoryMergeConflict {
   id: string;
@@ -20,6 +42,10 @@ export interface StoryMergeConflict {
   kind: 'changed' | 'local-only' | 'remote-only';
   localValue?: unknown;
   remoteValue?: unknown;
+  resolution?:
+    | ConcurrentInsertionResolution
+    | ConnectionCompetitionResolution
+    | EntryNodeResolution;
 }
 
 export interface ThreeWayStoryDiff {
@@ -117,6 +143,86 @@ function mergedKeyOrder(
       .find((candidate) => result.includes(candidate));
     if (previous) result.splice(result.indexOf(previous) + 1, 0, key);
     else result.push(key);
+  }
+  return result;
+}
+
+function insertionGaps(
+  baseOrder: readonly string[],
+  branchOrder: readonly string[],
+  otherOrder: ReadonlySet<string>,
+): Set<string> {
+  const baseKeys = new Set(baseOrder);
+  const gaps = new Set<string>();
+  for (let index = 0; index < branchOrder.length; index += 1) {
+    if (baseKeys.has(branchOrder[index]) || otherOrder.has(branchOrder[index])) continue;
+    const previous = branchOrder
+      .slice(0, index)
+      .reverse()
+      .find((key) => baseKeys.has(key));
+    const next = branchOrder.slice(index + 1).find((key) => baseKeys.has(key));
+    gaps.add(`${previous ?? '^'}\0${next ?? '$'}`);
+  }
+  return gaps;
+}
+
+function hasConcurrentInsertionGap(
+  baseOrder: readonly string[],
+  localOrder: readonly string[],
+  remoteOrder: readonly string[],
+): boolean {
+  const localGaps = insertionGaps(baseOrder, localOrder, new Set(remoteOrder));
+  const remoteGaps = insertionGaps(baseOrder, remoteOrder, new Set(localOrder));
+  return [...localGaps].some((gap) => remoteGaps.has(gap));
+}
+
+function mergeConcurrentInsertions(
+  baseOrder: readonly string[],
+  primary: readonly string[],
+  secondary: readonly string[],
+  included: ReadonlySet<string>,
+): string[] {
+  const baseKeys = new Set(baseOrder);
+  const skeleton = primary.filter((key) => baseKeys.has(key) && included.has(key));
+  const additions = (
+    order: readonly string[],
+    excluded: ReadonlySet<string>,
+  ): Map<string, string[]> => {
+    const skeletonKeys = new Set(skeleton);
+    const result = new Map<string, string[]>();
+    for (let index = 0; index < order.length; index += 1) {
+      const key = order[index];
+      if (!included.has(key) || skeletonKeys.has(key) || excluded.has(key)) continue;
+      const previous = order
+        .slice(0, index)
+        .reverse()
+        .find((candidate) => skeletonKeys.has(candidate));
+      const next = order.slice(index + 1).find((candidate) => skeletonKeys.has(candidate));
+      const gap = `${previous ?? '^'}\0${next ?? '$'}`;
+      result.set(gap, [...(result.get(gap) ?? []), key]);
+    }
+    return result;
+  };
+  const primaryAdditions = new Set(primary.filter((key) => !baseKeys.has(key)));
+  const primaryByGap = additions(primary, new Set());
+  const secondaryByGap = additions(secondary, primaryAdditions);
+  const result: string[] = [];
+  const emit = (gap: string) => {
+    for (const key of [...(primaryByGap.get(gap) ?? []), ...(secondaryByGap.get(gap) ?? [])]) {
+      if (!result.includes(key)) result.push(key);
+    }
+  };
+  if (skeleton.length === 0) {
+    emit('^\0$');
+  } else {
+    emit(`^\0${skeleton[0]}`);
+    skeleton.forEach((key, index) => {
+      result.push(key);
+      emit(`${key}\0${skeleton[index + 1] ?? '$'}`);
+    });
+  }
+  for (const key of [...primary, ...secondary]) {
+    if (included.has(key) && !result.includes(key)) result.push(key);
   }
   return result;
 }
@@ -303,9 +409,27 @@ function mergeThreeValue(
       const localReordered = orderMatters(path) && !same(baseInLocal, localBaseItems);
       const remoteReordered = orderMatters(path) && !same(baseInRemote, remoteBaseItems);
       const orderPath = childPath(path, '@order');
+      const concurrentInsertions =
+        orderMatters(path) && hasConcurrentInsertionGap(baseOrder, localOrder, remoteOrder);
       let primary = localOrder;
       let secondary = remoteOrder;
-      if (remoteReordered && !localReordered) {
+      let concurrentOrder: string[] | undefined;
+      if (concurrentInsertions) {
+        conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder));
+        if (
+          decisions[orderPath] === 'remote' ||
+          decisions[orderPath] === 'remote-first'
+        ) {
+          primary = remoteOrder;
+          secondary = localOrder;
+        }
+        concurrentOrder = mergeConcurrentInsertions(
+          baseOrder,
+          primary,
+          secondary,
+          new Set(mergedItems.keys()),
+        );
+      } else if (remoteReordered && !localReordered) {
         autoPaths.add(orderPath);
         primary = remoteOrder;
         secondary = localOrder;
@@ -316,8 +440,8 @@ function mergeThreeValue(
           secondary = localOrder;
         }
       }
-      return mergedKeyOrder(primary, secondary, new Set(mergedItems.keys())).map((key) =>
-        mergedItems.get(key)!,
+      return (concurrentOrder ?? mergedKeyOrder(primary, secondary, new Set(mergedItems.keys()))).map(
+        (key) => mergedItems.get(key)!,
       );
     }
   }
@@ -411,10 +535,156 @@ function executionSuccessors(graph: SourceGraph): Map<string, SourceEdge[]> {
   return result;
 }
 
+function dataInputSources(graph: SourceGraph): Map<string, SourceEdge[]> {
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node] as const));
+  const result = new Map<string, SourceEdge[]>();
+  for (const edge of graph.edges) {
+    const node = nodes.get(edge.to.nodeId);
+    if (!node) continue;
+    const dataInput = resolveNodePorts({
+      id: node.id,
+      type: node.type as StoryNodeType,
+      data: node.data,
+    }).ports.some(
+      (port) =>
+        port.id === edge.to.portId && port.kind === 'data' && port.direction === 'input',
+    );
+    if (!dataInput) continue;
+    const key = `${edge.to.nodeId}\0${edge.to.portId}`;
+    result.set(key, [...(result.get(key) ?? []), edge]);
+  }
+  return result;
+}
+
 function sameEdgeSet(left: readonly SourceEdge[], right: readonly SourceEdge[]): boolean {
   const leftKeys = left.map(edgeKey).sort();
   const rightKeys = right.map(edgeKey).sort();
   return same(leftKeys, rightKeys);
+}
+
+interface ConcurrentInsertionPlan extends ConcurrentInsertionResolution {
+  localEntry: SourceEdge;
+  localContinuation: SourceEdge;
+  remoteEntry: SourceEdge;
+  remoteContinuation: SourceEdge;
+}
+
+function nodeLabel(graph: SourceGraph, nodeId: string): string {
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) return nodeId;
+  if (node.name) return node.name;
+  if (node.type === StoryNodeType.Dialogue) {
+    const text = (node.data as { lines?: Array<{ text?: { source?: string } }> }).lines?.[0]?.text
+      ?.source;
+    if (text) return text;
+  }
+  const title = (node.data as { title?: string }).title;
+  return title || nodeId;
+}
+
+function detectConcurrentInsertion(
+  baseGraph: SourceGraph,
+  localGraph: SourceGraph,
+  remoteGraph: SourceGraph,
+  baseEdges: readonly SourceEdge[],
+  localEdges: readonly SourceEdge[],
+  remoteEdges: readonly SourceEdge[],
+): ConcurrentInsertionPlan | undefined {
+  if (baseEdges.length !== 1 || localEdges.length !== 1 || remoteEdges.length !== 1) return;
+  const baseEdge = baseEdges[0];
+  const localEntry = localEdges[0];
+  const remoteEntry = remoteEdges[0];
+  const localNodeId = localEntry.to.nodeId;
+  const remoteNodeId = remoteEntry.to.nodeId;
+  if (
+    localNodeId === remoteNodeId ||
+    baseGraph.nodes.some((node) => node.id === localNodeId || node.id === remoteNodeId) ||
+    !localGraph.nodes.some((node) => node.id === localNodeId) ||
+    localGraph.nodes.some((node) => node.id === remoteNodeId) ||
+    !remoteGraph.nodes.some((node) => node.id === remoteNodeId) ||
+    remoteGraph.nodes.some((node) => node.id === localNodeId)
+  ) {
+    return;
+  }
+  const localIncident = localGraph.edges.filter(
+    (edge) => edge.from.nodeId === localNodeId || edge.to.nodeId === localNodeId,
+  );
+  const remoteIncident = remoteGraph.edges.filter(
+    (edge) => edge.from.nodeId === remoteNodeId || edge.to.nodeId === remoteNodeId,
+  );
+  const localContinuation = localIncident.find(
+    (edge) =>
+      edge.from.nodeId === localNodeId &&
+      edge.to.nodeId === baseEdge.to.nodeId &&
+      edge.to.portId === baseEdge.to.portId,
+  );
+  const remoteContinuation = remoteIncident.find(
+    (edge) =>
+      edge.from.nodeId === remoteNodeId &&
+      edge.to.nodeId === baseEdge.to.nodeId &&
+      edge.to.portId === baseEdge.to.portId,
+  );
+  if (
+    !localContinuation ||
+    !remoteContinuation ||
+    localIncident.length !== 2 ||
+    remoteIncident.length !== 2
+  ) {
+    return;
+  }
+  return {
+    kind: 'concurrent-insertion',
+    localNodeId,
+    remoteNodeId,
+    localLabel: nodeLabel(localGraph, localNodeId),
+    remoteLabel: nodeLabel(remoteGraph, remoteNodeId),
+    localEntry,
+    localContinuation,
+    remoteEntry,
+    remoteContinuation,
+  };
+}
+
+function applyConcurrentInsertionChoice(
+  graph: SourceGraph,
+  plan: ConcurrentInsertionPlan,
+  choice: StoryMergeChoice | undefined,
+): void {
+  if (!choice) return;
+  const { localNodeId, remoteNodeId } = plan;
+  const relatedNodeIds = new Set([localNodeId, remoteNodeId]);
+  const retainedEdges = graph.edges.filter(
+    (edge) =>
+      !relatedNodeIds.has(edge.from.nodeId) &&
+      !relatedNodeIds.has(edge.to.nodeId) &&
+      edgeKey(edge) !== edgeKey(plan.localEntry) &&
+      edgeKey(edge) !== edgeKey(plan.remoteEntry),
+  );
+  if (choice === 'local') {
+    graph.nodes = graph.nodes.filter((node) => node.id !== remoteNodeId);
+    graph.edges = [...retainedEdges, clone(plan.localEntry), clone(plan.localContinuation)];
+    return;
+  }
+  if (choice === 'remote') {
+    graph.nodes = graph.nodes.filter((node) => node.id !== localNodeId);
+    graph.edges = [...retainedEdges, clone(plan.remoteEntry), clone(plan.remoteContinuation)];
+    return;
+  }
+  if (choice === 'local-first') {
+    graph.edges = [
+      ...retainedEdges,
+      clone(plan.localEntry),
+      { from: clone(plan.localContinuation.from), to: clone(plan.remoteEntry.to) },
+      clone(plan.remoteContinuation),
+    ];
+    return;
+  }
+  graph.edges = [
+    ...retainedEdges,
+    clone(plan.remoteEntry),
+    { from: clone(plan.remoteContinuation.from), to: clone(plan.localEntry.to) },
+    clone(plan.localContinuation),
+  ];
 }
 
 function storyGraphs(story: MergeableStoryDocument): Map<string, SourceGraph> {
@@ -463,7 +733,38 @@ function resolveExecutionSuccessorConflicts(
         childPath(childPath(childPath('story', graphId), 'nodes'), `@id:${nodeId}`),
         `execution-successor:${portId}`,
       );
-      conflicts.push(conflict(path, true, localEdges, true, remoteEdges));
+      const insertion = detectConcurrentInsertion(
+        baseGraph,
+        localGraph,
+        remoteGraph,
+        baseEdges,
+        localEdges,
+        remoteEdges,
+      );
+      const successorConflict = conflict(path, true, localEdges, true, remoteEdges);
+      if (insertion) {
+        successorConflict.resolution = {
+          kind: insertion.kind,
+          localNodeId: insertion.localNodeId,
+          remoteNodeId: insertion.remoteNodeId,
+          localLabel: insertion.localLabel,
+          remoteLabel: insertion.remoteLabel,
+        };
+      }
+      conflicts.push(successorConflict);
+      if (insertion) {
+        if (decisions[path]) {
+          applyConcurrentInsertionChoice(mergedGraph, insertion, decisions[path]);
+        } else {
+          const competingKeys = new Set([...localEdges, ...remoteEdges].map(edgeKey));
+          mergedGraph.edges = [
+            ...mergedGraph.edges.filter((edge) => !competingKeys.has(edgeKey(edge))),
+            ...clone(localEdges),
+            ...clone(remoteEdges),
+          ];
+        }
+        continue;
+      }
       const chosen = decisions[path] === 'remote' ? remoteEdges : localEdges;
       const competingKeys = new Set([...localEdges, ...remoteEdges].map(edgeKey));
       mergedGraph.edges = [
@@ -471,6 +772,117 @@ function resolveExecutionSuccessorConflicts(
         ...clone(chosen),
       ];
     }
+  }
+}
+
+function resolveDataInputConflicts(
+  base: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
+  merged: MergeableStoryDocument,
+  decisions: StoryMergeDecisions,
+  conflicts: StoryMergeConflict[],
+): void {
+  const baseGraphs = storyGraphs(base);
+  const localGraphs = storyGraphs(local);
+  const remoteGraphs = storyGraphs(remote);
+  const mergedGraphs = storyGraphs(merged);
+  for (const [graphId, mergedGraph] of mergedGraphs) {
+    const baseGraph = baseGraphs.get(graphId);
+    const localGraph = localGraphs.get(graphId);
+    const remoteGraph = remoteGraphs.get(graphId);
+    if (!baseGraph || !localGraph || !remoteGraph) continue;
+    const baseInputs = dataInputSources(baseGraph);
+    const localInputs = dataInputSources(localGraph);
+    const remoteInputs = dataInputSources(remoteGraph);
+    const inputKeys = [...baseInputs.keys(), ...localInputs.keys(), ...remoteInputs.keys()].filter(
+      (key, index, all) => all.indexOf(key) === index,
+    );
+    for (const inputKey of inputKeys) {
+      const baseEdges = baseInputs.get(inputKey) ?? [];
+      const localEdges = localInputs.get(inputKey) ?? [];
+      const remoteEdges = remoteInputs.get(inputKey) ?? [];
+      if (
+        sameEdgeSet(baseEdges, localEdges) ||
+        sameEdgeSet(baseEdges, remoteEdges) ||
+        sameEdgeSet(localEdges, remoteEdges)
+      ) {
+        continue;
+      }
+      const [nodeId, portId] = inputKey.split('\0');
+      const path = childPath(
+        childPath(childPath(childPath('story', graphId), 'nodes'), `@id:${nodeId}`),
+        `data-input:${portId}`,
+      );
+      const inputConflict = conflict(path, true, localEdges, true, remoteEdges);
+      inputConflict.resolution = {
+        kind: 'connection-competition',
+        localNodeIds: localEdges.map((edge) => edge.from.nodeId),
+        remoteNodeIds: remoteEdges.map((edge) => edge.from.nodeId),
+        localLabel: localEdges.map((edge) => nodeLabel(localGraph, edge.from.nodeId)).join(', '),
+        remoteLabel: remoteEdges.map((edge) => nodeLabel(remoteGraph, edge.from.nodeId)).join(', '),
+      };
+      conflicts.push(inputConflict);
+      const chosen = decisions[path] === 'remote' ? remoteEdges : localEdges;
+      const competingKeys = new Set([...localEdges, ...remoteEdges].map(edgeKey));
+      mergedGraph.edges = [
+        ...mergedGraph.edges.filter((edge) => !competingKeys.has(edgeKey(edge))),
+        ...clone(chosen),
+      ];
+    }
+  }
+}
+
+function resolveEntryNodeConflicts(
+  base: MergeableStoryDocument,
+  local: MergeableStoryDocument,
+  remote: MergeableStoryDocument,
+  merged: MergeableStoryDocument,
+  decisions: StoryMergeDecisions,
+  conflicts: StoryMergeConflict[],
+): void {
+  const baseGraphs = storyGraphs(base);
+  const localGraphs = storyGraphs(local);
+  const remoteGraphs = storyGraphs(remote);
+  const mergedGraphs = storyGraphs(merged);
+  for (const [graphId, mergedGraph] of mergedGraphs) {
+    const baseGraph = baseGraphs.get(graphId);
+    const localGraph = localGraphs.get(graphId);
+    const remoteGraph = remoteGraphs.get(graphId);
+    if (!baseGraph || !localGraph || !remoteGraph) continue;
+    const entries = (graph: SourceGraph) =>
+      graph.nodes.filter((node) => node.type === StoryNodeType.Start);
+    const baseEntries = entries(baseGraph);
+    const localEntries = entries(localGraph);
+    const remoteEntries = entries(remoteGraph);
+    const ids = (nodes: readonly SourceGraph['nodes'][number][]) =>
+      nodes.map((node) => node.id).sort();
+    if (
+      same(ids(baseEntries), ids(localEntries)) ||
+      same(ids(baseEntries), ids(remoteEntries)) ||
+      same(ids(localEntries), ids(remoteEntries))
+    ) {
+      continue;
+    }
+    const path = childPath(childPath('story', graphId), 'entry-node');
+    const entryConflict = conflict(path, true, localEntries, true, remoteEntries);
+    entryConflict.resolution = {
+      kind: 'entry-nodes',
+      localNodeIds: localEntries.map((node) => node.id),
+      remoteNodeIds: remoteEntries.map((node) => node.id),
+    };
+    conflicts.push(entryConflict);
+    const chosenEntries = decisions[path] === 'remote' ? remoteEntries : localEntries;
+    const chosenIds = new Set(chosenEntries.map((node) => node.id));
+    const competingIds = new Set([...localEntries, ...remoteEntries].map((node) => node.id));
+    const removedIds = new Set([...competingIds].filter((nodeId) => !chosenIds.has(nodeId)));
+    mergedGraph.nodes = [
+      ...mergedGraph.nodes.filter((node) => !competingIds.has(node.id)),
+      ...clone(chosenEntries),
+    ];
+    mergedGraph.edges = mergedGraph.edges.filter(
+      (edge) => !removedIds.has(edge.from.nodeId) && !removedIds.has(edge.to.nodeId),
+    );
   }
 }
 
@@ -490,6 +902,8 @@ function threeWayStoryResult(
     decisions,
     result.conflicts,
   );
+  resolveDataInputConflicts(base, local, remote, merged, decisions, result.conflicts);
+  resolveEntryNodeConflicts(base, local, remote, merged, decisions, result.conflicts);
   return { ...result, merged };
 }
 

@@ -18,7 +18,29 @@ import {
   toSourceGraph,
 } from '../packages/editor/src/renderer/graph/editorGraph';
 
-beforeAll(() => nodeRegistry.registerBuiltins());
+const testDataTargetType = 'test-data-target' as StoryNodeType;
+
+beforeAll(() => {
+  nodeRegistry.registerBuiltins();
+  nodeRegistry.register({
+    type: testDataTargetType,
+    version: 1,
+    label: 'Test Data Target',
+    category: 'logic',
+    color: '#000',
+    inputs: [
+      {
+        id: 'value',
+        label: 'Value',
+        kind: 'data',
+        direction: 'input',
+        valueType: { kind: 'any' },
+      },
+    ],
+    outputs: [],
+    defaultData: () => ({}),
+  } as never);
+});
 
 function story(text: string, includeEnd = true): StorySourceDocument {
   return {
@@ -341,6 +363,208 @@ describe('Story semantic merge', () => {
     ).toEqual(remote.root.edges);
   });
 
+  it('asks which data source to keep when both branches reconnect the same input', () => {
+    const baseSource = story('Base');
+    for (const id of ['n_sourcebase', 'n_sourcelocal', 'n_sourceremote']) {
+      baseSource.root.nodes.push({
+        id,
+        type: StoryNodeType.GetVariable,
+        definitionVersion: 1,
+        position: { x: 100, y: 400 },
+        data: {},
+      });
+    }
+    baseSource.root.nodes.push({
+      id: 'n_datatarget',
+      type: testDataTargetType,
+      definitionVersion: 1,
+      position: { x: 500, y: 400 },
+      data: {},
+    });
+    const dataEdge = (sourceId: string) => ({
+      from: { nodeId: sourceId, portId: 'value' },
+      to: { nodeId: 'n_datatarget', portId: 'value' },
+    });
+    baseSource.root.edges.push(dataEdge('n_sourcebase'));
+    const localSource = structuredClone(baseSource);
+    localSource.root.edges = [
+      ...localSource.root.edges.filter((edge) => edge.to.nodeId !== 'n_datatarget'),
+      dataEdge('n_sourcelocal'),
+    ];
+    const remoteSource = structuredClone(baseSource);
+    remoteSource.root.edges = [
+      ...remoteSource.root.edges.filter((edge) => edge.to.nodeId !== 'n_datatarget'),
+      dataEdge('n_sourceremote'),
+    ];
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const input = diff.conflicts.find(
+      (conflict) => conflict.resolution?.kind === 'connection-competition',
+    );
+
+    expect(input?.id).toContain('data-input%3Avalue');
+    expect(input?.resolution).toMatchObject({
+      localNodeIds: ['n_sourcelocal'],
+      remoteNodeIds: ['n_sourceremote'],
+    });
+    const selectedSource = (choice: 'local' | 'remote') =>
+      mergeThreeWayStoryDocuments(base, local, remote, { [input!.id]: choice }).root.edges.find(
+        (edge) => edge.to.nodeId === 'n_datatarget',
+      )?.from.nodeId;
+    expect(selectedSource('local')).toBe('n_sourcelocal');
+    expect(selectedSource('remote')).toBe('n_sourceremote');
+  });
+
+  it('asks which entry to keep when both branches replace the Start node', () => {
+    const baseSource = story('Base');
+    const start = (id: string, title: string) => ({
+      id,
+      type: StoryNodeType.Start,
+      definitionVersion: 1,
+      position: { x: -200, y: 200 },
+      data: { title },
+    });
+    baseSource.root.nodes.push(start('n_startbase', 'Base Start'));
+    baseSource.root.edges.push({
+      from: { nodeId: 'n_startbase', portId: 'out' },
+      to: { nodeId: 'n_dialogue', portId: 'in' },
+    });
+    const replaceStart = (source: StorySourceDocument, id: string, title: string) => {
+      source.root.nodes = [
+        ...source.root.nodes.filter((node) => node.type !== StoryNodeType.Start),
+        start(id, title),
+      ];
+      source.root.edges = [
+        ...source.root.edges.filter((edge) => edge.from.nodeId !== 'n_startbase'),
+        {
+          from: { nodeId: id, portId: 'out' },
+          to: { nodeId: 'n_dialogue', portId: 'in' },
+        },
+      ];
+    };
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    replaceStart(localSource, 'n_startlocal', 'Local Start');
+    replaceStart(remoteSource, 'n_startremote', 'Remote Start');
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const entry = diff.conflicts.find((conflict) => conflict.resolution?.kind === 'entry-nodes');
+
+    expect(entry).toBeDefined();
+    const selectedEntries = (choice: 'local' | 'remote') =>
+      mergeThreeWayStoryDocuments(base, local, remote, { [entry!.id]: choice }).root.nodes
+        .filter((node) => node.type === StoryNodeType.Start)
+        .map((node) => node.id);
+    expect(selectedEntries('local')).toEqual(['n_startlocal']);
+    expect(selectedEntries('remote')).toEqual(['n_startremote']);
+  });
+
+  it('offers ordering and keep-one choices when both branches insert a node on the same edge', () => {
+    const baseSource = story('Before');
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    const insertedDialogue = (id: string, text: string, y: number) => ({
+      id,
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 300, y },
+      data: {
+        lines: [{ id: `ln_${id}`, textId: `t_${id}`, text: { source: text } }],
+      },
+    });
+    localSource.root.nodes.push(insertedDialogue('n_nodea', 'Node A', 100));
+    remoteSource.root.nodes.push(insertedDialogue('n_nodeb', 'Node B', 300));
+    localSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_nodea', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_nodea', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    remoteSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_nodeb', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_nodeb', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const insertion = diff.conflicts.find(
+      (conflict) => conflict.resolution?.kind === 'concurrent-insertion',
+    );
+    expect(insertion?.resolution).toMatchObject({
+      localNodeId: 'n_nodea',
+      remoteNodeId: 'n_nodeb',
+      localLabel: 'Node A',
+      remoteLabel: 'Node B',
+    });
+    expect(diff.autoMerged.root.edges.map((edge) => `${edge.from.nodeId}>${edge.to.nodeId}`)).toEqual(
+      [
+        'n_nodea>n_endxx',
+        'n_nodeb>n_endxx',
+        'n_dialogue>n_nodea',
+        'n_dialogue>n_nodeb',
+      ],
+    );
+    const pairs = (choice: 'local' | 'remote' | 'local-first' | 'remote-first') => {
+      const merged = mergeThreeWayStoryDocuments(base, local, remote, {
+        [insertion!.id]: choice,
+      });
+      return {
+        nodes: merged.root.nodes.map((node) => node.id).sort(),
+        edges: merged.root.edges.map(
+          (edge) => `${edge.from.nodeId}>${edge.to.nodeId}`,
+        ),
+      };
+    };
+
+    expect(pairs('local-first').edges).toEqual([
+      'n_dialogue>n_nodea',
+      'n_nodea>n_nodeb',
+      'n_nodeb>n_endxx',
+    ]);
+    expect(pairs('remote-first').edges).toEqual([
+      'n_dialogue>n_nodeb',
+      'n_nodeb>n_nodea',
+      'n_nodea>n_endxx',
+    ]);
+    expect(pairs('local')).toEqual({
+      nodes: ['n_dialogue', 'n_endxx', 'n_nodea'],
+      edges: ['n_dialogue>n_nodea', 'n_nodea>n_endxx'],
+    });
+    expect(pairs('remote')).toEqual({
+      nodes: ['n_dialogue', 'n_endxx', 'n_nodeb'],
+      edges: ['n_dialogue>n_nodeb', 'n_nodeb>n_endxx'],
+    });
+
+    const ordered = mergeThreeWayStoryDocuments(base, local, remote, {
+      [insertion!.id]: 'local-first',
+    });
+    const arranged = autoLayoutStoryConflictNeighborhoods(
+      ordered,
+      local,
+      remote,
+      new Set(['n_nodea', 'n_nodeb']),
+      'local-first',
+    );
+    const positions = new Map(arranged.root.nodes.map((node) => [node.id, node.position] as const));
+    expect(positions.get('n_nodea')!.x).toBeLessThan(positions.get('n_nodeb')!.x);
+    expect(positions.get('n_nodeb')!.x).toBeLessThan(positions.get('n_endxx')!.x);
+  });
+
   it('auto-inserts a Line added only by Remote at the correct position', () => {
     const baseSource = story('First');
     baseSource.root.nodes[0].data.lines.push({
@@ -369,10 +593,45 @@ describe('Story semantic merge', () => {
     ]);
     expect(result.autoMerged.root.nodes[0].data.lines[0].tags).toEqual(['local-tag']);
   });
+
+  it('asks which side comes first when both branches insert Lines into the same gap', () => {
+    const baseSource = story('First');
+    baseSource.root.nodes[0].data.lines.push({
+      id: 'ln_lastxx',
+      textId: 't_lastxx',
+      text: { source: 'Last' },
+    });
+    const localSource = structuredClone(baseSource);
+    localSource.root.nodes[0].data.lines.splice(1, 0, {
+      id: 'ln_localxx',
+      textId: 't_localxx',
+      text: { source: 'Local inserted' },
+    });
+    const remoteSource = structuredClone(baseSource);
+    remoteSource.root.nodes[0].data.lines.splice(1, 0, {
+      id: 'ln_remotexx',
+      textId: 't_remotexx',
+      text: { source: 'Remote inserted' },
+    });
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const order = diff.conflicts.find((conflict) => conflict.id.endsWith('%40order'));
+    const lineIds = (choice: 'local' | 'remote') =>
+      (
+        mergeThreeWayStoryDocuments(base, local, remote, { [order!.id]: choice }).root.nodes[0]
+          .data.lines as Array<{ id: string }>
+      ).map((line) => line.id);
+
+    expect(order).toBeDefined();
+    expect(lineIds('local')).toEqual(['ln_merge', 'ln_localxx', 'ln_remotexx', 'ln_lastxx']);
+    expect(lineIds('remote')).toEqual(['ln_merge', 'ln_remotexx', 'ln_localxx', 'ln_lastxx']);
+  });
 });
 
 describe('Project resource semantic merge', () => {
-  it('merges Event parameters by name and reports only the shared field conflict', () => {
+  it('merges Event parameters by name and asks how concurrent additions should be ordered', () => {
     const base = {
       id: 'e_merge',
       description: 'Base',
@@ -390,20 +649,21 @@ describe('Project resource semantic merge', () => {
     };
 
     const diff = diffThreeWayValues(base, local, remote, 'project/event:e_merge');
-    expect(diff.conflicts).toHaveLength(1);
-    expect(diff.conflicts[0].path).toContain('description');
+    expect(diff.conflicts).toHaveLength(2);
+    const description = diff.conflicts.find((conflict) => conflict.path.includes('description'))!;
+    const order = diff.conflicts.find((conflict) => conflict.id.endsWith('%40order'))!;
     const merged = mergeThreeWayValues(
       base,
       local,
       remote,
-      { [diff.conflicts[0].id]: 'remote' },
+      { [description.id]: 'remote', [order.id]: 'local' },
       'project/event:e_merge',
     );
     expect(merged.description).toBe('Remote docs');
-    expect(merged.parameters.map((parameter) => parameter.name).sort()).toEqual([
-      'loop',
-      'speed',
+    expect(merged.parameters.map((parameter) => parameter.name)).toEqual([
       'target',
+      'speed',
+      'loop',
     ]);
   });
 

@@ -1153,6 +1153,20 @@ Git 冲突模式直接读取 Index 的 Stage 1 / 2 / 3 作为 Base / Local / Rem
 冲突 Story 打开时显示 Local 版本并在状态栏提示；在解决前，普通 Save 和 Save All 都不能覆盖冲突文件。
 三方合并自动接受只有一侧修改的字段和非重叠的稳定 ID 项，只把双方对同一语义字段的不同修改交给作者
 选择 Local / Remote。写回前仍执行完整编译校验；写回后不自动执行 `git add`，是否 Stage 由作者决定。
+当 Local 与 Remote 都在同一条 Base 执行边上各插入一个简单线性节点时，这不是普通的后继二选一冲突。
+编辑器将其识别为并发插入组，提供 `Local → Remote`、`Remote → Local`、只保留 Local、只保留 Remote
+四种语义决策。排序决策会重建一条合法执行链；只保留一侧会同时移除另一侧节点及其相关连线。
+决策尚未作出时，Graph Preview 临时展示两条完整的竞争路径，使双方新增节点都有明确入口和出口；该
+双后继状态只存在于只读冲突预览，不能通过校验或写入 Story。
+
+同一 Data Input 被双方改接到不同来源时，必须生成 Connection Competition 冲突，并提供两个来源的
+明确选择，不能等到 Validate 阶段只报告双输入错误。双方同时替换同一 Graph 的 Start 时生成 Entry
+冲突；选择一侧会移除另一侧 Start 及其相关连线。最终预检要求 Main Story 和每个 Substory 最多只有
+一个 Start，缺少 Start 继续由 Compiler 报错。
+
+Line、Option、Parameter、Chapter、Variable 等有序集合若双方在同一 Base 间隙插入不同稳定 ID 项，必须
+生成顺序冲突。两侧新增项都会保留，作者选择 `Local Additions First` 或 `Remote Additions First`；只有
+单侧插入时继续自动合并，不制造无意义冲突。
 项目资源模式读取工作区内 `.storyproject`、`.character` 和 `.asset` 的完整三方版本。Character、Asset
 以及项目文件中的 Event / Signal 均按稳定 ID、参数名称和实际字段合并；只有单侧发生的修改自动接受。
 Apply 前校验项目索引与独立资源的一致性、Character Portrait 引用，并用合并后的完整项目资源重新编译
@@ -1165,10 +1179,18 @@ Modify/Delete 在界面中明确显示 `Keep / Delete` 含义。删除资源前�
 校验；删除当前 `.storyproject` 时保留工作目录内未选择删除的普通资源文件。
 
 Story 合并选择会同步生成只读 Graph Preview，不提前修改编辑器模型。预览图以合并结果为主体，同时把
-Local 中将被删除的节点和连线作为幽灵元素补回：新增为绿色、修改为黄色、删除为红色虚线半透明、真实
+Local 或 Remote 中被最终方案舍弃的节点和连线作为幽灵元素补回：新增为绿色、修改为黄色、删除为红色虚线半透明、真实
 冲突为橙红色。Main Story、双方已有的 Substory 以及远端新增 Substory 分别生成预览图；新增 Substory
 只存在于预览会话，不提前写入本地章节状态。冲突列表可根据稳定 Node ID 切换 Graph 并聚焦，预览顶部
 也可直接选择包括 Remote-only 在内的 Graph。
+
+黄色 Modified 只表示节点名称、类型或数据等语义内容变化。自动布局或手动合并造成的纯坐标变化仍会
+进入最终 Layout，但不标黄，也不计入最终审查中的 Changed Nodes 数量。
+
+并发插入冲突的高亮目标是 Local / Remote 各自新增的节点及两条竞争入口连线，而不是共同前驱节点；
+共同前驱只提供冲突发生的输出 Pin，本身内容并没有冲突。
+作出决策后，仍参与最终结果的并发插入节点使用蓝色 Selected 审查高亮：顺序合并时 A/B 都为蓝色，
+只保留一侧时保留节点为蓝色、舍弃节点为红色幽灵。Apply 完成后清除全部审查高亮。
 
 点击冲突节点或连线会打开画布内冲突卡片，逐字段显示 Local / Remote 并直接修改同一份 Merge Decision；
 Story Merge 列表与画布选择双向同步。字段作出明确选择后仍可回看，但不再计为未解决冲突，节点从冲突色

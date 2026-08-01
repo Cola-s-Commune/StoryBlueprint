@@ -256,6 +256,13 @@
   filter: drop-shadow(0 0 15px rgb(255 118 87 / 72%));
 }
 
+.canvas :global(.react-flow__node.merge-preview-resolved) {
+  border-radius: 9px;
+  outline: 3px solid #5da9e9;
+  outline-offset: 4px;
+  filter: drop-shadow(0 0 13px rgb(93 169 233 / 58%));
+}
+
 .canvas :global(.react-flow__edge.merge-preview-edge-added path) {
   stroke: #52cf7a;
   stroke-width: 3;
@@ -325,6 +332,10 @@
 
 .legendConflict {
   color: #ff876b;
+}
+
+.legendResolved {
+  color: #72b8ee;
 }
 
 .mergeGraphSelect {
