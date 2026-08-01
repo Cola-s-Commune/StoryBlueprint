@@ -502,7 +502,7 @@ export function StoryMerge() {
             overlapFree,
             localBase,
             remoteMergeable,
-            new Set([insertion.localNodeId, insertion.remoteNodeId]),
+            new Set([...insertion.localNodeIds, ...insertion.remoteNodeIds]),
             choice,
           );
         }
@@ -1070,7 +1070,7 @@ export function StoryMerge() {
                               <strong>
                                 {insertion.localLabel} → {insertion.remoteLabel}
                               </strong>
-                              <span>Place the Local node before the Remote node.</span>
+                              <span>Place the Local insertion before the Remote insertion.</span>
                             </button>
                             <button
                               type="button"
@@ -1082,7 +1082,7 @@ export function StoryMerge() {
                               <strong>
                                 {insertion.remoteLabel} → {insertion.localLabel}
                               </strong>
-                              <span>Place the Remote node before the Local node.</span>
+                              <span>Place the Remote insertion before the Local insertion.</span>
                             </button>
                             <button
                               type="button"

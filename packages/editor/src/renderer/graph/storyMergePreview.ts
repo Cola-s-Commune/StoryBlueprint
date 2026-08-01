@@ -77,9 +77,9 @@ function isSourceEdge(value: unknown): value is SourceEdge {
 function conflictNodeTargets(conflict: StoryMergeConflict): NodeId[] {
   if (conflict.resolution?.kind === 'concurrent-insertion') {
     return [
-      conflict.resolution.localNodeId as NodeId,
-      conflict.resolution.remoteNodeId as NodeId,
-    ];
+      ...conflict.resolution.localNodeIds,
+      ...conflict.resolution.remoteNodeIds,
+    ].map((nodeId) => nodeId as NodeId);
   }
   if (
     conflict.resolution?.kind === 'connection-competition' ||
@@ -127,8 +127,12 @@ function resolvedConflictNodes(
     const decision = decisions[conflict.id];
     if (!resolution || !decision) continue;
     if (resolution.kind === 'concurrent-insertion') {
-      if (decision !== 'remote') result.add(resolution.localNodeId as NodeId);
-      if (decision !== 'local') result.add(resolution.remoteNodeId as NodeId);
+      if (decision !== 'remote') {
+        for (const nodeId of resolution.localNodeIds) result.add(nodeId as NodeId);
+      }
+      if (decision !== 'local') {
+        for (const nodeId of resolution.remoteNodeIds) result.add(nodeId as NodeId);
+      }
       continue;
     }
     if (resolution.kind === 'connection-competition' || resolution.kind === 'entry-nodes') {

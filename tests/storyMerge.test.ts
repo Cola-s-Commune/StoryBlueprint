@@ -508,6 +508,8 @@ describe('Story semantic merge', () => {
     expect(insertion?.resolution).toMatchObject({
       localNodeId: 'n_nodea',
       remoteNodeId: 'n_nodeb',
+      localNodeIds: ['n_nodea'],
+      remoteNodeIds: ['n_nodeb'],
       localLabel: 'Node A',
       remoteLabel: 'Node B',
     });
@@ -563,6 +565,140 @@ describe('Story semantic merge', () => {
     const positions = new Map(arranged.root.nodes.map((node) => [node.id, node.position] as const));
     expect(positions.get('n_nodea')!.x).toBeLessThan(positions.get('n_nodeb')!.x);
     expect(positions.get('n_nodeb')!.x).toBeLessThan(positions.get('n_endxx')!.x);
+  });
+
+  it('offers the same four choices when both branches insert a simple node chain', () => {
+    const baseSource = story('Before');
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    const insertedDialogue = (id: string, text: string, x: number) => ({
+      id,
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x, y: 100 },
+      data: {
+        lines: [{ id: `ln_${id}`, textId: `t_${id}`, text: { source: text } }],
+      },
+    });
+    localSource.root.nodes.push(
+      insertedDialogue('n_locala', 'Local A', 300),
+      insertedDialogue('n_localb', 'Local B', 500),
+    );
+    remoteSource.root.nodes.push(
+      insertedDialogue('n_remotea', 'Remote A', 300),
+      insertedDialogue('n_remoteb', 'Remote B', 500),
+    );
+    localSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_locala', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_locala', portId: 'out' },
+        to: { nodeId: 'n_localb', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_localb', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    remoteSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_remotea', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_remotea', portId: 'out' },
+        to: { nodeId: 'n_remoteb', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_remoteb', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const insertion = diff.conflicts.find(
+      (conflict) => conflict.resolution?.kind === 'concurrent-insertion',
+    );
+
+    expect(insertion?.resolution).toMatchObject({
+      localNodeIds: ['n_locala', 'n_localb'],
+      remoteNodeIds: ['n_remotea', 'n_remoteb'],
+      localLabel: 'Local A → Local B (2 nodes)',
+      remoteLabel: 'Remote A → Remote B (2 nodes)',
+    });
+    const result = (choice: 'local' | 'remote' | 'local-first' | 'remote-first') => {
+      const merged = mergeThreeWayStoryDocuments(base, local, remote, {
+        [insertion!.id]: choice,
+      });
+      return {
+        nodes: merged.root.nodes.map((node) => node.id).sort(),
+        edges: merged.root.edges.map((edge) => `${edge.from.nodeId}>${edge.to.nodeId}`),
+      };
+    };
+
+    expect(result('local-first').edges).toEqual([
+      'n_dialogue>n_locala',
+      'n_locala>n_localb',
+      'n_localb>n_remotea',
+      'n_remotea>n_remoteb',
+      'n_remoteb>n_endxx',
+    ]);
+    expect(result('remote-first').edges).toEqual([
+      'n_dialogue>n_remotea',
+      'n_remotea>n_remoteb',
+      'n_remoteb>n_locala',
+      'n_locala>n_localb',
+      'n_localb>n_endxx',
+    ]);
+    expect(result('local')).toEqual({
+      nodes: ['n_dialogue', 'n_endxx', 'n_locala', 'n_localb'],
+      edges: [
+        'n_dialogue>n_locala',
+        'n_locala>n_localb',
+        'n_localb>n_endxx',
+      ],
+    });
+    expect(result('remote')).toEqual({
+      nodes: ['n_dialogue', 'n_endxx', 'n_remotea', 'n_remoteb'],
+      edges: [
+        'n_dialogue>n_remotea',
+        'n_remotea>n_remoteb',
+        'n_remoteb>n_endxx',
+      ],
+    });
+
+    const loopingLocalSource = structuredClone(localSource);
+    loopingLocalSource.root.edges[2].to = { nodeId: 'n_locala', portId: 'in' };
+    const loopingDiff = diffThreeWayStoryDocuments(
+      base,
+      mergeableStory(loopingLocalSource),
+      remote,
+    );
+    expect(
+      loopingDiff.conflicts.some(
+        (conflict) => conflict.resolution?.kind === 'concurrent-insertion',
+      ),
+    ).toBe(false);
+
+    const branchingLocalSource = structuredClone(localSource);
+    branchingLocalSource.root.edges.push({
+      from: { nodeId: 'n_locala', portId: 'out' },
+      to: { nodeId: 'n_endxx', portId: 'in' },
+    });
+    const branchingDiff = diffThreeWayStoryDocuments(
+      base,
+      mergeableStory(branchingLocalSource),
+      remote,
+    );
+    expect(
+      branchingDiff.conflicts.some(
+        (conflict) => conflict.resolution?.kind === 'concurrent-insertion',
+      ),
+    ).toBe(false);
   });
 
   it('auto-inserts a Line added only by Remote at the correct position', () => {

@@ -1,5 +1,6 @@
 # Dev Log
 
+- Story Merge 的同边并发插入从单节点扩展为简单线性节点链；四种排序/取舍决策会处理整段路径，预览高亮与局部布局覆盖链上全部节点，并明确拒绝分支、循环和中途接入既有节点的结构。
 - 有序集合三方合并检测同一 Base 间隙的双方并发插入；Dialogue Line、Choice Option、Event/Signal Parameter 等不再静默采用 Local-first，而是显式选择双方新增项顺序。
 - Story Merge 新增 Data Input 来源竞争与 Start 入口竞争的语义冲突：用户可直接选择 Local / Remote 来源或入口；选择 Start 时同步清理另一入口及其连线，预检拒绝多 Start Graph。
 - 并发插入冲突作出决策后增加蓝色 Selected 审查态：顺序合并高亮双方节点，只保留一侧时蓝色标记保留节点、红色幽灵标记舍弃节点，直至 Apply。

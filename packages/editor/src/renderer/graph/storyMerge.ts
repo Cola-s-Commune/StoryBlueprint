@@ -18,6 +18,8 @@ export interface ConcurrentInsertionResolution {
   kind: 'concurrent-insertion';
   localNodeId: string;
   remoteNodeId: string;
+  localNodeIds: string[];
+  remoteNodeIds: string[];
   localLabel: string;
   remoteLabel: string;
 }
@@ -563,10 +565,8 @@ function sameEdgeSet(left: readonly SourceEdge[], right: readonly SourceEdge[]):
 }
 
 interface ConcurrentInsertionPlan extends ConcurrentInsertionResolution {
-  localEntry: SourceEdge;
-  localContinuation: SourceEdge;
-  remoteEntry: SourceEdge;
-  remoteContinuation: SourceEdge;
+  localPath: SourceEdge[];
+  remotePath: SourceEdge[];
 }
 
 function nodeLabel(graph: SourceGraph, nodeId: string): string {
@@ -582,6 +582,75 @@ function nodeLabel(graph: SourceGraph, nodeId: string): string {
   return title || nodeId;
 }
 
+function chainLabel(graph: SourceGraph, nodeIds: readonly string[]): string {
+  if (nodeIds.length === 1) return nodeLabel(graph, nodeIds[0]);
+  return `${nodeLabel(graph, nodeIds[0])} → ${nodeLabel(graph, nodeIds.at(-1)!)} (${nodeIds.length} nodes)`;
+}
+
+function traceLinearInsertion(
+  baseGraph: SourceGraph,
+  branchGraph: SourceGraph,
+  otherGraph: SourceGraph,
+  entry: SourceEdge,
+  baseTarget: SourceEdge['to'],
+): { nodeIds: string[]; path: SourceEdge[] } | undefined {
+  const baseNodeIds = new Set(baseGraph.nodes.map((node) => node.id));
+  const otherNodeIds = new Set(otherGraph.nodes.map((node) => node.id));
+  const branchNodes = new Map(branchGraph.nodes.map((node) => [node.id, node] as const));
+  const nodeIds: string[] = [];
+  const path = [entry];
+  const visited = new Set<string>();
+  let currentNodeId = entry.to.nodeId;
+  let incoming = entry;
+
+  while (currentNodeId !== baseTarget.nodeId || incoming.to.portId !== baseTarget.portId) {
+    if (
+      visited.has(currentNodeId) ||
+      baseNodeIds.has(currentNodeId) ||
+      otherNodeIds.has(currentNodeId)
+    ) {
+      return;
+    }
+    const node = branchNodes.get(currentNodeId);
+    if (!node) return;
+    const executionPorts = resolveNodePorts({
+      id: node.id,
+      type: node.type as StoryNodeType,
+      data: node.data,
+    }).ports.filter((port) => port.kind === 'execution');
+    const inputPorts = executionPorts.filter((port) => port.direction === 'input');
+    const outputPorts = executionPorts.filter((port) => port.direction === 'output');
+    if (inputPorts.length !== 1 || outputPorts.length !== 1) return;
+
+    const incomingEdges = branchGraph.edges.filter(
+      (edge) =>
+        edge.to.nodeId === currentNodeId &&
+        inputPorts.some((port) => port.id === edge.to.portId),
+    );
+    const outgoingEdges = branchGraph.edges.filter(
+      (edge) =>
+        edge.from.nodeId === currentNodeId &&
+        outputPorts.some((port) => port.id === edge.from.portId),
+    );
+    if (
+      incomingEdges.length !== 1 ||
+      outgoingEdges.length !== 1 ||
+      edgeKey(incomingEdges[0]) !== edgeKey(incoming)
+    ) {
+      return;
+    }
+
+    visited.add(currentNodeId);
+    nodeIds.push(currentNodeId);
+    incoming = outgoingEdges[0];
+    path.push(incoming);
+    currentNodeId = incoming.to.nodeId;
+    if (nodeIds.length > branchGraph.nodes.length) return;
+  }
+
+  return nodeIds.length > 0 ? { nodeIds, path } : undefined;
+}
+
 function detectConcurrentInsertion(
   baseGraph: SourceGraph,
   localGraph: SourceGraph,
@@ -594,54 +663,21 @@ function detectConcurrentInsertion(
   const baseEdge = baseEdges[0];
   const localEntry = localEdges[0];
   const remoteEntry = remoteEdges[0];
-  const localNodeId = localEntry.to.nodeId;
-  const remoteNodeId = remoteEntry.to.nodeId;
-  if (
-    localNodeId === remoteNodeId ||
-    baseGraph.nodes.some((node) => node.id === localNodeId || node.id === remoteNodeId) ||
-    !localGraph.nodes.some((node) => node.id === localNodeId) ||
-    localGraph.nodes.some((node) => node.id === remoteNodeId) ||
-    !remoteGraph.nodes.some((node) => node.id === remoteNodeId) ||
-    remoteGraph.nodes.some((node) => node.id === localNodeId)
-  ) {
-    return;
-  }
-  const localIncident = localGraph.edges.filter(
-    (edge) => edge.from.nodeId === localNodeId || edge.to.nodeId === localNodeId,
-  );
-  const remoteIncident = remoteGraph.edges.filter(
-    (edge) => edge.from.nodeId === remoteNodeId || edge.to.nodeId === remoteNodeId,
-  );
-  const localContinuation = localIncident.find(
-    (edge) =>
-      edge.from.nodeId === localNodeId &&
-      edge.to.nodeId === baseEdge.to.nodeId &&
-      edge.to.portId === baseEdge.to.portId,
-  );
-  const remoteContinuation = remoteIncident.find(
-    (edge) =>
-      edge.from.nodeId === remoteNodeId &&
-      edge.to.nodeId === baseEdge.to.nodeId &&
-      edge.to.portId === baseEdge.to.portId,
-  );
-  if (
-    !localContinuation ||
-    !remoteContinuation ||
-    localIncident.length !== 2 ||
-    remoteIncident.length !== 2
-  ) {
-    return;
-  }
+  const local = traceLinearInsertion(baseGraph, localGraph, remoteGraph, localEntry, baseEdge.to);
+  const remote = traceLinearInsertion(baseGraph, remoteGraph, localGraph, remoteEntry, baseEdge.to);
+  if (!local || !remote || local.nodeIds.some((nodeId) => remote.nodeIds.includes(nodeId))) return;
+  const localNodeId = local.nodeIds[0];
+  const remoteNodeId = remote.nodeIds[0];
   return {
     kind: 'concurrent-insertion',
     localNodeId,
     remoteNodeId,
-    localLabel: nodeLabel(localGraph, localNodeId),
-    remoteLabel: nodeLabel(remoteGraph, remoteNodeId),
-    localEntry,
-    localContinuation,
-    remoteEntry,
-    remoteContinuation,
+    localNodeIds: local.nodeIds,
+    remoteNodeIds: remote.nodeIds,
+    localLabel: chainLabel(localGraph, local.nodeIds),
+    remoteLabel: chainLabel(remoteGraph, remote.nodeIds),
+    localPath: local.path,
+    remotePath: remote.path,
   };
 }
 
@@ -651,39 +687,51 @@ function applyConcurrentInsertionChoice(
   choice: StoryMergeChoice | undefined,
 ): void {
   if (!choice) return;
-  const { localNodeId, remoteNodeId } = plan;
-  const relatedNodeIds = new Set([localNodeId, remoteNodeId]);
+  const localNodeIds = new Set(plan.localNodeIds);
+  const remoteNodeIds = new Set(plan.remoteNodeIds);
+  const pathEdgeKeys = new Set([...plan.localPath, ...plan.remotePath].map(edgeKey));
   const retainedEdges = graph.edges.filter(
-    (edge) =>
-      !relatedNodeIds.has(edge.from.nodeId) &&
-      !relatedNodeIds.has(edge.to.nodeId) &&
-      edgeKey(edge) !== edgeKey(plan.localEntry) &&
-      edgeKey(edge) !== edgeKey(plan.remoteEntry),
+    (edge) => !pathEdgeKeys.has(edgeKey(edge)),
   );
   if (choice === 'local') {
-    graph.nodes = graph.nodes.filter((node) => node.id !== remoteNodeId);
-    graph.edges = [...retainedEdges, clone(plan.localEntry), clone(plan.localContinuation)];
+    graph.nodes = graph.nodes.filter((node) => !remoteNodeIds.has(node.id));
+    graph.edges = [
+      ...retainedEdges.filter(
+        (edge) =>
+          !remoteNodeIds.has(edge.from.nodeId) && !remoteNodeIds.has(edge.to.nodeId),
+      ),
+      ...clone(plan.localPath),
+    ];
     return;
   }
   if (choice === 'remote') {
-    graph.nodes = graph.nodes.filter((node) => node.id !== localNodeId);
-    graph.edges = [...retainedEdges, clone(plan.remoteEntry), clone(plan.remoteContinuation)];
+    graph.nodes = graph.nodes.filter((node) => !localNodeIds.has(node.id));
+    graph.edges = [
+      ...retainedEdges.filter(
+        (edge) => !localNodeIds.has(edge.from.nodeId) && !localNodeIds.has(edge.to.nodeId),
+      ),
+      ...clone(plan.remotePath),
+    ];
     return;
   }
+  const localEntry = plan.localPath[0];
+  const localContinuation = plan.localPath.at(-1)!;
+  const remoteEntry = plan.remotePath[0];
+  const remoteContinuation = plan.remotePath.at(-1)!;
   if (choice === 'local-first') {
     graph.edges = [
       ...retainedEdges,
-      clone(plan.localEntry),
-      { from: clone(plan.localContinuation.from), to: clone(plan.remoteEntry.to) },
-      clone(plan.remoteContinuation),
+      ...clone(plan.localPath.slice(0, -1)),
+      { from: clone(localContinuation.from), to: clone(remoteEntry.to) },
+      ...clone(plan.remotePath.slice(1)),
     ];
     return;
   }
   graph.edges = [
     ...retainedEdges,
-    clone(plan.remoteEntry),
-    { from: clone(plan.remoteContinuation.from), to: clone(plan.localEntry.to) },
-    clone(plan.localContinuation),
+    ...clone(plan.remotePath.slice(0, -1)),
+    { from: clone(remoteContinuation.from), to: clone(localEntry.to) },
+    ...clone(plan.localPath.slice(1)),
   ];
 }
 
@@ -747,6 +795,8 @@ function resolveExecutionSuccessorConflicts(
           kind: insertion.kind,
           localNodeId: insertion.localNodeId,
           remoteNodeId: insertion.remoteNodeId,
+          localNodeIds: insertion.localNodeIds,
+          remoteNodeIds: insertion.remoteNodeIds,
           localLabel: insertion.localLabel,
           remoteLabel: insertion.remoteLabel,
         };

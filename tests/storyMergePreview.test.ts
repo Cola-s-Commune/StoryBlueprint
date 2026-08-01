@@ -95,7 +95,19 @@ describe('Story merge graph preview', () => {
       position: { x: 300, y: 250 },
       data: { lines: [{ id: 'ln_nodeb', textId: 't_nodeb', text: { source: 'Node B' } }] },
     } as const;
-    localGraph.nodes.push(nodeA);
+    const nodeA2 = {
+      ...nodeA,
+      id: 'n_nodea2',
+      position: { x: 500, y: 0 },
+      data: { lines: [{ id: 'ln_nodea2', textId: 't_nodea2', text: { source: 'Node A2' } }] },
+    } as const;
+    const nodeB2 = {
+      ...nodeB,
+      id: 'n_nodeb2',
+      position: { x: 500, y: 250 },
+      data: { lines: [{ id: 'ln_nodeb2', textId: 't_nodeb2', text: { source: 'Node B2' } }] },
+    } as const;
+    localGraph.nodes.push(nodeA, nodeA2);
     localGraph.edges = [
       {
         from: { nodeId: 'n_dialogue', portId: 'out' },
@@ -103,11 +115,15 @@ describe('Story merge graph preview', () => {
       },
       {
         from: { nodeId: 'n_nodea', portId: 'out' },
+        to: { nodeId: 'n_nodea2', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_nodea2', portId: 'out' },
         to: { nodeId: 'n_endnode', portId: 'in' },
       },
     ];
     const mergedGraph = structuredClone(localGraph);
-    mergedGraph.nodes.push(nodeB);
+    mergedGraph.nodes.push(nodeB, nodeB2);
     mergedGraph.edges.push(
       {
         from: { nodeId: 'n_dialogue', portId: 'out' },
@@ -115,11 +131,15 @@ describe('Story merge graph preview', () => {
       },
       {
         from: { nodeId: 'n_nodeb', portId: 'out' },
+        to: { nodeId: 'n_nodeb2', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_nodeb2', portId: 'out' },
         to: { nodeId: 'n_endnode', portId: 'in' },
       },
     );
     const localEntry = localGraph.edges[0];
-    const remoteEntry = mergedGraph.edges[2];
+    const remoteEntry = mergedGraph.edges[3];
     const conflict = {
       id: 'story/root/nodes/%40id%3An_dialogue/execution-successor%3Aout',
       path: 'story › root › nodes › @id:n_dialogue › execution-successor:out',
@@ -130,24 +150,33 @@ describe('Story merge graph preview', () => {
         kind: 'concurrent-insertion' as const,
         localNodeId: 'n_nodea',
         remoteNodeId: 'n_nodeb',
-        localLabel: 'Node A',
-        remoteLabel: 'Node B',
+        localNodeIds: ['n_nodea', 'n_nodea2'],
+        remoteNodeIds: ['n_nodeb', 'n_nodeb2'],
+        localLabel: 'Node A → Node A2 (2 nodes)',
+        remoteLabel: 'Node B → Node B2 (2 nodes)',
       },
     };
 
     const preview = buildStoryMergePreview(story(localGraph), story(mergedGraph), [conflict]);
     const root = preview.graphs[0];
-    expect(root.conflictNodeIds.sort()).toEqual(['n_nodea', 'n_nodeb']);
+    expect(root.conflictNodeIds.sort()).toEqual([
+      'n_nodea',
+      'n_nodea2',
+      'n_nodeb',
+      'n_nodeb2',
+    ]);
     expect(root.resolvedNodeIds).toEqual([]);
     expect(root.conflictNodeIds).not.toContain('n_dialogue');
     expect(root.conflictEdgeIds).toHaveLength(2);
     expect(root.nodeConflictIds.n_nodea).toEqual([conflict.id]);
     expect(root.nodeConflictIds.n_nodeb).toEqual([conflict.id]);
+    expect(root.nodeConflictIds.n_nodea2).toEqual([conflict.id]);
+    expect(root.nodeConflictIds.n_nodeb2).toEqual([conflict.id]);
     expect(root.nodeConflictIds.n_dialogue).toBeUndefined();
 
     const remoteGraph = graph('Before');
-    remoteGraph.nodes.push(nodeB);
-    remoteGraph.edges = [remoteEntry, mergedGraph.edges[3]];
+    remoteGraph.nodes.push(nodeB, nodeB2);
+    remoteGraph.edges = [remoteEntry, mergedGraph.edges[4], mergedGraph.edges[5]];
     const keepA = buildStoryMergePreview(
       story(localGraph),
       story(structuredClone(localGraph)),
@@ -156,10 +185,10 @@ describe('Story merge graph preview', () => {
       story(remoteGraph),
     ).graphs[0];
     expect(keepA.graph.nodes.map((node) => node.id)).toContain('n_nodeb');
-    expect(keepA.removedNodeIds).toContain('n_nodeb');
-    expect(keepA.resolvedNodeIds).toEqual(['n_nodea']);
+    expect(keepA.removedNodeIds).toEqual(expect.arrayContaining(['n_nodeb', 'n_nodeb2']));
+    expect(keepA.resolvedNodeIds.sort()).toEqual(['n_nodea', 'n_nodea2']);
     expect(keepA.conflictNodeIds).toEqual([]);
-    expect(keepA.removedEdgeIds).toHaveLength(2);
+    expect(keepA.removedEdgeIds).toHaveLength(3);
 
     const ordered = buildStoryMergePreview(
       story(localGraph),
@@ -168,7 +197,12 @@ describe('Story merge graph preview', () => {
       { [conflict.id]: 'local-first' },
       story(remoteGraph),
     ).graphs[0];
-    expect(ordered.resolvedNodeIds.sort()).toEqual(['n_nodea', 'n_nodeb']);
+    expect(ordered.resolvedNodeIds.sort()).toEqual([
+      'n_nodea',
+      'n_nodea2',
+      'n_nodeb',
+      'n_nodeb2',
+    ]);
     expect(ordered.removedNodeIds).toEqual([]);
   });
 

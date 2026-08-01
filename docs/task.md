@@ -813,7 +813,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 合并完成门禁：显式冲突归零、最终变更审查、非写入式预检及 Git Stage 指纹失效保护
 - [x] 坐标冲突按 `{x, y}` 整体处理，支持批量保留 Local / Remote 与局部邻域自动整理
 - [x] Story v4 将节点逻辑与 `layout` 坐标分区持久化；坐标合并支持 Local/Remote 顺序优先的单步非 Rerouter 邻域整理
-- [x] 同一执行边上的双分支并发插入可选择 Local→Remote、Remote→Local、只保留 Local 或只保留 Remote
+- [x] 同一执行边上的双分支并发插入（单节点或简单线性节点链）可选择 Local→Remote、Remote→Local、只保留 Local 或只保留 Remote
 - [x] 同一 Data Input 的 Local / Remote 竞争来源转为可选择的语义冲突
 - [x] Local / Remote 同时替换 Start 时生成入口二选一冲突，Apply 前强制每个 Graph 只有一个入口
 - [x] Line / Option / Parameter 等有序集合在同一位置并发插入时显式选择 Local-first / Remote-first
