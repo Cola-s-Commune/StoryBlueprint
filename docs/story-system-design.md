@@ -1161,6 +1161,16 @@ Git 冲突模式直接读取 Index 的 Stage 1 / 2 / 3 作为 Base / Local / Rem
 决策尚未作出时，Graph Preview 临时展示两条完整的竞争路径，使双方新增节点都有明确入口和出口；该
 双后继状态只存在于只读冲突预览，不能通过校验或写入 Story。
 
+无法满足简单线性链约束的执行结构不能继续拆成互相独立的“单条连线二选一”。编辑器将 Base、Local、
+Remote 中发生增删的执行连线构成无向变化图，并按连通分量生成 Execution Region 冲突。同一 Choice / Branch
+的多个竞争输出、循环、节点删除以及包含 Rerouter 的局部改线因此只产生一个结构决策。作者选择
+`Keep Local Region` 或 `Keep Remote Region` 后，编辑器以所选分支完整替换该区域的执行拓扑，同时移除另一
+分支独有且不再存在的节点及所有悬空连线。未作选择时只读预览保留双方结构，不允许 Validate 或 Apply。
+
+Execution Region 只接管节点存在性和执行连线拓扑；双方对共同节点的 Dialogue 文本、名称、参数、坐标等
+内容修改仍按稳定字段独立合并。这样选择 Remote 结构不会顺带覆盖作者已经选择的 Local 对白，也避免把
+图结构强行当作线性文本块整体替换。
+
 同一 Data Input 被双方改接到不同来源时，必须生成 Connection Competition 冲突，并提供两个来源的
 明确选择，不能等到 Validate 阶段只报告双输入错误。双方同时替换同一 Graph 的 Start 时生成 Entry
 冲突；选择一侧会移除另一侧 Start 及其相关连线。最终预检要求 Main Story 和每个 Substory 最多只有

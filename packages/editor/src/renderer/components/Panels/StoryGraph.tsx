@@ -1042,11 +1042,11 @@ export function StoryGraph() {
             ? 'merge-preview-removed'
             : mergeResolved.has(node.id)
               ? 'merge-preview-resolved'
-            : mergeAdded.has(node.id)
-              ? 'merge-preview-added'
-              : mergeChanged.has(node.id)
-                ? 'merge-preview-modified'
-                : '',
+              : mergeAdded.has(node.id)
+                ? 'merge-preview-added'
+                : mergeChanged.has(node.id)
+                  ? 'merge-preview-modified'
+                  : '',
         added.has(node.id)
           ? aiProposal
             ? 'ai-proposal-added'
@@ -1670,10 +1670,12 @@ export function StoryGraph() {
                   conflict.resolution?.kind === 'connection-competition'
                     ? conflict.resolution
                     : undefined;
-                const entry =
-                  conflict.resolution?.kind === 'entry-nodes'
+                const executionRegion =
+                  conflict.resolution?.kind === 'execution-region'
                     ? conflict.resolution
                     : undefined;
+                const entry =
+                  conflict.resolution?.kind === 'entry-nodes' ? conflict.resolution : undefined;
                 const orderConflict =
                   decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
                 return (
@@ -1721,6 +1723,25 @@ export function StoryGraph() {
                             onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
                           >
                             <strong>Keep {insertion.remoteLabel}</strong>
+                          </button>
+                        </>
+                      ) : executionRegion ? (
+                        <>
+                          <button
+                            type="button"
+                            className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'local')}
+                          >
+                            <strong>Keep Local Region</strong>
+                            <span>{executionRegion.localLabel}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
+                            onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
+                          >
+                            <strong>Keep Remote Region</strong>
+                            <span>{executionRegion.remoteLabel}</span>
                           </button>
                         </>
                       ) : connection ? (
@@ -1783,25 +1804,17 @@ export function StoryGraph() {
                           >
                             <strong>Local</strong>
                             <pre>
-                              {mergeValueText(
-                                conflict.localValue,
-                                conflict.kind !== 'remote-only',
-                              )}
+                              {mergeValueText(conflict.localValue, conflict.kind !== 'remote-only')}
                             </pre>
                           </button>
                           <button
                             type="button"
-                            className={
-                              choice === 'remote' ? styles.mergeChoiceSelected : undefined
-                            }
+                            className={choice === 'remote' ? styles.mergeChoiceSelected : undefined}
                             onClick={() => chooseStoryMergePreviewConflict(conflict.id, 'remote')}
                           >
                             <strong>Remote</strong>
                             <pre>
-                              {mergeValueText(
-                                conflict.remoteValue,
-                                conflict.kind !== 'local-only',
-                              )}
+                              {mergeValueText(conflict.remoteValue, conflict.kind !== 'local-only')}
                             </pre>
                           </button>
                         </>

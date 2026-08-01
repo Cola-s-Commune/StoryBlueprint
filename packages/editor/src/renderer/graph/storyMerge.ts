@@ -38,6 +38,14 @@ export interface EntryNodeResolution {
   remoteNodeIds: string[];
 }
 
+export interface ExecutionRegionResolution {
+  kind: 'execution-region';
+  localNodeIds: string[];
+  remoteNodeIds: string[];
+  localLabel: string;
+  remoteLabel: string;
+}
+
 export interface StoryMergeConflict {
   id: string;
   path: string;
@@ -47,7 +55,8 @@ export interface StoryMergeConflict {
   resolution?:
     | ConcurrentInsertionResolution
     | ConnectionCompetitionResolution
-    | EntryNodeResolution;
+    | EntryNodeResolution
+    | ExecutionRegionResolution;
 }
 
 export interface ThreeWayStoryDiff {
@@ -418,10 +427,7 @@ function mergeThreeValue(
       let concurrentOrder: string[] | undefined;
       if (concurrentInsertions) {
         conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder));
-        if (
-          decisions[orderPath] === 'remote' ||
-          decisions[orderPath] === 'remote-first'
-        ) {
+        if (decisions[orderPath] === 'remote' || decisions[orderPath] === 'remote-first') {
           primary = remoteOrder;
           secondary = localOrder;
         }
@@ -442,9 +448,9 @@ function mergeThreeValue(
           secondary = localOrder;
         }
       }
-      return (concurrentOrder ?? mergedKeyOrder(primary, secondary, new Set(mergedItems.keys()))).map(
-        (key) => mergedItems.get(key)!,
-      );
+      return (
+        concurrentOrder ?? mergedKeyOrder(primary, secondary, new Set(mergedItems.keys()))
+      ).map((key) => mergedItems.get(key)!);
     }
   }
 
@@ -526,9 +532,7 @@ function executionSuccessors(graph: SourceGraph): Map<string, SourceEdge[]> {
       data: node.data,
     }).ports.some(
       (port) =>
-        port.id === edge.from.portId &&
-        port.kind === 'execution' &&
-        port.direction === 'output',
+        port.id === edge.from.portId && port.kind === 'execution' && port.direction === 'output',
     );
     if (!executionOutput) continue;
     const key = `${edge.from.nodeId}\0${edge.from.portId}`;
@@ -548,8 +552,7 @@ function dataInputSources(graph: SourceGraph): Map<string, SourceEdge[]> {
       type: node.type as StoryNodeType,
       data: node.data,
     }).ports.some(
-      (port) =>
-        port.id === edge.to.portId && port.kind === 'data' && port.direction === 'input',
+      (port) => port.id === edge.to.portId && port.kind === 'data' && port.direction === 'input',
     );
     if (!dataInput) continue;
     const key = `${edge.to.nodeId}\0${edge.to.portId}`;
@@ -624,8 +627,7 @@ function traceLinearInsertion(
 
     const incomingEdges = branchGraph.edges.filter(
       (edge) =>
-        edge.to.nodeId === currentNodeId &&
-        inputPorts.some((port) => port.id === edge.to.portId),
+        edge.to.nodeId === currentNodeId && inputPorts.some((port) => port.id === edge.to.portId),
     );
     const outgoingEdges = branchGraph.edges.filter(
       (edge) =>
@@ -690,15 +692,12 @@ function applyConcurrentInsertionChoice(
   const localNodeIds = new Set(plan.localNodeIds);
   const remoteNodeIds = new Set(plan.remoteNodeIds);
   const pathEdgeKeys = new Set([...plan.localPath, ...plan.remotePath].map(edgeKey));
-  const retainedEdges = graph.edges.filter(
-    (edge) => !pathEdgeKeys.has(edgeKey(edge)),
-  );
+  const retainedEdges = graph.edges.filter((edge) => !pathEdgeKeys.has(edgeKey(edge)));
   if (choice === 'local') {
     graph.nodes = graph.nodes.filter((node) => !remoteNodeIds.has(node.id));
     graph.edges = [
       ...retainedEdges.filter(
-        (edge) =>
-          !remoteNodeIds.has(edge.from.nodeId) && !remoteNodeIds.has(edge.to.nodeId),
+        (edge) => !remoteNodeIds.has(edge.from.nodeId) && !remoteNodeIds.has(edge.to.nodeId),
       ),
       ...clone(plan.localPath),
     ];
@@ -742,6 +741,151 @@ function storyGraphs(story: MergeableStoryDocument): Map<string, SourceGraph> {
   ]);
 }
 
+interface ExecutionSuccessorCandidate {
+  outputKey: string;
+}
+
+interface ExecutionRegionPlan extends ExecutionRegionResolution {
+  path: string;
+  affectedNodeIds: string[];
+  localEdges: SourceEdge[];
+  remoteEdges: SourceEdge[];
+}
+
+function executionEdges(graph: SourceGraph): SourceEdge[] {
+  return [...executionSuccessors(graph).values()].flat();
+}
+
+function executionRegionEdges(
+  graph: SourceGraph,
+  affectedNodeIds: ReadonlySet<string>,
+): SourceEdge[] {
+  return executionEdges(graph).filter(
+    (edge) => affectedNodeIds.has(edge.from.nodeId) || affectedNodeIds.has(edge.to.nodeId),
+  );
+}
+
+function detectExecutionRegions(
+  graphId: string,
+  baseGraph: SourceGraph,
+  localGraph: SourceGraph,
+  remoteGraph: SourceGraph,
+  candidates: readonly ExecutionSuccessorCandidate[],
+  protectedNodeIds: ReadonlySet<string>,
+): ExecutionRegionPlan[] {
+  if (candidates.length === 0) return [];
+  const baseEdgeKeys = new Set(executionEdges(baseGraph).map(edgeKey));
+  const localEdgeKeys = new Set(executionEdges(localGraph).map(edgeKey));
+  const remoteEdgeKeys = new Set(executionEdges(remoteGraph).map(edgeKey));
+  const structuralEdges = [
+    ...executionEdges(baseGraph),
+    ...executionEdges(localGraph),
+    ...executionEdges(remoteGraph),
+  ].filter((edge, index, all) => {
+    const key = edgeKey(edge);
+    if (all.findIndex((candidate) => edgeKey(candidate) === key) !== index) return false;
+    if (protectedNodeIds.has(edge.from.nodeId) || protectedNodeIds.has(edge.to.nodeId))
+      return false;
+    const presence = [baseEdgeKeys.has(key), localEdgeKeys.has(key), remoteEdgeKeys.has(key)];
+    return !presence.every((value) => value === presence[0]);
+  });
+  const neighbors = new Map<string, Set<string>>();
+  const connect = (from: string, to: string) => {
+    const adjacent = neighbors.get(from) ?? new Set<string>();
+    adjacent.add(to);
+    neighbors.set(from, adjacent);
+  };
+  for (const edge of structuralEdges) {
+    connect(edge.from.nodeId, edge.to.nodeId);
+    connect(edge.to.nodeId, edge.from.nodeId);
+  }
+  const componentFor = (start: string): string[] => {
+    const visited = new Set<string>();
+    const pending = [start];
+    while (pending.length > 0) {
+      const nodeId = pending.pop()!;
+      if (visited.has(nodeId) || protectedNodeIds.has(nodeId)) continue;
+      visited.add(nodeId);
+      for (const neighbor of neighbors.get(nodeId) ?? []) pending.push(neighbor);
+    }
+    return [...visited].sort();
+  };
+  const groups = new Map<
+    string,
+    { nodeIds: string[]; candidates: ExecutionSuccessorCandidate[] }
+  >();
+  for (const candidate of candidates) {
+    const [sourceNodeId] = candidate.outputKey.split('\0');
+    const nodeIds = componentFor(sourceNodeId);
+    const key = nodeIds.join('\0');
+    const group = groups.get(key) ?? { nodeIds, candidates: [] };
+    group.candidates.push(candidate);
+    groups.set(key, group);
+  }
+  const localNodes = new Set(localGraph.nodes.map((node) => node.id));
+  const remoteNodes = new Set(remoteGraph.nodes.map((node) => node.id));
+  return [...groups.values()].map(({ nodeIds, candidates: regionCandidates }) => {
+    const affectedNodeIds = new Set(nodeIds);
+    const localEdges = executionRegionEdges(localGraph, affectedNodeIds);
+    const remoteEdges = executionRegionEdges(remoteGraph, affectedNodeIds);
+    const anchors = regionCandidates
+      .map((candidate) => candidate.outputKey.replace('\0', ':'))
+      .sort()
+      .join(',');
+    const path = childPath(childPath('story', graphId), `execution-region:${anchors}`);
+    const localNodeIds = nodeIds.filter((nodeId) => localNodes.has(nodeId));
+    const remoteNodeIds = nodeIds.filter((nodeId) => remoteNodes.has(nodeId));
+    return {
+      kind: 'execution-region',
+      path,
+      affectedNodeIds: nodeIds,
+      localNodeIds,
+      remoteNodeIds,
+      localEdges,
+      remoteEdges,
+      localLabel: `Local region · ${localNodeIds.length} nodes · ${localEdges.length} links`,
+      remoteLabel: `Remote region · ${remoteNodeIds.length} nodes · ${remoteEdges.length} links`,
+    };
+  });
+}
+
+function applyExecutionRegionChoice(
+  graph: SourceGraph,
+  localGraph: SourceGraph,
+  remoteGraph: SourceGraph,
+  plan: ExecutionRegionPlan,
+  choice: StoryMergeChoice | undefined,
+): void {
+  if (choice !== 'local' && choice !== 'remote') return;
+  const affectedNodeIds = new Set(plan.affectedNodeIds);
+  const chosenGraph = choice === 'remote' ? remoteGraph : localGraph;
+  const chosenEdges = choice === 'remote' ? plan.remoteEdges : plan.localEdges;
+  const chosenNodes = new Map(
+    chosenGraph.nodes
+      .filter((node) => affectedNodeIds.has(node.id))
+      .map((node) => [node.id, node] as const),
+  );
+  const removedNodeIds = new Set(plan.affectedNodeIds.filter((nodeId) => !chosenNodes.has(nodeId)));
+  const existingNodeIds = new Set(graph.nodes.map((node) => node.id));
+  graph.nodes = [
+    ...graph.nodes.filter((node) => !removedNodeIds.has(node.id)),
+    ...[...chosenNodes.values()].filter((node) => !existingNodeIds.has(node.id)).map(clone),
+  ];
+  const regionEdgeKeys = new Set([...plan.localEdges, ...plan.remoteEdges].map(edgeKey));
+  graph.edges = [
+    ...graph.edges.filter(
+      (edge) =>
+        !regionEdgeKeys.has(edgeKey(edge)) &&
+        !removedNodeIds.has(edge.from.nodeId) &&
+        !removedNodeIds.has(edge.to.nodeId),
+    ),
+    ...clone(chosenEdges),
+  ].filter(
+    (edge, index, all) =>
+      all.findIndex((candidate) => edgeKey(candidate) === edgeKey(edge)) === index,
+  );
+}
+
 function resolveExecutionSuccessorConflicts(
   base: MergeableStoryDocument,
   local: MergeableStoryDocument,
@@ -762,9 +906,13 @@ function resolveExecutionSuccessorConflicts(
     const baseOutputs = executionSuccessors(baseGraph);
     const localOutputs = executionSuccessors(localGraph);
     const remoteOutputs = executionSuccessors(remoteGraph);
-    const outputKeys = [...baseOutputs.keys(), ...localOutputs.keys(), ...remoteOutputs.keys()].filter(
-      (key, index, all) => all.indexOf(key) === index,
-    );
+    const outputKeys = [
+      ...baseOutputs.keys(),
+      ...localOutputs.keys(),
+      ...remoteOutputs.keys(),
+    ].filter((key, index, all) => all.indexOf(key) === index);
+    const genericCandidates: ExecutionSuccessorCandidate[] = [];
+    const protectedInsertionNodeIds = new Set<string>();
     for (const outputKey of outputKeys) {
       const baseEdges = baseOutputs.get(outputKey) ?? [];
       const localEdges = localOutputs.get(outputKey) ?? [];
@@ -800,9 +948,10 @@ function resolveExecutionSuccessorConflicts(
           localLabel: insertion.localLabel,
           remoteLabel: insertion.remoteLabel,
         };
-      }
-      conflicts.push(successorConflict);
-      if (insertion) {
+        conflicts.push(successorConflict);
+        for (const nodeId of [...insertion.localNodeIds, ...insertion.remoteNodeIds]) {
+          protectedInsertionNodeIds.add(nodeId);
+        }
         if (decisions[path]) {
           applyConcurrentInsertionChoice(mergedGraph, insertion, decisions[path]);
         } else {
@@ -815,12 +964,38 @@ function resolveExecutionSuccessorConflicts(
         }
         continue;
       }
-      const chosen = decisions[path] === 'remote' ? remoteEdges : localEdges;
-      const competingKeys = new Set([...localEdges, ...remoteEdges].map(edgeKey));
-      mergedGraph.edges = [
-        ...mergedGraph.edges.filter((edge) => !competingKeys.has(edgeKey(edge))),
-        ...clone(chosen),
-      ];
+      genericCandidates.push({ outputKey });
+    }
+    for (const region of detectExecutionRegions(
+      graphId,
+      baseGraph,
+      localGraph,
+      remoteGraph,
+      genericCandidates,
+      protectedInsertionNodeIds,
+    )) {
+      const regionConflict = conflict(
+        region.path,
+        true,
+        region.localEdges,
+        true,
+        region.remoteEdges,
+      );
+      regionConflict.resolution = {
+        kind: 'execution-region',
+        localNodeIds: region.localNodeIds,
+        remoteNodeIds: region.remoteNodeIds,
+        localLabel: region.localLabel,
+        remoteLabel: region.remoteLabel,
+      };
+      conflicts.push(regionConflict);
+      applyExecutionRegionChoice(
+        mergedGraph,
+        localGraph,
+        remoteGraph,
+        region,
+        decisions[region.path],
+      );
     }
   }
 }
@@ -944,14 +1119,7 @@ function threeWayStoryResult(
 ) {
   const result = threeWayResult(base, local, remote, decisions, 'story');
   const merged = result.merged as MergeableStoryDocument;
-  resolveExecutionSuccessorConflicts(
-    base,
-    local,
-    remote,
-    merged,
-    decisions,
-    result.conflicts,
-  );
+  resolveExecutionSuccessorConflicts(base, local, remote, merged, decisions, result.conflicts);
   resolveDataInputConflicts(base, local, remote, merged, decisions, result.conflicts);
   resolveEntryNodeConflicts(base, local, remote, merged, decisions, result.conflicts);
   return { ...result, merged };
@@ -1184,7 +1352,11 @@ export function autoLayoutStoryConflictNeighborhoods(
       nodes: editorGraph.nodes.map((node) => ({
         ...node,
         position: affected.has(node.id)
-          ? { ...(preferredPositions.get(node.id) ?? fallbackPositions.get(node.id) ?? node.position) }
+          ? {
+              ...(preferredPositions.get(node.id) ??
+                fallbackPositions.get(node.id) ??
+                node.position),
+            }
           : node.position,
       })),
       edges: editorGraph.edges.filter(
@@ -1193,10 +1365,7 @@ export function autoLayoutStoryConflictNeighborhoods(
           nodesById.get(edge.target)?.type !== StoryNodeType.Reroute,
       ),
     };
-    const arranged = avoidOverlappingNodes(
-      autoLayoutGraph(seeded, [...affected]),
-      affected,
-    );
+    const arranged = avoidOverlappingNodes(autoLayoutGraph(seeded, [...affected]), affected);
     const positions = new Map(arranged.nodes.map((node) => [node.id, node.position] as const));
     return {
       ...graph,
@@ -1205,7 +1374,9 @@ export function autoLayoutStoryConflictNeighborhoods(
       ),
     };
   };
-  const localChapters = new Map(local.chapters.map((chapter) => [chapter.id, chapter.graph] as const));
+  const localChapters = new Map(
+    local.chapters.map((chapter) => [chapter.id, chapter.graph] as const),
+  );
   const remoteChapters = new Map(
     remote.chapters.map((chapter) => [chapter.id, chapter.graph] as const),
   );

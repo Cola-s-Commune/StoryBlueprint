@@ -79,6 +79,77 @@ describe('Story merge graph preview', () => {
     expect(preview.graphs[0].graph.edges).toHaveLength(2);
   });
 
+  it('highlights and resolves a complete execution region', () => {
+    const localGraph = graph('Before');
+    const remoteGraph = graph('Before');
+    const localEnd = {
+      id: 'n_localend',
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 500, y: 0 },
+      data: { title: 'Local End' },
+    } as const;
+    const remoteEnd = {
+      id: 'n_remoteend',
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 500, y: 250 },
+      data: { title: 'Remote End' },
+    } as const;
+    localGraph.nodes.push(localEnd);
+    remoteGraph.nodes.push(remoteEnd);
+    localGraph.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_localend', portId: 'in' },
+      },
+    ];
+    remoteGraph.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_remoteend', portId: 'in' },
+      },
+    ];
+    const mergedGraph = structuredClone(localGraph);
+    mergedGraph.nodes.push(remoteEnd);
+    mergedGraph.edges.push(...remoteGraph.edges);
+    const conflict = {
+      id: 'story/root/execution-region%3An_dialogue%3Aout',
+      path: 'story › root › execution-region:n_dialogue:out',
+      kind: 'changed' as const,
+      localValue: localGraph.edges,
+      remoteValue: remoteGraph.edges,
+      resolution: {
+        kind: 'execution-region' as const,
+        localNodeIds: ['n_dialogue', 'n_localend'],
+        remoteNodeIds: ['n_dialogue', 'n_remoteend'],
+        localLabel: 'Local region · 2 nodes · 1 links',
+        remoteLabel: 'Remote region · 2 nodes · 1 links',
+      },
+    };
+
+    const unresolved = buildStoryMergePreview(
+      story(localGraph),
+      story(mergedGraph),
+      [conflict],
+      {},
+      story(remoteGraph),
+    ).graphs[0];
+    expect(unresolved.conflictNodeIds.sort()).toEqual(['n_dialogue', 'n_localend', 'n_remoteend']);
+    expect(unresolved.conflictEdgeIds).toHaveLength(2);
+
+    const resolved = buildStoryMergePreview(
+      story(localGraph),
+      story(remoteGraph),
+      [conflict],
+      { [conflict.id]: 'remote' },
+      story(remoteGraph),
+    ).graphs[0];
+    expect(resolved.resolvedNodeIds.sort()).toEqual(['n_dialogue', 'n_remoteend']);
+    expect(resolved.removedNodeIds).toContain('n_localend');
+    expect(resolved.conflictNodeIds).toEqual([]);
+  });
+
   it('highlights concurrent inserted nodes and their competing entry edges', () => {
     const localGraph = graph('Before');
     const nodeA = {
@@ -159,12 +230,7 @@ describe('Story merge graph preview', () => {
 
     const preview = buildStoryMergePreview(story(localGraph), story(mergedGraph), [conflict]);
     const root = preview.graphs[0];
-    expect(root.conflictNodeIds.sort()).toEqual([
-      'n_nodea',
-      'n_nodea2',
-      'n_nodeb',
-      'n_nodeb2',
-    ]);
+    expect(root.conflictNodeIds.sort()).toEqual(['n_nodea', 'n_nodea2', 'n_nodeb', 'n_nodeb2']);
     expect(root.resolvedNodeIds).toEqual([]);
     expect(root.conflictNodeIds).not.toContain('n_dialogue');
     expect(root.conflictEdgeIds).toHaveLength(2);
@@ -197,12 +263,7 @@ describe('Story merge graph preview', () => {
       { [conflict.id]: 'local-first' },
       story(remoteGraph),
     ).graphs[0];
-    expect(ordered.resolvedNodeIds.sort()).toEqual([
-      'n_nodea',
-      'n_nodea2',
-      'n_nodeb',
-      'n_nodeb2',
-    ]);
+    expect(ordered.resolvedNodeIds.sort()).toEqual(['n_nodea', 'n_nodea2', 'n_nodeb', 'n_nodeb2']);
     expect(ordered.removedNodeIds).toEqual([]);
   });
 

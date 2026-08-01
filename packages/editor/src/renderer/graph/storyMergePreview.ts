@@ -6,11 +6,7 @@ import type {
   SourceGraph,
   StorySourceDocument,
 } from '@story-blueprint/common';
-import {
-  avoidOverlappingNodes,
-  fromSourceGraph,
-  type EditorGraphState,
-} from './editorGraph';
+import { avoidOverlappingNodes, fromSourceGraph, type EditorGraphState } from './editorGraph';
 import type { StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 
 export type StoryMergePreviewGraphId = 'root' | ChapterId;
@@ -69,21 +65,19 @@ function conflictTarget(conflict: StoryMergeConflict) {
 function isSourceEdge(value: unknown): value is SourceEdge {
   if (!value || typeof value !== 'object') return false;
   const edge = value as Partial<SourceEdge>;
-  return Boolean(
-    edge.from?.nodeId && edge.from.portId && edge.to?.nodeId && edge.to.portId,
-  );
+  return Boolean(edge.from?.nodeId && edge.from.portId && edge.to?.nodeId && edge.to.portId);
 }
 
 function conflictNodeTargets(conflict: StoryMergeConflict): NodeId[] {
   if (conflict.resolution?.kind === 'concurrent-insertion') {
-    return [
-      ...conflict.resolution.localNodeIds,
-      ...conflict.resolution.remoteNodeIds,
-    ].map((nodeId) => nodeId as NodeId);
+    return [...conflict.resolution.localNodeIds, ...conflict.resolution.remoteNodeIds].map(
+      (nodeId) => nodeId as NodeId,
+    );
   }
   if (
     conflict.resolution?.kind === 'connection-competition' ||
-    conflict.resolution?.kind === 'entry-nodes'
+    conflict.resolution?.kind === 'entry-nodes' ||
+    conflict.resolution?.kind === 'execution-region'
   ) {
     return [...conflict.resolution.localNodeIds, ...conflict.resolution.remoteNodeIds].map(
       (nodeId) => nodeId as NodeId,
@@ -96,7 +90,8 @@ function conflictNodeTargets(conflict: StoryMergeConflict): NodeId[] {
 function conflictEdgeTargets(conflict: StoryMergeConflict): string[] {
   if (
     conflict.resolution?.kind === 'concurrent-insertion' ||
-    conflict.resolution?.kind === 'connection-competition'
+    conflict.resolution?.kind === 'connection-competition' ||
+    conflict.resolution?.kind === 'execution-region'
   ) {
     return [conflict.localValue, conflict.remoteValue]
       .flatMap((value) => (Array.isArray(value) ? value : []))
@@ -135,7 +130,11 @@ function resolvedConflictNodes(
       }
       continue;
     }
-    if (resolution.kind === 'connection-competition' || resolution.kind === 'entry-nodes') {
+    if (
+      resolution.kind === 'connection-competition' ||
+      resolution.kind === 'entry-nodes' ||
+      resolution.kind === 'execution-region'
+    ) {
       const selected = decision === 'remote' ? resolution.remoteNodeIds : resolution.localNodeIds;
       for (const nodeId of selected) result.add(nodeId as NodeId);
     }
@@ -179,9 +178,7 @@ function previewGraph(
   const combinedNodes = [
     ...mergedEditor.nodes,
     ...localEditor.nodes.filter((node) => !mergedNodes.has(node.id)),
-    ...remoteEditor.nodes.filter(
-      (node) => !mergedNodes.has(node.id) && !localNodes.has(node.id),
-    ),
+    ...remoteEditor.nodes.filter((node) => !mergedNodes.has(node.id) && !localNodes.has(node.id)),
   ];
   const localEdges = new Map(local.edges.map((edge) => [edgeKey(edge), edge] as const));
   const remoteEdges = new Map(incoming.edges.map((edge) => [edgeKey(edge), edge] as const));
@@ -254,9 +251,7 @@ function previewGraph(
       ...idsForKeys(conflictEdges, mergedEditorEdges),
       ...idsForKeys(conflictEdges, localEditorEdges),
       ...idsForKeys(conflictEdges, remoteEditorEdges),
-    ].filter(
-      (edgeId, index, all) => graphEdgeIds.has(edgeId) && all.indexOf(edgeId) === index,
-    ),
+    ].filter((edgeId, index, all) => graphEdgeIds.has(edgeId) && all.indexOf(edgeId) === index),
     nodeConflictIds,
     edgeConflictIds,
   };
@@ -281,9 +276,7 @@ export function buildStoryMergePreview(
     ...localChapters.keys(),
     ...mergedChapters.keys(),
     ...remoteChapters.keys(),
-  ].filter(
-    (id, index, all) => all.indexOf(id) === index,
-  );
+  ].filter((id, index, all) => all.indexOf(id) === index);
   return {
     nonce: Date.now(),
     conflicts,

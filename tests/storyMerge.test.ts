@@ -13,10 +13,7 @@ import {
   mergeThreeWayValues,
   mergeThreeWayOptionalValues,
 } from '../packages/editor/src/renderer/graph/storyMerge';
-import {
-  fromSourceGraph,
-  toSourceGraph,
-} from '../packages/editor/src/renderer/graph/editorGraph';
+import { fromSourceGraph, toSourceGraph } from '../packages/editor/src/renderer/graph/editorGraph';
 
 const testDataTargetType = 'test-data-target' as StoryNodeType;
 
@@ -116,7 +113,9 @@ describe('Story semantic merge', () => {
 
     expect(JSON.stringify(rehydrated)).not.toBe(JSON.stringify(local));
     expect(diffStoryDocuments(rehydrated, local)).toEqual([]);
-    expect(rehydrated.root.nodes.find((node) => node.id === 'n_choice')?.dynamicPorts).toBeUndefined();
+    expect(
+      rehydrated.root.nodes.find((node) => node.id === 'n_choice')?.dynamicPorts,
+    ).toBeUndefined();
   });
 
   it('diffs a Dialogue Line field by stable IDs instead of replacing the node', () => {
@@ -158,8 +157,9 @@ describe('Story semantic merge', () => {
     expect(conflicts[0].path.endsWith('position')).toBe(true);
     expect(conflicts[0].localValue).toEqual({ x: 100, y: 200 });
     expect(conflicts[0].remoteValue).toEqual({ x: 900, y: -200 });
-    expect(mergeStoryDocuments(local, remote, { [conflicts[0].id]: 'remote' }).root.nodes[0].position)
-      .toEqual({ x: 900, y: -200 });
+    expect(
+      mergeStoryDocuments(local, remote, { [conflicts[0].id]: 'remote' }).root.nodes[0].position,
+    ).toEqual({ x: 900, y: -200 });
   });
 
   it('auto-layouts a coordinate conflict with its direct non-Rerouter neighbor', () => {
@@ -352,15 +352,181 @@ describe('Story semantic merge', () => {
     const local = mergeableStory(localSource);
     const remote = mergeableStory(remoteSource);
     const result = diffThreeWayStoryDocuments(base, local, remote);
-    const successor = result.conflicts.find((item) =>
-      item.id.includes('execution-successor%3Aout'),
-    );
+    const successor = result.conflicts.find((item) => item.resolution?.kind === 'execution-region');
 
     expect(successor).toBeDefined();
-    expect(result.autoMerged.root.edges).toEqual(local.root.edges);
+    expect(successor?.resolution).toMatchObject({
+      kind: 'execution-region',
+      localNodeIds: expect.arrayContaining(['n_dialogue', 'n_localend']),
+      remoteNodeIds: expect.arrayContaining(['n_dialogue', 'n_remoteend']),
+    });
+    expect(result.autoMerged.root.edges).toEqual(
+      expect.arrayContaining([...local.root.edges, ...remote.root.edges]),
+    );
+    expect(
+      mergeThreeWayStoryDocuments(base, local, remote, { [successor!.id]: 'local' }).root.edges,
+    ).toEqual(local.root.edges);
     expect(
       mergeThreeWayStoryDocuments(base, local, remote, { [successor!.id]: 'remote' }).root.edges,
     ).toEqual(remote.root.edges);
+  });
+
+  it('groups multiple competing Choice outputs into one execution-region decision', () => {
+    const baseSource = story('Before', false);
+    const makeEnd = (id: string, title: string, y: number) => ({
+      id,
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 700, y },
+      data: { title },
+    });
+    baseSource.root.nodes.push(
+      {
+        id: 'n_choice',
+        type: StoryNodeType.Choice,
+        definitionVersion: 1,
+        position: { x: 350, y: 200 },
+        data: {
+          prompt: { source: 'Base prompt' },
+          options: [
+            { id: 'opt_left', text: { source: 'Left' } },
+            { id: 'opt_right', text: { source: 'Right' } },
+          ],
+        },
+      },
+      makeEnd('n_baseleft', 'Base Left', 100),
+      makeEnd('n_baseright', 'Base Right', 300),
+    );
+    baseSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_choice', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_choice', portId: 'opt_left' },
+        to: { nodeId: 'n_baseleft', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_choice', portId: 'opt_right' },
+        to: { nodeId: 'n_baseright', portId: 'in' },
+      },
+    ];
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    localSource.root.nodes.push(
+      makeEnd('n_localleft', 'Local Left', 50),
+      makeEnd('n_localright', 'Local Right', 250),
+    );
+    remoteSource.root.nodes.push(
+      makeEnd('n_remoteleft', 'Remote Left', 150),
+      makeEnd('n_remoteright', 'Remote Right', 350),
+    );
+    localSource.root.nodes.find((node) => node.id === 'n_choice')!.data.prompt.source =
+      'Local prompt';
+    remoteSource.root.nodes.find((node) => node.id === 'n_choice')!.data.prompt.source =
+      'Remote prompt';
+    localSource.root.edges = [
+      baseSource.root.edges[0],
+      {
+        from: { nodeId: 'n_choice', portId: 'opt_left' },
+        to: { nodeId: 'n_localleft', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_choice', portId: 'opt_right' },
+        to: { nodeId: 'n_localright', portId: 'in' },
+      },
+    ];
+    remoteSource.root.edges = [
+      baseSource.root.edges[0],
+      {
+        from: { nodeId: 'n_choice', portId: 'opt_left' },
+        to: { nodeId: 'n_remoteleft', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_choice', portId: 'opt_right' },
+        to: { nodeId: 'n_remoteright', portId: 'in' },
+      },
+    ];
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const regions = diff.conflicts.filter(
+      (conflict) => conflict.resolution?.kind === 'execution-region',
+    );
+
+    expect(regions).toHaveLength(1);
+    expect(regions[0].resolution).toMatchObject({
+      localNodeIds: expect.arrayContaining(['n_choice', 'n_localleft', 'n_localright']),
+      remoteNodeIds: expect.arrayContaining(['n_choice', 'n_remoteleft', 'n_remoteright']),
+    });
+    const remoteRegion = mergeThreeWayStoryDocuments(base, local, remote, {
+      [regions[0].id]: 'remote',
+    });
+    expect(remoteRegion.root.nodes.map((node) => node.id)).not.toEqual(
+      expect.arrayContaining(['n_localleft', 'n_localright']),
+    );
+    expect(remoteRegion.root.edges).toEqual(remote.root.edges);
+    expect(remoteRegion.root.nodes.find((node) => node.id === 'n_choice')!.data.prompt.source).toBe(
+      'Local prompt',
+    );
+  });
+
+  it('keeps a loop, deletion, and Rerouter inside one structural region', () => {
+    const baseSource = story('Before');
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    const rerouter = (id: string, y: number) => ({
+      id,
+      type: StoryNodeType.Reroute,
+      definitionVersion: 1,
+      position: { x: 350, y },
+      data: {},
+    });
+    localSource.root.nodes = localSource.root.nodes.filter((node) => node.id !== 'n_endxx');
+    localSource.root.nodes.push(rerouter('n_localroute', 100));
+    localSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_localroute', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_localroute', portId: 'out' },
+        to: { nodeId: 'n_dialogue', portId: 'in' },
+      },
+    ];
+    remoteSource.root.nodes.push(rerouter('n_remoteroute', 300));
+    remoteSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_remoteroute', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_remoteroute', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    const base = mergeableStory(baseSource);
+    const local = mergeableStory(localSource);
+    const remote = mergeableStory(remoteSource);
+    const diff = diffThreeWayStoryDocuments(base, local, remote);
+    const region = diff.conflicts.find(
+      (conflict) => conflict.resolution?.kind === 'execution-region',
+    );
+
+    expect(region).toBeDefined();
+    const keepLocal = mergeThreeWayStoryDocuments(base, local, remote, {
+      [region!.id]: 'local',
+    });
+    expect(keepLocal.root.edges).toEqual(local.root.edges);
+    expect(keepLocal.root.nodes.map((node) => node.id)).not.toContain('n_endxx');
+    expect(keepLocal.root.nodes.map((node) => node.id)).not.toContain('n_remoteroute');
+    const keepRemote = mergeThreeWayStoryDocuments(base, local, remote, {
+      [region!.id]: 'remote',
+    });
+    expect(keepRemote.root.edges).toEqual(remote.root.edges);
+    expect(keepRemote.root.nodes.map((node) => node.id)).toContain('n_endxx');
+    expect(keepRemote.root.nodes.map((node) => node.id)).not.toContain('n_localroute');
   });
 
   it('asks which data source to keep when both branches reconnect the same input', () => {
@@ -456,8 +622,8 @@ describe('Story semantic merge', () => {
 
     expect(entry).toBeDefined();
     const selectedEntries = (choice: 'local' | 'remote') =>
-      mergeThreeWayStoryDocuments(base, local, remote, { [entry!.id]: choice }).root.nodes
-        .filter((node) => node.type === StoryNodeType.Start)
+      mergeThreeWayStoryDocuments(base, local, remote, { [entry!.id]: choice })
+        .root.nodes.filter((node) => node.type === StoryNodeType.Start)
         .map((node) => node.id);
     expect(selectedEntries('local')).toEqual(['n_startlocal']);
     expect(selectedEntries('remote')).toEqual(['n_startremote']);
@@ -513,23 +679,16 @@ describe('Story semantic merge', () => {
       localLabel: 'Node A',
       remoteLabel: 'Node B',
     });
-    expect(diff.autoMerged.root.edges.map((edge) => `${edge.from.nodeId}>${edge.to.nodeId}`)).toEqual(
-      [
-        'n_nodea>n_endxx',
-        'n_nodeb>n_endxx',
-        'n_dialogue>n_nodea',
-        'n_dialogue>n_nodeb',
-      ],
-    );
+    expect(
+      diff.autoMerged.root.edges.map((edge) => `${edge.from.nodeId}>${edge.to.nodeId}`),
+    ).toEqual(['n_nodea>n_endxx', 'n_nodeb>n_endxx', 'n_dialogue>n_nodea', 'n_dialogue>n_nodeb']);
     const pairs = (choice: 'local' | 'remote' | 'local-first' | 'remote-first') => {
       const merged = mergeThreeWayStoryDocuments(base, local, remote, {
         [insertion!.id]: choice,
       });
       return {
         nodes: merged.root.nodes.map((node) => node.id).sort(),
-        edges: merged.root.edges.map(
-          (edge) => `${edge.from.nodeId}>${edge.to.nodeId}`,
-        ),
+        edges: merged.root.edges.map((edge) => `${edge.from.nodeId}>${edge.to.nodeId}`),
       };
     };
 
@@ -656,19 +815,11 @@ describe('Story semantic merge', () => {
     ]);
     expect(result('local')).toEqual({
       nodes: ['n_dialogue', 'n_endxx', 'n_locala', 'n_localb'],
-      edges: [
-        'n_dialogue>n_locala',
-        'n_locala>n_localb',
-        'n_localb>n_endxx',
-      ],
+      edges: ['n_dialogue>n_locala', 'n_locala>n_localb', 'n_localb>n_endxx'],
     });
     expect(result('remote')).toEqual({
       nodes: ['n_dialogue', 'n_endxx', 'n_remotea', 'n_remoteb'],
-      edges: [
-        'n_dialogue>n_remotea',
-        'n_remotea>n_remoteb',
-        'n_remoteb>n_endxx',
-      ],
+      edges: ['n_dialogue>n_remotea', 'n_remotea>n_remoteb', 'n_remoteb>n_endxx'],
     });
 
     const loopingLocalSource = structuredClone(localSource);
@@ -756,8 +907,8 @@ describe('Story semantic merge', () => {
     const order = diff.conflicts.find((conflict) => conflict.id.endsWith('%40order'));
     const lineIds = (choice: 'local' | 'remote') =>
       (
-        mergeThreeWayStoryDocuments(base, local, remote, { [order!.id]: choice }).root.nodes[0]
-          .data.lines as Array<{ id: string }>
+        mergeThreeWayStoryDocuments(base, local, remote, { [order!.id]: choice }).root.nodes[0].data
+          .lines as Array<{ id: string }>
       ).map((line) => line.id);
 
     expect(order).toBeDefined();

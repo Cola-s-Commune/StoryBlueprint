@@ -437,8 +437,7 @@ export function StoryMerge() {
   const [validating, setValidating] = useState(false);
   const [validatedKey, setValidatedKey] = useState('');
   const [gitConflictRevision, setGitConflictRevision] = useState('');
-  const [coordinateLayoutOrder, setCoordinateLayoutOrder] =
-    useState<CoordinateLayoutOrder>();
+  const [coordinateLayoutOrder, setCoordinateLayoutOrder] = useState<CoordinateLayoutOrder>();
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
   const threeWayDiff = useMemo(
     () =>
@@ -484,49 +483,46 @@ export function StoryMerge() {
         : undefined,
     [base, decisions, localBase, remoteMergeable],
   );
-  const mergedProjection = useMemo(
-    () => {
-      if (!rawMergedProjection || !localBase) return rawMergedProjection;
-      let overlapFree = autoLayoutStoryAddedNodeOverlaps(localBase, rawMergedProjection);
-      if (remoteMergeable) {
-        for (const conflict of conflicts) {
-          const choice = decisions[conflict.id];
-          const insertion = conflict.resolution;
-          if (
-            insertion?.kind !== 'concurrent-insertion' ||
-            (choice !== 'local-first' && choice !== 'remote-first')
-          ) {
-            continue;
-          }
-          overlapFree = autoLayoutStoryConflictNeighborhoods(
-            overlapFree,
-            localBase,
-            remoteMergeable,
-            new Set([...insertion.localNodeIds, ...insertion.remoteNodeIds]),
-            choice,
-          );
+  const mergedProjection = useMemo(() => {
+    if (!rawMergedProjection || !localBase) return rawMergedProjection;
+    let overlapFree = autoLayoutStoryAddedNodeOverlaps(localBase, rawMergedProjection);
+    if (remoteMergeable) {
+      for (const conflict of conflicts) {
+        const choice = decisions[conflict.id];
+        const insertion = conflict.resolution;
+        if (
+          insertion?.kind !== 'concurrent-insertion' ||
+          (choice !== 'local-first' && choice !== 'remote-first')
+        ) {
+          continue;
         }
+        overlapFree = autoLayoutStoryConflictNeighborhoods(
+          overlapFree,
+          localBase,
+          remoteMergeable,
+          new Set([...insertion.localNodeIds, ...insertion.remoteNodeIds]),
+          choice,
+        );
       }
-      return coordinateLayoutOrder && remoteMergeable
-        ? autoLayoutStoryConflictNeighborhoods(
-            overlapFree,
-            localBase,
-            remoteMergeable,
-            coordinateNodeIds,
-            coordinateLayoutOrder,
-          )
-        : overlapFree;
-    },
-    [
-      conflicts,
-      coordinateLayoutOrder,
-      coordinateNodeIds,
-      decisions,
-      localBase,
-      rawMergedProjection,
-      remoteMergeable,
-    ],
-  );
+    }
+    return coordinateLayoutOrder && remoteMergeable
+      ? autoLayoutStoryConflictNeighborhoods(
+          overlapFree,
+          localBase,
+          remoteMergeable,
+          coordinateNodeIds,
+          coordinateLayoutOrder,
+        )
+      : overlapFree;
+  }, [
+    conflicts,
+    coordinateLayoutOrder,
+    coordinateNodeIds,
+    decisions,
+    localBase,
+    rawMergedProjection,
+    remoteMergeable,
+  ]);
   const remoteChoiceCount = conflicts.filter(
     (conflict) =>
       !(coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)) &&
@@ -613,8 +609,9 @@ export function StoryMerge() {
       conflict.resolution?.kind === 'concurrent-insertion'
         ? conflict.resolution.localNodeId
         : conflict.resolution?.kind === 'connection-competition' ||
-            conflict.resolution?.kind === 'entry-nodes'
-          ? conflict.resolution.localNodeIds[0] ?? conflict.resolution.remoteNodeIds[0]
+            conflict.resolution?.kind === 'entry-nodes' ||
+            conflict.resolution?.kind === 'execution-region'
+          ? (conflict.resolution.localNodeIds[0] ?? conflict.resolution.remoteNodeIds[0])
           : undefined;
     const nodeId = (resolutionNodeId ??
       conflict.id
@@ -994,7 +991,9 @@ export function StoryMerge() {
               {autoCoordinateCount > 0 && (
                 <span>
                   Coordinates: {autoCoordinateCount} auto-arranged ·{' '}
-                  {coordinateLayoutOrder === 'local-first' ? 'Local before Remote' : 'Remote before Local'}
+                  {coordinateLayoutOrder === 'local-first'
+                    ? 'Local before Remote'
+                    : 'Remote before Local'}
                 </span>
               )}
               <span>
@@ -1029,10 +1028,12 @@ export function StoryMerge() {
                     conflict.resolution?.kind === 'connection-competition'
                       ? conflict.resolution
                       : undefined;
-                  const entry =
-                    conflict.resolution?.kind === 'entry-nodes'
+                  const executionRegion =
+                    conflict.resolution?.kind === 'execution-region'
                       ? conflict.resolution
                       : undefined;
+                  const entry =
+                    conflict.resolution?.kind === 'entry-nodes' ? conflict.resolution : undefined;
                   const orderConflict =
                     decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
                   return (
@@ -1103,6 +1104,25 @@ export function StoryMerge() {
                               <span>
                                 Remove {insertion.localLabel} and keep only the Remote insertion.
                               </span>
+                            </button>
+                          </>
+                        ) : executionRegion ? (
+                          <>
+                            <button
+                              type="button"
+                              className={choice === 'local' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'local')}
+                            >
+                              <strong>Keep Local Region</strong>
+                              <span>{executionRegion.localLabel}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={choice === 'remote' ? styles.selectedChoice : undefined}
+                              onClick={() => choose(conflict.id, 'remote')}
+                            >
+                              <strong>Keep Remote Region</strong>
+                              <span>{executionRegion.remoteLabel}</span>
                             </button>
                           </>
                         ) : connection ? (
