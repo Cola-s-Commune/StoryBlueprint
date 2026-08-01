@@ -339,6 +339,8 @@ interface CharacterDefinition {
 
 修改角色脚本 Name 时，编辑器默认让 Display Name 同步变化；作者仍可随后单独修改 Display Name。项目模式下角色文件在创建时采用 `<initial-name>-<id-suffix>.character`，之后修改 Name 或 Display Name 都不移动文件。稳定 ID、项目索引路径和所有 Story 引用保持不变；未来需要整理磁盘名称时，通过独立的 Rename File 操作完成。
 
+情绪不是逗号分隔的标签，而是角色下的结构化资源。每项拥有稳定 Key、面向作者的 Display Name 和可选 Portrait；修改 Key 会同步更新所有已打开 Story 的 Dialogue Line 引用，删除前需要确认并清除对应引用。情绪 Portrait 未配置时回退到角色 Default Portrait；Dialogue 未指定情绪时同样使用 Default Portrait。Compiler 将最终 Portrait Asset ID 固化到 Dialogue 指令，Engine Adapter 只负责把该 ID 解析为引擎资源。
+
 对话中的说话人既可以是固定 CharacterRef，也可以由表达式动态决定。
 
 ### 6.3 资源引用
@@ -429,7 +431,7 @@ v3 只接受 `line` 结构，旧单 `text` Dialogue 与节点级默认属性均�
 若干 Line 拆分，编辑器按“选中 / 未选中”的连续区段生成 Dialogue 链，因此选择中间或不相邻的
 Line 也不会改变运行时播放顺序。合并和拆分都作为单个 Undo 事务。
 
-`emotion` 应引用最终说话人配置中的情绪 ID。立绘由 Runtime 根据说话人和情绪解析。
+`emotion` 应引用最终说话人配置中的情绪 ID。Compiler 优先解析该情绪的 Portrait，未配置时回退到角色 Default Portrait，并把最终 Asset ID 写入无节点的 Dialogue 指令。
 
 ### 7.1 Dialogue Ink 编辑视图
 

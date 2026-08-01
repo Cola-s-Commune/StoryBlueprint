@@ -392,8 +392,9 @@
 - [x] Story Data Character List
 - [x] 稳定 ID / Name / Display Name
 - [x] Character Name 修改时同步 Display Name，独立资源文件路径保持稳定
-- [x] Emotion 名称配置
-- [x] Portrait 资源选择器
+- [x] Emotion Key / Display Name / Portrait 结构化配置
+- [x] Emotion 重命名同步 Dialogue Line 引用，删除时安全清理引用
+- [x] Default Portrait 与 Emotion Portrait 选择器及编译期回退
 
 ---
 

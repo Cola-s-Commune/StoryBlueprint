@@ -195,6 +195,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
               const speaker = speakerId
                 ? source.characters.find((character) => character.id === speakerId)
                 : undefined;
+              const portraitId = emotion
+                ? (speaker?.emotions[emotion]?.portraitId ?? speaker?.defaultPortraitId)
+                : speaker?.defaultPortraitId;
               if (speakerId && !speaker) {
                 diagnostics.push({
                   code: 'INVALID_NODE',
@@ -229,6 +232,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   speakerId,
                   text,
                   voice: voiceId ? { default: voiceId } : undefined,
+                  portraitId,
                   emotion,
                   tags: line.tags,
                 });

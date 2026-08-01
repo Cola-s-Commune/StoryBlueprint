@@ -15,6 +15,7 @@ import {
   createGraphClipboard,
   fromSourceGraph,
   pasteGraphClipboard,
+  replaceCharacterEmotionReferences,
 } from '../packages/editor/src/renderer/graph/editorGraph';
 
 beforeAll(() => nodeRegistry.registerBuiltins());
@@ -32,16 +33,39 @@ function dialogueStory(): StorySourceDocument {
         id: 'c_alice',
         name: 'alice',
         displayName: 'Alice',
-        emotions: { happy: { displayName: 'Happy' } },
+        defaultPortraitId: 'a_aliceportrait',
+        emotions: { happy: { displayName: 'Happy', portraitId: 'a_alicehappy' } },
       },
       {
         id: 'c_bobxx',
         name: 'bob',
         displayName: 'Bob',
+        defaultPortraitId: 'a_bobportrait',
         emotions: { serious: { displayName: 'Serious' } },
       },
     ],
     assets: [
+      {
+        id: 'a_aliceportrait',
+        name: 'alice-portrait',
+        displayName: 'Alice Portrait',
+        kind: 'portrait',
+        locales: { default: 'portraits/alice.png' },
+      },
+      {
+        id: 'a_alicehappy',
+        name: 'alice-happy',
+        displayName: 'Alice Happy',
+        kind: 'portrait',
+        locales: { default: 'portraits/alice-happy.png' },
+      },
+      {
+        id: 'a_bobportrait',
+        name: 'bob-portrait',
+        displayName: 'Bob Portrait',
+        kind: 'portrait',
+        locales: { default: 'portraits/bob.png' },
+      },
       {
         id: 'a_defaultvoice',
         name: 'default-voice',
@@ -152,6 +176,7 @@ describe('multi-line Dialogue', () => {
       defaultText: 'First line',
       speakerId: 'c_alice',
       emotion: 'happy',
+      portraitId: 'a_alicehappy',
       tags: ['intro', 'greeting'],
       voice: { default: 'a_defaultvoice' },
     });
@@ -171,6 +196,7 @@ describe('multi-line Dialogue', () => {
       defaultText: 'Second line',
       speakerId: 'c_bobxx',
       emotion: 'serious',
+      portraitId: 'a_bobportrait',
       voice: { default: 'a_bobvoice' },
     });
     const restoredSecondLine = new StoryRuntime(
@@ -180,6 +206,23 @@ describe('multi-line Dialogue', () => {
     const restoredSecond = restoredSecondLine.runUntilPause();
     expect(restoredSecond.kind === 'waiting' && restoredSecond.interaction.kind).toBe('dialogue');
     expect(restoredSecondLine.continueDialogue().kind).toBe('completed');
+  });
+
+  it('rewrites only matching character emotion references', () => {
+    const graph = fromSourceGraph(dialogueStory().root);
+    const renamed = replaceCharacterEmotionReferences(graph, 'c_alice', 'happy', 'joyful');
+    const dialogue = renamed.nodes.find((node) => node.id === 'n_dialogue');
+    expect((dialogue?.data as DialogueNodeData).lines.map((line) => line.emotion)).toEqual([
+      'joyful',
+      'serious',
+    ]);
+
+    const removed = replaceCharacterEmotionReferences(renamed, 'c_alice', 'joyful');
+    const removedDialogue = removed.nodes.find((node) => node.id === 'n_dialogue');
+    expect((removedDialogue?.data as DialogueNodeData).lines.map((line) => line.emotion)).toEqual([
+      undefined,
+      'serious',
+    ]);
   });
 
   it('regenerates line and text IDs when a Dialogue node is pasted', () => {

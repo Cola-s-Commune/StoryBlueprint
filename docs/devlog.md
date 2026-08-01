@@ -1,5 +1,7 @@
 # Dev Log
 
+- Character Inspector 将 Emotion 从逗号文本升级为 Key / Display Name / Portrait 结构化列表；Emotion Key 重命名会同步已打开 Story 的 Dialogue Line，删除时确认并清除对应引用。
+- Dialogue 编译会解析角色立绘：优先使用 Emotion Portrait，缺省时回退 Default Portrait，并将最终 Asset ID 交给 Runtime / Engine Adapter。
 - 新建 Story Blueprint 项目会自动生成 `.gitignore`：默认排除编译产物与常见本地杂项，并使用仅新建写入保证不覆盖用户已有规则。
 - Resource Browser 显示项目的 Git 仓库与分支状态；未建仓项目可一键初始化 `main`，位于父级仓库中的工作区不会创建嵌套仓库。
 - 外部切换 Git 分支或 detached HEAD 后，编辑器自动重扫项目并重载所有已打开 Story；未保存内容会先请求确认，同分支普通提交不会触发重载。

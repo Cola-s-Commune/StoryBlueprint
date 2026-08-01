@@ -66,6 +66,7 @@ import {
   extractSelectionToSubstory as extractGraphSelection,
   mergeDialogueNodes as mergeGraphDialogues,
   prepareAIGraphChanges,
+  replaceCharacterEmotionReferences,
   splitDialogueLines as splitGraphDialogueLines,
   toEditorGraphNode,
   toSourceGraph,
@@ -421,6 +422,8 @@ interface StoryGraphStoreValue {
   removeVariable: (id: VariableId) => void;
   addCharacter: () => CharacterId;
   updateCharacter: (id: CharacterId, update: Partial<CharacterSource>) => void;
+  renameCharacterEmotion: (id: CharacterId, fromEmotion: string, toEmotion: string) => void;
+  removeCharacterEmotion: (id: CharacterId, emotion: string) => void;
   removeCharacter: (id: CharacterId) => void;
   addAsset: () => AssetId;
   updateAsset: (id: AssetId, update: Partial<AssetSource>) => void;
@@ -1392,6 +1395,59 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [markDirty, queueProjectResourceWrite, workspace?.characterResources],
   );
 
+  const rewriteCharacterEmotionReferences = useCallback(
+    (id: CharacterId, fromEmotion: string, toEmotion?: string) => {
+      const rewrite = (candidate: EditorGraphState) =>
+        replaceCharacterEmotionReferences(candidate, id, fromEmotion, toEmotion);
+      setNodes((current) => rewrite({ nodes: current, edges }).nodes);
+      updateInactiveGraphs(rewrite);
+      setWorkspaceStories((current) =>
+        current.map((story) => ({
+          ...story,
+          rootGraph: rewrite(story.rootGraph),
+          chapters: story.chapters.map((chapter) => ({
+            ...chapter,
+            graph: rewrite(chapter.graph),
+          })),
+          document: { ...story.document, dirty: true },
+          revision: story.revision + 1,
+        })),
+      );
+      markDirty();
+    },
+    [edges, markDirty, setNodes, updateInactiveGraphs],
+  );
+
+  const renameCharacterEmotion = useCallback(
+    (id: CharacterId, fromEmotion: string, toEmotion: string) => {
+      if (fromEmotion === toEmotion) return;
+      const character = resolvedCharacters.find((candidate) => candidate.id === id);
+      const definition = character?.emotions[fromEmotion];
+      if (!character || !definition || !toEmotion || character.emotions[toEmotion]) return;
+      const emotions = Object.fromEntries(
+        Object.entries(character.emotions).map(([key, value]) =>
+          key === fromEmotion ? [toEmotion, value] : [key, value],
+        ),
+      );
+      rewriteCharacterEmotionReferences(id, fromEmotion, toEmotion);
+      updateCharacter(id, { emotions });
+    },
+    [resolvedCharacters, rewriteCharacterEmotionReferences, updateCharacter],
+  );
+
+  const removeCharacterEmotion = useCallback(
+    (id: CharacterId, emotion: string) => {
+      const character = resolvedCharacters.find((candidate) => candidate.id === id);
+      if (!character?.emotions[emotion]) return;
+      const emotions = Object.fromEntries(
+        Object.entries(character.emotions).filter(([key]) => key !== emotion),
+      );
+      rewriteCharacterEmotionReferences(id, emotion);
+      updateCharacter(id, { emotions });
+    },
+    [resolvedCharacters, rewriteCharacterEmotionReferences, updateCharacter],
+  );
+
   const removeCharacter = useCallback(
     (id: CharacterId) => {
       const resource = workspace?.characterResources.find(
@@ -2217,8 +2273,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           const active = reloaded.find((item) => item.document.filePath === activeFilePath);
           const next = active ?? reloaded[0];
           if (next) {
-            const nextGraph =
-              activeGraphId === 'root' || next.chapters.some((chapter) => chapter.id === activeGraphId)
+          const nextGraph =
+            activeGraphId === 'root' || next.chapters.some((chapter) => chapter.id === activeGraphId)
                 ? activeGraphId
                 : 'root';
             loadStory(next, nextGraph);
@@ -2922,6 +2978,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeVariable,
       addCharacter,
       updateCharacter,
+      renameCharacterEmotion,
+      removeCharacterEmotion,
       removeCharacter,
       addAsset,
       updateAsset,
@@ -3033,6 +3091,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       onNodesChange,
       redo,
       removeCharacter,
+      removeCharacterEmotion,
       removeAsset,
       removeEvent,
       removeSignal,
@@ -3072,6 +3131,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       focusGraphNode,
       undo,
       updateCharacter,
+      renameCharacterEmotion,
       updateAsset,
       updateEvent,
       updateSignal,

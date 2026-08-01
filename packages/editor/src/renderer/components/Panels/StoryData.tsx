@@ -28,7 +28,7 @@ function ScriptNameInput({
   onCommit,
 }: {
   value: string;
-  onCommit: (value: string) => void;
+  onCommit: (value: string) => void | boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const beforeEdit = useRef(value);
@@ -50,7 +50,7 @@ function ScriptNameInput({
       setDraft(beforeEdit.current);
       return;
     }
-    if (draft !== value) onCommit(draft);
+    if (draft !== value && onCommit(draft) === false) setDraft(beforeEdit.current);
   };
 
   return (
@@ -167,15 +167,34 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
 }
 
 function CharacterEditor({ character }: { character: CharacterSource }) {
-  const { characters, assets, workspace, updateCharacter, removeCharacter, revealWorkspaceItem } =
-    useStoryGraphStore();
+  const {
+    characters,
+    assets,
+    workspace,
+    updateCharacter,
+    renameCharacterEmotion,
+    removeCharacterEmotion,
+    removeCharacter,
+    revealWorkspaceItem,
+  } = useStoryGraphStore();
   const resourcePath = workspace?.characterResources.find(
     (candidate) => candidate.character.id === character.id,
   )?.relativePath;
   const duplicate = characters.some(
     (candidate) => candidate.id !== character.id && candidate.name === character.name,
   );
-  const emotions = Object.keys(character.emotions).join(', ');
+  const portraitAssets = assets.filter((asset) => asset.kind === 'portrait');
+  const addEmotion = () => {
+    let index = Object.keys(character.emotions).length + 1;
+    let key = `emotion${index}`;
+    while (character.emotions[key]) key = `emotion${++index}`;
+    updateCharacter(character.id, {
+      emotions: {
+        ...character.emotions,
+        [key]: { displayName: `Emotion ${index}` },
+      },
+    });
+  };
   return (
     <div className={styles.details}>
       <div className={styles.detailsTitle}>Character</div>
@@ -205,36 +224,95 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           }
         >
           <option value="">None</option>
-          {assets
-            .filter((asset) => asset.kind === 'portrait')
-            .map((asset) => (
-              <option value={asset.id} key={asset.id}>
-                {asset.displayName}
-              </option>
-            ))}
+          {portraitAssets.map((asset) => (
+            <option value={asset.id} key={asset.id}>
+              {asset.displayName}
+            </option>
+          ))}
         </select>
       </label>
-      <label>
+      <div className={styles.parameterHeader}>
         <span>Emotions</span>
-        <input
-          value={emotions}
-          placeholder="neutral, happy, angry"
-          onChange={(event) => {
-            const keys = event.target.value
-              .split(',')
-              .map((key) => key.trim())
-              .filter(Boolean);
-            updateCharacter(character.id, {
-              emotions: Object.fromEntries(
-                keys.map((key) => [
-                  key,
-                  character.emotions[key] ?? { displayName: key[0]?.toUpperCase() + key.slice(1) },
-                ]),
-              ),
-            });
-          }}
-        />
-      </label>
+        <button type="button" onClick={addEmotion}>
+          Add Emotion
+        </button>
+      </div>
+      <div className={styles.emotionList}>
+        {Object.entries(character.emotions).map(([key, emotion]) => (
+          <div className={styles.emotionRow} key={key}>
+            <label>
+              <span>Key</span>
+              <ScriptNameInput
+                value={key}
+                onCommit={(nextKey) => {
+                  if (nextKey !== key && character.emotions[nextKey]) return false;
+                  renameCharacterEmotion(character.id, key, nextKey);
+                }}
+              />
+            </label>
+            <label>
+              <span>Display Name</span>
+              <input
+                value={emotion.displayName}
+                onChange={(event) =>
+                  updateCharacter(character.id, {
+                    emotions: {
+                      ...character.emotions,
+                      [key]: { ...emotion, displayName: event.target.value },
+                    },
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Portrait</span>
+              <select
+                value={emotion.portraitId ?? ''}
+                onChange={(event) =>
+                  updateCharacter(character.id, {
+                    emotions: {
+                      ...character.emotions,
+                      [key]: {
+                        ...emotion,
+                        portraitId: (event.target.value || undefined) as AssetId | undefined,
+                      },
+                    },
+                  })
+                }
+              >
+                <option value="">Use Default</option>
+                {portraitAssets.map((asset) => (
+                  <option value={asset.id} key={asset.id}>
+                    {asset.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className={styles.emotionRemoveButton}
+              type="button"
+              title={`Delete ${emotion.displayName}`}
+              aria-label={`Delete ${emotion.displayName}`}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete emotion "${emotion.displayName}"? Dialogue lines using it will fall back to the character default portrait.`,
+                  )
+                ) {
+                  removeCharacterEmotion(character.id, key);
+                }
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {Object.keys(character.emotions).length === 0 && (
+          <div className={styles.infoText}>
+            No emotions. Dialogue will use the default portrait.
+          </div>
+        )}
+      </div>
       <div className={styles.detailActions}>
         {resourcePath && (
           <button

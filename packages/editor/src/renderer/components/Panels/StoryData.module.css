@@ -271,6 +271,40 @@
   color: #e39a9f;
 }
 
+.emotionList {
+  display: grid;
+  gap: 7px;
+}
+
+.emotionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 26px;
+  align-items: end;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid #343c46;
+  border-radius: 5px;
+  background: #20252b;
+}
+
+.emotionRow label:nth-of-type(3) {
+  grid-column: 1 / 3;
+}
+
+.emotionRemoveButton {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 26px;
+  height: 28px;
+  border: 1px solid #594047;
+  border-radius: 4px;
+  background: #30262b;
+  color: #e39a9f;
+  cursor: pointer;
+  font: inherit;
+}
+
 .infoText {
   color: #66717e;
   font-size: 10px;

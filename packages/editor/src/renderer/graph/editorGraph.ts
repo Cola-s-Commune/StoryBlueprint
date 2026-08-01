@@ -7,6 +7,7 @@ import {
   validateGraphConnection,
   type BlueprintLayoutRequest,
   type ChapterId,
+  type CharacterId,
   type DialogueNodeData,
   type DialogueLineId,
   type EdgeId,
@@ -327,6 +328,28 @@ export function autoLayoutGraph(
     }),
     edges: graph.edges,
   };
+}
+
+export function replaceCharacterEmotionReferences(
+  graph: EditorGraphState,
+  characterId: CharacterId,
+  fromEmotion: string,
+  toEmotion?: string,
+): EditorGraphState {
+  let changed = false;
+  const nodes = graph.nodes.map((node) => {
+    if (node.type !== StoryNodeType.Dialogue) return node;
+    const data = node.data as DialogueNodeData;
+    let nodeChanged = false;
+    const lines = data.lines.map((line) => {
+      if (line.speakerId !== characterId || line.emotion !== fromEmotion) return line;
+      changed = true;
+      nodeChanged = true;
+      return { ...line, emotion: toEmotion };
+    });
+    return nodeChanged ? { ...node, data: { ...node.data, lines } } : node;
+  });
+  return changed ? { ...graph, nodes } : graph;
 }
 
 export function applyBlueprintLayoutRequests(
