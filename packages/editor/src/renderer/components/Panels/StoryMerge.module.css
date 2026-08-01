@@ -262,6 +262,45 @@
   overflow-wrap: anywhere;
 }
 
+.regionDetails,
+.regionConfirmation {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  background: #182029;
+}
+
+.regionDetails span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.regionDetails em {
+  color: #e6ad63;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.regionConfirmation {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  border-top: 1px solid #8f6337;
+  background: #30271d;
+}
+
+.regionConfirmation > strong,
+.regionConfirmation > span {
+  grid-column: 1;
+}
+
+.regionConfirmation > button {
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  border-left: 1px solid #55442f;
+}
+
 @media (max-width: 620px) {
   .choices {
     grid-template-columns: 1fr;

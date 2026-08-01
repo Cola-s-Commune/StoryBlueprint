@@ -42,10 +42,25 @@ export interface ExecutionRegionResolution {
   kind: 'execution-region';
   localNodeIds: string[];
   remoteNodeIds: string[];
+  coreNodeIds: string[];
+  boundaryNodeIds: string[];
+  coreLabels: string[];
+  boundaryLabels: string[];
+  changedOutputCount: number;
+  localImpact: ExecutionRegionImpact;
+  remoteImpact: ExecutionRegionImpact;
+  requiresConfirmation: boolean;
   localCoveredConflictIds: string[];
   remoteCoveredConflictIds: string[];
   localLabel: string;
   remoteLabel: string;
+}
+
+export interface ExecutionRegionImpact {
+  nodesAdded: number;
+  nodesRemoved: number;
+  linksAdded: number;
+  linksRemoved: number;
 }
 
 export interface StoryMergeConflict {
@@ -110,6 +125,11 @@ export type MergeableStoryDocument = Pick<
 >;
 
 const missing = Symbol('missing');
+const executionRegionConfirmationThreshold = {
+  coreNodes: 12,
+  changedOutputs: 4,
+  linksPerSide: 20,
+} as const;
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -798,13 +818,31 @@ function executionEdges(graph: SourceGraph): SourceEdge[] {
   return [...executionSuccessors(graph).values()].flat();
 }
 
-function executionRegionEdges(
-  graph: SourceGraph,
-  affectedNodeIds: ReadonlySet<string>,
-): SourceEdge[] {
+function executionRegionEdges(graph: SourceGraph, coreNodeIds: ReadonlySet<string>): SourceEdge[] {
   return executionEdges(graph).filter(
-    (edge) => affectedNodeIds.has(edge.from.nodeId) || affectedNodeIds.has(edge.to.nodeId),
+    (edge) => coreNodeIds.has(edge.from.nodeId) || coreNodeIds.has(edge.to.nodeId),
   );
+}
+
+function executionRegionImpact(
+  baseGraph: SourceGraph,
+  branchGraph: SourceGraph,
+  coreNodeIds: ReadonlySet<string>,
+): ExecutionRegionImpact {
+  const baseNodes = new Set(
+    baseGraph.nodes.filter((node) => coreNodeIds.has(node.id)).map((node) => node.id),
+  );
+  const branchNodes = new Set(
+    branchGraph.nodes.filter((node) => coreNodeIds.has(node.id)).map((node) => node.id),
+  );
+  const baseEdges = new Set(executionRegionEdges(baseGraph, coreNodeIds).map(edgeKey));
+  const branchEdges = new Set(executionRegionEdges(branchGraph, coreNodeIds).map(edgeKey));
+  return {
+    nodesAdded: [...branchNodes].filter((nodeId) => !baseNodes.has(nodeId)).length,
+    nodesRemoved: [...baseNodes].filter((nodeId) => !branchNodes.has(nodeId)).length,
+    linksAdded: [...branchEdges].filter((key) => !baseEdges.has(key)).length,
+    linksRemoved: [...baseEdges].filter((key) => !branchEdges.has(key)).length,
+  };
 }
 
 function detectExecutionRegions(
@@ -816,6 +854,20 @@ function detectExecutionRegions(
   protectedNodeIds: ReadonlySet<string>,
 ): ExecutionRegionPlan[] {
   if (candidates.length === 0) return [];
+  const baseNodeIds = new Set(baseGraph.nodes.map((node) => node.id));
+  const localNodeIdsInGraph = new Set(localGraph.nodes.map((node) => node.id));
+  const remoteNodeIdsInGraph = new Set(remoteGraph.nodes.map((node) => node.id));
+  const candidateSourceNodeIds = new Set(
+    candidates.map((candidate) => candidate.outputKey.split('\0')[0]),
+  );
+  const stableBoundaryNodeIds = new Set(
+    [...baseNodeIds].filter(
+      (nodeId) =>
+        localNodeIdsInGraph.has(nodeId) &&
+        remoteNodeIdsInGraph.has(nodeId) &&
+        !candidateSourceNodeIds.has(nodeId),
+    ),
+  );
   const baseEdgeKeys = new Set(executionEdges(baseGraph).map(edgeKey));
   const localEdgeKeys = new Set(executionEdges(localGraph).map(edgeKey));
   const remoteEdgeKeys = new Set(executionEdges(remoteGraph).map(edgeKey));
@@ -848,6 +900,7 @@ function detectExecutionRegions(
       const nodeId = pending.pop()!;
       if (visited.has(nodeId) || protectedNodeIds.has(nodeId)) continue;
       visited.add(nodeId);
+      if (nodeId !== start && stableBoundaryNodeIds.has(nodeId)) continue;
       for (const neighbor of neighbors.get(nodeId) ?? []) pending.push(neighbor);
     }
     return [...visited].sort();
@@ -864,25 +917,54 @@ function detectExecutionRegions(
     group.candidates.push(candidate);
     groups.set(key, group);
   }
-  const localNodes = new Set(localGraph.nodes.map((node) => node.id));
-  const remoteNodes = new Set(remoteGraph.nodes.map((node) => node.id));
   return [...groups.values()].map(({ nodeIds, candidates: regionCandidates }) => {
-    const affectedNodeIds = new Set(nodeIds);
-    const localEdges = executionRegionEdges(localGraph, affectedNodeIds);
-    const remoteEdges = executionRegionEdges(remoteGraph, affectedNodeIds);
+    const coreNodeIds = new Set(
+      nodeIds.filter(
+        (nodeId) =>
+          candidateSourceNodeIds.has(nodeId) ||
+          baseNodeIds.has(nodeId) !== localNodeIdsInGraph.has(nodeId) ||
+          baseNodeIds.has(nodeId) !== remoteNodeIdsInGraph.has(nodeId),
+      ),
+    );
+    const boundaryNodeIds = nodeIds.filter((nodeId) => !coreNodeIds.has(nodeId));
+    const localEdges = executionRegionEdges(localGraph, coreNodeIds);
+    const remoteEdges = executionRegionEdges(remoteGraph, coreNodeIds);
     const anchors = regionCandidates
       .map((candidate) => candidate.outputKey.replace('\0', ':'))
       .sort()
       .join(',');
     const path = childPath(childPath('story', graphId), `execution-region:${anchors}`);
-    const localNodeIds = nodeIds.filter((nodeId) => localNodes.has(nodeId));
-    const remoteNodeIds = nodeIds.filter((nodeId) => remoteNodes.has(nodeId));
+    const localNodeIds = nodeIds.filter((nodeId) => localNodeIdsInGraph.has(nodeId));
+    const remoteNodeIds = nodeIds.filter((nodeId) => remoteNodeIdsInGraph.has(nodeId));
+    const labelFor = (nodeId: string) => {
+      if (localNodeIdsInGraph.has(nodeId)) return nodeLabel(localGraph, nodeId);
+      if (remoteNodeIdsInGraph.has(nodeId)) return nodeLabel(remoteGraph, nodeId);
+      return nodeLabel(baseGraph, nodeId);
+    };
+    const coreLabels = [...coreNodeIds].map(labelFor);
+    const boundaryLabels = boundaryNodeIds.map(labelFor);
+    const localImpact = executionRegionImpact(baseGraph, localGraph, coreNodeIds);
+    const remoteImpact = executionRegionImpact(baseGraph, remoteGraph, coreNodeIds);
+    const changedOutputCount = regionCandidates.length;
+    const requiresConfirmation =
+      coreNodeIds.size > executionRegionConfirmationThreshold.coreNodes ||
+      changedOutputCount > executionRegionConfirmationThreshold.changedOutputs ||
+      Math.max(localEdges.length, remoteEdges.length) >
+        executionRegionConfirmationThreshold.linksPerSide;
     return {
       kind: 'execution-region',
       path,
       affectedNodeIds: nodeIds,
       localNodeIds,
       remoteNodeIds,
+      coreNodeIds: [...coreNodeIds],
+      boundaryNodeIds,
+      coreLabels,
+      boundaryLabels,
+      changedOutputCount,
+      localImpact,
+      remoteImpact,
+      requiresConfirmation,
       localCoveredConflictIds: [],
       remoteCoveredConflictIds: [],
       localEdges,
@@ -1052,6 +1134,14 @@ function resolveExecutionSuccessorConflicts(
         kind: 'execution-region',
         localNodeIds: region.localNodeIds,
         remoteNodeIds: region.remoteNodeIds,
+        coreNodeIds: region.coreNodeIds,
+        boundaryNodeIds: region.boundaryNodeIds,
+        coreLabels: region.coreLabels,
+        boundaryLabels: region.boundaryLabels,
+        changedOutputCount: region.changedOutputCount,
+        localImpact: region.localImpact,
+        remoteImpact: region.remoteImpact,
+        requiresConfirmation: region.requiresConfirmation,
         localCoveredConflictIds: region.localCoveredConflictIds,
         remoteCoveredConflictIds: region.remoteCoveredConflictIds,
         localLabel: region.localLabel,

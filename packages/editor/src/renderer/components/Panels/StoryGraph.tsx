@@ -1034,6 +1034,7 @@ export function StoryGraph() {
     const mergeChanged = new Set(activeMergePreview?.changedNodeIds ?? []);
     const mergeRemoved = new Set(activeMergePreview?.removedNodeIds ?? []);
     const mergeConflicts = new Set(activeMergePreview?.conflictNodeIds ?? []);
+    const mergeBoundaries = new Set(activeMergePreview?.boundaryNodeIds ?? []);
     const mergeResolved = new Set(activeMergePreview?.resolvedNodeIds ?? []);
     return canvasNodes.map((node) => ({
       ...node,
@@ -1041,7 +1042,9 @@ export function StoryGraph() {
       className: [
         node.className,
         mergeConflicts.has(node.id)
-          ? 'merge-preview-conflict'
+          ? mergeBoundaries.has(node.id)
+            ? 'merge-preview-conflict-boundary'
+            : 'merge-preview-conflict'
           : mergeRemoved.has(node.id)
             ? 'merge-preview-removed'
             : mergeResolved.has(node.id)
@@ -1747,6 +1750,19 @@ export function StoryGraph() {
                         </>
                       ) : executionRegion ? (
                         <>
+                          <div className={styles.mergeRegionDetails}>
+                            <strong>
+                              {executionRegion.coreNodeIds.length} core ·{' '}
+                              {executionRegion.boundaryNodeIds.length} boundary ·{' '}
+                              {executionRegion.changedOutputCount} changed output(s)
+                            </strong>
+                            <span title={executionRegion.coreLabels.join('\n')}>
+                              {executionRegion.coreLabels.join(', ')}
+                            </span>
+                            {executionRegion.requiresConfirmation && (
+                              <em>Large region: confirm in Story Merge.</em>
+                            )}
+                          </div>
                           <button
                             type="button"
                             className={choice === 'local' ? styles.mergeChoiceSelected : undefined}
@@ -1754,6 +1770,12 @@ export function StoryGraph() {
                           >
                             <strong>Keep Local Region</strong>
                             <span>{executionRegion.localLabel}</span>
+                            <span>
+                              Nodes +{executionRegion.localImpact.nodesAdded}/−
+                              {executionRegion.localImpact.nodesRemoved} · Links +
+                              {executionRegion.localImpact.linksAdded}/−
+                              {executionRegion.localImpact.linksRemoved}
+                            </span>
                           </button>
                           <button
                             type="button"
@@ -1762,6 +1784,12 @@ export function StoryGraph() {
                           >
                             <strong>Keep Remote Region</strong>
                             <span>{executionRegion.remoteLabel}</span>
+                            <span>
+                              Nodes +{executionRegion.remoteImpact.nodesAdded}/−
+                              {executionRegion.remoteImpact.nodesRemoved} · Links +
+                              {executionRegion.remoteImpact.linksAdded}/−
+                              {executionRegion.remoteImpact.linksRemoved}
+                            </span>
                           </button>
                         </>
                       ) : connection ? (

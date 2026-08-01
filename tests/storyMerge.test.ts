@@ -461,6 +461,18 @@ describe('Story semantic merge', () => {
     expect(regions[0].resolution).toMatchObject({
       localNodeIds: expect.arrayContaining(['n_choice', 'n_localleft', 'n_localright']),
       remoteNodeIds: expect.arrayContaining(['n_choice', 'n_remoteleft', 'n_remoteright']),
+      coreNodeIds: expect.arrayContaining([
+        'n_choice',
+        'n_localleft',
+        'n_localright',
+        'n_remoteleft',
+        'n_remoteright',
+      ]),
+      boundaryNodeIds: expect.arrayContaining(['n_baseleft', 'n_baseright']),
+      changedOutputCount: 2,
+      localImpact: { nodesAdded: 2, nodesRemoved: 0, linksAdded: 2, linksRemoved: 2 },
+      remoteImpact: { nodesAdded: 2, nodesRemoved: 0, linksAdded: 2, linksRemoved: 2 },
+      requiresConfirmation: false,
     });
     const promptConflict = diff.conflicts.find((conflict) => conflict.id.endsWith('/source'))!;
     expect(
@@ -555,6 +567,137 @@ describe('Story semantic merge', () => {
     expect(keepRemote.root.edges).toEqual(remote.root.edges);
     expect(keepRemote.root.nodes.map((node) => node.id)).toContain('n_endxx');
     expect(keepRemote.root.nodes.map((node) => node.id)).not.toContain('n_localroute');
+  });
+
+  it('splits independent conflicts that only meet at a stable boundary node', () => {
+    const baseSource = story('First');
+    baseSource.root.nodes.push({
+      id: 'n_second',
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 100, y: 400 },
+      data: {
+        lines: [{ id: 'ln_second', textId: 't_second', text: { source: 'Second' } }],
+      },
+    });
+    baseSource.root.edges.push({
+      from: { nodeId: 'n_second', portId: 'out' },
+      to: { nodeId: 'n_endxx', portId: 'in' },
+    });
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    const makeEnd = (id: string, y: number) => ({
+      id,
+      type: StoryNodeType.End,
+      definitionVersion: 1,
+      position: { x: 700, y },
+      data: { title: id },
+    });
+    localSource.root.nodes.push(makeEnd('n_localone', 100), makeEnd('n_localtwo', 400));
+    remoteSource.root.nodes.push(makeEnd('n_remoteone', 200), makeEnd('n_remotetwo', 500));
+    localSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_localone', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_second', portId: 'out' },
+        to: { nodeId: 'n_localtwo', portId: 'in' },
+      },
+    ];
+    remoteSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_remoteone', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_second', portId: 'out' },
+        to: { nodeId: 'n_remotetwo', portId: 'in' },
+      },
+    ];
+    const diff = diffThreeWayStoryDocuments(
+      mergeableStory(baseSource),
+      mergeableStory(localSource),
+      mergeableStory(remoteSource),
+    );
+    const regions = diff.conflicts.filter(
+      (conflict) => conflict.resolution?.kind === 'execution-region',
+    );
+
+    expect(regions).toHaveLength(2);
+    expect(
+      regions.map((conflict) =>
+        conflict.resolution?.kind === 'execution-region'
+          ? conflict.resolution.changedOutputCount
+          : 0,
+      ),
+    ).toEqual([1, 1]);
+    for (const conflict of regions) {
+      expect(conflict.resolution).toMatchObject({ boundaryNodeIds: ['n_endxx'] });
+    }
+  });
+
+  it('marks a region with many competing outputs as requiring confirmation', () => {
+    const baseSource = story('Before', false);
+    const options = Array.from({ length: 5 }, (_, index) => ({
+      id: `opt_${index}`,
+      text: { source: `Option ${index}` },
+    }));
+    baseSource.root.nodes.push({
+      id: 'n_largechoice',
+      type: StoryNodeType.Choice,
+      definitionVersion: 1,
+      position: { x: 300, y: 200 },
+      data: { prompt: { source: 'Choose' }, options },
+    });
+    baseSource.root.edges = [
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_largechoice', portId: 'in' },
+      },
+    ];
+    const localSource = structuredClone(baseSource);
+    const remoteSource = structuredClone(baseSource);
+    options.forEach((option, index) => {
+      const makeEnd = (prefix: string, y: number) => ({
+        id: `n_${prefix}${index}`,
+        type: StoryNodeType.End,
+        definitionVersion: 1,
+        position: { x: 700, y },
+        data: { title: `${prefix} ${index}` },
+      });
+      const baseEnd = makeEnd('base', index * 120);
+      const localEnd = makeEnd('local', index * 120);
+      const remoteEnd = makeEnd('remote', index * 120);
+      baseSource.root.nodes.push(baseEnd);
+      localSource.root.nodes.push(baseEnd, localEnd);
+      remoteSource.root.nodes.push(baseEnd, remoteEnd);
+      baseSource.root.edges.push({
+        from: { nodeId: 'n_largechoice', portId: option.id },
+        to: { nodeId: baseEnd.id, portId: 'in' },
+      });
+      localSource.root.edges.push({
+        from: { nodeId: 'n_largechoice', portId: option.id },
+        to: { nodeId: localEnd.id, portId: 'in' },
+      });
+      remoteSource.root.edges.push({
+        from: { nodeId: 'n_largechoice', portId: option.id },
+        to: { nodeId: remoteEnd.id, portId: 'in' },
+      });
+    });
+    const diff = diffThreeWayStoryDocuments(
+      mergeableStory(baseSource),
+      mergeableStory(localSource),
+      mergeableStory(remoteSource),
+    );
+    const region = diff.conflicts.find(
+      (conflict) => conflict.resolution?.kind === 'execution-region',
+    );
+
+    expect(region?.resolution).toMatchObject({
+      changedOutputCount: 5,
+      requiresConfirmation: true,
+    });
   });
 
   it('asks which data source to keep when both branches reconnect the same input', () => {

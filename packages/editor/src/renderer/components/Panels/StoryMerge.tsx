@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   parseAssetResource,
   parseCharacterResource,
@@ -29,6 +29,7 @@ import {
   storyMergeCoveredConflictIds,
   unresolvedStoryMergeConflicts,
   type CoordinateLayoutOrder,
+  type ExecutionRegionImpact,
   type MergeableStoryDocument,
   type StoryMergeChoice,
   type StoryMergeConflict,
@@ -53,6 +54,10 @@ function coordinateConflictNodeId(conflict: StoryMergeConflict): string | undefi
   const segments = conflict.id.split('/').map(decodeURIComponent);
   if (segments.at(-1) !== 'position') return undefined;
   return segments.find((segment) => segment.startsWith('@id:n_'))?.slice(4);
+}
+
+function executionRegionImpactText(impact: ExecutionRegionImpact): string {
+  return `Nodes +${impact.nodesAdded}/−${impact.nodesRemoved} · Links +${impact.linksAdded}/−${impact.linksRemoved}`;
 }
 
 function summarizeGraphChanges(
@@ -440,6 +445,11 @@ export function StoryMerge() {
   const [validatedKey, setValidatedKey] = useState('');
   const [gitConflictRevision, setGitConflictRevision] = useState('');
   const [coordinateLayoutOrder, setCoordinateLayoutOrder] = useState<CoordinateLayoutOrder>();
+  const [pendingRegionChoice, setPendingRegionChoice] = useState<{
+    id: string;
+    choice: 'local' | 'remote';
+  }>();
+  const handledDecisionRequestNonce = useRef<number>();
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
   const threeWayDiff = useMemo(
     () =>
@@ -604,6 +614,24 @@ export function StoryMerge() {
 
   useEffect(() => {
     if (!storyMergeDecisionRequest) return;
+    if (handledDecisionRequestNonce.current === storyMergeDecisionRequest.nonce) return;
+    handledDecisionRequestNonce.current = storyMergeDecisionRequest.nonce;
+    const requestedConflict = conflicts.find(
+      (conflict) => conflict.id === storyMergeDecisionRequest.id,
+    );
+    if (
+      requestedConflict?.resolution?.kind === 'execution-region' &&
+      requestedConflict.resolution.requiresConfirmation &&
+      (storyMergeDecisionRequest.choice === 'local' ||
+        storyMergeDecisionRequest.choice === 'remote')
+    ) {
+      setPendingRegionChoice({
+        id: requestedConflict.id,
+        choice: storyMergeDecisionRequest.choice,
+      });
+      setStatus('Review the large execution region impact in Story Merge, then confirm.');
+      return;
+    }
     if (coordinateConflictIds.has(storyMergeDecisionRequest.id)) {
       setCoordinateLayoutOrder(undefined);
     }
@@ -613,7 +641,7 @@ export function StoryMerge() {
     }));
     setError(undefined);
     setStatus(undefined);
-  }, [coordinateConflictIds, storyMergeDecisionRequest]);
+  }, [conflicts, coordinateConflictIds, storyMergeDecisionRequest]);
 
   const previewConflict = (conflict: StoryMergeConflict) => {
     const resolutionNodeId =
@@ -638,19 +666,48 @@ export function StoryMerge() {
   };
 
   const choose = (id: string, choice: StoryMergeChoice) => {
+    setPendingRegionChoice(undefined);
     if (coordinateConflictIds.has(id)) setCoordinateLayoutOrder(undefined);
     setDecisions((current) => ({ ...current, [id]: choice }));
     setError(undefined);
     setStatus(undefined);
   };
 
+  const requestExecutionRegionChoice = (
+    conflict: StoryMergeConflict,
+    choice: 'local' | 'remote',
+  ) => {
+    if (conflict.resolution?.kind !== 'execution-region') return;
+    if (conflict.resolution.requiresConfirmation) {
+      setPendingRegionChoice({ id: conflict.id, choice });
+      setStatus('This region is large. Review its core, boundary, and impact before confirming.');
+      return;
+    }
+    choose(conflict.id, choice);
+  };
+
   const chooseAll = (choice: StoryMergeChoice) => {
+    const guardedRegionCount = conflicts.filter(
+      (conflict) =>
+        !coveredConflictIds.has(conflict.id) &&
+        conflict.resolution?.kind === 'execution-region' &&
+        conflict.resolution.requiresConfirmation &&
+        decisions[conflict.id] === undefined,
+    ).length;
     setCoordinateLayoutOrder(undefined);
     setDecisions((current) => ({
       ...current,
       ...Object.fromEntries(
         conflicts
-          .filter((conflict) => !coveredConflictIds.has(conflict.id))
+          .filter(
+            (conflict) =>
+              !coveredConflictIds.has(conflict.id) &&
+              !(
+                conflict.resolution?.kind === 'execution-region' &&
+                conflict.resolution.requiresConfirmation &&
+                current[conflict.id] === undefined
+              ),
+          )
           .map((conflict) => [
             conflict.id,
             coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)
@@ -660,7 +717,11 @@ export function StoryMerge() {
       ),
     }));
     setError(undefined);
-    setStatus(undefined);
+    setStatus(
+      guardedRegionCount > 0
+        ? `${guardedRegionCount} large execution region(s) still require individual review.`
+        : undefined,
+    );
   };
 
   const resolveCoordinateConflicts = (choice: StoryMergeChoice) => {
@@ -785,6 +846,7 @@ export function StoryMerge() {
         setRemotePath(`${stages.repositoryRoot} · ${stages.relativePath}`);
         setBaseRevision(semanticSnapshot.revision);
         setDecisions({});
+        setPendingRegionChoice(undefined);
         setCoordinateLayoutOrder(undefined);
         setMode('git-three-way');
         setGitConflictRevision(stages.revision);
@@ -810,6 +872,7 @@ export function StoryMerge() {
       setRemotePath(selectedPath);
       setBaseRevision(semanticSnapshot.revision);
       setDecisions({});
+      setPendingRegionChoice(undefined);
       setCoordinateLayoutOrder(undefined);
       setMode('two-way');
       setGitConflictRevision('');
@@ -1140,22 +1203,65 @@ export function StoryMerge() {
                           </>
                         ) : executionRegion ? (
                           <>
+                            <div className={styles.regionDetails}>
+                              <strong>
+                                {executionRegion.coreNodeIds.length} core ·{' '}
+                                {executionRegion.boundaryNodeIds.length} boundary ·{' '}
+                                {executionRegion.changedOutputCount} changed output(s)
+                              </strong>
+                              <span title={executionRegion.coreLabels.join('\n')}>
+                                Core: {executionRegion.coreLabels.join(', ') || 'none'}
+                              </span>
+                              <span title={executionRegion.boundaryLabels.join('\n')}>
+                                Boundary: {executionRegion.boundaryLabels.join(', ') || 'none'}
+                              </span>
+                              {executionRegion.requiresConfirmation && (
+                                <em>Large region — explicit confirmation required.</em>
+                              )}
+                            </div>
                             <button
                               type="button"
                               className={choice === 'local' ? styles.selectedChoice : undefined}
-                              onClick={() => choose(conflict.id, 'local')}
+                              onClick={() => requestExecutionRegionChoice(conflict, 'local')}
                             >
                               <strong>Keep Local Region</strong>
                               <span>{executionRegion.localLabel}</span>
+                              <span>{executionRegionImpactText(executionRegion.localImpact)}</span>
                             </button>
                             <button
                               type="button"
                               className={choice === 'remote' ? styles.selectedChoice : undefined}
-                              onClick={() => choose(conflict.id, 'remote')}
+                              onClick={() => requestExecutionRegionChoice(conflict, 'remote')}
                             >
                               <strong>Keep Remote Region</strong>
                               <span>{executionRegion.remoteLabel}</span>
+                              <span>{executionRegionImpactText(executionRegion.remoteImpact)}</span>
                             </button>
+                            {pendingRegionChoice?.id === conflict.id && (
+                              <div className={styles.regionConfirmation}>
+                                <strong>
+                                  Confirm Keep{' '}
+                                  {pendingRegionChoice.choice === 'local' ? 'Local' : 'Remote'}{' '}
+                                  Region?
+                                </strong>
+                                <span>
+                                  This replaces {executionRegion.coreNodeIds.length} core node(s)
+                                  and {executionRegion.changedOutputCount} changed output(s).
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => choose(conflict.id, pendingRegionChoice.choice)}
+                                >
+                                  Confirm Region Replacement
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingRegionChoice(undefined)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            )}
                           </>
                         ) : connection ? (
                           <>

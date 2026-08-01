@@ -121,12 +121,20 @@ describe('Story merge graph preview', () => {
       remoteValue: remoteGraph.edges,
       resolution: {
         kind: 'execution-region' as const,
-        localNodeIds: ['n_dialogue', 'n_localend'],
-        remoteNodeIds: ['n_dialogue', 'n_remoteend'],
+        localNodeIds: ['n_dialogue', 'n_endnode', 'n_localend'],
+        remoteNodeIds: ['n_dialogue', 'n_endnode', 'n_remoteend'],
+        coreNodeIds: ['n_dialogue', 'n_localend', 'n_remoteend'],
+        boundaryNodeIds: ['n_endnode'],
+        coreLabels: ['Before', 'Local End', 'Remote End'],
+        boundaryLabels: ['End'],
+        changedOutputCount: 1,
+        localImpact: { nodesAdded: 1, nodesRemoved: 0, linksAdded: 1, linksRemoved: 1 },
+        remoteImpact: { nodesAdded: 1, nodesRemoved: 0, linksAdded: 1, linksRemoved: 1 },
+        requiresConfirmation: false,
         localCoveredConflictIds: [],
         remoteCoveredConflictIds: ['story/root/nodes/%40id%3An_localend'],
-        localLabel: 'Local region · 2 nodes · 1 links',
-        remoteLabel: 'Remote region · 2 nodes · 1 links',
+        localLabel: 'Local region · 3 nodes · 1 links',
+        remoteLabel: 'Remote region · 3 nodes · 1 links',
       },
     };
     const coveredNodeConflict = {
@@ -143,7 +151,13 @@ describe('Story merge graph preview', () => {
       {},
       story(remoteGraph),
     ).graphs[0];
-    expect(unresolved.conflictNodeIds.sort()).toEqual(['n_dialogue', 'n_localend', 'n_remoteend']);
+    expect(unresolved.conflictNodeIds.sort()).toEqual([
+      'n_dialogue',
+      'n_endnode',
+      'n_localend',
+      'n_remoteend',
+    ]);
+    expect(unresolved.boundaryNodeIds).toEqual(['n_endnode']);
     expect(unresolved.conflictEdgeIds).toHaveLength(2);
 
     const resolved = buildStoryMergePreview(
@@ -153,7 +167,8 @@ describe('Story merge graph preview', () => {
       { [conflict.id]: 'remote' },
       story(remoteGraph),
     ).graphs[0];
-    expect(resolved.resolvedNodeIds.sort()).toEqual(['n_dialogue', 'n_remoteend']);
+    expect(resolved.resolvedNodeIds.sort()).toEqual(['n_dialogue', 'n_endnode', 'n_remoteend']);
+    expect(resolved.boundaryNodeIds).toEqual([]);
     expect(resolved.removedNodeIds).toContain('n_localend');
     expect(resolved.conflictNodeIds).toEqual([]);
   });

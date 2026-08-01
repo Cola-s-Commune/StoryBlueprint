@@ -1176,6 +1176,17 @@ Execution Region 只接管节点存在性和执行连线拓扑；双方对共同
 数量、Previous / Next、批量选择、Validate 或 Apply 门禁。共同保留节点上的字段冲突不会被覆盖。覆盖关系
 根据当前区域选择动态计算，不伪造字段决策；改变区域选择后，仍然相关且未单独处理的字段冲突会重新出现。
 
+Execution Region 将节点分为 Core 与 Boundary。Core 包含发生竞争输出的源节点和三方存在性不同的节点；
+Boundary 是三方都存在、仅用于连接变化区域与稳定图的节点。连通分量遍历抵达非竞争的稳定 Boundary 后停止，
+因此两个只在共同 End 等稳定节点相遇的冲突不会被粘成一个大区域；同一 Choice / Branch 的多个竞争输出
+仍因共享 Core 源节点保持为一组。区域替换只处理 Core 关联的执行边，不覆盖 Boundary 的其他稳定分支。
+图预览以强实线表示 Core 冲突，以较弱虚线表示 Boundary。
+
+每个区域显示 Core / Boundary 节点名称、竞争输出数量，以及相对 Base 的节点和执行边增删统计。满足任一
+条件即标记为 Large Region：Core 超过 12 个节点、竞争输出超过 4 个，或任一侧区域执行边超过 20 条。
+Large Region 不参与 `Resolve Remaining Local / Remote`，从画布或列表选择后也只会进入待确认状态；作者
+必须查看影响摘要并执行第二次明确确认，才能写入 Merge Decision。
+
 同一 Data Input 被双方改接到不同来源时，必须生成 Connection Competition 冲突，并提供两个来源的
 明确选择，不能等到 Validate 阶段只报告双输入错误。双方同时替换同一 Graph 的 Start 时生成 Entry
 冲突；选择一侧会移除另一侧 Start 及其相关连线。最终预检要求 Main Story 和每个 Substory 最多只有

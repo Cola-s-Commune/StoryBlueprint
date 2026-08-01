@@ -23,6 +23,7 @@ export interface StoryMergePreviewGraph {
   changedNodeIds: NodeId[];
   removedNodeIds: NodeId[];
   conflictNodeIds: NodeId[];
+  boundaryNodeIds: NodeId[];
   resolvedNodeIds: NodeId[];
   addedEdgeIds: EdgeId[];
   removedEdgeIds: EdgeId[];
@@ -116,6 +117,15 @@ function conflictKeys(conflicts: readonly StoryMergeConflict[]) {
   return { nodeIds, edges };
 }
 
+function executionRegionBoundaryNodes(conflicts: readonly StoryMergeConflict[]): Set<NodeId> {
+  const result = new Set<NodeId>();
+  for (const conflict of conflicts) {
+    if (conflict.resolution?.kind !== 'execution-region') continue;
+    for (const nodeId of conflict.resolution.boundaryNodeIds) result.add(nodeId as NodeId);
+  }
+  return result;
+}
+
 function resolvedConflictNodes(
   conflicts: readonly StoryMergeConflict[],
   decisions: StoryMergeDecisions,
@@ -153,6 +163,7 @@ function previewGraph(
   merged: SourceGraph | undefined,
   remote: SourceGraph | undefined,
   conflictNodeIds: ReadonlySet<NodeId>,
+  boundaryNodeIds: ReadonlySet<NodeId>,
   resolvedNodeIds: ReadonlySet<NodeId>,
   conflictEdges: ReadonlySet<string>,
   allConflicts: readonly StoryMergeConflict[],
@@ -243,6 +254,7 @@ function previewGraph(
     changedNodeIds,
     removedNodeIds,
     conflictNodeIds: [...conflictNodeIds].filter((nodeId) => graphNodeIds.has(nodeId)),
+    boundaryNodeIds: [...boundaryNodeIds].filter((nodeId) => graphNodeIds.has(nodeId)),
     resolvedNodeIds: [...resolvedNodeIds].filter(
       (nodeId) => graphNodeIds.has(nodeId) && !removedNodeIds.includes(nodeId),
     ),
@@ -270,6 +282,7 @@ export function buildStoryMergePreview(
 ): StoryMergePreview {
   const unresolved = unresolvedStoryMergeConflicts(conflicts, decisions);
   const conflict = conflictKeys(unresolved);
+  const boundaryNodeIds = executionRegionBoundaryNodes(unresolved);
   const resolvedNodes = resolvedConflictNodes(conflicts, decisions);
   const localChapters = new Map(local.chapters.map((chapter) => [chapter.id, chapter] as const));
   const mergedChapters = new Map(merged.chapters.map((chapter) => [chapter.id, chapter] as const));
@@ -293,6 +306,7 @@ export function buildStoryMergePreview(
         merged.root,
         remote?.root,
         conflict.nodeIds,
+        boundaryNodeIds,
         resolvedNodes,
         conflict.edges,
         conflicts,
@@ -311,6 +325,7 @@ export function buildStoryMergePreview(
           mergedChapter?.graph,
           remoteChapter?.graph,
           conflict.nodeIds,
+          boundaryNodeIds,
           resolvedNodes,
           conflict.edges,
           conflicts,
