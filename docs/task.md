@@ -395,6 +395,7 @@
 - [x] Emotion Key / Display Name / Portrait 结构化配置
 - [x] Emotion 重命名同步 Dialogue Line 引用，删除时安全清理引用
 - [x] Default Portrait 与 Emotion Portrait 选择器及编译期回退
+- [x] Character / Emotion 跨 Story 引用列表、节点跳转与删除保护
 
 ---
 
@@ -404,6 +405,8 @@
 - [x] Dialogue Voice Asset 引用
 - [x] Search
 - [x] Locale Voice Mapping
+- [x] Voice / Portrait Asset 跨 Story 与 Character 配置引用列表、跳转与删除保护
+- [x] Character / Emotion / Asset 引用单次共享索引与长列表渐进显示
 
 ---
 

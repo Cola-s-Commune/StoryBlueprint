@@ -305,6 +305,17 @@
   font: inherit;
 }
 
+.emotionRemoveButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.emotionReferences {
+  display: grid;
+  grid-column: 1 / 4;
+  gap: 5px;
+}
+
 .infoText {
   color: #66717e;
   font-size: 10px;
@@ -466,6 +477,18 @@
   color: #82aed3;
   font-size: 8px;
   font-style: normal;
+}
+
+.referenceMoreButton {
+  justify-self: start;
+  padding: 4px 7px;
+  border: 1px solid #44515e;
+  border-radius: 3px;
+  background: #252e37;
+  color: #8fb3d1;
+  cursor: pointer;
+  font: inherit;
+  font-size: 8px;
 }
 
 .dangerButton:disabled {

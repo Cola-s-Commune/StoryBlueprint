@@ -83,6 +83,17 @@ import {
   type VariableReference,
   type VariableReferenceGraph,
 } from './variableReferences';
+import {
+  buildStoryResourceReferenceIndex,
+  emotionReferenceKey,
+  findAssetReferences as collectAssetReferences,
+  findCharacterReferences as collectCharacterReferences,
+  findEmotionReferences as collectEmotionReferences,
+  type ResourceReferenceCharacter,
+  type ResourceReferenceStory,
+  type StoryResourceReference,
+  type StoryResourceReferenceIndex,
+} from './resourceReferences';
 import type {
   ApplyWorkspaceMergeFile,
   OpenStoryResult,
@@ -173,27 +184,35 @@ export type StoryDataSelection =
   | { kind: 'event'; id: EventId }
   | { kind: 'signal'; id: SignalId };
 
-function collectOpenResourceUsage(items: readonly EditorStoryWorkspaceItem[]) {
-  const characterIds = new Set<CharacterId>();
-  const assetIds = new Set<AssetId>();
-  for (const story of items) {
-    const graphs = [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)];
-    for (const candidate of graphs.flatMap((candidate) => candidate.nodes)) {
-      if (candidate.type !== StoryNodeType.Dialogue) continue;
-      const dialogue = candidate.data as DialogueNodeData;
-      for (const line of dialogue.lines) {
-        if (line.speakerId) characterIds.add(line.speakerId);
-        if (line.voiceId) assetIds.add(line.voiceId);
-      }
-    }
-    for (const character of story.characters) {
-      if (character.defaultPortraitId) assetIds.add(character.defaultPortraitId);
-      for (const emotion of Object.values(character.emotions)) {
-        if (emotion.portraitId) assetIds.add(emotion.portraitId);
-      }
-    }
-  }
-  return { characterIds, assetIds };
+function resourceReferenceStories(
+  items: readonly EditorStoryWorkspaceItem[],
+): ResourceReferenceStory[] {
+  return items.map((story) => ({
+    id: story.document.id,
+    label: story.document.displayName,
+    rootGraph: story.rootGraph,
+    chapters: story.chapters.map((chapter) => ({
+      id: chapter.id,
+      label: chapter.displayName,
+      graph: chapter.graph,
+    })),
+  }));
+}
+
+function resourceReferenceCharacters(
+  items: readonly EditorStoryWorkspaceItem[],
+  projectCharacters: readonly CharacterSource[],
+): ResourceReferenceCharacter[] {
+  return [
+    ...projectCharacters.map((character) => ({ character })),
+    ...items.flatMap((story) =>
+      story.characters.map((character) => ({
+        character,
+        storyId: story.document.id,
+        storyLabel: story.document.displayName,
+      })),
+    ),
+  ];
 }
 
 export type ActiveGraphId = 'root' | ChapterId;
@@ -319,6 +338,10 @@ interface StoryGraphStoreValue {
     id: VariableId,
   ) => { ok: true } | { ok: false; references: readonly VariableReference[] };
   addCharacter: () => CharacterId;
+  findCharacterReferences: (id: CharacterId) => readonly StoryResourceReference[];
+  findEmotionReferences: (id: CharacterId, emotion: string) => readonly StoryResourceReference[];
+  findAssetReferences: (id: AssetId) => readonly StoryResourceReference[];
+  focusStoryResourceReference: (reference: StoryResourceReference) => boolean;
   updateCharacter: (id: CharacterId, update: Partial<CharacterSource>) => void;
   renameCharacterEmotion: (id: CharacterId, fromEmotion: string, toEmotion: string) => void;
   removeCharacterEmotion: (id: CharacterId, emotion: string) => void;
@@ -414,6 +437,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
   const currentStoryItemsRef = useRef<() => EditorStoryWorkspaceItem[]>(() => []);
+  const resourceReferenceIndexRef = useRef<StoryResourceReferenceIndex | undefined>(undefined);
   const [projectResourcesDirty, setProjectResourcesDirty] = useState(false);
   const source = useMemo<StorySourceDocument>(
     () => ({
@@ -1366,6 +1390,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (id: CharacterId, emotion: string) => {
       const character = resolvedCharacters.find((candidate) => candidate.id === id);
       if (!character?.emotions[emotion]) return;
+      const references =
+        resourceReferenceIndexRef.current?.emotions.get(emotionReferenceKey(id, emotion)) ??
+        collectEmotionReferences(
+          id,
+          emotion,
+          resourceReferenceStories(currentStoryItemsRef.current()),
+        );
+      if (references.length > 0) {
+        setWorkspaceError('Emotion is used by Dialogue lines. Remove its references first.');
+        return;
+      }
       const emotions = Object.fromEntries(
         Object.entries(character.emotions).filter(([key]) => key !== emotion),
       );
@@ -1377,14 +1412,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const removeCharacter = useCallback(
     (id: CharacterId) => {
+      const references =
+        resourceReferenceIndexRef.current?.characters.get(id) ??
+        collectCharacterReferences(id, resourceReferenceStories(currentStoryItemsRef.current()));
+      if (references.length > 0) {
+        setWorkspaceError('Character is used by Dialogue lines. Remove its references first.');
+        return;
+      }
       const resource = workspace?.characterResources.find(
         (candidate) => candidate.character.id === id,
       );
       if (resource && window.electronAPI) {
-        if (collectOpenResourceUsage(currentStoryItemsRef.current()).characterIds.has(id)) {
-          setWorkspaceError('Character is used by an open Story. Remove its references first.');
-          return;
-        }
         queueProjectResourceWrite(async () => {
           const result = await window.electronAPI!.deleteProjectCharacter(resource.relativePath);
           if (!result.canceled) {
@@ -1501,12 +1539,23 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const removeAsset = useCallback(
     (id: AssetId) => {
+      const items = currentStoryItemsRef.current();
+      const references =
+        resourceReferenceIndexRef.current?.assets.get(id) ??
+        collectAssetReferences(
+          id,
+          resourceReferenceStories(items),
+          resourceReferenceCharacters(
+            items,
+            workspace?.characterResources.map((candidate) => candidate.character) ?? [],
+          ),
+        );
+      if (references.length > 0) {
+        setWorkspaceError('Asset is used by a Story or Character. Remove its references first.');
+        return;
+      }
       const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
       if (resource && window.electronAPI) {
-        if (collectOpenResourceUsage(currentStoryItemsRef.current()).assetIds.has(id)) {
-          setWorkspaceError('Asset is used by an open Story. Remove its references first.');
-          return;
-        }
         setStoryDataSelection((current) =>
           current?.kind === 'asset' && current.id === id ? undefined : current,
         );
@@ -1910,6 +1959,39 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, [captureActiveStory, hasActiveStory, workspaceStories]);
   currentStoryItemsRef.current = currentStoryItems;
 
+  const resourceReferenceIndex = useMemo(() => {
+    if (storyDataSelection?.kind !== 'character' && storyDataSelection?.kind !== 'asset') {
+      return undefined;
+    }
+    const items = currentStoryItems();
+    return buildStoryResourceReferenceIndex(
+      resourceReferenceStories(items),
+      resourceReferenceCharacters(
+        items,
+        workspace?.characterResources.map((candidate) => candidate.character) ?? [],
+      ),
+    );
+  }, [currentStoryItems, storyDataSelection?.kind, workspace?.characterResources]);
+  resourceReferenceIndexRef.current = resourceReferenceIndex;
+
+  const findCharacterReferencesById = useCallback(
+    (id: CharacterId): readonly StoryResourceReference[] =>
+      resourceReferenceIndex?.characters.get(id) ?? [],
+    [resourceReferenceIndex],
+  );
+
+  const findEmotionReferencesByKey = useCallback(
+    (id: CharacterId, emotion: string): readonly StoryResourceReference[] =>
+      resourceReferenceIndex?.emotions.get(emotionReferenceKey(id, emotion)) ?? [],
+    [resourceReferenceIndex],
+  );
+
+  const findAssetReferencesById = useCallback(
+    (id: AssetId): readonly StoryResourceReference[] =>
+      resourceReferenceIndex?.assets.get(id) ?? [],
+    [resourceReferenceIndex],
+  );
+
   const saveStoryItems = useCallback(
     async (items: EditorStoryWorkspaceItem[]): Promise<EditorStoryWorkspaceItem[] | undefined> => {
       if (!window.electronAPI) return undefined;
@@ -2062,6 +2144,55 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       loadStory(target, graphId);
     },
     [captureActiveStory, document.id, hasActiveStory, loadStory, switchGraph, workspaceStories],
+  );
+
+  const focusStoryResourceReference = useCallback(
+    (reference: StoryResourceReference): boolean => {
+      if (reference.target.kind === 'character') {
+        const characterTarget = reference.target;
+        if (characterTarget.storyId && characterTarget.storyId !== document.id) {
+          const target = currentStoryItemsRef
+            .current()
+            .find((story) => story.document.id === characterTarget.storyId);
+          if (!target) return false;
+          loadStory(target);
+        }
+        setStoryDataSelection({ kind: 'character', id: characterTarget.characterId });
+        return true;
+      }
+      const nodeTarget = reference.target;
+      if (nodeTarget.storyId === document.id) {
+        return focusGraphNode(nodeTarget.graphId, nodeTarget.nodeId);
+      }
+      let target = currentStoryItemsRef
+        .current()
+        .find((story) => story.document.id === nodeTarget.storyId);
+      if (!target) return false;
+      const selectNode = (candidate: EditorGraphState): EditorGraphState => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) => ({
+          ...node,
+          selected: node.id === nodeTarget.nodeId,
+        })),
+        edges: candidate.edges.map((edge) => ({ ...edge, selected: false })),
+      });
+      target = {
+        ...target,
+        rootGraph: nodeTarget.graphId === 'root' ? selectNode(target.rootGraph) : target.rootGraph,
+        chapters: target.chapters.map((chapter) =>
+          chapter.id === nodeTarget.graphId
+            ? { ...chapter, graph: selectNode(chapter.graph) }
+            : chapter,
+        ),
+      };
+      setWorkspaceStories((current) =>
+        current.map((story) => (story.document.id === target!.document.id ? target! : story)),
+      );
+      loadStory(target, nodeTarget.graphId);
+      setProblemFocus({ nodeId: nodeTarget.nodeId, nonce: Date.now() });
+      return true;
+    },
+    [document.id, focusGraphNode, loadStory],
   );
 
   const newStory = useCallback(() => {
@@ -2906,6 +3037,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateVariable,
       removeVariable,
       addCharacter,
+      findCharacterReferences: findCharacterReferencesById,
+      findEmotionReferences: findEmotionReferencesByKey,
+      findAssetReferences: findAssetReferencesById,
+      focusStoryResourceReference,
       updateCharacter,
       renameCharacterEmotion,
       removeCharacterEmotion,
@@ -2977,6 +3112,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       findVariableReferencesById,
       addCharacter,
+      findCharacterReferencesById,
+      findEmotionReferencesByKey,
+      findAssetReferencesById,
+      focusStoryResourceReference,
       addAsset,
       addEvent,
       addSignal,

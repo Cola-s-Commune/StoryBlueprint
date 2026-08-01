@@ -276,6 +276,15 @@ Story Data 左侧只负责资源列表、搜索和拖拽；点击变量、角色
 
 变量、角色和资产的脚本 Name 采用草稿编辑：输入过程中可以暂时为空，只有 Enter 或失焦时才提交；最终为空或按 Esc 时恢复进入编辑前的名称，不产生无效资源状态，也不触发文件重命名。变量和角色的 Name 确认修改时，Display Name 默认同步为新名称，之后仍可单独编辑展示名称。
 
+Character、Emotion 和 Asset Inspector 与 Variable 使用同一种引用审查模式。Character 引用定位到
+Dialogue Speaker，Emotion 引用定位到对应角色 Dialogue Line，Audio Asset 定位到 Voice，Portrait Asset
+同时定位 Character Default Portrait 与 Emotion Portrait。项目资源会索引所有已打开 Story 的 Main Story
+和 Substory；点击引用可跨 Story/Graph 切换并聚焦节点，角色配置引用则打开对应 Character Inspector。
+存在引用时 UI 禁用删除，Store 删除入口再次执行相同检查，禁止通过其他调用路径静默清空引用。
+引用查询不会为每个 Emotion 重复遍历 Graph：相关 Inspector 打开时对所有已打开 Story 单次扫描，同时生成
+Character、`Character+Emotion` 和 Asset 三张 Map，后续查询按稳定 ID 直接读取。关闭资源 Inspector 时不
+构建该索引。引用列表默认最多创建 30 个条目，作者可显式展开全部，避免大量引用同时产生过多界面元素。
+
 面板管理：
 
 - Characters

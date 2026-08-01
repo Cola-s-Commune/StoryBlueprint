@@ -10,6 +10,7 @@ import type {
   VariableDefinition,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import type { StoryResourceReference } from '../../graph/resourceReferences';
 import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import { CopyButton } from './CopyButton';
 import panelStyles from './Panel.module.css';
@@ -73,10 +74,61 @@ function ScriptNameInput({
   );
 }
 
+function ResourceReferenceSection({
+  references,
+  emptyMessage,
+  onShow,
+}: {
+  references: readonly StoryResourceReference[];
+  emptyMessage: string;
+  onShow: (reference: StoryResourceReference) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleReferences = expanded ? references : references.slice(0, 30);
+  useEffect(() => setExpanded(false), [references]);
+  return (
+    <div className={styles.referenceSection}>
+      <div className={styles.referenceHeader}>
+        <span>References</span>
+        <strong>{references.length}</strong>
+      </div>
+      {references.length === 0 ? (
+        <div className={styles.referenceEmpty}>{emptyMessage}</div>
+      ) : (
+        <div className={styles.referenceList}>
+          {visibleReferences.map((reference) => (
+            <button type="button" key={reference.id} onClick={() => onShow(reference)}>
+              <span>
+                <strong>{reference.label}</strong>
+                <small>
+                  {reference.location} · {reference.field}
+                </small>
+              </span>
+              <em>Show</em>
+            </button>
+          ))}
+        </div>
+      )}
+      {references.length > 30 && (
+        <button
+          className={styles.referenceMoreButton}
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? 'Show First 30' : `Show All ${references.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function VariableEditor({ variable }: { variable: VariableDefinition }) {
   const { variables, findVariableReferences, focusGraphNode, updateVariable, removeVariable } =
     useStoryGraphStore();
+  const [showAllReferences, setShowAllReferences] = useState(false);
   const references = findVariableReferences(variable.id);
+  const visibleReferences = showAllReferences ? references : references.slice(0, 30);
+  useEffect(() => setShowAllReferences(false), [variable.id]);
   const duplicate = variables.some(
     (candidate) => candidate.id !== variable.id && candidate.name === variable.name,
   );
@@ -164,7 +216,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           <div className={styles.referenceEmpty}>This variable is not used by any node.</div>
         ) : (
           <div className={styles.referenceList}>
-            {references.map((reference) => (
+            {visibleReferences.map((reference) => (
               <button
                 type="button"
                 key={`${reference.graphId}:${reference.nodeId}:${reference.field}:${reference.kind}`}
@@ -180,6 +232,15 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
               </button>
             ))}
           </div>
+        )}
+        {references.length > 30 && (
+          <button
+            className={styles.referenceMoreButton}
+            type="button"
+            onClick={() => setShowAllReferences((current) => !current)}
+          >
+            {showAllReferences ? 'Show First 30' : `Show All ${references.length}`}
+          </button>
         )}
       </div>
       {references.length > 0 && (
@@ -205,6 +266,9 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     assets,
     workspace,
     updateCharacter,
+    findCharacterReferences,
+    findEmotionReferences,
+    focusStoryResourceReference,
     renameCharacterEmotion,
     removeCharacterEmotion,
     removeCharacter,
@@ -217,6 +281,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     (candidate) => candidate.id !== character.id && candidate.name === character.name,
   );
   const portraitAssets = assets.filter((asset) => asset.kind === 'portrait');
+  const references = findCharacterReferences(character.id);
   const addEmotion = () => {
     let index = Object.keys(character.emotions).length + 1;
     let key = `emotion${index}`;
@@ -271,81 +336,103 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         </button>
       </div>
       <div className={styles.emotionList}>
-        {Object.entries(character.emotions).map(([key, emotion]) => (
-          <div className={styles.emotionRow} key={key}>
-            <label>
-              <span>Key</span>
-              <ScriptNameInput
-                value={key}
-                onCommit={(nextKey) => {
-                  if (nextKey !== key && character.emotions[nextKey]) return false;
-                  renameCharacterEmotion(character.id, key, nextKey);
-                }}
-              />
-            </label>
-            <label>
-              <span>Display Name</span>
-              <input
-                value={emotion.displayName}
-                onChange={(event) =>
-                  updateCharacter(character.id, {
-                    emotions: {
-                      ...character.emotions,
-                      [key]: { ...emotion, displayName: event.target.value },
-                    },
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Portrait</span>
-              <select
-                value={emotion.portraitId ?? ''}
-                onChange={(event) =>
-                  updateCharacter(character.id, {
-                    emotions: {
-                      ...character.emotions,
-                      [key]: {
-                        ...emotion,
-                        portraitId: (event.target.value || undefined) as AssetId | undefined,
+        {Object.entries(character.emotions).map(([key, emotion]) => {
+          const emotionReferences = findEmotionReferences(character.id, key);
+          return (
+            <div className={styles.emotionRow} key={key}>
+              <label>
+                <span>Key</span>
+                <ScriptNameInput
+                  value={key}
+                  onCommit={(nextKey) => {
+                    if (nextKey !== key && character.emotions[nextKey]) return false;
+                    renameCharacterEmotion(character.id, key, nextKey);
+                  }}
+                />
+              </label>
+              <label>
+                <span>Display Name</span>
+                <input
+                  value={emotion.displayName}
+                  onChange={(event) =>
+                    updateCharacter(character.id, {
+                      emotions: {
+                        ...character.emotions,
+                        [key]: { ...emotion, displayName: event.target.value },
                       },
-                    },
-                  })
-                }
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Portrait</span>
+                <select
+                  value={emotion.portraitId ?? ''}
+                  onChange={(event) =>
+                    updateCharacter(character.id, {
+                      emotions: {
+                        ...character.emotions,
+                        [key]: {
+                          ...emotion,
+                          portraitId: (event.target.value || undefined) as AssetId | undefined,
+                        },
+                      },
+                    })
+                  }
+                >
+                  <option value="">Use Default</option>
+                  {portraitAssets.map((asset) => (
+                    <option value={asset.id} key={asset.id}>
+                      {asset.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className={styles.emotionRemoveButton}
+                type="button"
+                disabled={emotionReferences.length > 0}
+                title={`Delete ${emotion.displayName}`}
+                aria-label={`Delete ${emotion.displayName}`}
+                onClick={() => {
+                  if (window.confirm(`Delete emotion "${emotion.displayName}"?`)) {
+                    removeCharacterEmotion(character.id, key);
+                  }
+                }}
               >
-                <option value="">Use Default</option>
-                {portraitAssets.map((asset) => (
-                  <option value={asset.id} key={asset.id}>
-                    {asset.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className={styles.emotionRemoveButton}
-              type="button"
-              title={`Delete ${emotion.displayName}`}
-              aria-label={`Delete ${emotion.displayName}`}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Delete emotion "${emotion.displayName}"? Dialogue lines using it will fall back to the character default portrait.`,
-                  )
-                ) {
-                  removeCharacterEmotion(character.id, key);
-                }
-              }}
-            >
-              ×
-            </button>
-          </div>
-        ))}
+                ×
+              </button>
+              {emotionReferences.length > 0 && (
+                <div className={styles.emotionReferences}>
+                  <ResourceReferenceSection
+                    references={emotionReferences}
+                    emptyMessage="This emotion is not used."
+                    onShow={focusStoryResourceReference}
+                  />
+                  <div className={styles.warning}>
+                    Remove these Dialogue references before deleting this emotion.
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
         {Object.keys(character.emotions).length === 0 && (
           <div className={styles.infoText}>
             No emotions. Dialogue will use the default portrait.
           </div>
         )}
       </div>
+      <ResourceReferenceSection
+        references={references}
+        emptyMessage="This character is not used by any Dialogue line."
+        onShow={focusStoryResourceReference}
+      />
+      {references.length > 0 && (
+        <div className={styles.warning}>
+          Remove these Dialogue references before deleting the character.
+        </div>
+      )}
       <div className={styles.detailActions}>
         {resourcePath && (
           <button
@@ -359,6 +446,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         <button
           className={styles.dangerButton}
           type="button"
+          disabled={references.length > 0}
           onClick={() => removeCharacter(character.id)}
         >
           Delete Character
@@ -369,13 +457,22 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
 }
 
 function AssetEditor({ asset }: { asset: AssetSource }) {
-  const { assets, workspace, updateAsset, removeAsset, revealWorkspaceItem } = useStoryGraphStore();
+  const {
+    assets,
+    workspace,
+    findAssetReferences,
+    focusStoryResourceReference,
+    updateAsset,
+    removeAsset,
+    revealWorkspaceItem,
+  } = useStoryGraphStore();
   const resourcePath = workspace?.assetResources.find(
     (candidate) => candidate.asset.id === asset.id,
   )?.relativePath;
   const duplicate = assets.some(
     (candidate) => candidate.id !== asset.id && candidate.name === asset.name,
   );
+  const references = findAssetReferences(asset.id);
   return (
     <div className={styles.details}>
       <div className={styles.detailsTitle}>Asset</div>
@@ -424,6 +521,16 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
           }}
         />
       </label>
+      <ResourceReferenceSection
+        references={references}
+        emptyMessage="This asset is not used by any Story or Character."
+        onShow={focusStoryResourceReference}
+      />
+      {references.length > 0 && (
+        <div className={styles.warning}>
+          Remove these Story or Character references before deleting the asset.
+        </div>
+      )}
       <div className={styles.detailActions}>
         {resourcePath && (
           <button
@@ -437,6 +544,7 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
         <button
           className={styles.dangerButton}
           type="button"
+          disabled={references.length > 0}
           onClick={() => {
             if (window.confirm(`Delete asset ${asset.displayName}?`)) removeAsset(asset.id);
           }}
