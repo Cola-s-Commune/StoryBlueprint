@@ -150,6 +150,10 @@
   color: #cbd4de;
 }
 
+.reviewError {
+  color: #e6ad63;
+}
+
 .conflicts {
   display: grid;
   gap: 7px;
@@ -301,8 +305,116 @@
   border-left: 1px solid #55442f;
 }
 
+.advancedRegionControls,
+.advancedRegionUnavailable,
+.advancedRegion {
+  grid-column: 1 / -1;
+}
+
+.advancedRegionControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid #343f4a;
+  background: #192129;
+}
+
+.advancedRegionControls button {
+  padding: 5px 8px;
+  border: 1px solid #4b6175;
+  border-radius: 3px;
+  background: #263442;
+  color: #c9d8e6;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+}
+
+.advancedRegionControls span,
+.advancedRegionUnavailable {
+  color: #8796a5;
+  font-size: 9px;
+}
+
+.advancedRegionControls span {
+  margin-left: auto;
+}
+
+.advancedRegionUnavailable {
+  padding: 7px 8px;
+  background: #1b2127;
+}
+
+.advancedRegion {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid #4b6175;
+  background: #171e25;
+}
+
+.advancedRegion > header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.advancedRegion > header span {
+  color: #83909d;
+  font-size: 9px;
+}
+
+.advancedOutput {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.7fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #34414d;
+  border-radius: 4px;
+  background: #34414d;
+}
+
+.advancedOutput > div,
+.advancedOutput > button {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 0;
+  background: #202830;
+  color: #c8d2dc;
+  text-align: left;
+}
+
+.advancedOutput > div code,
+.advancedOutput > button span {
+  overflow: hidden;
+  color: #7f8e9c;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advancedOutput > button {
+  cursor: pointer;
+}
+
+.advancedOutput > button:hover {
+  background: #27333e;
+}
+
+.advancedOutput > button.selectedChoice {
+  background: #263e50;
+}
+
 @media (max-width: 620px) {
   .choices {
+    grid-template-columns: 1fr;
+  }
+
+  .advancedOutput {
     grid-template-columns: 1fr;
   }
 }

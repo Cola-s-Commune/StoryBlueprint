@@ -1187,6 +1187,17 @@ Boundary 是三方都存在、仅用于连接变化区域与稳定图的节点�
 Large Region 不参与 `Resolve Remaining Local / Remote`，从画布或列表选择后也只会进入待确认状态；作者
 必须查看影响摘要并执行第二次明确确认，才能写入 Merge Decision。
 
+当区域含两个以上竞争输出，且 Base 中所有受影响节点在 Local 与 Remote 都仍存在时，可展开 Per-output
+高级模式。每个输出用“源节点稳定 ID + Port ID”生成独立决策键，并分别选择 Local 或 Remote 后继；所有
+输出都作出选择前，整个区域仍是 Unresolved。整区 Local / Remote 和逐输出模式互斥，切换模式会清除另一
+模式的决策，作者也可显式清空区域选择。节点删除或恢复会改变节点存在性，无法安全拆成输出决策，因此此类
+区域只提供整区选择。
+
+逐输出合并先移除各竞争输出的所有候选执行边，再加入每个输出所选一侧的边。随后从非分支独占节点出发做
+执行可达性扫描，删除不可达的 Local/Remote 独占新增节点及其所有关联边；该规则也能清理未采用分支内部的
+闭环，而不会误删 Base 节点。混合结果实时进入 Graph Preview；所有冲突解决后还必须先通过正式 Story
+结构与 Compiler 预检，单后继、入口和引用等约束合法后才可 Validate & Review。
+
 同一 Data Input 被双方改接到不同来源时，必须生成 Connection Competition 冲突，并提供两个来源的
 明确选择，不能等到 Validate 阶段只报告双输入错误。双方同时替换同一 Graph 的 Start 时生成 Entry
 冲突；选择一侧会移除另一侧 Start 及其相关连线。最终预检要求 Main Story 和每个 Substory 最多只有

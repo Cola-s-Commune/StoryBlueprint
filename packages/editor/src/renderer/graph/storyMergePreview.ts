@@ -8,6 +8,7 @@ import type {
 } from '@story-blueprint/common';
 import { avoidOverlappingNodes, fromSourceGraph, type EditorGraphState } from './editorGraph';
 import {
+  storyMergeConflictHasDecision,
   unresolvedStoryMergeConflicts,
   type StoryMergeConflict,
   type StoryMergeDecisions,
@@ -134,7 +135,18 @@ function resolvedConflictNodes(
   for (const conflict of conflicts) {
     const resolution = conflict.resolution;
     const decision = decisions[conflict.id];
-    if (!resolution || !decision) continue;
+    if (!resolution) continue;
+    if (
+      resolution.kind === 'execution-region' &&
+      !decision &&
+      storyMergeConflictHasDecision(conflict, decisions)
+    ) {
+      for (const nodeId of [...resolution.coreNodeIds, ...resolution.boundaryNodeIds]) {
+        result.add(nodeId as NodeId);
+      }
+      continue;
+    }
+    if (!decision) continue;
     if (resolution.kind === 'concurrent-insertion') {
       if (decision !== 'remote') {
         for (const nodeId of resolution.localNodeIds) result.add(nodeId as NodeId);

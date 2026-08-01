@@ -1,5 +1,6 @@
 # Dev Log
 
+- Execution Region 新增 Per-output 高级处理：稳定输出键可分别选择 Local / Remote，未选完保持未解决；混合拓扑重建后以可达性清理未采用的独占分支和闭环，并在正式 Validate 前执行结构预检。涉及 Base 节点删除的区域仍强制整区选择。
 - Execution Region 增加过大区域保护：变化节点分为 Core 与稳定 Boundary，遍历在 Boundary 停止以拆开独立冲突；界面显示节点/连线影响，预览用虚线标记边界，超过节点、输出或连线阈值时跳过批量选择并要求二次确认。
 - Execution Region 增加冲突依赖消解：区域选择会覆盖已决定存在性的 Modify/Delete 和被删除节点从属冲突；统计、批量处理、画布导航、预览及 Validate/Apply 共用同一有效冲突判断，共同节点字段仍独立处理。
 - Story Merge 新增 Execution Region 结构冲突：无法线性化的分支、循环、删除和 Rerouter 改线按连通变化区域合并成一项，可完整保留 Local / Remote 拓扑；结构选择不覆盖共同节点上的对白等字段决策。

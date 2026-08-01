@@ -27,6 +27,7 @@ import {
   mergeThreeWayStoryDocuments,
   mergeThreeWayOptionalValues,
   storyMergeCoveredConflictIds,
+  storyMergeConflictHasDecision,
   unresolvedStoryMergeConflicts,
   type CoordinateLayoutOrder,
   type ExecutionRegionImpact,
@@ -449,6 +450,7 @@ export function StoryMerge() {
     id: string;
     choice: 'local' | 'remote';
   }>();
+  const [expandedRegionId, setExpandedRegionId] = useState<string>();
   const handledDecisionRequestNonce = useRef<number>();
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
   const threeWayDiff = useMemo(
@@ -560,6 +562,12 @@ export function StoryMerge() {
       !coveredConflictIds.has(conflict.id) &&
       (decisions[conflict.id] === 'local-first' || decisions[conflict.id] === 'remote-first'),
   ).length;
+  const advancedRegionCount = conflicts.filter(
+    (conflict) =>
+      conflict.resolution?.kind === 'execution-region' &&
+      decisions[conflict.id] === undefined &&
+      storyMergeConflictHasDecision(conflict, decisions),
+  ).length;
   const autoCoordinateCount = coordinateLayoutOrder ? coordinateConflicts.length : 0;
   const unresolvedCount = unresolvedStoryMergeConflicts(conflicts, decisions).length;
   const resolvedCount = conflicts.length - unresolvedCount;
@@ -572,6 +580,11 @@ export function StoryMerge() {
     () => (mergedProjection ? applyMergedStory(source, mergedProjection) : undefined),
     [mergedProjection, source],
   );
+  const advancedPreflightError = useMemo(() => {
+    if (!mergedStory || advancedRegionCount === 0 || unresolvedCount > 0) return undefined;
+    const result = validateStoryMerge(mergedStory);
+    return result.ok ? undefined : result.message;
+  }, [advancedRegionCount, mergedStory, unresolvedCount, validateStoryMerge]);
   const reviewKey = useMemo(
     () =>
       mergedStory
@@ -635,10 +648,14 @@ export function StoryMerge() {
     if (coordinateConflictIds.has(storyMergeDecisionRequest.id)) {
       setCoordinateLayoutOrder(undefined);
     }
-    setDecisions((current) => ({
-      ...current,
-      [storyMergeDecisionRequest.id]: storyMergeDecisionRequest.choice,
-    }));
+    setDecisions((current) => {
+      const next = { ...current };
+      if (requestedConflict?.resolution?.kind === 'execution-region') {
+        for (const output of requestedConflict.resolution.outputs) delete next[output.decisionId];
+      }
+      next[storyMergeDecisionRequest.id] = storyMergeDecisionRequest.choice;
+      return next;
+    });
     setError(undefined);
     setStatus(undefined);
   }, [conflicts, coordinateConflictIds, storyMergeDecisionRequest]);
@@ -673,6 +690,52 @@ export function StoryMerge() {
     setStatus(undefined);
   };
 
+  const chooseWholeExecutionRegion = (conflict: StoryMergeConflict, choice: 'local' | 'remote') => {
+    const resolution = conflict.resolution;
+    if (resolution?.kind !== 'execution-region') return;
+    setPendingRegionChoice(undefined);
+    setDecisions((current) => {
+      const next = { ...current, [conflict.id]: choice };
+      for (const output of resolution.outputs) delete next[output.decisionId];
+      return next;
+    });
+    setValidatedKey('');
+    setError(undefined);
+    setStatus(undefined);
+  };
+
+  const chooseExecutionRegionOutput = (
+    conflict: StoryMergeConflict,
+    decisionId: string,
+    choice: 'local' | 'remote',
+  ) => {
+    if (conflict.resolution?.kind !== 'execution-region') return;
+    setPendingRegionChoice(undefined);
+    setDecisions((current) => {
+      const next = { ...current, [decisionId]: choice };
+      delete next[conflict.id];
+      return next;
+    });
+    setValidatedKey('');
+    setError(undefined);
+    setStatus(undefined);
+  };
+
+  const resetExecutionRegion = (conflict: StoryMergeConflict) => {
+    const resolution = conflict.resolution;
+    if (resolution?.kind !== 'execution-region') return;
+    setPendingRegionChoice(undefined);
+    setDecisions((current) => {
+      const next = { ...current };
+      delete next[conflict.id];
+      for (const output of resolution.outputs) delete next[output.decisionId];
+      return next;
+    });
+    setValidatedKey('');
+    setError(undefined);
+    setStatus('Execution region choices cleared.');
+  };
+
   const requestExecutionRegionChoice = (
     conflict: StoryMergeConflict,
     choice: 'local' | 'remote',
@@ -683,7 +746,7 @@ export function StoryMerge() {
       setStatus('This region is large. Review its core, boundary, and impact before confirming.');
       return;
     }
-    choose(conflict.id, choice);
+    chooseWholeExecutionRegion(conflict, choice);
   };
 
   const chooseAll = (choice: StoryMergeChoice) => {
@@ -768,7 +831,7 @@ export function StoryMerge() {
   };
 
   const validate = async () => {
-    if (!mergedStory || stale || unresolvedCount > 0) return;
+    if (!mergedStory || stale || unresolvedCount > 0 || advancedPreflightError) return;
     setValidating(true);
     setError(undefined);
     try {
@@ -847,6 +910,7 @@ export function StoryMerge() {
         setBaseRevision(semanticSnapshot.revision);
         setDecisions({});
         setPendingRegionChoice(undefined);
+        setExpandedRegionId(undefined);
         setCoordinateLayoutOrder(undefined);
         setMode('git-three-way');
         setGitConflictRevision(stages.revision);
@@ -873,6 +937,7 @@ export function StoryMerge() {
       setBaseRevision(semanticSnapshot.revision);
       setDecisions({});
       setPendingRegionChoice(undefined);
+      setExpandedRegionId(undefined);
       setCoordinateLayoutOrder(undefined);
       setMode('two-way');
       setGitConflictRevision('');
@@ -1039,6 +1104,7 @@ export function StoryMerge() {
                 disabled={
                   stale ||
                   unresolvedCount > 0 ||
+                  Boolean(advancedPreflightError) ||
                   validating ||
                   validated ||
                   (!hasMergedChanges && mode !== 'git-three-way')
@@ -1073,6 +1139,14 @@ export function StoryMerge() {
               )}
               {orderedChoiceCount > 0 && (
                 <span>Concurrent insertions: {orderedChoiceCount} ordered</span>
+              )}
+              {advancedRegionCount > 0 && (
+                <span>Execution regions: {advancedRegionCount} resolved per output</span>
+              )}
+              {advancedPreflightError && (
+                <span className={styles.reviewError}>
+                  Advanced topology is not valid yet: {advancedPreflightError}
+                </span>
               )}
               {autoCoordinateCount > 0 && (
                 <span>
@@ -1237,6 +1311,112 @@ export function StoryMerge() {
                               <span>{executionRegion.remoteLabel}</span>
                               <span>{executionRegionImpactText(executionRegion.remoteImpact)}</span>
                             </button>
+                            {executionRegion.supportsPerOutput ? (
+                              <div className={styles.advancedRegionControls}>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedRegionId((current) =>
+                                      current === conflict.id ? undefined : conflict.id,
+                                    )
+                                  }
+                                >
+                                  {expandedRegionId === conflict.id
+                                    ? 'Hide Per-output Choices'
+                                    : 'Resolve Per Output'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => resetExecutionRegion(conflict)}
+                                >
+                                  Clear Region Choice
+                                </button>
+                                <span>
+                                  {
+                                    executionRegion.outputs.filter(
+                                      (output) =>
+                                        decisions[output.decisionId] === 'local' ||
+                                        decisions[output.decisionId] === 'remote',
+                                    ).length
+                                  }
+                                  /{executionRegion.outputs.length} outputs decided
+                                </span>
+                              </div>
+                            ) : (
+                              <div className={styles.advancedRegionUnavailable}>
+                                Per-output resolution is unavailable because this region changes
+                                whether an existing node is present.
+                              </div>
+                            )}
+                            {executionRegion.supportsPerOutput &&
+                              expandedRegionId === conflict.id && (
+                                <div className={styles.advancedRegion}>
+                                  <header>
+                                    <strong>Per-output resolution</strong>
+                                    <span>
+                                      Choose the successor independently for every changed output.
+                                    </span>
+                                  </header>
+                                  {executionRegion.outputs.map((output) => {
+                                    const outputChoice = decisions[output.decisionId];
+                                    return (
+                                      <section
+                                        className={styles.advancedOutput}
+                                        key={output.decisionId}
+                                      >
+                                        <div>
+                                          <strong>
+                                            {output.sourceLabel} · {output.portLabel}
+                                          </strong>
+                                          <code>
+                                            {output.sourceNodeId}:{output.sourcePortId}
+                                          </code>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className={
+                                            outputChoice === 'local'
+                                              ? styles.selectedChoice
+                                              : undefined
+                                          }
+                                          onClick={() =>
+                                            chooseExecutionRegionOutput(
+                                              conflict,
+                                              output.decisionId,
+                                              'local',
+                                            )
+                                          }
+                                        >
+                                          <strong>Local</strong>
+                                          <span>
+                                            → {output.localTargetLabels.join(', ') || 'Disconnect'}
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={
+                                            outputChoice === 'remote'
+                                              ? styles.selectedChoice
+                                              : undefined
+                                          }
+                                          onClick={() =>
+                                            chooseExecutionRegionOutput(
+                                              conflict,
+                                              output.decisionId,
+                                              'remote',
+                                            )
+                                          }
+                                        >
+                                          <strong>Remote</strong>
+                                          <span>
+                                            → {output.remoteTargetLabels.join(', ') || 'Disconnect'}
+                                          </span>
+                                        </button>
+                                      </section>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             {pendingRegionChoice?.id === conflict.id && (
                               <div className={styles.regionConfirmation}>
                                 <strong>
@@ -1250,7 +1430,9 @@ export function StoryMerge() {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => choose(conflict.id, pendingRegionChoice.choice)}
+                                  onClick={() =>
+                                    chooseWholeExecutionRegion(conflict, pendingRegionChoice.choice)
+                                  }
                                 >
                                   Confirm Region Replacement
                                 </button>

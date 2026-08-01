@@ -131,6 +131,27 @@ describe('Story merge graph preview', () => {
         localImpact: { nodesAdded: 1, nodesRemoved: 0, linksAdded: 1, linksRemoved: 1 },
         remoteImpact: { nodesAdded: 1, nodesRemoved: 0, linksAdded: 1, linksRemoved: 1 },
         requiresConfirmation: false,
+        supportsPerOutput: true,
+        outputs: [
+          {
+            decisionId: 'region-output-a',
+            sourceNodeId: 'n_dialogue',
+            sourcePortId: 'out-a',
+            sourceLabel: 'Before',
+            portLabel: 'A',
+            localTargetLabels: ['Local End'],
+            remoteTargetLabels: ['Remote End'],
+          },
+          {
+            decisionId: 'region-output-b',
+            sourceNodeId: 'n_dialogue',
+            sourcePortId: 'out-b',
+            sourceLabel: 'Before',
+            portLabel: 'B',
+            localTargetLabels: ['Local End'],
+            remoteTargetLabels: ['Remote End'],
+          },
+        ],
         localCoveredConflictIds: [],
         remoteCoveredConflictIds: ['story/root/nodes/%40id%3An_localend'],
         localLabel: 'Local region · 3 nodes · 1 links',
@@ -171,6 +192,30 @@ describe('Story merge graph preview', () => {
     expect(resolved.boundaryNodeIds).toEqual([]);
     expect(resolved.removedNodeIds).toContain('n_localend');
     expect(resolved.conflictNodeIds).toEqual([]);
+
+    const partiallyResolved = buildStoryMergePreview(
+      story(localGraph),
+      story(mergedGraph),
+      [conflict],
+      { 'region-output-a': 'local' },
+      story(remoteGraph),
+    ).graphs[0];
+    expect(partiallyResolved.conflictNodeIds).not.toEqual([]);
+
+    const resolvedPerOutput = buildStoryMergePreview(
+      story(localGraph),
+      story(mergedGraph),
+      [conflict],
+      { 'region-output-a': 'local', 'region-output-b': 'remote' },
+      story(remoteGraph),
+    ).graphs[0];
+    expect(resolvedPerOutput.conflictNodeIds).toEqual([]);
+    expect(resolvedPerOutput.resolvedNodeIds.sort()).toEqual([
+      'n_dialogue',
+      'n_endnode',
+      'n_localend',
+      'n_remoteend',
+    ]);
   });
 
   it('highlights concurrent inserted nodes and their competing entry edges', () => {

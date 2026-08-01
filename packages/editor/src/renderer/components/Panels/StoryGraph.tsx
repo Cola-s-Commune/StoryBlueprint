@@ -1762,6 +1762,9 @@ export function StoryGraph() {
                             {executionRegion.requiresConfirmation && (
                               <em>Large region: confirm in Story Merge.</em>
                             )}
+                            {executionRegion.supportsPerOutput && (
+                              <em>Per-output choices are available in Story Merge.</em>
+                            )}
                           </div>
                           <button
                             type="button"

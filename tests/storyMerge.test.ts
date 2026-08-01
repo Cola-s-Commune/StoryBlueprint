@@ -13,6 +13,7 @@ import {
   mergeThreeWayValues,
   mergeThreeWayOptionalValues,
   storyMergeCoveredConflictIds,
+  storyMergeConflictHasDecision,
   unresolvedStoryMergeConflicts,
 } from '../packages/editor/src/renderer/graph/storyMerge';
 import { fromSourceGraph, toSourceGraph } from '../packages/editor/src/renderer/graph/editorGraph';
@@ -449,6 +450,50 @@ describe('Story semantic merge', () => {
         to: { nodeId: 'n_remoteright', portId: 'in' },
       },
     ];
+    remoteSource.root.nodes = remoteSource.root.nodes.map((node) =>
+      node.id === 'n_remoteleft'
+        ? {
+            id: 'n_remoteleft',
+            type: StoryNodeType.Dialogue,
+            definitionVersion: 1,
+            position: node.position,
+            data: {
+              lines: [
+                {
+                  id: 'ln_remoteleft',
+                  textId: 't_remoteleft',
+                  text: { source: 'Remote cycle A' },
+                },
+              ],
+            },
+          }
+        : node,
+    );
+    remoteSource.root.nodes.push({
+      id: 'n_remotecycle',
+      type: StoryNodeType.Dialogue,
+      definitionVersion: 1,
+      position: { x: 900, y: 150 },
+      data: {
+        lines: [
+          {
+            id: 'ln_remotecycle',
+            textId: 't_remotecycle',
+            text: { source: 'Remote cycle B' },
+          },
+        ],
+      },
+    });
+    remoteSource.root.edges.push(
+      {
+        from: { nodeId: 'n_remoteleft', portId: 'out' },
+        to: { nodeId: 'n_remotecycle', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_remotecycle', portId: 'out' },
+        to: { nodeId: 'n_remoteleft', portId: 'in' },
+      },
+    );
     const base = mergeableStory(baseSource);
     const local = mergeableStory(localSource);
     const remote = mergeableStory(remoteSource);
@@ -467,11 +512,12 @@ describe('Story semantic merge', () => {
         'n_localright',
         'n_remoteleft',
         'n_remoteright',
+        'n_remotecycle',
       ]),
       boundaryNodeIds: expect.arrayContaining(['n_baseleft', 'n_baseright']),
       changedOutputCount: 2,
       localImpact: { nodesAdded: 2, nodesRemoved: 0, linksAdded: 2, linksRemoved: 2 },
-      remoteImpact: { nodesAdded: 2, nodesRemoved: 0, linksAdded: 2, linksRemoved: 2 },
+      remoteImpact: { nodesAdded: 3, nodesRemoved: 0, linksAdded: 4, linksRemoved: 2 },
       requiresConfirmation: false,
     });
     const promptConflict = diff.conflicts.find((conflict) => conflict.id.endsWith('/source'))!;
@@ -495,6 +541,41 @@ describe('Story semantic merge', () => {
     expect(remoteRegion.root.nodes.find((node) => node.id === 'n_choice')!.data.prompt.source).toBe(
       'Local prompt',
     );
+
+    const regionResolution = regions[0].resolution;
+    if (regionResolution?.kind !== 'execution-region') throw new Error('Expected region');
+    expect(regionResolution.supportsPerOutput).toBe(true);
+    const leftOutput = regionResolution.outputs.find(
+      (output) => output.sourcePortId === 'opt_left',
+    )!;
+    const rightOutput = regionResolution.outputs.find(
+      (output) => output.sourcePortId === 'opt_right',
+    )!;
+    const mixedDecisions = {
+      [leftOutput.decisionId]: 'local' as const,
+      [rightOutput.decisionId]: 'remote' as const,
+    };
+    expect(
+      storyMergeConflictHasDecision(regions[0], {
+        [leftOutput.decisionId]: 'local',
+      }),
+    ).toBe(false);
+    expect(storyMergeConflictHasDecision(regions[0], mixedDecisions)).toBe(true);
+    const mixed = mergeThreeWayStoryDocuments(base, local, remote, mixedDecisions);
+    expect(mixed.root.edges).toEqual([
+      baseSource.root.edges[0],
+      localSource.root.edges[1],
+      remoteSource.root.edges[2],
+    ]);
+    expect(mixed.root.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(['n_localleft', 'n_remoteright']),
+    );
+    expect(mixed.root.nodes.map((node) => node.id)).not.toEqual(
+      expect.arrayContaining(['n_localright', 'n_remoteleft', 'n_remotecycle']),
+    );
+    expect(
+      unresolvedStoryMergeConflicts(diff.conflicts, mixedDecisions).map((conflict) => conflict.id),
+    ).toEqual([promptConflict.id]);
   });
 
   it('keeps a loop, deletion, and Rerouter inside one structural region', () => {
@@ -541,6 +622,7 @@ describe('Story semantic merge', () => {
     );
 
     expect(region).toBeDefined();
+    expect(region?.resolution).toMatchObject({ supportsPerOutput: false });
     const nodePresenceConflict = diff.conflicts.find(
       (conflict) => conflict.id.includes('%40id%3An_endxx') && conflict.resolution === undefined,
     );
