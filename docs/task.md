@@ -815,6 +815,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] Story v4 将节点逻辑与 `layout` 坐标分区持久化；坐标合并支持 Local/Remote 顺序优先的单步非 Rerouter 邻域整理
 - [x] 同一执行边上的双分支并发插入（单节点或简单线性节点链）可选择 Local→Remote、Remote→Local、只保留 Local 或只保留 Remote
 - [x] 无法线性化的分支、循环、删除和 Rerouter 等执行结构按连通变化区域分组，一次选择完整 Local / Remote 拓扑
+- [x] Execution Region 选择动态覆盖已删除节点的 Modify/Delete 从属冲突；统计、导航、验证和 Apply 统一忽略失效冲突
 - [x] 同一 Data Input 的 Local / Remote 竞争来源转为可选择的语义冲突
 - [x] Local / Remote 同时替换 Start 时生成入口二选一冲突，Apply 前强制每个 Graph 只有一个入口
 - [x] Line / Option / Parameter 等有序集合在同一位置并发插入时显式选择 Local-first / Remote-first

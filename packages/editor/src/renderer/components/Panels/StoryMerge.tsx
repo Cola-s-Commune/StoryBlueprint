@@ -26,6 +26,8 @@ import {
   mergeStoryDocuments,
   mergeThreeWayStoryDocuments,
   mergeThreeWayOptionalValues,
+  storyMergeCoveredConflictIds,
+  unresolvedStoryMergeConflicts,
   type CoordinateLayoutOrder,
   type MergeableStoryDocument,
   type StoryMergeChoice,
@@ -452,9 +454,17 @@ export function StoryMerge() {
       (localBase && remoteMergeable ? diffStoryDocuments(localBase, remoteMergeable) : []),
     [localBase, remoteMergeable, threeWayDiff],
   );
+  const coveredConflictIds = useMemo(
+    () => storyMergeCoveredConflictIds(conflicts, decisions),
+    [conflicts, decisions],
+  );
   const coordinateConflicts = useMemo(
-    () => conflicts.filter((conflict) => coordinateConflictNodeId(conflict) !== undefined),
-    [conflicts],
+    () =>
+      conflicts.filter(
+        (conflict) =>
+          !coveredConflictIds.has(conflict.id) && coordinateConflictNodeId(conflict) !== undefined,
+      ),
+    [conflicts, coveredConflictIds],
   );
   const coordinateConflictIds = useMemo(
     () => new Set(coordinateConflicts.map((conflict) => conflict.id)),
@@ -525,22 +535,23 @@ export function StoryMerge() {
   ]);
   const remoteChoiceCount = conflicts.filter(
     (conflict) =>
+      !coveredConflictIds.has(conflict.id) &&
       !(coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)) &&
       decisions[conflict.id] === 'remote',
   ).length;
   const localChoiceCount = conflicts.filter(
     (conflict) =>
+      !coveredConflictIds.has(conflict.id) &&
       !(coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)) &&
       decisions[conflict.id] === 'local',
   ).length;
   const orderedChoiceCount = conflicts.filter(
     (conflict) =>
-      decisions[conflict.id] === 'local-first' || decisions[conflict.id] === 'remote-first',
+      !coveredConflictIds.has(conflict.id) &&
+      (decisions[conflict.id] === 'local-first' || decisions[conflict.id] === 'remote-first'),
   ).length;
   const autoCoordinateCount = coordinateLayoutOrder ? coordinateConflicts.length : 0;
-  const unresolvedCount = conflicts.filter(
-    (conflict) => decisions[conflict.id] === undefined,
-  ).length;
+  const unresolvedCount = unresolvedStoryMergeConflicts(conflicts, decisions).length;
   const resolvedCount = conflicts.length - unresolvedCount;
   const stale = Boolean(baseRevision && baseRevision !== semanticSnapshot.revision);
   const hasMergedChanges = Boolean(
@@ -635,16 +646,19 @@ export function StoryMerge() {
 
   const chooseAll = (choice: StoryMergeChoice) => {
     setCoordinateLayoutOrder(undefined);
-    setDecisions((current) =>
-      Object.fromEntries(
-        conflicts.map((conflict) => [
-          conflict.id,
-          coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)
-            ? choice
-            : (current[conflict.id] ?? choice),
-        ]),
+    setDecisions((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        conflicts
+          .filter((conflict) => !coveredConflictIds.has(conflict.id))
+          .map((conflict) => [
+            conflict.id,
+            coordinateLayoutOrder && coordinateConflictIds.has(conflict.id)
+              ? choice
+              : (current[conflict.id] ?? choice),
+          ]),
       ),
-    );
+    }));
     setError(undefined);
     setStatus(undefined);
   };
@@ -897,6 +911,12 @@ export function StoryMerge() {
                   <span>ordered</span>
                 </div>
               )}
+              {coveredConflictIds.size > 0 && (
+                <div>
+                  <strong>{coveredConflictIds.size}</strong>
+                  <span>covered by region</span>
+                </div>
+              )}
               {threeWayDiff && (
                 <div>
                   <strong>{threeWayDiff.autoChangeCount}</strong>
@@ -985,6 +1005,9 @@ export function StoryMerge() {
                 Manual: {localChoiceCount} Local · {remoteChoiceCount} Remote · {unresolvedCount}{' '}
                 unresolved
               </span>
+              {coveredConflictIds.size > 0 && (
+                <span>Structure: {coveredConflictIds.size} conflict(s) resolved by region</span>
+              )}
               {orderedChoiceCount > 0 && (
                 <span>Concurrent insertions: {orderedChoiceCount} ordered</span>
               )}
@@ -1010,6 +1033,7 @@ export function StoryMerge() {
             ) : (
               <div className={styles.conflicts}>
                 {conflicts.map((conflict) => {
+                  const coveredByRegion = coveredConflictIds.has(conflict.id);
                   const coordinateConflict = coordinateConflictIds.has(conflict.id);
                   const choice =
                     coordinateLayoutOrder && coordinateConflict
@@ -1039,7 +1063,15 @@ export function StoryMerge() {
                   return (
                     <article className={styles.conflict} key={conflict.id}>
                       <header>
-                        <span>{conflict.kind}</span>
+                        <span
+                          title={
+                            coveredByRegion
+                              ? 'This conflict no longer affects the selected execution region.'
+                              : undefined
+                          }
+                        >
+                          {coveredByRegion ? 'resolved-by-region' : conflict.kind}
+                        </span>
                         {coordinateLayoutOrder && coordinateConflict && (
                           <span>
                             {coordinateLayoutOrder === 'local-first'

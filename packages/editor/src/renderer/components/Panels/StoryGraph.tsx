@@ -52,6 +52,10 @@ import {
 import { useStoryGraphStore, type ActiveGraphId } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag, storyDataMime } from '../../graph/storyDataDrag';
 import {
+  storyMergeCoveredConflictIds,
+  unresolvedStoryMergeConflicts,
+} from '../../graph/storyMerge';
+import {
   buildStorySearchIndex,
   searchStoryIndex,
   type StorySearchEntry,
@@ -1107,47 +1111,56 @@ export function StoryGraph() {
     const selected = new Set(mergeConflictSelection.conflictIds);
     return storyMergePreview.conflicts.filter((conflict) => selected.has(conflict.id));
   }, [mergeConflictSelection, storyMergePreview]);
+  const coveredMergeConflictIds = useMemo(
+    () =>
+      storyMergePreview
+        ? storyMergeCoveredConflictIds(storyMergePreview.conflicts, storyMergePreview.decisions)
+        : new Set<string>(),
+    [storyMergePreview],
+  );
+  const selectedCoveredMergeConflictCount = selectedMergeConflicts.filter((conflict) =>
+    coveredMergeConflictIds.has(conflict.id),
+  ).length;
   const mergeConflictTargets = useMemo(() => {
     if (!storyMergePreview) return [];
-    return storyMergePreview.conflicts
-      .filter((conflict) => storyMergePreview.decisions[conflict.id] === undefined)
-      .flatMap((conflict) => {
-        for (const previewGraph of storyMergePreview.graphs) {
-          const nodeEntry = Object.entries(previewGraph.nodeConflictIds).find(([, ids]) =>
-            ids.includes(conflict.id),
-          );
-          if (nodeEntry) {
+    return unresolvedStoryMergeConflicts(
+      storyMergePreview.conflicts,
+      storyMergePreview.decisions,
+    ).flatMap((conflict) => {
+      for (const previewGraph of storyMergePreview.graphs) {
+        const nodeEntry = Object.entries(previewGraph.nodeConflictIds).find(([, ids]) =>
+          ids.includes(conflict.id),
+        );
+        if (nodeEntry) {
+          return [
+            {
+              conflictId: conflict.id,
+              graphId: previewGraph.id,
+              nodeId: nodeEntry[0] as NodeId,
+              conflictIds: previewGraph.nodeConflictIds[nodeEntry[0]],
+            },
+          ];
+        }
+        const edgeEntry = Object.entries(previewGraph.edgeConflictIds).find(([, ids]) =>
+          ids.includes(conflict.id),
+        );
+        if (edgeEntry) {
+          const edge = previewGraph.graph.edges.find((candidate) => candidate.id === edgeEntry[0]);
+          if (edge) {
             return [
               {
                 conflictId: conflict.id,
                 graphId: previewGraph.id,
-                nodeId: nodeEntry[0] as NodeId,
-                conflictIds: previewGraph.nodeConflictIds[nodeEntry[0]],
+                nodeId: edge.source,
+                edgeId: edge.id,
+                conflictIds: previewGraph.edgeConflictIds[edgeEntry[0]],
               },
             ];
           }
-          const edgeEntry = Object.entries(previewGraph.edgeConflictIds).find(([, ids]) =>
-            ids.includes(conflict.id),
-          );
-          if (edgeEntry) {
-            const edge = previewGraph.graph.edges.find(
-              (candidate) => candidate.id === edgeEntry[0],
-            );
-            if (edge) {
-              return [
-                {
-                  conflictId: conflict.id,
-                  graphId: previewGraph.id,
-                  nodeId: edge.source,
-                  edgeId: edge.id,
-                  conflictIds: previewGraph.edgeConflictIds[edgeEntry[0]],
-                },
-              ];
-            }
-          }
         }
-        return [];
-      });
+      }
+      return [];
+    });
   }, [storyMergePreview]);
 
   const navigateMergeConflict = useCallback(
@@ -1653,7 +1666,10 @@ export function StoryGraph() {
                     ? `Node ${mergeConflictSelection.nodeId}`
                     : 'Connection conflict'}
                 </strong>
-                <span>{selectedMergeConflicts.length} field conflict(s)</span>
+                <span>
+                  {selectedMergeConflicts.length - selectedCoveredMergeConflictCount} active ·{' '}
+                  {selectedCoveredMergeConflictCount} resolved by region
+                </span>
               </div>
               <button type="button" onClick={() => setMergeConflictSelection(undefined)}>
                 ×
@@ -1661,6 +1677,7 @@ export function StoryGraph() {
             </header>
             <div className={styles.mergeConflictFields}>
               {selectedMergeConflicts.map((conflict) => {
+                const coveredByRegion = coveredMergeConflictIds.has(conflict.id);
                 const choice = storyMergePreview?.decisions[conflict.id];
                 const insertion =
                   conflict.resolution?.kind === 'concurrent-insertion'
@@ -1680,7 +1697,10 @@ export function StoryGraph() {
                   decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
                 return (
                   <section key={conflict.id}>
-                    <code>{conflict.path}</code>
+                    <code>
+                      {conflict.path}
+                      {coveredByRegion ? ' · resolved by region' : ''}
+                    </code>
                     <div>
                       {insertion ? (
                         <>

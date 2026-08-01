@@ -42,6 +42,8 @@ export interface ExecutionRegionResolution {
   kind: 'execution-region';
   localNodeIds: string[];
   remoteNodeIds: string[];
+  localCoveredConflictIds: string[];
+  remoteCoveredConflictIds: string[];
   localLabel: string;
   remoteLabel: string;
 }
@@ -72,6 +74,35 @@ export interface ThreeWayValueDiff<T> {
 }
 
 export type StoryMergeDecisions = Readonly<Record<string, StoryMergeChoice>>;
+
+export function storyMergeCoveredConflictIds(
+  conflicts: readonly StoryMergeConflict[],
+  decisions: StoryMergeDecisions,
+): Set<string> {
+  const covered = new Set<string>();
+  for (const conflict of conflicts) {
+    if (conflict.resolution?.kind !== 'execution-region') continue;
+    const choice = decisions[conflict.id];
+    const conflictIds =
+      choice === 'local'
+        ? conflict.resolution.localCoveredConflictIds
+        : choice === 'remote'
+          ? conflict.resolution.remoteCoveredConflictIds
+          : [];
+    for (const conflictId of conflictIds) covered.add(conflictId);
+  }
+  return covered;
+}
+
+export function unresolvedStoryMergeConflicts(
+  conflicts: readonly StoryMergeConflict[],
+  decisions: StoryMergeDecisions,
+): StoryMergeConflict[] {
+  const covered = storyMergeCoveredConflictIds(conflicts, decisions);
+  return conflicts.filter(
+    (conflict) => !covered.has(conflict.id) && decisions[conflict.id] === undefined,
+  );
+}
 
 export type MergeableStoryDocument = Pick<
   StorySourceDocument,
@@ -752,6 +783,17 @@ interface ExecutionRegionPlan extends ExecutionRegionResolution {
   remoteEdges: SourceEdge[];
 }
 
+function conflictNodeTargetInGraph(
+  conflict: StoryMergeConflict,
+  graphId: string,
+): { nodeId: string; nodeRoot: boolean } | undefined {
+  const segments = conflict.id.split('/').map(decodeURIComponent);
+  if (segments[0] !== 'story' || segments[1] !== graphId || segments[2] !== 'nodes') return;
+  const nodeIndex = segments.findIndex((segment) => segment.startsWith('@id:'));
+  if (nodeIndex < 0) return;
+  return { nodeId: segments[nodeIndex].slice(4), nodeRoot: nodeIndex === segments.length - 1 };
+}
+
 function executionEdges(graph: SourceGraph): SourceEdge[] {
   return [...executionSuccessors(graph).values()].flat();
 }
@@ -841,6 +883,8 @@ function detectExecutionRegions(
       affectedNodeIds: nodeIds,
       localNodeIds,
       remoteNodeIds,
+      localCoveredConflictIds: [],
+      remoteCoveredConflictIds: [],
       localEdges,
       remoteEdges,
       localLabel: `Local region · ${localNodeIds.length} nodes · ${localEdges.length} links`,
@@ -974,6 +1018,29 @@ function resolveExecutionSuccessorConflicts(
       genericCandidates,
       protectedInsertionNodeIds,
     )) {
+      const affectedNodeIds = new Set(region.affectedNodeIds);
+      const localNodeIds = new Set(region.localNodeIds);
+      const remoteNodeIds = new Set(region.remoteNodeIds);
+      region.localCoveredConflictIds = conflicts
+        .filter((candidate) => {
+          const target = conflictNodeTargetInGraph(candidate, graphId);
+          if (!target || !affectedNodeIds.has(target.nodeId)) return false;
+          return (
+            !localNodeIds.has(target.nodeId) ||
+            (target.nodeRoot && !remoteNodeIds.has(target.nodeId))
+          );
+        })
+        .map((candidate) => candidate.id);
+      region.remoteCoveredConflictIds = conflicts
+        .filter((candidate) => {
+          const target = conflictNodeTargetInGraph(candidate, graphId);
+          if (!target || !affectedNodeIds.has(target.nodeId)) return false;
+          return (
+            !remoteNodeIds.has(target.nodeId) ||
+            (target.nodeRoot && !localNodeIds.has(target.nodeId))
+          );
+        })
+        .map((candidate) => candidate.id);
       const regionConflict = conflict(
         region.path,
         true,
@@ -985,6 +1052,8 @@ function resolveExecutionSuccessorConflicts(
         kind: 'execution-region',
         localNodeIds: region.localNodeIds,
         remoteNodeIds: region.remoteNodeIds,
+        localCoveredConflictIds: region.localCoveredConflictIds,
+        remoteCoveredConflictIds: region.remoteCoveredConflictIds,
         localLabel: region.localLabel,
         remoteLabel: region.remoteLabel,
       };

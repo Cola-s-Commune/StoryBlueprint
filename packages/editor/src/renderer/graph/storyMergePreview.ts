@@ -7,7 +7,11 @@ import type {
   StorySourceDocument,
 } from '@story-blueprint/common';
 import { avoidOverlappingNodes, fromSourceGraph, type EditorGraphState } from './editorGraph';
-import type { StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
+import {
+  unresolvedStoryMergeConflicts,
+  type StoryMergeConflict,
+  type StoryMergeDecisions,
+} from './storyMerge';
 
 export type StoryMergePreviewGraphId = 'root' | ChapterId;
 
@@ -264,7 +268,7 @@ export function buildStoryMergePreview(
   decisions: StoryMergeDecisions = {},
   remote?: StorySourceDocument,
 ): StoryMergePreview {
-  const unresolved = conflicts.filter((conflict) => decisions[conflict.id] === undefined);
+  const unresolved = unresolvedStoryMergeConflicts(conflicts, decisions);
   const conflict = conflictKeys(unresolved);
   const resolvedNodes = resolvedConflictNodes(conflicts, decisions);
   const localChapters = new Map(local.chapters.map((chapter) => [chapter.id, chapter] as const));

@@ -123,15 +123,23 @@ describe('Story merge graph preview', () => {
         kind: 'execution-region' as const,
         localNodeIds: ['n_dialogue', 'n_localend'],
         remoteNodeIds: ['n_dialogue', 'n_remoteend'],
+        localCoveredConflictIds: [],
+        remoteCoveredConflictIds: ['story/root/nodes/%40id%3An_localend'],
         localLabel: 'Local region · 2 nodes · 1 links',
         remoteLabel: 'Remote region · 2 nodes · 1 links',
       },
+    };
+    const coveredNodeConflict = {
+      id: 'story/root/nodes/%40id%3An_localend',
+      path: 'story › root › nodes › @id:n_localend',
+      kind: 'local-only' as const,
+      localValue: localEnd,
     };
 
     const unresolved = buildStoryMergePreview(
       story(localGraph),
       story(mergedGraph),
-      [conflict],
+      [conflict, coveredNodeConflict],
       {},
       story(remoteGraph),
     ).graphs[0];
@@ -141,7 +149,7 @@ describe('Story merge graph preview', () => {
     const resolved = buildStoryMergePreview(
       story(localGraph),
       story(remoteGraph),
-      [conflict],
+      [conflict, coveredNodeConflict],
       { [conflict.id]: 'remote' },
       story(remoteGraph),
     ).graphs[0];

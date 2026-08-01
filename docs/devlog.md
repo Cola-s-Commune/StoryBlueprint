@@ -1,5 +1,6 @@
 # Dev Log
 
+- Execution Region 增加冲突依赖消解：区域选择会覆盖已决定存在性的 Modify/Delete 和被删除节点从属冲突；统计、批量处理、画布导航、预览及 Validate/Apply 共用同一有效冲突判断，共同节点字段仍独立处理。
 - Story Merge 新增 Execution Region 结构冲突：无法线性化的分支、循环、删除和 Rerouter 改线按连通变化区域合并成一项，可完整保留 Local / Remote 拓扑；结构选择不覆盖共同节点上的对白等字段决策。
 - Story Merge 的同边并发插入从单节点扩展为简单线性节点链；四种排序/取舍决策会处理整段路径，预览高亮与局部布局覆盖链上全部节点，并明确拒绝分支、循环和中途接入既有节点的结构。
 - 有序集合三方合并检测同一 Base 间隙的双方并发插入；Dialogue Line、Choice Option、Event/Signal Parameter 等不再静默采用 Local-first，而是显式选择双方新增项顺序。

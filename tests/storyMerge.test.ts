@@ -12,6 +12,8 @@ import {
   mergeThreeWayStoryDocuments,
   mergeThreeWayValues,
   mergeThreeWayOptionalValues,
+  storyMergeCoveredConflictIds,
+  unresolvedStoryMergeConflicts,
 } from '../packages/editor/src/renderer/graph/storyMerge';
 import { fromSourceGraph, toSourceGraph } from '../packages/editor/src/renderer/graph/editorGraph';
 
@@ -460,6 +462,17 @@ describe('Story semantic merge', () => {
       localNodeIds: expect.arrayContaining(['n_choice', 'n_localleft', 'n_localright']),
       remoteNodeIds: expect.arrayContaining(['n_choice', 'n_remoteleft', 'n_remoteright']),
     });
+    const promptConflict = diff.conflicts.find((conflict) => conflict.id.endsWith('/source'))!;
+    expect(
+      storyMergeCoveredConflictIds(diff.conflicts, { [regions[0].id]: 'remote' }).has(
+        promptConflict.id,
+      ),
+    ).toBe(false);
+    expect(
+      unresolvedStoryMergeConflicts(diff.conflicts, { [regions[0].id]: 'remote' }).map(
+        (conflict) => conflict.id,
+      ),
+    ).toContain(promptConflict.id);
     const remoteRegion = mergeThreeWayStoryDocuments(base, local, remote, {
       [regions[0].id]: 'remote',
     });
@@ -496,6 +509,7 @@ describe('Story semantic merge', () => {
       },
     ];
     remoteSource.root.nodes.push(rerouter('n_remoteroute', 300));
+    remoteSource.root.nodes.find((node) => node.id === 'n_endxx')!.data.title = 'Remote End';
     remoteSource.root.edges = [
       {
         from: { nodeId: 'n_dialogue', portId: 'out' },
@@ -515,6 +529,20 @@ describe('Story semantic merge', () => {
     );
 
     expect(region).toBeDefined();
+    const nodePresenceConflict = diff.conflicts.find(
+      (conflict) => conflict.id.includes('%40id%3An_endxx') && conflict.resolution === undefined,
+    );
+    expect(nodePresenceConflict).toBeDefined();
+    expect(
+      unresolvedStoryMergeConflicts(diff.conflicts, {}).map((conflict) => conflict.id),
+    ).toContain(nodePresenceConflict!.id);
+    expect(unresolvedStoryMergeConflicts(diff.conflicts, { [region!.id]: 'local' })).toEqual([]);
+    expect(unresolvedStoryMergeConflicts(diff.conflicts, { [region!.id]: 'remote' })).toEqual([]);
+    expect(
+      storyMergeCoveredConflictIds(diff.conflicts, { [region!.id]: 'local' }).has(
+        nodePresenceConflict!.id,
+      ),
+    ).toBe(true);
     const keepLocal = mergeThreeWayStoryDocuments(base, local, remote, {
       [region!.id]: 'local',
     });
