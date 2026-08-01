@@ -397,6 +397,82 @@
   user-select: text;
 }
 
+.referenceSection {
+  display: grid;
+  gap: 5px;
+  padding-top: 4px;
+  border-top: 1px solid #343d46;
+}
+
+.referenceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #8d99a5;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.referenceHeader strong {
+  color: #cbd5df;
+}
+
+.referenceEmpty {
+  color: #74808c;
+  font-size: 9px;
+}
+
+.referenceList {
+  display: grid;
+  gap: 3px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.referenceList button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  border: 1px solid #3b4651;
+  border-radius: 3px;
+  background: #20272e;
+  color: #c9d3dd;
+  cursor: pointer;
+  text-align: left;
+}
+
+.referenceList button:hover {
+  border-color: #5f87aa;
+  background: #27333e;
+}
+
+.referenceList button > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.referenceList small {
+  overflow: hidden;
+  color: #7f8b97;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.referenceList em {
+  color: #82aed3;
+  font-size: 8px;
+  font-style: normal;
+}
+
+.dangerButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .detailActions {
   display: flex;
   flex-wrap: wrap;

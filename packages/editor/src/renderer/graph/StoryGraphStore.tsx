@@ -77,6 +77,12 @@ import {
 import { useGraphHistory } from './useGraphHistory';
 import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
 import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
+import {
+  findVariableReferences as collectVariableReferences,
+  renameVariableReferencesInNode,
+  type VariableReference,
+  type VariableReferenceGraph,
+} from './variableReferences';
 import type {
   ApplyWorkspaceMergeFile,
   OpenStoryResult,
@@ -85,118 +91,6 @@ import type {
 } from '../../shared/electronApi';
 
 nodeRegistry.registerBuiltins();
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function renameExpressionIdentifier(source: string, oldName: string, newName: string): string {
-  return source.replace(new RegExp(`\\b${escapeRegExp(oldName)}\\b`, 'g'), newName);
-}
-
-function renameTemplateIdentifier(source: string, oldName: string, newName: string): string {
-  let result = '';
-  let index = 0;
-  while (index < source.length) {
-    if (source.startsWith('{{', index) || source.startsWith('}}', index)) {
-      result += source.slice(index, index + 2);
-      index += 2;
-      continue;
-    }
-    if (source[index] !== '{') {
-      result += source[index++];
-      continue;
-    }
-    const end = source.indexOf('}', index + 1);
-    if (end < 0) return result + source.slice(index);
-    const expression = source.slice(index + 1, end);
-    result += `{${renameExpressionIdentifier(expression, oldName, newName)}}`;
-    index = end + 1;
-  }
-  return result;
-}
-
-function renameVariableInNode(
-  node: EditorGraphNode,
-  oldName: string,
-  newName: string,
-): EditorGraphNode {
-  switch (node.type) {
-    case StoryNodeType.Dialogue: {
-      const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          lines: data.lines.map((line) => ({
-            ...line,
-            text: {
-              source: renameTemplateIdentifier(line.text.source, oldName, newName),
-            },
-          })),
-        },
-      };
-    }
-    case StoryNodeType.Choice: {
-      const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          prompt: {
-            source: renameTemplateIdentifier(data.prompt.source, oldName, newName),
-          },
-          options: data.options.map((option) => ({
-            ...option,
-            text: {
-              source: renameTemplateIdentifier(option.text.source, oldName, newName),
-            },
-            visibleIf: option.visibleIf
-              ? {
-                  ...option.visibleIf,
-                  source: renameExpressionIdentifier(option.visibleIf.source, oldName, newName),
-                }
-              : undefined,
-            enabledIf: option.enabledIf
-              ? {
-                  ...option.enabledIf,
-                  source: renameExpressionIdentifier(option.enabledIf.source, oldName, newName),
-                }
-              : undefined,
-          })),
-        },
-      };
-    }
-    case StoryNodeType.Branch: {
-      const data = node.data as StoryNodeDataMap[StoryNodeType.Branch];
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          condition: {
-            ...data.condition,
-            source: renameExpressionIdentifier(data.condition.source, oldName, newName),
-          },
-        },
-      };
-    }
-    case StoryNodeType.SetVariable: {
-      const data = node.data as StoryNodeDataMap[StoryNodeType.SetVariable];
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          value: {
-            ...data.value,
-            source: renameExpressionIdentifier(data.value.source, oldName, newName),
-          },
-        },
-      };
-    }
-    default:
-      return node;
-  }
-}
 
 function createNewGraph(): EditorGraphState {
   const instance = NodeFactory.create(
@@ -419,8 +313,11 @@ interface StoryGraphStoreValue {
     files: ApplyWorkspaceMergeFile[],
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
   addVariable: () => VariableId;
-  updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => void;
-  removeVariable: (id: VariableId) => void;
+  findVariableReferences: (id: VariableId) => readonly VariableReference[];
+  updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => boolean;
+  removeVariable: (
+    id: VariableId,
+  ) => { ok: true } | { ok: false; references: readonly VariableReference[] };
   addCharacter: () => CharacterId;
   updateCharacter: (id: CharacterId, update: Partial<CharacterSource>) => void;
   renameCharacterEmotion: (id: CharacterId, fromEmotion: string, toEmotion: string) => void;
@@ -1165,7 +1062,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       try {
         const graphs = [
           { name: 'Main Story', graph: merged.root },
-          ...merged.chapters.map((chapter) => ({ name: chapter.displayName, graph: chapter.graph })),
+          ...merged.chapters.map((chapter) => ({
+            name: chapter.displayName,
+            graph: chapter.graph,
+          })),
         ];
         for (const candidate of graphs) {
           const entryCount = candidate.graph.nodes.filter(
@@ -1292,8 +1192,35 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     return id;
   }, [checkpoint, markDirty]);
 
+  const variableReferenceGraphs = useCallback((): VariableReferenceGraph[] => {
+    const root = activeGraphId === 'root' ? graph : rootGraphRef.current;
+    return [
+      { id: 'root', label: 'Main Story', graph: root },
+      ...chapters.map((chapter) => ({
+        id: chapter.id,
+        label: chapter.displayName,
+        graph: activeGraphId === chapter.id ? graph : chapter.graph,
+      })),
+    ];
+  }, [activeGraphId, chapters, graph]);
+
+  const findVariableReferencesById = useCallback(
+    (id: VariableId): readonly VariableReference[] => {
+      const variable = variables.find((candidate) => candidate.id === id);
+      return variable ? collectVariableReferences(variable, variableReferenceGraphs()) : [];
+    },
+    [variableReferenceGraphs, variables],
+  );
+
   const updateVariable = useCallback(
-    (id: VariableId, update: Partial<VariableDefinition>) => {
+    (id: VariableId, update: Partial<VariableDefinition>): boolean => {
+      if (
+        update.name !== undefined &&
+        (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(update.name) ||
+          variables.some((variable) => variable.id !== id && variable.name === update.name))
+      ) {
+        return false;
+      }
       checkpoint();
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
@@ -1302,12 +1229,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const previous = variables.find((variable) => variable.id === id);
       if (previous && nextUpdate.name && nextUpdate.name !== previous.name) {
         setNodes((current) =>
-          current.map((node) => renameVariableInNode(node, previous.name, nextUpdate.name!)),
+          current.map((node) =>
+            renameVariableReferencesInNode(node, id, previous.name, nextUpdate.name!),
+          ),
         );
         updateInactiveGraphs((candidate) => ({
           ...candidate,
           nodes: candidate.nodes.map((node) =>
-            renameVariableInNode(node, previous.name, nextUpdate.name!),
+            renameVariableReferencesInNode(node, id, previous.name, nextUpdate.name!),
           ),
         }));
       }
@@ -1317,43 +1246,24 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         ),
       );
       markDirty();
+      return true;
     },
     [checkpoint, markDirty, setNodes, updateInactiveGraphs, variables],
   );
 
   const removeVariable = useCallback(
-    (id: VariableId) => {
+    (id: VariableId): { ok: true } | { ok: false; references: readonly VariableReference[] } => {
+      const references = findVariableReferencesById(id);
+      if (references.length > 0) return { ok: false, references };
       checkpoint();
       setStoryDataSelection((current) =>
         current?.kind === 'variable' && current.id === id ? undefined : current,
       );
       setVariables((current) => current.filter((variable) => variable.id !== id));
-      setNodes((current) =>
-        current.map((node) => {
-          if (
-            (node.type === StoryNodeType.GetVariable || node.type === StoryNodeType.SetVariable) &&
-            node.data.variableId === id
-          ) {
-            return { ...node, data: { ...node.data, variableId: undefined } };
-          }
-          return node;
-        }),
-      );
-      updateInactiveGraphs((candidate) => ({
-        ...candidate,
-        nodes: candidate.nodes.map((node) => {
-          if (
-            (node.type === StoryNodeType.GetVariable || node.type === StoryNodeType.SetVariable) &&
-            node.data.variableId === id
-          ) {
-            return { ...node, data: { ...node.data, variableId: undefined } };
-          }
-          return node;
-        }),
-      }));
       markDirty();
+      return { ok: true };
     },
-    [checkpoint, markDirty, setNodes, updateInactiveGraphs],
+    [checkpoint, findVariableReferencesById, markDirty],
   );
 
   const addCharacter = useCallback((): CharacterId => {
@@ -2290,8 +2200,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           const active = reloaded.find((item) => item.document.filePath === activeFilePath);
           const next = active ?? reloaded[0];
           if (next) {
-          const nextGraph =
-            activeGraphId === 'root' || next.chapters.some((chapter) => chapter.id === activeGraphId)
+            const nextGraph =
+              activeGraphId === 'root' ||
+              next.chapters.some((chapter) => chapter.id === activeGraphId)
                 ? activeGraphId
                 : 'root';
             loadStory(next, nextGraph);
@@ -2991,6 +2902,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       validateWorkspaceMerge,
       applyWorkspaceMerge,
       addVariable,
+      findVariableReferences: findVariableReferencesById,
       updateVariable,
       removeVariable,
       addCharacter,
@@ -3063,6 +2975,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [
       addNode,
       addVariable,
+      findVariableReferencesById,
       addCharacter,
       addAsset,
       addEvent,

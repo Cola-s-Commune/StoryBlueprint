@@ -430,7 +430,7 @@
 - [x] Boolean / Number / String
 - [ ] Project / Character 外部 Scope
 - [ ] Enum / Struct / Nullable
-- [ ] 引用检查与安全重命名
+- [x] Variable 引用索引、安全重命名、删除保护与跨 Graph 节点跳转
 
 ---
 

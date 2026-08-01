@@ -74,7 +74,9 @@ function ScriptNameInput({
 }
 
 function VariableEditor({ variable }: { variable: VariableDefinition }) {
-  const { variables, updateVariable, removeVariable } = useStoryGraphStore();
+  const { variables, findVariableReferences, focusGraphNode, updateVariable, removeVariable } =
+    useStoryGraphStore();
+  const references = findVariableReferences(variable.id);
   const duplicate = variables.some(
     (candidate) => candidate.id !== variable.id && candidate.name === variable.name,
   );
@@ -153,9 +155,40 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           />
         )}
       </label>
+      <div className={styles.referenceSection}>
+        <div className={styles.referenceHeader}>
+          <span>References</span>
+          <strong>{references.length}</strong>
+        </div>
+        {references.length === 0 ? (
+          <div className={styles.referenceEmpty}>This variable is not used by any node.</div>
+        ) : (
+          <div className={styles.referenceList}>
+            {references.map((reference) => (
+              <button
+                type="button"
+                key={`${reference.graphId}:${reference.nodeId}:${reference.field}:${reference.kind}`}
+                onClick={() => focusGraphNode(reference.graphId, reference.nodeId)}
+              >
+                <span>
+                  <strong>{reference.nodeLabel}</strong>
+                  <small>
+                    {reference.graphLabel} · {reference.field}
+                  </small>
+                </span>
+                <em>Show</em>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {references.length > 0 && (
+        <div className={styles.warning}>Remove these references before deleting the variable.</div>
+      )}
       <button
         className={styles.dangerButton}
         type="button"
+        disabled={references.length > 0}
         onClick={() => {
           if (window.confirm(`Delete variable ${variable.name}?`)) removeVariable(variable.id);
         }}

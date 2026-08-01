@@ -322,6 +322,12 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - Project 和 Character 变量的读取、写入及持久化通过 Adapter 完成。
 - 删除或改型变量前必须执行引用检查和迁移预览。
 
+变量 Inspector 实时索引 Main Story 与所有 Substory 中的直接 Get/Set、Dialogue/Choice 文本模板、
+Branch/Choice 条件、Set Variable 值、Event Argument 和 Signal Match 引用。引用项显示 Graph、节点和字段，
+点击后切换到对应 Graph 并聚焦节点；存在任意引用时禁止删除。变量 Name 提交前校验标识符和全 Story 唯一性，
+重命名作为单次历史事务同步改写所有 Graph 的表达式标识符与稳定 ID Binding。改写使用表达式词法边界，
+不会修改字符串字面量、相似前缀标识符或模板中的转义花括号。
+
 ### 6.2 角色定义
 
 角色应使用稳定 ID，而不是显示名作为引用：
