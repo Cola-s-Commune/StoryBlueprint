@@ -8,9 +8,10 @@ import type {
   UnaryOperator,
   ValueType,
   VariableDefinition,
+  CharacterSource,
 } from '@story-blueprint/common';
 
-type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'left' | 'right' | 'eof';
+type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'left' | 'right' | 'dot' | 'eof';
 interface Token {
   kind: TokenKind;
   value: string;
@@ -76,6 +77,10 @@ function tokenize(source: string): Token[] {
       tokens.push({ kind: char === '(' ? 'left' : 'right', value: char, offset: index++ });
       continue;
     }
+    if (char === '.') {
+      tokens.push({ kind: 'dot', value: char, offset: index++ });
+      continue;
+    }
     const pair = source.slice(index, index + 2);
     if (['==', '!=', '<=', '>=', '&&', '||'].includes(pair)) {
       tokens.push({ kind: 'operator', value: pair, offset: index });
@@ -136,14 +141,17 @@ class Parser {
   private index = 0;
   private readonly variablesByName: Map<string, VariableDefinition>;
   private readonly variablesById: Map<string, VariableDefinition>;
+  private readonly charactersByName: Map<string, CharacterSource>;
 
   constructor(
     private readonly tokens: readonly Token[],
     variables: readonly VariableDefinition[],
     private readonly bindings: Readonly<Record<string, string>>,
+    characters: readonly CharacterSource[],
   ) {
     this.variablesByName = new Map(variables.map((variable) => [variable.name, variable]));
     this.variablesById = new Map(variables.map((variable) => [variable.id, variable]));
+    this.charactersByName = new Map(characters.map((character) => [character.name, character]));
   }
 
   parse(): TypedExpression {
@@ -207,6 +215,27 @@ class Parser {
       }
       if (token.value === 'null') {
         return { kind: 'literal', value: null, valueType: { kind: 'any', nullable: true } };
+      }
+      if (this.peek().kind === 'dot') {
+        this.take();
+        const fieldToken = this.take();
+        if (fieldToken.kind !== 'identifier') {
+          throw new ExpressionCompileError('Expected character field name', fieldToken.offset);
+        }
+        const qualifiedName = `${token.value}.${fieldToken.value}`;
+        const boundId = this.bindings[qualifiedName];
+        const character = this.charactersByName.get(token.value);
+        const field =
+          (boundId ? this.variablesById.get(boundId) : undefined) ??
+          character?.fields?.find((candidate) => candidate.name === fieldToken.value);
+        if (!character)
+          throw new ExpressionCompileError(`Unknown character ${token.value}`, token.offset);
+        if (!field)
+          throw new ExpressionCompileError(
+            `Unknown character field ${qualifiedName}`,
+            fieldToken.offset,
+          );
+        return { kind: 'variable', variableId: field.id, valueType: field.valueType };
       }
       const boundId = this.bindings[token.value];
       const variable =
@@ -279,17 +308,19 @@ class Parser {
 export function compileExpression(
   expression: ExpressionSource | string,
   variables: readonly VariableDefinition[],
+  characters: readonly CharacterSource[] = [],
 ): TypedExpression {
   const source = typeof expression === 'string' ? expression : expression.source;
   const bindings = typeof expression === 'string' ? {} : expression.bindings;
   if (!source.trim()) throw new ExpressionCompileError('Expression is empty', 0);
-  return new Parser(tokenize(source), variables, bindings).parse();
+  return new Parser(tokenize(source), variables, bindings, characters).parse();
 }
 
 export function compileTextTemplate(
   source: string,
   id: TextId,
   variables: readonly VariableDefinition[],
+  characters: readonly CharacterSource[] = [],
 ): RuntimeTextTemplate {
   const parts: RuntimeTextPart[] = [];
   let text = '';
@@ -317,7 +348,10 @@ export function compileTextTemplate(
     if (end < 0) throw new ExpressionCompileError('Unclosed template expression', index);
     flushText();
     const expressionSource = source.slice(index + 1, end).trim();
-    parts.push({ kind: 'expression', expression: compileExpression(expressionSource, variables) });
+    parts.push({
+      kind: 'expression',
+      expression: compileExpression(expressionSource, variables, characters),
+    });
     index = end + 1;
   }
   flushText();

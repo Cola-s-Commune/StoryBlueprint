@@ -1,5 +1,6 @@
 # Dev Log
 
+- Character 新增强类型 Field：角色资源保存稳定字段 ID、名称、标量类型与默认值；表达式支持 `CharacterName.fieldName`，Get / Set Variable 可直接选择角色字段，Runtime Driver 通过 Adapter 在启动时读取并在暂停或结束时回写。
 - 资源引用性能优化：Character、Emotion 与 Asset 从逐项重复扫描改为相关 Inspector 打开时单次构建共享 Map；查询按 ID 直接读取，列表默认只渲染前 30 项，并新增 1000 个 Dialogue 引用覆盖测试。
 - Character、Emotion、Voice 与 Portrait Asset Inspector 接入跨 Story 引用审查：引用项可跳到具体 Graph/Dialogue Line 或 Character 配置，存在引用时 UI 与 Store 双层阻止删除，不再静默清空 Speaker、Voice 或 Portrait。
 - Variable Inspector 新增跨 Main Story / Substory 的统一引用列表和节点跳转；存在引用时阻止删除。安全重命名覆盖文本模板、Choice/Branch、Set Variable、Event Argument 与 Signal Match，更新稳定 ID Binding，并避免误改字符串字面量和相似标识符。

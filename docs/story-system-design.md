@@ -314,13 +314,14 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 
 ### 6.1 变量与作用域
 
-当前编辑器定义三种内部作用域；Project / Character 外部变量待 Adapter 生命周期落地后再加入：
+当前编辑器定义三种内部作用域和 Character 外部作用域；Project Scope 后续加入：
 
-| 作用域  | 生命周期        | 典型用途               |
-| ------- | --------------- | ---------------------- |
-| Story   | 当前 Story 实例 | 当前剧情流程状态       |
-| Chapter | 每次调用创建    | 参数、临时计算、返回值 |
-| Local   | 当前执行上下文  | 临时计算               |
+| 作用域    | 生命周期        | 典型用途               |
+| --------- | --------------- | ---------------------- |
+| Story     | 当前 Story 实例 | 当前剧情流程状态       |
+| Chapter   | 每次调用创建    | 参数、临时计算、返回值 |
+| Local     | 当前执行上下文  | 临时计算               |
+| Character | 引擎角色实例    | 好感度、角色状态       |
 
 约束：
 
@@ -328,7 +329,8 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - 当前编辑器支持 Boolean、Number、String；Enum、结构体、可空类型和数组后续加入。
 - 禁止隐式 String/Number/Boolean 转换，转换必须在表达式中显式写出。
 - Chapter 参数按值传入，局部变量随 Call Frame 创建，Return 可以返回一个声明类型的值。
-- Project 和 Character 变量的读取、写入及持久化通过 Adapter 完成。
+- Character 字段由角色资源声明，表达式使用 `CharacterName.fieldName`，Get / Set 节点内部仍保存字段稳定 ID。
+- Runtime 启动时通过 Adapter 读取 Character 字段；执行中的写入立即更新 Runtime 缓存，并在暂停或结束时通过 Adapter 回写。Project 变量后续沿用同一边界。
 - 删除或改型变量前必须执行引用检查和迁移预览。
 
 变量 Inspector 实时索引 Main Story 与所有 Substory 中的直接 Get/Set、Dialogue/Choice 文本模板、
@@ -348,9 +350,12 @@ interface CharacterDefinition {
   displayName: string;
   defaultPortrait?: AssetRef;
   emotions: Record<string, CharacterEmotion>;
+  fields: VariableDefinition[];
   voiceNamespace?: string;
 }
 ```
+
+首版 Character Field 只支持 Boolean、Number、String，不支持动态 CharacterRef、数组或结构体。字段属于引擎持久化状态，`.character` / 内嵌 Character 仅保存定义与默认值。
 
 修改角色脚本 Name 时，编辑器默认让 Display Name 同步变化；作者仍可随后单独修改 Display Name。项目模式下角色文件在创建时采用 `<initial-name>-<id-suffix>.character`，之后修改 Name 或 Display Name 都不移动文件。稳定 ID、项目索引路径和所有 Story 引用保持不变；未来需要整理磁盘名称时，通过独立的 Rename File 操作完成。
 

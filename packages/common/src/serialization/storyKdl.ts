@@ -289,6 +289,24 @@ function serializeCharacters(characters: readonly CharacterSource[]): Node | und
     node.setProperty('name', character.name);
     node.setProperty('display-name', character.displayName);
     if (character.defaultPortraitId) node.setProperty('portrait', character.defaultPortraitId);
+    for (const field of character.fields ?? []) {
+      const fieldNode = Node.create('field');
+      fieldNode.addArgument(field.id);
+      fieldNode.setProperty('name', field.name);
+      if (field.displayName !== field.name)
+        fieldNode.setProperty('display-name', field.displayName);
+      fieldNode.setProperty('type', valueTypeName(field.valueType));
+      if (
+        field.defaultValue !== null &&
+        typeof field.defaultValue !== 'boolean' &&
+        typeof field.defaultValue !== 'number' &&
+        typeof field.defaultValue !== 'string'
+      ) {
+        throw new StoryFormatError(`${field.id}.default must be a scalar`);
+      }
+      fieldNode.setProperty('default', field.defaultValue as null | boolean | number | string);
+      node.appendNode(fieldNode);
+    }
     for (const [key, emotion] of Object.entries(character.emotions)) {
       const emotionNode = Node.create('emotion');
       emotionNode.addArgument(key);
@@ -502,7 +520,7 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
             ? requiredId(lineNode.getProperty('voice'), 'asset', `${lineId}.voice`)
             : undefined,
           emotion: optionalString(lineNode.getProperty('emotion'), `${lineId}.emotion`),
-          tags: tags.length > 0 ? tags : undefined,
+          ...(tags.length > 0 ? { tags } : {}),
         };
       });
       data = { lines };
@@ -616,9 +634,10 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
       break;
   }
   const definitionVersionValue = node.getProperty('definition-version');
+  const name = optionalString(node.getProperty('name'), `${id}.name`);
   return {
     id,
-    name: optionalString(node.getProperty('name'), `${id}.name`),
+    ...(name ? { name } : {}),
     type,
     definitionVersion:
       definitionVersionValue === undefined
@@ -673,7 +692,8 @@ function parseGraph(graph: Node): SourceGraph {
     nodes.push(sourceNode);
   }
   for (const nodeId of positions.keys()) {
-    if (!nodeIds.has(nodeId)) throw new StoryFormatError(`Layout references missing node: ${nodeId}`);
+    if (!nodeIds.has(nodeId))
+      throw new StoryFormatError(`Layout references missing node: ${nodeId}`);
   }
   const edges: SourceEdge[] = graph.findNodesByName('link').map((link) => {
     assertShape(link, 'story.graph.link', {
@@ -750,7 +770,7 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
     assertShape(node, 'story.characters.character', {
       arguments: 1,
       properties: ['name', 'display-name', 'portrait'],
-      children: ['emotion'],
+      children: ['emotion', 'field'],
     });
     const id = requiredId(node.getArgument(0), 'character', 'character.id');
     const name = requiredString(node.getProperty('name'), `${id}.name`);
@@ -758,6 +778,36 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
     if (names.has(name)) throw new StoryFormatError(`Duplicate character name: ${name}`);
     ids.add(id);
     names.add(name);
+    const fieldIds = new Set<string>();
+    const fieldNames = new Set<string>();
+    const fields = node.findNodesByName('field').map((fieldNode) => {
+      assertShape(fieldNode, `${id}.field`, {
+        arguments: 1,
+        properties: ['name', 'display-name', 'type', 'default'],
+      });
+      const fieldId = requiredId(fieldNode.getArgument(0), 'variable', `${id}.field.id`);
+      const fieldName = requiredString(fieldNode.getProperty('name'), `${fieldId}.name`);
+      if (fieldIds.has(fieldId)) throw new StoryFormatError(`Duplicate field ID: ${fieldId}`);
+      if (fieldNames.has(fieldName))
+        throw new StoryFormatError(`Duplicate field name: ${fieldName}`);
+      fieldIds.add(fieldId);
+      fieldNames.add(fieldName);
+      const valueType = parseValueType(fieldNode.getProperty('type'), `${fieldId}.type`);
+      const defaultValue = fieldNode.getProperty('default');
+      if (typeof defaultValue !== valueType.kind) {
+        throw new StoryFormatError(`${fieldId}.default must be ${valueType.kind}`);
+      }
+      return {
+        id: fieldId,
+        name: fieldName,
+        displayName:
+          optionalString(fieldNode.getProperty('display-name'), `${fieldId}.display-name`) ??
+          fieldName,
+        scope: 'character' as const,
+        valueType,
+        defaultValue: defaultValue as RuntimeValue,
+      };
+    });
     const emotions: CharacterSource['emotions'] = Object.fromEntries(
       node.findNodesByName('emotion').map((emotion) => {
         assertShape(emotion, `${id}.emotion`, {
@@ -771,9 +821,15 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
             displayName:
               optionalString(emotion.getProperty('display-name'), `${id}.${key}.display-name`) ??
               key,
-            portraitId: emotion.getProperty('portrait')
-              ? requiredId(emotion.getProperty('portrait'), 'asset', `${id}.${key}.portrait`)
-              : undefined,
+            ...(emotion.getProperty('portrait')
+              ? {
+                  portraitId: requiredId(
+                    emotion.getProperty('portrait'),
+                    'asset',
+                    `${id}.${key}.portrait`,
+                  ),
+                }
+              : {}),
           },
         ];
       }),
@@ -786,6 +842,7 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
         ? requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`)
         : undefined,
       emotions,
+      ...(fields.length > 0 ? { fields } : {}),
     };
   });
 }

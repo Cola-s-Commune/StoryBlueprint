@@ -109,7 +109,7 @@ function VariableSelect({
   onBeginEdit: () => void;
   onChange: (value: VariableId | undefined) => void;
 }) {
-  const { variables } = useStoryGraphStore();
+  const { variables, characters } = useStoryGraphStore();
   return (
     <label className={styles.field}>
       <span>{label}</span>
@@ -126,6 +126,17 @@ function VariableSelect({
             {variable.name} · {variable.valueType.kind}
           </option>
         ))}
+        {characters.map((character) =>
+          (character.fields?.length ?? 0) > 0 ? (
+            <optgroup key={character.id} label={character.displayName}>
+              {character.fields!.map((field) => (
+                <option key={field.id} value={field.id}>
+                  {character.name}.{field.name} · {field.valueType.kind}
+                </option>
+              ))}
+            </optgroup>
+          ) : null,
+        )}
       </select>
     </label>
   );
@@ -189,8 +200,9 @@ function decodeStringLiteral(source: string): string | undefined {
 }
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
-  const { variables, checkpoint, updateNodeData } = useStoryGraphStore();
-  const variable = variables.find((candidate) => candidate.id === data.variableId);
+  const { variables, characters, checkpoint, updateNodeData } = useStoryGraphStore();
+  const allVariables = [...variables, ...characters.flatMap((character) => character.fields ?? [])];
+  const variable = allVariables.find((candidate) => candidate.id === data.variableId);
   const isString = variable?.valueType.kind === 'string';
   const decodedLiteral = decodeStringLiteral(data.value.source);
   const [mode, setMode] = useState<'literal' | 'expression'>(() =>
@@ -213,7 +225,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
         value={data.variableId}
         onBeginEdit={checkpoint}
         onChange={(variableId) => {
-          const nextVariable = variables.find((candidate) => candidate.id === variableId);
+          const nextVariable = allVariables.find((candidate) => candidate.id === variableId);
           const nextIsString = nextVariable?.valueType.kind === 'string';
           setMode(nextIsString ? 'literal' : 'expression');
           updateNodeData(nodeId, StoryNodeType.SetVariable, {

@@ -396,6 +396,9 @@
 - [x] Emotion 重命名同步 Dialogue Line 引用，删除时安全清理引用
 - [x] Default Portrait 与 Emotion Portrait 选择器及编译期回退
 - [x] Character / Emotion 跨 Story 引用列表、节点跳转与删除保护
+- [x] Character Field（Boolean / Number / String）定义、KDL 存储与稳定字段 ID
+- [x] `CharacterName.fieldName` 表达式解析及 Get / Set Variable 选择
+- [x] Character Field Runtime Adapter 读取、缓存与暂停点回写
 
 ---
 
@@ -431,7 +434,8 @@
 - [x] Variable Name 确认修改时同步 Display Name
 - [x] Story / Chapter / Local Scope
 - [x] Boolean / Number / String
-- [ ] Project / Character 外部 Scope
+- [x] Character 外部 Scope
+- [ ] Project 外部 Scope
 - [ ] Enum / Struct / Nullable
 - [x] Variable 引用索引、安全重命名、删除保护与跨 Graph 节点跳转
 

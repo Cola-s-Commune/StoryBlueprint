@@ -74,6 +74,52 @@ export class DefaultStoryCompiler implements StoryCompiler {
       };
     }
 
+    const characterFields = source.characters.flatMap((character) => character.fields ?? []);
+    const allVariables = [...source.variables, ...characterFields];
+    const variableIds = new Set<string>();
+    for (const variable of allVariables) {
+      if (variableIds.has(variable.id)) {
+        diagnostics.push({
+          code: 'INVALID_NODE',
+          severity: 'error',
+          message: `Duplicate variable or character field ID ${variable.id}`,
+        });
+      }
+      variableIds.add(variable.id);
+    }
+    const characterNames = new Set<string>();
+    for (const character of source.characters) {
+      if (characterNames.has(character.name)) {
+        diagnostics.push({
+          code: 'INVALID_NODE',
+          severity: 'error',
+          message: `Duplicate character name ${character.name}`,
+        });
+      }
+      characterNames.add(character.name);
+      const fieldNames = new Set<string>();
+      for (const field of character.fields ?? []) {
+        if (fieldNames.has(field.name)) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Character ${character.name} has duplicate field ${field.name}`,
+          });
+        }
+        fieldNames.add(field.name);
+        if (
+          field.scope !== 'character' ||
+          !['boolean', 'number', 'string'].includes(field.valueType.kind)
+        ) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Character field ${character.name}.${field.name} must be a scalar character field`,
+          });
+        }
+      }
+    }
+
     const rootEntry = source.root.nodes.find((node) => node.type === StoryNodeType.Start);
     if (!rootEntry) {
       return {
@@ -223,7 +269,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 });
               }
               const text = compileSafe(node, () =>
-                compileTextTemplate(line.text.source, line.textId, source.variables),
+                compileTextTemplate(line.text.source, line.textId, allVariables, source.characters),
               );
               if (text) {
                 instructions.push({
@@ -244,7 +290,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.SetVariable: {
             const data = node.data as unknown as SetVariableNodeData;
-            if (!data.variableId || !source.variables.some((item) => item.id === data.variableId)) {
+            if (!data.variableId || !allVariables.some((item) => item.id === data.variableId)) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
@@ -253,7 +299,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
               });
             } else {
               const value = compileSafe(node, () =>
-                compileExpression(data.value, source.variables),
+                compileExpression(data.value, allVariables, source.characters),
               );
               if (value) {
                 instructions.push({
@@ -295,7 +341,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const compiled = compileSafe(node, () =>
-                  compileExpression(argument, source.variables),
+                  compileExpression(argument, allVariables, source.characters),
                 );
                 if (
                   compiled &&
@@ -352,7 +398,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const compiled = compileSafe(node, () =>
-                  compileExpression(expression, source.variables),
+                  compileExpression(expression, allVariables, source.characters),
                 );
                 if (
                   compiled &&
@@ -390,14 +436,23 @@ export class DefaultStoryCompiler implements StoryCompiler {
               const target = requireTarget(node, option.id);
               if (!target) return [];
               const text = compileSafe(node, () =>
-                compileTextTemplate(option.text.source, textId(option.id), source.variables),
+                compileTextTemplate(
+                  option.text.source,
+                  textId(option.id),
+                  allVariables,
+                  source.characters,
+                ),
               );
               if (!text) return [];
               const visibleIf = option.visibleIf
-                ? compileSafe(node, () => compileExpression(option.visibleIf!, source.variables))
+                ? compileSafe(node, () =>
+                    compileExpression(option.visibleIf!, allVariables, source.characters),
+                  )
                 : undefined;
               const enabledIf = option.enabledIf
-                ? compileSafe(node, () => compileExpression(option.enabledIf!, source.variables))
+                ? compileSafe(node, () =>
+                    compileExpression(option.enabledIf!, allVariables, source.characters),
+                  )
                 : undefined;
               return [{ id: option.id, text, visibleIf, enabledIf, target }];
             });
@@ -406,7 +461,8 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   compileTextTemplate(
                     data.prompt.source,
                     textId(`${node.id}_prompt`),
-                    source.variables,
+                    allVariables,
+                    source.characters,
                   ),
                 )
               : undefined;
@@ -418,7 +474,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
             const whenTrue = requireTarget(node, 'true');
             const whenFalse = requireTarget(node, 'false');
             const condition = compileSafe(node, () =>
-              compileExpression(data.condition, source.variables),
+              compileExpression(data.condition, allVariables, source.characters),
             );
             if (whenTrue && whenFalse && condition) {
               if (condition.valueType.kind !== 'boolean' && condition.valueType.kind !== 'any') {
@@ -497,7 +553,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
             break;
           case StoryNodeType.GetVariable: {
             const data = node.data as unknown as GetVariableNodeData;
-            if (data.variableId && !source.variables.some((item) => item.id === data.variableId)) {
+            if (data.variableId && !allVariables.some((item) => item.id === data.variableId)) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
@@ -554,7 +610,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
       entryBlockId: blockId(rootEntry.id),
       blocks,
       chapters,
-      variables: [...source.variables],
+      variables: allVariables,
     } as const;
     const validationDiagnostics = validateRuntimeProgram(program);
     if (validationDiagnostics.some((diagnostic) => diagnostic.severity === 'error')) {

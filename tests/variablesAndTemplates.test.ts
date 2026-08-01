@@ -34,6 +34,35 @@ const variables: VariableDefinition[] = [
 ];
 
 describe('variables and templates', () => {
+  it('resolves qualified character fields to stable variable IDs', () => {
+    const field: VariableDefinition = {
+      id: 'v_aliceaffinity',
+      name: 'affinity',
+      displayName: 'Affinity',
+      scope: 'character',
+      valueType: { kind: 'number' },
+      defaultValue: 0,
+    };
+    const expression = compileExpression(
+      'Alice.affinity >= 10',
+      [field],
+      [
+        {
+          id: 'c_alice',
+          name: 'Alice',
+          displayName: 'Alice',
+          emotions: {},
+          fields: [field],
+        },
+      ],
+    );
+    expect(expression).toMatchObject({
+      kind: 'binary',
+      left: { kind: 'variable', variableId: 'v_aliceaffinity' },
+    });
+    expect(evaluateExpression(expression, () => 12)).toBe(true);
+  });
+
   it('compiles and evaluates safe boolean expressions', () => {
     const expression = compileExpression('gold >= 3 && playerName != ""', variables);
     expect(evaluateExpression(expression, (id) => (id === 'v_gold' ? 5 : 'Arys'))).toBe(true);

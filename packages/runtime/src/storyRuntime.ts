@@ -78,6 +78,8 @@ export class StoryRuntime {
   private readonly program: RuntimeProgram;
   private currentState: RuntimeState;
   private lastDiagnostic?: RuntimeDiagnostic;
+  private readonly pendingExternalWrites = new Map<VariableId, RuntimeValue>();
+  private readonly externalVariableIdSet: ReadonlySet<VariableId>;
 
   constructor(program: RuntimeProgram, restoredState?: RuntimeState) {
     if (program.format !== STORY_RUNTIME_FORMAT || program.version !== STORY_RUNTIME_VERSION) {
@@ -91,11 +93,41 @@ export class StoryRuntime {
       throw new Error('Runtime state does not match the program content version');
     }
     this.program = program;
+    this.externalVariableIdSet = new Set(
+      program.variables
+        .filter((variable) => variable.scope === 'character')
+        .map((variable) => variable.id),
+    );
     this.currentState = cloneState(restoredState ?? createRuntimeState(program));
   }
 
   get state(): RuntimeState {
     return cloneState(this.currentState);
+  }
+
+  get externalVariableIds(): readonly VariableId[] {
+    return [...this.externalVariableIdSet];
+  }
+
+  /** Supplies the engine-owned value before story execution begins. */
+  hydrateExternalVariable(id: VariableId, value: RuntimeValue): void {
+    const definition = this.program.variables.find((variable) => variable.id === id);
+    if (!definition || !this.externalVariableIdSet.has(id)) {
+      throw new TypeError(`Unknown external variable ${id}`);
+    }
+    if (typeof value !== definition.valueType.kind) {
+      throw new TypeError(
+        `External variable ${definition.name} must be ${definition.valueType.kind}`,
+      );
+    }
+    this.currentState.storyVariables[id] = value;
+  }
+
+  /** Returns coalesced engine writes and clears the pending queue. */
+  drainExternalVariableWrites(): readonly { id: VariableId; value: RuntimeValue }[] {
+    const writes = [...this.pendingExternalWrites].map(([id, value]) => ({ id, value }));
+    this.pendingExternalWrites.clear();
+    return writes;
   }
 
   get diagnostic(): RuntimeDiagnostic | undefined {
@@ -485,7 +517,10 @@ export class StoryRuntime {
   private writeVariable(id: VariableId, value: RuntimeValue): void {
     const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
     if (frame && id in frame.locals) frame.locals[id] = value;
-    else this.currentState.storyVariables[id] = value;
+    else {
+      this.currentState.storyVariables[id] = value;
+      if (this.externalVariableIdSet.has(id)) this.pendingExternalWrites.set(id, value);
+    }
   }
 
   private currentInstruction(): RuntimeInstruction | undefined {

@@ -25,6 +25,16 @@ const character: CharacterSource = {
     happy: { displayName: 'Happy', portraitId: 'a_aliceportrait' },
     neutral: { displayName: 'Neutral' },
   },
+  fields: [
+    {
+      id: 'v_aliceaffinity',
+      name: 'affinity',
+      displayName: 'Affinity',
+      scope: 'character',
+      valueType: { kind: 'number' },
+      defaultValue: 0,
+    },
+  ],
 };
 
 describe('project resource KDL', () => {
@@ -34,12 +44,14 @@ describe('project resource KDL', () => {
     expect(serializeCharacterResource(parseCharacterResource(characterText))).toBe(characterText);
     expect(serializeAssetResource(parseAssetResource(assetText))).toBe(assetText);
     expect(characterText).toContain('emotion happy');
+    expect(characterText).toContain('field v_aliceaffinity');
     expect(assetText).toContain('locale zh-CN');
   });
 
   it('rejects invalid stable resource IDs', () => {
-    expect(() => serializeCharacterResource({ ...character, id: 'bad' as CharacterSource['id'] }))
-      .toThrow(/Invalid character ID/);
+    expect(() =>
+      serializeCharacterResource({ ...character, id: 'bad' as CharacterSource['id'] }),
+    ).toThrow(/Invalid character ID/);
     expect(() => serializeAssetResource({ ...asset, id: 'bad' as AssetSource['id'] })).toThrow(
       /Invalid asset ID/,
     );

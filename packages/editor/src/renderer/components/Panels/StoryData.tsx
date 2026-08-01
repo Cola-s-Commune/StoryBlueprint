@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createStableId } from '@story-blueprint/common';
 import type {
   CharacterSource,
   EventSource,
@@ -268,6 +269,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     updateCharacter,
     findCharacterReferences,
     findEmotionReferences,
+    findVariableReferences,
     focusStoryResourceReference,
     renameCharacterEmotion,
     removeCharacterEmotion,
@@ -291,6 +293,29 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         ...character.emotions,
         [key]: { displayName: `Emotion ${index}` },
       },
+    });
+  };
+  const fields = character.fields ?? [];
+  const updateField = (id: VariableDefinition['id'], patch: Partial<VariableDefinition>) =>
+    updateCharacter(character.id, {
+      fields: fields.map((field) => (field.id === id ? { ...field, ...patch } : field)),
+    });
+  const addField = () => {
+    let index = fields.length + 1;
+    let name = `field${index}`;
+    while (fields.some((field) => field.name === name)) name = `field${++index}`;
+    updateCharacter(character.id, {
+      fields: [
+        ...fields,
+        {
+          id: createStableId('variable'),
+          name,
+          displayName: `Field ${index}`,
+          scope: 'character',
+          valueType: { kind: 'string' },
+          defaultValue: '',
+        },
+      ],
     });
   };
   return (
@@ -329,6 +354,93 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           ))}
         </select>
       </label>
+      <div className={styles.parameterHeader}>
+        <span>Fields</span>
+        <button type="button" onClick={addField}>
+          Add Field
+        </button>
+      </div>
+      <div className={styles.emotionList}>
+        {fields.map((field) => {
+          const kind = field.valueType.kind as ScalarKind;
+          const fieldReferences = findVariableReferences(field.id);
+          return (
+            <div className={styles.emotionRow} key={field.id}>
+              <label>
+                <span>Name</span>
+                <ScriptNameInput
+                  value={field.name}
+                  onCommit={(name) => {
+                    if (name !== field.name && fieldReferences.length > 0) return false;
+                    if (
+                      fields.some(
+                        (candidate) => candidate.id !== field.id && candidate.name === name,
+                      )
+                    )
+                      return false;
+                    updateField(field.id, { name, displayName: name });
+                  }}
+                />
+              </label>
+              <label>
+                <span>Type</span>
+                <select
+                  value={kind}
+                  onChange={(event) => {
+                    const nextKind = event.target.value as ScalarKind;
+                    updateField(field.id, {
+                      valueType: { kind: nextKind },
+                      defaultValue: defaultForType(nextKind),
+                    });
+                  }}
+                >
+                  <option value="boolean">Boolean</option>
+                  <option value="number">Number</option>
+                  <option value="string">String</option>
+                </select>
+              </label>
+              <label>
+                <span>Default</span>
+                {kind === 'boolean' ? (
+                  <select
+                    value={String(field.defaultValue)}
+                    onChange={(event) =>
+                      updateField(field.id, { defaultValue: event.target.value === 'true' })
+                    }
+                  >
+                    <option value="false">False</option>
+                    <option value="true">True</option>
+                  </select>
+                ) : (
+                  <input
+                    type={kind === 'number' ? 'number' : 'text'}
+                    value={String(field.defaultValue)}
+                    onChange={(event) =>
+                      updateField(field.id, {
+                        defaultValue:
+                          kind === 'number' ? Number(event.target.value) : event.target.value,
+                      })
+                    }
+                  />
+                )}
+              </label>
+              <button
+                className={styles.emotionRemoveButton}
+                type="button"
+                title={`Delete ${field.displayName}`}
+                disabled={fieldReferences.length > 0}
+                onClick={() =>
+                  updateCharacter(character.id, {
+                    fields: fields.filter((candidate) => candidate.id !== field.id),
+                  })
+                }
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
       <div className={styles.parameterHeader}>
         <span>Emotions</span>
         <button type="button" onClick={addEmotion}>

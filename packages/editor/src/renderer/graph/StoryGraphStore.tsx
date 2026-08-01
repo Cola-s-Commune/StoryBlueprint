@@ -1230,10 +1230,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const findVariableReferencesById = useCallback(
     (id: VariableId): readonly VariableReference[] => {
-      const variable = variables.find((candidate) => candidate.id === id);
+      const variable =
+        variables.find((candidate) => candidate.id === id) ??
+        resolvedCharacters
+          .flatMap((character) => character.fields ?? [])
+          .find((candidate) => candidate.id === id);
       return variable ? collectVariableReferences(variable, variableReferenceGraphs()) : [];
     },
-    [variableReferenceGraphs, variables],
+    [resolvedCharacters, variableReferenceGraphs, variables],
   );
 
   const updateVariable = useCallback(

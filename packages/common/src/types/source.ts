@@ -73,6 +73,8 @@ export interface CharacterSource {
   displayName: string;
   defaultPortraitId?: AssetId;
   emotions: Readonly<Record<string, { displayName: string; portraitId?: AssetId }>>;
+  /** Engine-owned typed state addressed through the Story Adapter. */
+  fields?: readonly VariableDefinition[];
 }
 
 export interface AssetSource {
