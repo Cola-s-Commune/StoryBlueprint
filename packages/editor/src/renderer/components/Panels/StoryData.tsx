@@ -128,7 +128,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     variables,
     projectVariables,
     findVariableReferences,
-    focusGraphNode,
+    focusVariableReference,
     updateVariable,
     removeVariable,
   } = useStoryGraphStore();
@@ -230,8 +230,8 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
             {visibleReferences.map((reference) => (
               <button
                 type="button"
-                key={`${reference.graphId}:${reference.nodeId}:${reference.field}:${reference.kind}`}
-                onClick={() => focusGraphNode(reference.graphId, reference.nodeId)}
+                key={`${reference.storyId ?? 'active'}:${reference.graphId}:${reference.nodeId}:${reference.field}:${reference.kind}`}
+                onClick={() => focusVariableReference(reference)}
               >
                 <span>
                   <strong>{reference.nodeLabel}</strong>

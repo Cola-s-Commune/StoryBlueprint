@@ -14,6 +14,7 @@ import {
   renameTemplateVariable,
   renameVariableReferencesInNode,
   bindCharacterFieldExpression,
+  bindVariableReferencesInNode,
   renameCharacterFieldReferencesInNode,
 } from '../packages/editor/src/renderer/graph/variableReferences';
 
@@ -88,8 +89,8 @@ describe('variable reference index', () => {
     };
 
     const references = findVariableReferences(score, [
-      { id: 'root', label: 'Main Story', graph: root },
-      { id: 'ch_score', label: 'Score Chapter', graph: chapter },
+      { storyId: 's_scorestory', id: 'root', label: 'Main Story', graph: root },
+      { storyId: 's_scorestory', id: 'ch_score', label: 'Score Chapter', graph: chapter },
     ]);
 
     expect(references.map((reference) => `${reference.nodeId}:${reference.field}`)).toEqual([
@@ -101,6 +102,7 @@ describe('variable reference index', () => {
       'n_signalref:Match amount',
     ]);
     expect(references.at(-1)?.graphLabel).toBe('Score Chapter');
+    expect(references.every((reference) => reference.storyId === 's_scorestory')).toBe(true);
   });
 
   it('renames identifiers and bindings without changing string literals or escaped template text', () => {
@@ -118,9 +120,25 @@ describe('variable reference index', () => {
       source: 'points + "score" + scoreBonus',
       bindings: { points: score.id },
     });
-    expect(renameTemplateVariable('{score} / {{score}} / {score + 1}', 'score', 'points')).toBe(
-      '{points} / {{score}} / {points + 1}',
-    );
+    expect(
+      renameTemplateVariable(
+        { source: '{score} / {{score}} / {score + 1}', bindings: { score: score.id } },
+        score.id,
+        'score',
+        'points',
+      ),
+    ).toEqual({
+      source: '{points} / {{score}} / {points + 1}',
+      bindings: { points: score.id },
+    });
+    expect(
+      renameTemplateVariable(
+        { source: '{score}', bindings: { score: 'v_other' } },
+        score.id,
+        'score',
+        'points',
+      ),
+    ).toEqual({ source: '{score}', bindings: { score: 'v_other' } });
   });
 
   it('rewrites Event and Signal expressions through the same node transform', () => {
@@ -151,6 +169,36 @@ describe('variable reference index', () => {
     expect((signal.data as { matches: { amount: { source: string } } }).matches.amount.source).toBe(
       'points',
     );
+  });
+
+  it('binds Story and Project variables in expressions and text templates', () => {
+    const projectScore: VariableDefinition = { ...score, id: 'v_projectscore', scope: 'project' };
+    const bound = bindVariableReferencesInNode(
+      node('n_projecttemplate', StoryNodeType.Dialogue, {
+        lines: [
+          {
+            id: 'ln_projectscore',
+            textId: 't_projectscore',
+            text: { source: 'Score: {score}' },
+          },
+        ],
+      }),
+      [projectScore],
+    );
+    const text = (bound.data as { lines: Array<{ text: { bindings?: Record<string, string> } }> })
+      .lines[0]!.text;
+    expect(text.bindings).toEqual({ score: projectScore.id });
+
+    const expressionNode = bindVariableReferencesInNode(
+      node('n_projectexpression', StoryNodeType.Branch, {
+        condition: { source: 'score > Alice.score', bindings: {} },
+      }),
+      [projectScore, { ...projectScore, id: 'v_alice', name: 'Alice' }],
+    );
+    expect(
+      (expressionNode.data as { condition: { bindings: Record<string, string> } }).condition
+        .bindings,
+    ).toEqual({ score: projectScore.id });
   });
 
   it('binds and safely renames qualified character fields in expressions and templates', () => {

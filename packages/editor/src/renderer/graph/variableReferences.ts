@@ -4,6 +4,7 @@ import {
   type ExpressionSource,
   type NodeId,
   type StoryNodeDataMap,
+  type StoryId,
   type CharacterSource,
   type TextTemplateSource,
   type VariableDefinition,
@@ -14,6 +15,7 @@ import type { EditorGraphNode, EditorGraphState } from './editorGraph';
 export type VariableReferenceKind = 'target' | 'expression' | 'text-template';
 
 export interface VariableReference {
+  storyId?: StoryId;
   graphId: 'root' | ChapterId;
   graphLabel: string;
   nodeId: NodeId;
@@ -24,6 +26,7 @@ export interface VariableReference {
 }
 
 export interface VariableReferenceGraph {
+  storyId?: StoryId;
   id: 'root' | ChapterId;
   label: string;
   graph: EditorGraphState;
@@ -161,6 +164,28 @@ export function expressionReferencesVariable(
   );
 }
 
+export function bindVariableExpression(
+  expression: ExpressionSource,
+  variables: readonly VariableDefinition[],
+): ExpressionSource {
+  const bindings = { ...expression.bindings };
+  const qualified = qualifiedExpressionIdentifiers(expression.source);
+  for (const identifier of expressionIdentifiers(expression.source)) {
+    if (
+      qualified.some(
+        (candidate) => identifier.start >= candidate.start && identifier.end <= candidate.end,
+      )
+    ) {
+      continue;
+    }
+    const variable = variables.find(
+      (candidate) => candidate.scope !== 'character' && candidate.name === identifier.value,
+    );
+    if (variable) bindings[identifier.value] = variable.id;
+  }
+  return { ...expression, bindings };
+}
+
 export function renameExpressionVariable(
   expression: ExpressionSource,
   variableId: VariableId,
@@ -208,12 +233,17 @@ function mapTemplateExpressions(source: string, transform: (expression: string) 
 }
 
 export function templateReferencesVariable(
-  source: string,
+  template: TextTemplateSource,
   variable: Pick<VariableDefinition, 'id' | 'name'>,
 ): boolean {
   let referenced = false;
-  mapTemplateExpressions(source, (expression) => {
-    if (expressionReferencesVariable({ source: expression, bindings: {} }, variable)) {
+  mapTemplateExpressions(template.source, (expression) => {
+    if (
+      expressionReferencesVariable(
+        { source: expression, bindings: template.bindings ?? {} },
+        variable,
+      )
+    ) {
       referenced = true;
     }
     return expression;
@@ -274,17 +304,36 @@ function bindCharacterFieldTemplate(
   return Object.keys(bindings).length > 0 ? { ...template, bindings } : { source: template.source };
 }
 
-export function renameTemplateVariable(source: string, oldName: string, newName: string): string {
-  return mapTemplateExpressions(
-    source,
-    (expression) =>
-      renameExpressionVariable(
-        { source: expression, bindings: {} },
-        '' as VariableId,
-        oldName,
-        newName,
-      ).source,
-  );
+function bindVariableTemplate(
+  template: TextTemplateSource,
+  variables: readonly VariableDefinition[],
+): TextTemplateSource {
+  let bindings = { ...(template.bindings ?? {}) };
+  mapTemplateExpressions(template.source, (source) => {
+    bindings = bindVariableExpression({ source, bindings }, variables).bindings;
+    return source;
+  });
+  return Object.keys(bindings).length > 0 ? { ...template, bindings } : { source: template.source };
+}
+
+export function renameTemplateVariable(
+  template: TextTemplateSource,
+  variableId: VariableId,
+  oldName: string,
+  newName: string,
+): TextTemplateSource {
+  let bindings = { ...(template.bindings ?? {}) };
+  const source = mapTemplateExpressions(template.source, (expression) => {
+    const renamed = renameExpressionVariable(
+      { source: expression, bindings },
+      variableId,
+      oldName,
+      newName,
+    );
+    bindings = { ...renamed.bindings };
+    return renamed.source;
+  });
+  return Object.keys(bindings).length > 0 ? { source, bindings } : { source };
 }
 
 function nodeLabel(node: EditorGraphNode): string {
@@ -357,6 +406,7 @@ export function findVariableReferences(
     kind: VariableReferenceKind,
   ) =>
     references.push({
+      storyId: owner.storyId,
       graphId: owner.id,
       graphLabel: owner.label,
       nodeId: node.id,
@@ -379,7 +429,7 @@ export function findVariableReferences(
         }
       }
       for (const [field, template] of templateEntries(node)) {
-        if (templateReferencesVariable(template.source, variable)) {
+        if (templateReferencesVariable(template, variable)) {
           add(owner, node, field, 'text-template');
         }
       }
@@ -403,7 +453,7 @@ export function renameVariableReferencesInNode(
           ...node.data,
           lines: data.lines.map((line) => ({
             ...line,
-            text: { source: renameTemplateVariable(line.text.source, oldName, newName) },
+            text: renameTemplateVariable(line.text, variableId, oldName, newName),
           })),
         },
       };
@@ -414,10 +464,10 @@ export function renameVariableReferencesInNode(
         ...node,
         data: {
           ...node.data,
-          prompt: { source: renameTemplateVariable(data.prompt.source, oldName, newName) },
+          prompt: renameTemplateVariable(data.prompt, variableId, oldName, newName),
           options: data.options.map((option) => ({
             ...option,
-            text: { source: renameTemplateVariable(option.text.source, oldName, newName) },
+            text: renameTemplateVariable(option.text, variableId, oldName, newName),
             visibleIf: option.visibleIf
               ? renameExpressionVariable(option.visibleIf, variableId, oldName, newName)
               : undefined,
@@ -474,6 +524,77 @@ export function renameVariableReferencesInNode(
               name,
               renameExpressionVariable(value, variableId, oldName, newName),
             ]),
+          ),
+        },
+      };
+    }
+    default:
+      return node;
+  }
+}
+
+export function bindVariableReferencesInNode(
+  node: EditorGraphNode,
+  variables: readonly VariableDefinition[],
+): EditorGraphNode {
+  const bindExpression = (expression: ExpressionSource) =>
+    bindVariableExpression(expression, variables);
+  const bindTemplate = (template: TextTemplateSource) => bindVariableTemplate(template, variables);
+  switch (node.type) {
+    case StoryNodeType.Dialogue: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          lines: data.lines.map((line) => ({ ...line, text: bindTemplate(line.text) })),
+        },
+      };
+    }
+    case StoryNodeType.Choice: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          prompt: bindTemplate(data.prompt),
+          options: data.options.map((option) => ({
+            ...option,
+            text: bindTemplate(option.text),
+            visibleIf: option.visibleIf ? bindExpression(option.visibleIf) : undefined,
+            enabledIf: option.enabledIf ? bindExpression(option.enabledIf) : undefined,
+          })),
+        },
+      };
+    }
+    case StoryNodeType.Branch: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Branch];
+      return { ...node, data: { ...node.data, condition: bindExpression(data.condition) } };
+    }
+    case StoryNodeType.SetVariable: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.SetVariable];
+      return { ...node, data: { ...node.data, value: bindExpression(data.value) } };
+    }
+    case StoryNodeType.CallEvent: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.CallEvent];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          arguments: Object.fromEntries(
+            Object.entries(data.arguments).map(([name, value]) => [name, bindExpression(value)]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.WaitSignal: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.WaitSignal];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          matches: Object.fromEntries(
+            Object.entries(data.matches).map(([name, value]) => [name, bindExpression(value)]),
           ),
         },
       };

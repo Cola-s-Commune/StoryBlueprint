@@ -410,6 +410,8 @@
 - [x] Runtime Adapter 启动读取与暂停点/结束回写
 - [x] AI Semantic Snapshot 与 Add / Update Variable 命令支持 Project Scope
 - [x] 删除前扫描已加载 Story / Substory 的稳定 ID 引用
+- [x] Project Variable 引用跨 Story / Substory 跳转，并在重命名时批量改写已加载 Story
+- [x] Story / Project 表达式与 Text Template 自动绑定稳定变量 ID，重命名时保留 Binding
 
 ---
 

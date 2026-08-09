@@ -79,6 +79,7 @@ import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePrev
 import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 import {
   findVariableReferences as collectVariableReferences,
+  bindVariableReferencesInNode,
   renameVariableReferencesInNode,
   renameCharacterFieldReferencesInNode,
   bindCharacterFieldReferencesInNode,
@@ -337,6 +338,7 @@ interface StoryGraphStoreValue {
   addVariable: () => VariableId;
   addProjectVariable: () => VariableId | undefined;
   findVariableReferences: (id: VariableId) => readonly VariableReference[];
+  focusVariableReference: (reference: VariableReference) => boolean;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => boolean;
   removeVariable: (
     id: VariableId,
@@ -883,7 +885,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const proposalGraph = {
         ...unboundProposalGraph,
         nodes: unboundProposalGraph.nodes.map((node) =>
-          bindCharacterFieldReferencesInNode(node, resultCharacters),
+          bindCharacterFieldReferencesInNode(
+            bindVariableReferencesInNode(node, result.document.variables),
+            resultCharacters,
+          ),
         ),
       };
       const prepared = prepareAIGraphChanges(graph, proposalGraph);
@@ -1352,11 +1357,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       return currentStoryItemsRef.current().flatMap((story) =>
         collectVariableReferences(variable, [
           {
+            storyId: story.document.id,
             id: 'root',
             label: `${story.document.displayName} / Main Story`,
             graph: story.rootGraph,
           },
           ...story.chapters.map((chapter) => ({
+            storyId: story.document.id,
             id: chapter.id,
             label: `${story.document.displayName} / ${chapter.displayName}`,
             graph: chapter.graph,
@@ -1387,18 +1394,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (projectVariable) {
         const normalized = { ...nextUpdate, scope: 'project' as const };
         if (normalized.name && normalized.name !== previous.name) {
-          setNodes((current) =>
-            current.map((node) =>
-              renameVariableReferencesInNode(node, id, previous.name, normalized.name!),
-            ),
+          const affectedStoryIds = new Set(
+            findVariableReferencesById(id)
+              .filter((reference) => reference.kind !== 'target')
+              .flatMap((reference) => (reference.storyId ? [reference.storyId] : [])),
           );
-          updateInactiveGraphs((candidate) => ({
+          const rewrite = (candidate: EditorGraphState): EditorGraphState => ({
             ...candidate,
             nodes: candidate.nodes.map((node) =>
               renameVariableReferencesInNode(node, id, previous.name, normalized.name!),
             ),
-          }));
-          markDirty();
+          });
+          if (affectedStoryIds.has(document.id)) {
+            setNodes((current) => rewrite({ nodes: current, edges }).nodes);
+            updateInactiveGraphs(rewrite);
+            markDirty();
+          }
+          if (affectedStoryIds.size > 0) {
+            setWorkspaceStories((current) =>
+              current.map((story) =>
+                affectedStoryIds.has(story.document.id)
+                  ? {
+                      ...story,
+                      rootGraph: rewrite(story.rootGraph),
+                      chapters: story.chapters.map((chapter) => ({
+                        ...chapter,
+                        graph: rewrite(chapter.graph),
+                      })),
+                      document: { ...story.document, dirty: true },
+                      revision: story.revision + 1,
+                    }
+                  : story,
+              ),
+            );
+          }
         }
         writeProjectVariables(
           projectVariables.map((variable) =>
@@ -1431,6 +1460,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     },
     [
       checkpoint,
+      document.id,
+      edges,
+      findVariableReferencesById,
       markDirty,
       projectVariables,
       setNodes,
@@ -2182,7 +2214,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         current.map((node) =>
           node.id === id && node.type === type
             ? bindCharacterFieldReferencesInNode(
-                { ...node, data: { ...node.data, ...update } },
+                bindVariableReferencesInNode({ ...node, data: { ...node.data, ...update } }, [
+                  ...variables,
+                  ...projectVariables,
+                ]),
                 resolvedCharacters,
               )
             : node,
@@ -2190,7 +2225,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty, resolvedCharacters, setNodes],
+    [markDirty, projectVariables, resolvedCharacters, setNodes, variables],
   );
 
   const captureActiveStory = useCallback(
@@ -2474,6 +2509,42 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       loadStory(target, nodeTarget.graphId);
       setProblemFocus({ nodeId: nodeTarget.nodeId, nonce: Date.now() });
+      return true;
+    },
+    [document.id, focusGraphNode, loadStory],
+  );
+
+  const focusVariableReference = useCallback(
+    (reference: VariableReference): boolean => {
+      if (!reference.storyId || reference.storyId === document.id) {
+        return focusGraphNode(reference.graphId, reference.nodeId);
+      }
+      let target = currentStoryItemsRef
+        .current()
+        .find((story) => story.document.id === reference.storyId);
+      if (!target) return false;
+      const selectNode = (candidate: EditorGraphState): EditorGraphState => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) => ({
+          ...node,
+          selected: node.id === reference.nodeId,
+        })),
+        edges: candidate.edges.map((edge) => ({ ...edge, selected: false })),
+      });
+      target = {
+        ...target,
+        rootGraph: reference.graphId === 'root' ? selectNode(target.rootGraph) : target.rootGraph,
+        chapters: target.chapters.map((chapter) =>
+          chapter.id === reference.graphId
+            ? { ...chapter, graph: selectNode(chapter.graph) }
+            : chapter,
+        ),
+      };
+      setWorkspaceStories((current) =>
+        current.map((story) => (story.document.id === target!.document.id ? target! : story)),
+      );
+      loadStory(target, reference.graphId);
+      setProblemFocus({ nodeId: reference.nodeId, nonce: Date.now() });
       return true;
     },
     [document.id, focusGraphNode, loadStory],
@@ -3321,6 +3392,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       addProjectVariable,
       findVariableReferences: findVariableReferencesById,
+      focusVariableReference,
       updateVariable,
       removeVariable,
       addCharacter,
@@ -3400,6 +3472,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       addProjectVariable,
       findVariableReferencesById,
+      focusVariableReference,
       addCharacter,
       findCharacterReferencesById,
       findEmotionReferencesByKey,
