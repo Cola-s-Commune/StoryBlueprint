@@ -338,6 +338,7 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - Project Variable Inspector 打开时按需扫描 `.storyproject` 登记的全部 Story；已打开 Story 使用内存图覆盖磁盘结果，未打开 Story 只保留轻量引用定位。点击引用时才打开目标 Story。改名会批量改写受影响的未打开 Story；扫描失败或未完成时禁止删除、改名和改型。
 - 扫描读取的 Story 文本以项目 Story 索引和 Git Revision 为缓存键；切换 Project Variable 时复用缓存，仅重新构建该变量的轻量引用结果。Git 切换、冲突状态变化或批量改写会使缓存失效。
 - 每个扫描结果携带 Story 文本的 SHA-256 内容指纹。批量改写未打开 Story 时，主进程先确认所有文件仍与扫描版本一致，再把新内容写入同目录临时文件并逐个原子替换；任一步失败都会从备份回滚整批，避免覆盖协作者的新修改或留下半完成状态。
+- Project Variable 改名同时携带 `.storyproject` 内容指纹，并把变量定义与所有未打开 Story 的引用改写放入同一批次。任一文件在扫描后变化都会拒绝整个事务；Inspector 显示冲突原因，并允许重新扫描项目 Story 后再次提交。
 - Runtime 启动时通过 Adapter 读取 Character 字段与 Project 变量；执行中的写入立即更新 Runtime 缓存，并在暂停或结束时通过 Adapter 回写。
 - 删除或改型变量前必须执行引用检查和迁移预览。
 

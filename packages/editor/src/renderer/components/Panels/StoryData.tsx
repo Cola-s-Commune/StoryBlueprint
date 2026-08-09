@@ -133,6 +133,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     findVariableReferences,
     variableReferencesLoading,
     variableReferencesError,
+    refreshProjectVariableReferences,
     focusVariableReference,
     updateVariable,
     removeVariable,
@@ -236,7 +237,16 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
         {variableReferencesLoading ? (
           <div className={styles.referenceEmpty}>Scanning all project Stories…</div>
         ) : variableReferencesError ? (
-          <div className={styles.warning}>{variableReferencesError}</div>
+          <div className={styles.referenceError}>
+            <div className={styles.warning}>{variableReferencesError}</div>
+            <button
+              className={styles.referenceMoreButton}
+              type="button"
+              onClick={refreshProjectVariableReferences}
+            >
+              Rescan Project Stories
+            </button>
+          </div>
         ) : references.length === 0 ? (
           <div className={styles.referenceEmpty}>This variable is not used by any node.</div>
         ) : (

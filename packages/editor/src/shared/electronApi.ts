@@ -75,6 +75,7 @@ export interface WorkspaceInfo {
   rootPath: string;
   entries: WorkspaceEntry[];
   project?: StoryProjectDocument;
+  projectRevision?: string;
   projectError?: string;
   characterResources: { relativePath: string; character: CharacterSource }[];
   assetResources: { relativePath: string; asset: AssetSource }[];
@@ -135,6 +136,11 @@ export interface ProjectStoryFile {
   revision: string;
 }
 
+export interface ProjectStorySnapshot {
+  stories: readonly ProjectStoryFile[];
+  projectRevision: string;
+}
+
 export interface UpdateProjectStoryFile {
   path: string;
   content: string;
@@ -143,6 +149,8 @@ export interface UpdateProjectStoryFile {
 
 export interface UpdateProjectStoryFilesRequest {
   files: readonly UpdateProjectStoryFile[];
+  projectVariables?: readonly VariableDefinition[];
+  expectedProjectRevision?: string;
 }
 
 export type ExportCompiledProjectResult =
@@ -254,7 +262,7 @@ export interface ElectronAPI {
   restoreEditorSession: () => Promise<RestoredEditorSession>;
   updateEditorSession: (session: EditorSessionState) => Promise<void>;
   writeRecoverySnapshots: (snapshots: RecoverySnapshot[]) => Promise<void>;
-  readWorkspaceProjectStories: () => Promise<ProjectStoryFile[]>;
+  readWorkspaceProjectStories: () => Promise<ProjectStorySnapshot>;
   updateWorkspaceProjectStories: (
     request: UpdateProjectStoryFilesRequest,
   ) => Promise<WorkspaceInfo>;

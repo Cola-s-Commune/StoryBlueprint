@@ -538,11 +538,13 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
   ]);
   const conflictByPath = new Map(gitConflicts.map((conflict) => [conflict.relativePath, conflict]));
   let project: StoryProjectDocument | undefined;
+  let projectRevision: string | undefined;
   let projectError: string | undefined;
   if (workspaceProjectFile) {
     try {
       const relativePath = toWorkspaceRelative(workspaceProjectFile);
       const diskContent = await readFile(workspaceProjectFile, 'utf8');
+      projectRevision = storyContentRevision(diskContent);
       try {
         project = parseStoryProject(diskContent);
       } catch {
@@ -609,6 +611,7 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
     rootPath: workspaceRoot,
     entries,
     project,
+    projectRevision,
     projectError,
     characterResources,
     assetResources,
@@ -1877,8 +1880,9 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || !workspaceProjectFile) {
       throw new Error('Open a Story project first');
     }
-    const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
-    return Promise.all(
+    const projectContent = await readFile(workspaceProjectFile, 'utf8');
+    const project = parseStoryProject(projectContent);
+    const stories = await Promise.all(
       project.stories.map(async (story) => {
         const filePath = await resolveExistingWorkspacePath(story.path);
         if (!filePath.toLowerCase().endsWith('.story')) throw new Error('Not a Story file');
@@ -1890,6 +1894,7 @@ function registerStoryFileHandlers(): void {
         return { path: story.path, content, revision: storyContentRevision(content) };
       }),
     );
+    return { stories, projectRevision: storyContentRevision(projectContent) };
   });
 
   ipcMain.handle('workspace:update-project-stories', async (event, value: unknown) => {
@@ -1900,7 +1905,19 @@ function registerStoryFileHandlers(): void {
     if (!Array.isArray(request.files) || request.files.length > MAX_WORKSPACE_ENTRIES) {
       throw new Error('Invalid project Story update');
     }
-    const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+    const projectContent = await readFile(workspaceProjectFile, 'utf8');
+    const project = parseStoryProject(projectContent);
+    const updatesProject = request.projectVariables !== undefined;
+    if (
+      (updatesProject &&
+        (!Array.isArray(request.projectVariables) ||
+          request.projectVariables.length > MAX_WORKSPACE_ENTRIES ||
+          typeof request.expectedProjectRevision !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(request.expectedProjectRevision))) ||
+      (!updatesProject && request.expectedProjectRevision !== undefined)
+    ) {
+      throw new Error('Invalid project Story update');
+    }
     const storiesByPath = new Map(project.stories.map((story) => [story.path, story]));
     const writes: ProjectStoryBatchWrite[] = [];
     const seen = new Set<string>();
@@ -1931,6 +1948,14 @@ function registerStoryFileHandlers(): void {
         displayPath: candidate.path,
         content: candidate.content,
         expectedRevision: candidate.expectedRevision,
+      });
+    }
+    if (updatesProject) {
+      writes.push({
+        filePath: workspaceProjectFile,
+        displayPath: basename(workspaceProjectFile),
+        content: serializeStoryProject({ ...project, variables: request.projectVariables! }),
+        expectedRevision: request.expectedProjectRevision!,
       });
     }
     await replaceProjectStoriesAtomically(writes);

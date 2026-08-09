@@ -371,6 +371,7 @@ interface StoryGraphStoreValue {
   findVariableReferences: (id: VariableId) => readonly VariableReference[];
   variableReferencesLoading: boolean;
   variableReferencesError?: string;
+  refreshProjectVariableReferences: () => void;
   focusVariableReference: (reference: VariableReference) => Promise<boolean>;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => boolean;
   removeVariable: (
@@ -479,11 +480,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     loading: boolean;
     references: readonly VariableReference[];
     stories?: readonly ProjectStoryFile[];
+    projectRevision?: string;
     error?: string;
   }>({ loading: false, references: [] });
+  const [projectVariableReferenceRefreshNonce, setProjectVariableReferenceRefreshNonce] =
+    useState(0);
   const projectStoryTextCacheRef = useRef<{
     key: string;
     stories: readonly ProjectStoryFile[];
+    projectRevision: string;
   }>();
   const [sessionReady, setSessionReady] = useState(false);
   const restoredSessionRef = useRef(false);
@@ -566,6 +571,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     workspace?.project?.stories.map((story) => `${story.id}:${story.path}`).join('|') ?? '',
     workspace?.git.headRevision ?? '',
     workspace?.git.conflictRevision ?? '',
+    String(projectVariableReferenceRefreshNonce),
   ].join('::');
   const variableReferencesLoading =
     selectedProjectVariable !== undefined &&
@@ -597,19 +603,24 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           cached.stories,
         ),
         stories: cached.stories,
+        projectRevision: cached.projectRevision,
       });
       return;
     }
     void window.electronAPI
       .readWorkspaceProjectStories()
-      .then((stories) => {
+      .then((snapshot) => {
         if (canceled) return;
-        projectStoryTextCacheRef.current = { key: projectStoryIndexKey, stories };
+        projectStoryTextCacheRef.current = { key: projectStoryIndexKey, ...snapshot };
         setProjectVariableReferenceScan({
           variableId: selectedProjectVariableScanTarget.id,
           loading: false,
-          references: findProjectVariableReferences(selectedProjectVariableScanTarget, stories),
-          stories,
+          references: findProjectVariableReferences(
+            selectedProjectVariableScanTarget,
+            snapshot.stories,
+          ),
+          stories: snapshot.stories,
+          projectRevision: snapshot.projectRevision,
         });
       })
       .catch((error: unknown) => {
@@ -625,6 +636,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       canceled = true;
     };
   }, [projectStoryIndexKey, selectedProjectVariableScanTarget]);
+
+  const refreshProjectVariableReferences = useCallback(() => {
+    projectStoryTextCacheRef.current = undefined;
+    setProjectVariableReferenceRefreshNonce((current) => current + 1);
+  }, []);
 
   const markDirty = useCallback(() => {
     if (!hasActiveStory) return;
@@ -649,44 +665,51 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     );
   }, [document.dirty, hasActiveStory, projectResourcesDirty, workspaceStories]);
 
-  const queueProjectResourceWrite = useCallback(
-    (write: () => Promise<WorkspaceInfo>, dependsOnPrevious = false) => {
-      const key = 'project-resources';
-      const previous = projectResourceWritesRef.current.get(key);
-      const ready = previous ?? Promise.resolve(undefined);
-      const operation = (dependsOnPrevious ? ready : ready.catch(() => undefined)).then(write);
-      projectResourceWritesRef.current.set(key, operation);
-      setProjectResourcesDirty(true);
-      void operation
-        .then((nextWorkspace) => {
-          if (projectResourceWritesRef.current.get(key) !== operation) return;
+  const queueProjectResourceWrite = useCallback((write: () => Promise<WorkspaceInfo>) => {
+    const key = 'project-resources';
+    const previous = projectResourceWritesRef.current.get(key);
+    const operation = (previous ?? Promise.resolve(undefined)).catch(() => undefined).then(write);
+    projectResourceWritesRef.current.set(key, operation);
+    setProjectResourcesDirty(true);
+    void operation
+      .then((nextWorkspace) => {
+        if (projectResourceWritesRef.current.get(key) !== operation) return;
+        projectResourceWritesRef.current.delete(key);
+        setWorkspace(nextWorkspace);
+        setWorkspaceError(undefined);
+        setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
+      })
+      .catch((error: unknown) => {
+        if (projectResourceWritesRef.current.get(key) === operation) {
           projectResourceWritesRef.current.delete(key);
-          setWorkspace(nextWorkspace);
-          setWorkspaceError(undefined);
           setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
-        })
-        .catch((error: unknown) => {
-          if (projectResourceWritesRef.current.get(key) === operation) {
-            projectResourceWritesRef.current.delete(key);
-            setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
-          }
-          setWorkspaceError(error instanceof Error ? error.message : String(error));
-          void window.electronAPI
-            ?.refreshWorkspace()
-            .then(setWorkspace)
-            .catch(() => undefined);
-        });
-    },
-    [],
-  );
+        }
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+        void window.electronAPI
+          ?.refreshWorkspace()
+          .then(setWorkspace)
+          .catch(() => undefined);
+      });
+  }, []);
 
   const writeProjectVariables = useCallback(
-    (nextVariables: readonly VariableDefinition[], dependsOnPrevious = false) => {
+    (nextVariables: readonly VariableDefinition[]) => {
       if (!workspace?.project || !window.electronAPI) return;
-      queueProjectResourceWrite(
-        () => window.electronAPI!.updateProjectSettings({ variables: nextVariables }),
-        dependsOnPrevious,
-      );
+      queueProjectResourceWrite(async () => {
+        const nextWorkspace = await window.electronAPI!.updateProjectSettings({
+          variables: nextVariables,
+        });
+        if (nextWorkspace.projectRevision) {
+          if (projectStoryTextCacheRef.current) {
+            projectStoryTextCacheRef.current.projectRevision = nextWorkspace.projectRevision;
+          }
+          setProjectVariableReferenceScan((current) => ({
+            ...current,
+            projectRevision: nextWorkspace.projectRevision,
+          }));
+        }
+        return nextWorkspace;
+      });
     },
     [queueProjectResourceWrite, workspace?.project],
   );
@@ -1543,7 +1566,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           requiresCompleteIndex &&
           (projectVariableReferenceScan.loading ||
             projectVariableReferenceScan.variableId !== id ||
-            projectVariableReferenceScan.error)
+            projectVariableReferenceScan.error ||
+            !projectVariableReferenceScan.stories ||
+            !projectVariableReferenceScan.projectRevision)
         ) {
           setWorkspaceError(
             projectVariableReferenceScan.error ??
@@ -1561,7 +1586,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           return false;
         }
         const normalized = { ...nextUpdate, scope: 'project' as const };
-        let projectVariableWriteDependsOnStoryRewrite = false;
+        const nextProjectVariables = projectVariables.map((variable) =>
+          variable.id === id ? { ...variable, ...normalized, id } : variable,
+        );
         if (normalized.name && normalized.name !== previous.name) {
           const affectedStoryIds = new Set(
             references
@@ -1603,37 +1630,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               ),
             );
           }
-          if (unopenedStoryIds.size > 0 && projectVariableReferenceScan.stories) {
-            const rewritten = rewriteProjectVariableReferences(
-              projectVariableReferenceScan.stories,
-              unopenedStoryIds,
-              id,
-              previous.name,
-              normalized.name,
-            );
-            if (rewritten.length > 0 && window.electronAPI) {
-              const revisionsByPath = new Map(
-                projectVariableReferenceScan.stories.map((story) => [story.path, story.revision]),
-              );
-              projectStoryTextCacheRef.current = undefined;
-              queueProjectResourceWrite(() =>
-                window.electronAPI!.updateWorkspaceProjectStories({
-                  files: rewritten.map((file) => ({
-                    ...file,
-                    expectedRevision: revisionsByPath.get(file.path)!,
-                  })),
-                }),
-              );
-              projectVariableWriteDependsOnStoryRewrite = true;
+          const scannedStories = projectVariableReferenceScan.stories!;
+          const rewritten = rewriteProjectVariableReferences(
+            scannedStories,
+            unopenedStoryIds,
+            id,
+            previous.name,
+            normalized.name,
+          );
+          const revisionsByPath = new Map(
+            scannedStories.map((story) => [story.path, story.revision]),
+          );
+          projectStoryTextCacheRef.current = undefined;
+          queueProjectResourceWrite(async () => {
+            try {
+              return await window.electronAPI!.updateWorkspaceProjectStories({
+                files: rewritten.map((file) => ({
+                  ...file,
+                  expectedRevision: revisionsByPath.get(file.path)!,
+                })),
+                projectVariables: nextProjectVariables,
+                expectedProjectRevision: projectVariableReferenceScan.projectRevision!,
+              });
+            } catch (error) {
+              setProjectVariableReferenceScan((current) => ({
+                ...current,
+                loading: false,
+                error: `${error instanceof Error ? error.message : String(error)} Rescan project Stories and try again.`,
+              }));
+              throw error;
             }
-          }
+          });
+          return true;
         }
-        writeProjectVariables(
-          projectVariables.map((variable) =>
-            variable.id === id ? { ...variable, ...normalized, id } : variable,
-          ),
-          projectVariableWriteDependsOnStoryRewrite,
-        );
+        writeProjectVariables(nextProjectVariables);
         return true;
       }
       checkpoint();
@@ -3267,8 +3297,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const nextWorkspace = await window.electronAPI.syncWorkspaceProject();
       setWorkspace(nextWorkspace);
       if (!nextWorkspace.project) throw new Error('Project index is unavailable');
-      const files = await window.electronAPI.readWorkspaceProjectStories();
-      const projectSources = files.map((file) => {
+      const snapshot = await window.electronAPI.readWorkspaceProjectStories();
+      const projectSources = snapshot.stories.map((file) => {
         const source = parseStorySource(file.content);
         const externalCharacters = nextWorkspace.project!.characters.flatMap((reference) => {
           if (!reference.path || !reference.storyIds.includes(source.id)) return [];
@@ -3636,6 +3666,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       findVariableReferences: findVariableReferencesById,
       variableReferencesLoading,
       variableReferencesError,
+      refreshProjectVariableReferences,
       focusVariableReference,
       updateVariable,
       removeVariable,
@@ -3718,6 +3749,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       findVariableReferencesById,
       variableReferencesLoading,
       variableReferencesError,
+      refreshProjectVariableReferences,
       focusVariableReference,
       addCharacter,
       findCharacterReferencesById,

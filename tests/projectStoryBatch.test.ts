@@ -23,8 +23,10 @@ describe('project Story batch replacement', () => {
     temporaryDirectories.push(directory);
     const firstPath = join(directory, 'first.story');
     const secondPath = join(directory, 'second.story');
+    const projectPath = join(directory, 'project.storyproject');
     await writeFile(firstPath, 'first before', 'utf8');
     await writeFile(secondPath, 'second before', 'utf8');
+    await writeFile(projectPath, 'project before', 'utf8');
 
     await replaceProjectStoriesAtomically([
       {
@@ -39,11 +41,22 @@ describe('project Story batch replacement', () => {
         content: 'second after',
         expectedRevision: storyContentRevision('second before'),
       },
+      {
+        filePath: projectPath,
+        displayPath: 'project.storyproject',
+        content: 'project after',
+        expectedRevision: storyContentRevision('project before'),
+      },
     ]);
 
     await expect(readFile(firstPath, 'utf8')).resolves.toBe('first after');
     await expect(readFile(secondPath, 'utf8')).resolves.toBe('second after');
-    expect((await readdir(directory)).sort()).toEqual(['first.story', 'second.story']);
+    await expect(readFile(projectPath, 'utf8')).resolves.toBe('project after');
+    expect((await readdir(directory)).sort()).toEqual([
+      'first.story',
+      'project.storyproject',
+      'second.story',
+    ]);
   });
 
   it('rejects the whole batch when a Story changed after the scan', async () => {
@@ -71,10 +84,43 @@ describe('project Story batch replacement', () => {
           expectedRevision: secondRevision,
         },
       ]),
-    ).rejects.toThrow('Story changed on disk since the reference scan: second.story');
+    ).rejects.toThrow('Project file changed on disk since the reference scan: second.story');
 
     await expect(readFile(firstPath, 'utf8')).resolves.toBe('first before');
     await expect(readFile(secondPath, 'utf8')).resolves.toBe('external edit');
     expect((await readdir(directory)).sort()).toEqual(['first.story', 'second.story']);
+  });
+
+  it('does not rewrite Stories when the project file changed after the scan', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'story-blueprint-batch-'));
+    temporaryDirectories.push(directory);
+    const storyPath = join(directory, 'main.story');
+    const projectPath = join(directory, 'project.storyproject');
+    await writeFile(storyPath, 'story before', 'utf8');
+    await writeFile(projectPath, 'project before', 'utf8');
+    const projectRevision = storyContentRevision('project before');
+    await writeFile(projectPath, 'external project edit', 'utf8');
+
+    await expect(
+      replaceProjectStoriesAtomically([
+        {
+          filePath: storyPath,
+          displayPath: 'main.story',
+          content: 'story after',
+          expectedRevision: storyContentRevision('story before'),
+        },
+        {
+          filePath: projectPath,
+          displayPath: 'project.storyproject',
+          content: 'project after',
+          expectedRevision: projectRevision,
+        },
+      ]),
+    ).rejects.toThrow(
+      'Project file changed on disk since the reference scan: project.storyproject',
+    );
+
+    await expect(readFile(storyPath, 'utf8')).resolves.toBe('story before');
+    await expect(readFile(projectPath, 'utf8')).resolves.toBe('external project edit');
   });
 });
