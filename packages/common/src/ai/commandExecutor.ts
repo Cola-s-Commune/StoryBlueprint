@@ -150,7 +150,10 @@ function validVariable(value: unknown): value is VariableDefinition {
     value.name.length > 0 &&
     typeof value.displayName === 'string' &&
     value.displayName.length > 0 &&
-    (value.scope === 'story' || value.scope === 'chapter' || value.scope === 'local') &&
+    (value.scope === 'project' ||
+      value.scope === 'story' ||
+      value.scope === 'chapter' ||
+      value.scope === 'local') &&
     validScalarType(value.valueType) &&
     validRuntimeValue(value.defaultValue)
   );
@@ -1409,7 +1412,12 @@ function validateFinalGraph(story: StorySourceDocument): BlueprintCommandDiagnos
     });
   }
   try {
-    serializeStorySource({ ...story, events: [], signals: [] });
+    serializeStorySource({
+      ...story,
+      variables: story.variables.filter((variable) => variable.scope !== 'project'),
+      events: [],
+      signals: [],
+    });
   } catch (error) {
     diagnostics.push({
       code: 'INVALID_GRAPH',

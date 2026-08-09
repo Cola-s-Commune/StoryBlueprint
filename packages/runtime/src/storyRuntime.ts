@@ -95,7 +95,7 @@ export class StoryRuntime {
     this.program = program;
     this.externalVariableIdSet = new Set(
       program.variables
-        .filter((variable) => variable.scope === 'character')
+        .filter((variable) => variable.scope === 'character' || variable.scope === 'project')
         .map((variable) => variable.id),
     );
     this.currentState = cloneState(restoredState ?? createRuntimeState(program));

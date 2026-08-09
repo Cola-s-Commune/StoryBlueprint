@@ -51,7 +51,8 @@ function PropertyField({
   onBeginEdit,
   onChange,
 }: PropertyFieldProps) {
-  const { variables } = useStoryGraphStore();
+  const { variables, projectVariables } = useStoryGraphStore();
+  const availableVariables = [...variables, ...projectVariables];
   const editing = useRef(false);
   const handleChange = (nextValue: string) => {
     if (!editing.current) {
@@ -67,7 +68,7 @@ function PropertyField({
     if (!variableMode) return;
     const payload = readStoryDataDrag(event.dataTransfer);
     if (payload?.kind !== 'variable') return;
-    const variable = variables.find((candidate) => candidate.id === payload.id);
+    const variable = availableVariables.find((candidate) => candidate.id === payload.id);
     if (!variable) return;
     event.preventDefault();
     const control = event.currentTarget;
@@ -109,7 +110,7 @@ function VariableSelect({
   onBeginEdit: () => void;
   onChange: (value: VariableId | undefined) => void;
 }) {
-  const { variables, characters } = useStoryGraphStore();
+  const { variables, projectVariables, characters } = useStoryGraphStore();
   return (
     <label className={styles.field}>
       <span>{label}</span>
@@ -126,6 +127,15 @@ function VariableSelect({
             {variable.name} · {variable.valueType.kind}
           </option>
         ))}
+        {projectVariables.length > 0 && (
+          <optgroup label="Project">
+            {projectVariables.map((variable) => (
+              <option key={variable.id} value={variable.id}>
+                {variable.name} · {variable.valueType.kind}
+              </option>
+            ))}
+          </optgroup>
+        )}
         {characters.map((character) =>
           (character.fields?.length ?? 0) > 0 ? (
             <optgroup key={character.id} label={character.displayName}>
@@ -200,8 +210,13 @@ function decodeStringLiteral(source: string): string | undefined {
 }
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
-  const { variables, characters, checkpoint, updateNodeData } = useStoryGraphStore();
-  const allVariables = [...variables, ...characters.flatMap((character) => character.fields ?? [])];
+  const { variables, projectVariables, characters, checkpoint, updateNodeData } =
+    useStoryGraphStore();
+  const allVariables = [
+    ...variables,
+    ...projectVariables,
+    ...characters.flatMap((character) => character.fields ?? []),
+  ];
   const variable = allVariables.find((candidate) => candidate.id === data.variableId);
   const isString = variable?.valueType.kind === 'string';
   const decodedLiteral = decodeStringLiteral(data.value.source);

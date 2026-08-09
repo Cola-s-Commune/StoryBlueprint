@@ -246,7 +246,12 @@ export class DefaultProjectCompiler implements ProjectCompiler {
         diagnostics.push(...graphDiagnostics(chapter.graph, story, chapter.id));
       }
       const compiled = compileStory(
-        { ...story.source, events: project.events, signals: project.signals },
+        {
+          ...story.source,
+          variables: [...story.source.variables, ...(project.variables ?? [])],
+          events: project.events,
+          signals: project.signals,
+        },
         {
           ...options,
           contentVersion: options.contentVersion ?? 'project-build',
@@ -288,6 +293,7 @@ export class DefaultProjectCompiler implements ProjectCompiler {
         JSON.stringify([
           project.events,
           project.signals,
+          project.variables ?? [],
           stories.map((story) => [story.path, story.source]),
         ]),
       );

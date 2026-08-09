@@ -21,9 +21,9 @@ function story(): StorySourceDocument {
     id: 's_projectstory',
     name: 'project-story',
     displayName: 'Project Story',
-    variables: [],
     characters: [],
     assets: [],
+    variables: [],
     events: [],
     chapters: [],
     root: {
@@ -83,6 +83,16 @@ function project(): StoryProjectDocument {
     ],
     characters: [],
     assets: [],
+    variables: [
+      {
+        id: 'v_projectflag',
+        name: 'projectFlag',
+        displayName: 'Project Flag',
+        scope: 'project',
+        valueType: { kind: 'boolean' },
+        defaultValue: false,
+      },
+    ],
     events: [
       {
         id: 'ev_playanim',
@@ -106,6 +116,9 @@ describe('project compilation', () => {
     const json = JSON.stringify(result.project);
     expect(json).not.toContain('position');
     expect(json).not.toContain('n_projectstart');
+    expect(result.project.stories.s_projectstory.program.variables).toContainEqual(
+      expect.objectContaining({ id: 'v_projectflag', scope: 'project' }),
+    );
     const loaded = parseCompiledStoryProject(json);
     expect(loaded.events).toMatchObject([
       {

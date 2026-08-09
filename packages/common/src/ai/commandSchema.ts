@@ -111,7 +111,7 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
                 properties: {
                   name: { type: 'string', minLength: 1 },
                   displayName: { type: 'string', minLength: 1 },
-                  scope: { enum: ['story', 'chapter', 'local'] },
+                  scope: { enum: ['project', 'story', 'chapter', 'local'] },
                   valueType: { $ref: '#/$defs/scalarValueType' },
                   defaultValue: { type: ['null', 'boolean', 'number', 'string'] },
                 },
@@ -303,7 +303,7 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         id: { type: 'string', pattern: stableIdPatterns.variable },
         name: { type: 'string', minLength: 1 },
         displayName: { type: 'string', minLength: 1 },
-        scope: { enum: ['story', 'chapter', 'local'] },
+        scope: { enum: ['project', 'story', 'chapter', 'local'] },
         valueType: { $ref: '#/$defs/scalarValueType' },
         defaultValue: { type: ['null', 'boolean', 'number', 'string'] },
       },

@@ -70,4 +70,32 @@ describe('character field adapter bridge', () => {
     expect(result.kind).toBe('completed');
     expect(writes).toEqual([['v_affinity', 5]]);
   });
+
+  it('treats project variables as engine-owned external state', () => {
+    const program: RuntimeProgram = {
+      format: STORY_RUNTIME_FORMAT,
+      version: STORY_RUNTIME_VERSION,
+      id: 'p_project_external',
+      contentVersion: '1',
+      entryBlockId: 'b_end',
+      chapters: {},
+      variables: [
+        {
+          id: 'v_projectscore',
+          name: 'projectScore',
+          displayName: 'Project Score',
+          scope: 'project',
+          valueType: { kind: 'number' },
+          defaultValue: 0,
+        },
+      ],
+      blocks: {
+        b_end: { id: 'b_end', instructions: [{ id: 'i_end', op: 'end-story' }] },
+      },
+    };
+    const runtime = new StoryRuntime(program);
+    expect(runtime.externalVariableIds).toEqual(['v_projectscore']);
+    runtime.hydrateExternalVariable('v_projectscore', 12);
+    expect(runtime.state.storyVariables.v_projectscore).toBe(12);
+  });
 });

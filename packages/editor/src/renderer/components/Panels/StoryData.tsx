@@ -124,13 +124,19 @@ function ResourceReferenceSection({
 }
 
 function VariableEditor({ variable }: { variable: VariableDefinition }) {
-  const { variables, findVariableReferences, focusGraphNode, updateVariable, removeVariable } =
-    useStoryGraphStore();
+  const {
+    variables,
+    projectVariables,
+    findVariableReferences,
+    focusGraphNode,
+    updateVariable,
+    removeVariable,
+  } = useStoryGraphStore();
   const [showAllReferences, setShowAllReferences] = useState(false);
   const references = findVariableReferences(variable.id);
   const visibleReferences = showAllReferences ? references : references.slice(0, 30);
   useEffect(() => setShowAllReferences(false), [variable.id]);
-  const duplicate = variables.some(
+  const duplicate = [...variables, ...projectVariables].some(
     (candidate) => candidate.id !== variable.id && candidate.name === variable.name,
   );
   const kind = variable.valueType.kind as ScalarKind;
@@ -171,18 +177,22 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       </label>
       <label>
         <span>Scope</span>
-        <select
-          value={variable.scope}
-          onChange={(event) =>
-            updateVariable(variable.id, {
-              scope: event.target.value as VariableDefinition['scope'],
-            })
-          }
-        >
-          <option value="story">Story</option>
-          <option value="chapter">Chapter</option>
-          <option value="local">Local</option>
-        </select>
+        {variable.scope === 'project' ? (
+          <input value="Project" readOnly />
+        ) : (
+          <select
+            value={variable.scope}
+            onChange={(event) =>
+              updateVariable(variable.id, {
+                scope: event.target.value as VariableDefinition['scope'],
+              })
+            }
+          >
+            <option value="story">Story</option>
+            <option value="chapter">Chapter</option>
+            <option value="local">Local</option>
+          </select>
+        )}
       </label>
       <label>
         <span>Default</span>
@@ -1011,13 +1021,15 @@ function EventTable({
 }
 
 export function StoryDataInspector() {
-  const { storyDataSelection, variables, characters, assets, events, signals } =
+  const { storyDataSelection, variables, projectVariables, characters, assets, events, signals } =
     useStoryGraphStore();
   if (!storyDataSelection) return null;
   if (storyDataSelection.kind === 'event-table')
     return <EventTable events={events} signals={signals} />;
   if (storyDataSelection.kind === 'variable') {
-    const variable = variables.find((item) => item.id === storyDataSelection.id);
+    const variable = [...variables, ...projectVariables].find(
+      (item) => item.id === storyDataSelection.id,
+    );
     return variable ? <VariableEditor variable={variable} /> : null;
   }
   if (storyDataSelection.kind === 'character') {
@@ -1041,11 +1053,13 @@ export function StoryData() {
     hasActiveStory,
     workspace,
     variables,
+    projectVariables,
     characters,
     assets,
     events,
     signals,
     addVariable,
+    addProjectVariable,
     addCharacter,
     addAsset,
     addEvent,
@@ -1130,6 +1144,54 @@ export function StoryData() {
             </div>
             {variables.length === 0 && <div className={styles.empty}>No variables</div>}
             {variables.map((variable) => (
+              <div
+                key={variable.id}
+                className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
+                draggable
+                onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
+                onDragStart={(event) =>
+                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                }
+              >
+                <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
+                <span className={styles.itemName}>{variable.name}</span>
+                <span className={styles.itemType}>{variable.valueType.kind}</span>
+                <span
+                  className={styles.setDrag}
+                  draggable
+                  title="Drag to create Set Variable"
+                  onClick={(event) => event.stopPropagation()}
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' });
+                  }}
+                >
+                  S
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {workspace?.project && (
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span>Project Variables</span>
+              <button
+                type="button"
+                title="Add project variable"
+                onClick={() => {
+                  const id = addProjectVariable();
+                  if (id) selectStoryData({ kind: 'variable', id });
+                }}
+              >
+                +
+              </button>
+            </div>
+            {projectVariables.length === 0 && (
+              <div className={styles.empty}>No project variables</div>
+            )}
+            {projectVariables.map((variable) => (
               <div
                 key={variable.id}
                 className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}

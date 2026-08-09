@@ -17,7 +17,7 @@ export type ValueType =
       nullable?: boolean;
     };
 
-export type VariableScope = 'story' | 'chapter' | 'local' | 'character';
+export type VariableScope = 'project' | 'story' | 'chapter' | 'local' | 'character';
 
 export interface VariableDefinition {
   id: VariableId;

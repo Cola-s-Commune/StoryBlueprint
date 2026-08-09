@@ -154,6 +154,7 @@ export interface CreateWorkspaceProjectRequest {
 export interface UpdateProjectSettingsRequest {
   entryStoryId?: string;
   outputDirectory?: string;
+  variables?: readonly VariableDefinition[];
   events?: readonly EventSource[];
   signals?: readonly SignalSource[];
 }
@@ -291,4 +292,5 @@ import type {
   EventSource,
   SignalSource,
   StoryProjectDocument,
+  VariableDefinition,
 } from '@story-blueprint/common';

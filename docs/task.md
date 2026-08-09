@@ -402,6 +402,15 @@
 - [x] Character Field 跨 Story 引用索引、字段 ID Binding 持久化与安全重命名
 - [x] Character / Field 删除及字段改型的引用保护
 
+## Project Variables
+
+- [x] Project Scope 变量存入 `.storyproject`，不重复写入各 `.story`
+- [x] Story Data 创建、编辑、拖拽 Get / Set 与节点 Inspector 选择
+- [x] Project 编译时注入每个 Story Program，并校验 Story / Project 名称冲突
+- [x] Runtime Adapter 启动读取与暂停点/结束回写
+- [x] AI Semantic Snapshot 与 Add / Update Variable 命令支持 Project Scope
+- [x] 删除前扫描已加载 Story / Substory 的稳定 ID 引用
+
 ---
 
 ## Audio
@@ -701,7 +710,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Add / Update / Remove Node 原语
 - [x] Connect / Disconnect 与显式 Replace Existing
 - [x] Add / Update Character（含 Character Field）
-- [x] Add / Update Variable
+- [x] Add / Update Variable（含 Project Scope）
 - [x] Set Expression（Branch、Set Variable、Choice 条件、Event 参数与 Signal Match）
 - [x] Add / Update / Remove Dialogue Line
 - [x] Add / Update / Remove Choice Option

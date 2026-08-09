@@ -594,6 +594,34 @@ describe('AI semantic editing foundation', () => {
     expect(source.variables).toEqual([]);
   });
 
+  it('accepts Project Scope variables as external project state', () => {
+    const source = story();
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'add-project-reputation',
+          kind: 'add-variable',
+          variable: {
+            id: 'v_projectreputation',
+            name: 'projectReputation',
+            displayName: 'Project Reputation',
+            scope: 'project',
+            valueType: { kind: 'number' },
+            defaultValue: 0,
+          },
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.variables).toContainEqual(
+      expect.objectContaining({ id: 'v_projectreputation', scope: 'project' }),
+    );
+  });
+
   it('edits Choice options, expressions, and removes an option connection atomically', () => {
     const base = story();
     const source: StorySourceDocument = {

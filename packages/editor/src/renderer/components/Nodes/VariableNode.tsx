@@ -10,8 +10,10 @@ const variableStyle = {
 } as CSSProperties;
 
 function VariableName({ variableId }: { variableId?: string }) {
-  const { variables } = useStoryGraphStore();
-  const variable = variables.find((candidate) => candidate.id === variableId);
+  const { variables, projectVariables } = useStoryGraphStore();
+  const variable = [...variables, ...projectVariables].find(
+    (candidate) => candidate.id === variableId,
+  );
   return (
     <>
       <span className={styles.variableName}>{variable?.name ?? 'Select variable'}</span>

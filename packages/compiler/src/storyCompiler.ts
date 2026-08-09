@@ -77,6 +77,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
     const characterFields = source.characters.flatMap((character) => character.fields ?? []);
     const allVariables = [...source.variables, ...characterFields];
     const variableIds = new Set<string>();
+    const variableNames = new Set<string>();
     for (const variable of allVariables) {
       if (variableIds.has(variable.id)) {
         diagnostics.push({
@@ -86,6 +87,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
         });
       }
       variableIds.add(variable.id);
+      if (variable.scope !== 'character') {
+        if (variableNames.has(variable.name)) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Duplicate Story or Project variable name ${variable.name}`,
+          });
+        }
+        variableNames.add(variable.name);
+      }
     }
     const characterNames = new Set<string>();
     for (const character of source.characters) {

@@ -1646,6 +1646,7 @@ function registerStoryFileHandlers(): void {
       stories: [],
       characters: [],
       assets: [],
+      variables: [],
       events: [],
       signals: [],
     };
@@ -1893,6 +1894,7 @@ function registerStoryFileHandlers(): void {
     if (
       (settings.entryStoryId !== undefined && typeof settings.entryStoryId !== 'string') ||
       (settings.outputDirectory !== undefined && typeof settings.outputDirectory !== 'string') ||
+      (settings.variables !== undefined && !Array.isArray(settings.variables)) ||
       (settings.events !== undefined && !Array.isArray(settings.events)) ||
       (settings.signals !== undefined && !Array.isArray(settings.signals))
     ) {
@@ -1903,6 +1905,7 @@ function registerStoryFileHandlers(): void {
       ...current,
       entryStoryId: settings.entryStoryId as StoryProjectDocument['entryStoryId'],
       outputDirectory: settings.outputDirectory?.trim() || undefined,
+      variables: settings.variables ?? current.variables,
       events: settings.events ?? current.events,
       signals: settings.signals ?? current.signals,
     };

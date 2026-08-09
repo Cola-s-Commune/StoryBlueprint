@@ -295,6 +295,7 @@ interface StoryGraphStoreValue {
   chooseStoryMergePreviewConflict: (id: string, choice: StoryMergeChoice) => void;
   focusStoryMergePreviewNode: (graphId: ActiveGraphId, nodeId: NodeId) => boolean;
   variables: VariableDefinition[];
+  projectVariables: readonly VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
   events: readonly EventSource[];
@@ -334,6 +335,7 @@ interface StoryGraphStoreValue {
     files: ApplyWorkspaceMergeFile[],
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
   addVariable: () => VariableId;
+  addProjectVariable: () => VariableId | undefined;
   findVariableReferences: (id: VariableId) => readonly VariableReference[];
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => boolean;
   removeVariable: (
@@ -420,6 +422,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const events = workspace?.project?.events ?? [];
   const signals = workspace?.project?.signals ?? [];
+  const projectVariables = workspace?.project?.variables ?? [];
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [problems, setProblems] = useState<readonly ProjectCompilerDiagnostic[]>([]);
@@ -494,8 +497,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [events, resolvedAssets, resolvedCharacters, signals],
   );
   const semanticSnapshot = useMemo(
-    () => createStorySemanticSnapshot({ ...source, ...aiSemanticContext }),
-    [aiSemanticContext, source],
+    () =>
+      createStorySemanticSnapshot({
+        ...source,
+        ...aiSemanticContext,
+        variables: [...source.variables, ...projectVariables],
+      }),
+    [aiSemanticContext, projectVariables, source],
   );
 
   const markDirty = useCallback(() => {
@@ -547,6 +555,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           .catch(() => undefined);
       });
   }, []);
+
+  const writeProjectVariables = useCallback(
+    (nextVariables: readonly VariableDefinition[]) => {
+      if (!workspace?.project || !window.electronAPI) return;
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.updateProjectSettings({ variables: nextVariables }),
+      );
+    },
+    [queueProjectResourceWrite, workspace?.project],
+  );
 
   const selectStoryData = useCallback(
     (selection?: StoryDataSelection) => {
@@ -804,7 +822,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           };
         }
       }
-      const result = executeBlueprintCommandTransaction(source, transactionValue, {
+      const commandSource = {
+        ...source,
+        variables: [...source.variables, ...projectVariables],
+      };
+      const result = executeBlueprintCommandTransaction(commandSource, transactionValue, {
         dryRun: options.dryRun,
         semanticContext: aiSemanticContext,
       });
@@ -875,7 +897,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         })
         .map((node) => node.id);
       const changedNodeIds = [...new Set([...prepared.changedNodeIds, ...movedNodeIds])];
-      const beforeVariables = new Map(source.variables.map((variable) => [variable.id, variable]));
+      const beforeVariables = new Map(
+        [...source.variables, ...projectVariables].map((variable) => [variable.id, variable]),
+      );
       const afterVariables = new Map(
         result.document.variables.map((variable) => [variable.id, variable]),
       );
@@ -922,7 +946,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         : prepared.graph;
       checkpoint();
       restoreGraph(committedGraph);
-      setVariables([...structuredClone(result.document.variables)]);
+      const nextProjectVariables = result.document.variables.filter(
+        (variable) => variable.scope === 'project',
+      );
+      setVariables(
+        structuredClone(
+          result.document.variables.filter((variable) => variable.scope !== 'project'),
+        ),
+      );
+      if (JSON.stringify(nextProjectVariables) !== JSON.stringify(projectVariables)) {
+        writeProjectVariables(nextProjectVariables);
+      }
       for (const [id, character] of afterCharacters) {
         const previous = beforeCharacters.get(id);
         if (previous && JSON.stringify(previous) === JSON.stringify(character)) continue;
@@ -961,6 +995,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       events,
       graph,
       markDirty,
+      projectVariables,
       resolvedAssets,
       resolvedCharacters,
       restoreGraph,
@@ -968,6 +1003,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       signals,
       source,
       workspace?.project,
+      writeProjectVariables,
     ],
   );
 
@@ -1160,6 +1196,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       const compiled = compileStory({
         ...merged,
+        variables: [...merged.variables, ...projectVariables],
         characters: resolvedCharacters,
         assets: resolvedAssets,
         events,
@@ -1174,7 +1211,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       return { ok: true };
     },
-    [events, resolvedAssets, resolvedCharacters, signals, source.id],
+    [events, projectVariables, resolvedAssets, resolvedCharacters, signals, source.id],
   );
 
   const applyStoryMerge = useCallback(
@@ -1267,6 +1304,27 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     return id;
   }, [checkpoint, markDirty]);
 
+  const addProjectVariable = useCallback((): VariableId | undefined => {
+    if (!workspace?.project) return undefined;
+    const id = createStableId('variable');
+    const used = new Set([...variables, ...projectVariables].map((variable) => variable.name));
+    let index = projectVariables.length + 1;
+    let name = `projectVariable${index}`;
+    while (used.has(name)) name = `projectVariable${++index}`;
+    writeProjectVariables([
+      ...projectVariables,
+      {
+        id,
+        name,
+        displayName: name,
+        scope: 'project',
+        valueType: { kind: 'string' },
+        defaultValue: '',
+      },
+    ]);
+    return id;
+  }, [projectVariables, variables, workspace?.project, writeProjectVariables]);
+
   const variableReferenceGraphs = useCallback((): VariableReferenceGraph[] => {
     const root = activeGraphId === 'root' ? graph : rootGraphRef.current;
     return [
@@ -1283,29 +1341,73 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (id: VariableId): readonly VariableReference[] => {
       const variable =
         variables.find((candidate) => candidate.id === id) ??
+        projectVariables.find((candidate) => candidate.id === id) ??
         resolvedCharacters
           .flatMap((character) => character.fields ?? [])
           .find((candidate) => candidate.id === id);
-      return variable ? collectVariableReferences(variable, variableReferenceGraphs()) : [];
+      if (!variable) return [];
+      if (variable.scope !== 'project') {
+        return collectVariableReferences(variable, variableReferenceGraphs());
+      }
+      return currentStoryItemsRef.current().flatMap((story) =>
+        collectVariableReferences(variable, [
+          {
+            id: 'root',
+            label: `${story.document.displayName} / Main Story`,
+            graph: story.rootGraph,
+          },
+          ...story.chapters.map((chapter) => ({
+            id: chapter.id,
+            label: `${story.document.displayName} / ${chapter.displayName}`,
+            graph: chapter.graph,
+          })),
+        ]),
+      );
     },
-    [resolvedCharacters, variableReferenceGraphs, variables],
+    [projectVariables, resolvedCharacters, variableReferenceGraphs, variables],
   );
 
   const updateVariable = useCallback(
     (id: VariableId, update: Partial<VariableDefinition>): boolean => {
+      const projectVariable = projectVariables.find((variable) => variable.id === id);
+      const allNamedVariables = [...variables, ...projectVariables];
       if (
         update.name !== undefined &&
         (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(update.name) ||
-          variables.some((variable) => variable.id !== id && variable.name === update.name))
+          allNamedVariables.some((variable) => variable.id !== id && variable.name === update.name))
       ) {
         return false;
       }
-      checkpoint();
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
           : update;
-      const previous = variables.find((variable) => variable.id === id);
+      const previous = projectVariable ?? variables.find((variable) => variable.id === id);
+      if (!previous) return false;
+      if (projectVariable) {
+        const normalized = { ...nextUpdate, scope: 'project' as const };
+        if (normalized.name && normalized.name !== previous.name) {
+          setNodes((current) =>
+            current.map((node) =>
+              renameVariableReferencesInNode(node, id, previous.name, normalized.name!),
+            ),
+          );
+          updateInactiveGraphs((candidate) => ({
+            ...candidate,
+            nodes: candidate.nodes.map((node) =>
+              renameVariableReferencesInNode(node, id, previous.name, normalized.name!),
+            ),
+          }));
+          markDirty();
+        }
+        writeProjectVariables(
+          projectVariables.map((variable) =>
+            variable.id === id ? { ...variable, ...normalized, id } : variable,
+          ),
+        );
+        return true;
+      }
+      checkpoint();
       if (previous && nextUpdate.name && nextUpdate.name !== previous.name) {
         setNodes((current) =>
           current.map((node) =>
@@ -1327,13 +1429,28 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
       return true;
     },
-    [checkpoint, markDirty, setNodes, updateInactiveGraphs, variables],
+    [
+      checkpoint,
+      markDirty,
+      projectVariables,
+      setNodes,
+      updateInactiveGraphs,
+      variables,
+      writeProjectVariables,
+    ],
   );
 
   const removeVariable = useCallback(
     (id: VariableId): { ok: true } | { ok: false; references: readonly VariableReference[] } => {
       const references = findVariableReferencesById(id);
       if (references.length > 0) return { ok: false, references };
+      if (projectVariables.some((variable) => variable.id === id)) {
+        setStoryDataSelection((current) =>
+          current?.kind === 'variable' && current.id === id ? undefined : current,
+        );
+        writeProjectVariables(projectVariables.filter((variable) => variable.id !== id));
+        return { ok: true };
+      }
       checkpoint();
       setStoryDataSelection((current) =>
         current?.kind === 'variable' && current.id === id ? undefined : current,
@@ -1342,7 +1459,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
       return { ok: true };
     },
-    [checkpoint, findVariableReferencesById, markDirty],
+    [checkpoint, findVariableReferencesById, markDirty, projectVariables, writeProjectVariables],
   );
 
   const addCharacter = useCallback((): CharacterId => {
@@ -2749,6 +2866,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             stories: [],
             characters: [],
             assets: [],
+            variables: [],
             events: [],
             signals: [],
           }),
@@ -3178,6 +3296,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateNode,
       updateNodeData,
       variables,
+      projectVariables,
       characters: resolvedCharacters,
       assets: resolvedAssets,
       events,
@@ -3200,6 +3319,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       validateWorkspaceMerge,
       applyWorkspaceMerge,
       addVariable,
+      addProjectVariable,
       findVariableReferences: findVariableReferencesById,
       updateVariable,
       removeVariable,
@@ -3278,6 +3398,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [
       addNode,
       addVariable,
+      addProjectVariable,
       findVariableReferencesById,
       addCharacter,
       findCharacterReferencesById,
@@ -3378,6 +3499,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateSubstory,
       updateVariable,
       variables,
+      projectVariables,
       assets,
       events,
       signals,

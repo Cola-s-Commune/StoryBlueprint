@@ -9,7 +9,7 @@ import {
   type StoryProjectDocument,
 } from '../types/project';
 import type { EventSource, SignalSource } from '../types/source';
-import type { ValueType } from '../types/values';
+import type { RuntimeValue, ValueType, VariableDefinition } from '../types/values';
 import { StoryFormatError } from './storyKdl';
 
 function requiredString(value: unknown, path: string): string {
@@ -150,6 +150,27 @@ function validateProject(project: StoryProjectDocument): void {
       }
     }
   }
+  const variableIds = new Set<string>();
+  const variableNames = new Set<string>();
+  for (const variable of project.variables ?? []) {
+    if (!isStableId(variable.id, 'variable')) {
+      throw new StoryFormatError(`Invalid project variable ID ${variable.id}`);
+    }
+    if (variable.scope !== 'project') {
+      throw new StoryFormatError(`Project variable ${variable.name} must use project scope`);
+    }
+    if (variableIds.has(variable.id) || variableNames.has(variable.name)) {
+      throw new StoryFormatError(`Duplicate project variable ${variable.name}`);
+    }
+    if (!['boolean', 'number', 'string'].includes(variable.valueType.kind)) {
+      throw new StoryFormatError(`Unsupported project variable type in ${variable.name}`);
+    }
+    if (typeof variable.defaultValue !== variable.valueType.kind) {
+      throw new StoryFormatError(`Invalid default value for project variable ${variable.name}`);
+    }
+    variableIds.add(variable.id);
+    variableNames.add(variable.name);
+  }
   const eventIds = new Set<string>();
   const eventNames = new Set<string>();
   for (const event of project.events) {
@@ -278,6 +299,23 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
     }
     root.appendNode(assets);
   }
+  if ((project.variables?.length ?? 0) > 0) {
+    const variables = Node.create('variables');
+    for (const variable of [...(project.variables ?? [])].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const node = Node.create('variable');
+      node.addArgument(variable.id);
+      node.setProperty('name', variable.name);
+      if (variable.displayName !== variable.name) {
+        node.setProperty('display-name', variable.displayName);
+      }
+      node.setProperty('type', variable.valueType.kind);
+      node.setProperty('default', variable.defaultValue as boolean | number | string);
+      variables.appendNode(node);
+    }
+    root.appendNode(variables);
+  }
   if (project.events.length > 0) {
     const events = Node.create('events');
     for (const event of [...project.events].sort((left, right) =>
@@ -354,8 +392,15 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     'entry-story',
     'output-directory',
   ]);
-  assertChildren(root, 'project', ['stories', 'characters', 'assets', 'events', 'signals']);
-  for (const section of ['stories', 'characters', 'assets', 'events', 'signals']) {
+  assertChildren(root, 'project', [
+    'stories',
+    'characters',
+    'assets',
+    'variables',
+    'events',
+    'signals',
+  ]);
+  for (const section of ['stories', 'characters', 'assets', 'variables', 'events', 'signals']) {
     if (root.findNodesByName(section).length > 1) {
       throw new StoryFormatError(`Project may contain at most one ${section} section`);
     }
@@ -457,6 +502,38 @@ export function parseStoryProject(text: string): StoryProjectDocument {
       };
     },
   );
+
+  const variablesContainer = root.findNodeByName('variables');
+  if (variablesContainer) {
+    assertArguments(variablesContainer, 'variables', 0);
+    assertProperties(variablesContainer, 'variables', []);
+    assertChildren(variablesContainer, 'variables', ['variable']);
+  }
+  const variables: VariableDefinition[] = (
+    variablesContainer?.findNodesByName('variable') ?? []
+  ).map((node, index) => {
+    const path = `variables[${index}]`;
+    assertArguments(node, path, 1);
+    assertProperties(node, path, ['name', 'display-name', 'type', 'default']);
+    assertChildren(node, path, []);
+    const name = requiredString(node.getProperty('name'), `${path}.name`);
+    const valueType = scalarValueType(
+      requiredString(node.getProperty('type'), `${path}.type`),
+      `${path}.type`,
+    );
+    const defaultValue = node.getProperty('default');
+    if (typeof defaultValue !== valueType.kind) {
+      throw new StoryFormatError(`${path}.default must be ${valueType.kind}`);
+    }
+    return {
+      id: requiredId(node.getArgument(0), 'variable', `${path}.id`),
+      name,
+      displayName: (node.getProperty('display-name') as string | undefined) ?? name,
+      scope: 'project',
+      valueType,
+      defaultValue: defaultValue as RuntimeValue,
+    };
+  });
 
   const eventsContainer = root.findNodeByName('events');
   if (eventsContainer) {
@@ -574,6 +651,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     stories,
     characters,
     assets,
+    variables,
     events,
     signals,
   };

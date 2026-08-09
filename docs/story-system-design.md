@@ -314,10 +314,11 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 
 ### 6.1 变量与作用域
 
-当前编辑器定义三种内部作用域和 Character 外部作用域；Project Scope 后续加入：
+当前编辑器定义三种内部作用域，以及 Project、Character 两种由引擎持有的外部作用域：
 
 | 作用域    | 生命周期        | 典型用途               |
 | --------- | --------------- | ---------------------- |
+| Project   | 项目/存档       | 跨 Story 共享剧情状态  |
 | Story     | 当前 Story 实例 | 当前剧情流程状态       |
 | Chapter   | 每次调用创建    | 参数、临时计算、返回值 |
 | Local     | 当前执行上下文  | 临时计算               |
@@ -332,7 +333,8 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - Character 字段由角色资源声明，表达式使用 `CharacterName.fieldName`，Get / Set 节点内部仍保存字段稳定 ID。
 - 编辑器为限定字段表达式保存 `CharacterName.fieldName -> VariableId` Binding；`.story` KDL 将 Binding 与所属表达式一起持久化。角色或字段改名时，所有已加载 Story / Substory 按稳定字段 ID 统一改写，字符串字面量和模板转义花括号不受影响。
 - Character Field 引用索引覆盖直接 Get / Set、Dialogue / Choice 模板、Branch / Choice 条件、Event Argument 与 Signal Match。删除角色、删除字段或修改字段类型前必须清除相关引用；单纯改名允许安全改写。
-- Runtime 启动时通过 Adapter 读取 Character 字段；执行中的写入立即更新 Runtime 缓存，并在暂停或结束时通过 Adapter 回写。Project 变量后续沿用同一边界。
+- Project 变量定义集中存入 `.storyproject`，各 `.story` 只保存稳定变量 ID 引用；项目编译时把定义注入 Story Program。
+- Runtime 启动时通过 Adapter 读取 Character 字段与 Project 变量；执行中的写入立即更新 Runtime 缓存，并在暂停或结束时通过 Adapter 回写。
 - 删除或改型变量前必须执行引用检查和迁移预览。
 
 变量 Inspector 实时索引 Main Story 与所有 Substory 中的直接 Get/Set、Dialogue/Choice 文本模板、

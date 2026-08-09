@@ -40,6 +40,16 @@ function projectDocument(): StoryProjectDocument {
         storyIds: ['s_quest'],
       },
     ],
+    variables: [
+      {
+        id: 'v_reputation',
+        name: 'reputation',
+        displayName: 'Reputation',
+        scope: 'project',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ],
     events: [
       {
         id: 'ev_reward',
@@ -75,6 +85,8 @@ describe('story project KDL', () => {
     expect(serialized).toContain('entry-story=s_intro');
     expect(serialized).toContain('output-directory="Build/Stories"');
     expect(serialized).toContain('path="Characters/trader.character"');
+    expect(serialized).toContain('variable v_reputation name=reputation');
+    expect(serialized).toContain('type=number default=0');
     expect(serialized).toContain('event ev_reward');
     expect(serialized).toContain('parameter amount type=number');
     expect(serialized).toContain('description="Adds a reward to the player inventory."');
