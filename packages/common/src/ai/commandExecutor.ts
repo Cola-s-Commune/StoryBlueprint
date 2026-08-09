@@ -13,7 +13,13 @@ import {
   type DialogueNodeData,
   type StoryNodeDataMap,
 } from '../types/nodes';
-import type { SourceEdge, SourceGraph, SourceNode, StorySourceDocument } from '../types/source';
+import type {
+  CharacterSource,
+  SourceEdge,
+  SourceGraph,
+  SourceNode,
+  StorySourceDocument,
+} from '../types/source';
 import type { RuntimeValue, ValueType, VariableDefinition } from '../types/values';
 import {
   BLUEPRINT_COMMAND_FORMAT,
@@ -39,10 +45,14 @@ interface MutableChapter {
   graph: MutableGraph;
 }
 
-interface MutableStory extends Omit<StorySourceDocument, 'root' | 'chapters' | 'variables'> {
+interface MutableStory extends Omit<
+  StorySourceDocument,
+  'root' | 'chapters' | 'variables' | 'characters'
+> {
   root: MutableGraph;
   chapters: MutableChapter[] & StorySourceDocument['chapters'];
   variables: VariableDefinition[];
+  characters: CharacterSource[];
 }
 
 export type BlueprintTransactionResult =
@@ -150,6 +160,49 @@ function validStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function validCharacterField(value: unknown): value is VariableDefinition {
+  return (
+    validVariable({ ...(isRecord(value) ? value : {}), scope: 'story' }) &&
+    isRecord(value) &&
+    value.scope === 'character' &&
+    value.defaultValue !== null &&
+    isRecord(value.valueType) &&
+    typeof value.defaultValue === value.valueType.kind
+  );
+}
+
+function validEmotions(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(
+      (emotion) =>
+        isRecord(emotion) &&
+        typeof emotion.displayName === 'string' &&
+        emotion.displayName.length > 0 &&
+        (emotion.portraitId === undefined ||
+          (typeof emotion.portraitId === 'string' && isStableId(emotion.portraitId, 'asset'))),
+    )
+  );
+}
+
+function validCharacter(value: unknown): value is CharacterSource {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isStableId(value.id, 'character') &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    typeof value.displayName === 'string' &&
+    value.displayName.length > 0 &&
+    (value.defaultPortraitId === undefined ||
+      (typeof value.defaultPortraitId === 'string' &&
+        isStableId(value.defaultPortraitId, 'asset'))) &&
+    validEmotions(value.emotions) &&
+    (value.fields === undefined ||
+      (Array.isArray(value.fields) && value.fields.every(validCharacterField)))
+  );
+}
+
 function validNodeIdArray(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -200,7 +253,9 @@ function validExpressionTarget(value: unknown): boolean {
 }
 
 function requiresGraphTarget(kind: unknown): boolean {
-  return kind !== 'add-variable' && kind !== 'update-variable';
+  return !['add-variable', 'update-variable', 'add-character', 'update-character'].includes(
+    String(kind),
+  );
 }
 
 const operationKeys: Readonly<Record<string, readonly string[]>> = {
@@ -211,6 +266,8 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   disconnect: ['operationId', 'kind', 'graph', 'from', 'to'],
   'add-variable': ['operationId', 'kind', 'variable'],
   'update-variable': ['operationId', 'kind', 'variableId', 'patch'],
+  'add-character': ['operationId', 'kind', 'character'],
+  'update-character': ['operationId', 'kind', 'characterId', 'patch'],
   'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
   'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
   'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId'],
@@ -505,6 +562,53 @@ export function validateBlueprintCommandTransaction(
           diagnostics.push(invalidShape('set-expression is invalid', operationIndex, path));
         }
         break;
+      case 'add-character':
+        if (!validCharacter(raw.character)) {
+          diagnostics.push(
+            invalidShape(
+              'add-character requires a valid character definition',
+              operationIndex,
+              `${path}.character`,
+            ),
+          );
+        }
+        break;
+      case 'update-character':
+        if (isRecord(raw.patch)) {
+          diagnostics.push(
+            ...unexpectedKeyDiagnostics(
+              raw.patch,
+              ['name', 'displayName', 'defaultPortraitId', 'emotions', 'fields'],
+              `${path}.patch`,
+              operationIndex,
+            ),
+          );
+        }
+        if (
+          typeof raw.characterId !== 'string' ||
+          !isStableId(raw.characterId, 'character') ||
+          !isRecord(raw.patch) ||
+          (raw.patch.name !== undefined &&
+            (typeof raw.patch.name !== 'string' || raw.patch.name.length === 0)) ||
+          (raw.patch.displayName !== undefined &&
+            (typeof raw.patch.displayName !== 'string' || raw.patch.displayName.length === 0)) ||
+          (raw.patch.defaultPortraitId !== undefined &&
+            raw.patch.defaultPortraitId !== null &&
+            (typeof raw.patch.defaultPortraitId !== 'string' ||
+              !isStableId(raw.patch.defaultPortraitId, 'asset'))) ||
+          (raw.patch.emotions !== undefined && !validEmotions(raw.patch.emotions)) ||
+          (raw.patch.fields !== undefined &&
+            (!Array.isArray(raw.patch.fields) || !raw.patch.fields.every(validCharacterField)))
+        ) {
+          diagnostics.push(
+            invalidShape(
+              'update-character has an invalid characterId or patch',
+              operationIndex,
+              path,
+            ),
+          );
+        }
+        break;
       case 'layout-selection':
       case 'layout-neighborhood':
         if (!validNodeIdArray(raw.nodeIds)) {
@@ -585,6 +689,47 @@ function defaultMatchesType(value: RuntimeValue, type: ValueType): boolean {
   return value === null ? type.nullable === true : typeof value === type.kind;
 }
 
+function characterFieldError(
+  story: MutableStory,
+  character: CharacterSource,
+  excludeCharacterId?: string,
+): string | undefined {
+  const names = new Set<string>();
+  const occupiedIds = new Set([
+    ...story.variables.map((variable) => variable.id),
+    ...story.characters
+      .filter((candidate) => candidate.id !== excludeCharacterId)
+      .flatMap((candidate) => candidate.fields ?? [])
+      .map((field) => field.id),
+  ]);
+  for (const field of character.fields ?? []) {
+    if (names.has(field.name)) return `Character field name already exists: ${field.name}`;
+    if (occupiedIds.has(field.id)) return `Character field ID already exists: ${field.id}`;
+    if (!defaultMatchesType(field.defaultValue, field.valueType)) {
+      return `Character field ${field.name} default does not match ${field.valueType.kind}`;
+    }
+    names.add(field.name);
+    occupiedIds.add(field.id);
+  }
+  return undefined;
+}
+
+function graphReferencesVariable(story: MutableStory, variableId: string): boolean {
+  const containsReference = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(containsReference);
+    if (!isRecord(value)) return false;
+    if (value.variableId === variableId) return true;
+    if (
+      isRecord(value.bindings) &&
+      Object.values(value.bindings).some((candidate) => candidate === variableId)
+    ) {
+      return true;
+    }
+    return Object.values(value).some(containsReference);
+  };
+  return allGraphs(story).some((graph) => graph.nodes.some((node) => containsReference(node.data)));
+}
+
 function applyOperation(
   story: MutableStory,
   operation: BlueprintCommand,
@@ -655,6 +800,85 @@ function applyOperation(
       );
     }
     story.variables[index] = next;
+    return undefined;
+  }
+  if (operation.kind === 'add-character') {
+    if (story.characters.some((character) => character.id === operation.character.id)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'DUPLICATE_CHARACTER_ID',
+        `Character already exists: ${operation.character.id}`,
+      );
+    }
+    if (story.characters.some((character) => character.name === operation.character.name)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Character name already exists: ${operation.character.name}`,
+      );
+    }
+    const fieldError = characterFieldError(story, operation.character);
+    if (fieldError) {
+      return operationDiagnostic(operation, operationIndex, 'INVALID_TARGET', fieldError);
+    }
+    story.characters.push(structuredClone(operation.character));
+    return undefined;
+  }
+  if (operation.kind === 'update-character') {
+    const index = story.characters.findIndex((character) => character.id === operation.characterId);
+    if (index < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_CHARACTER',
+        `Character does not exist: ${operation.characterId}`,
+      );
+    }
+    const previous = story.characters[index]!;
+    const patch = structuredClone(operation.patch);
+    if (patch.name !== undefined && patch.displayName === undefined) patch.displayName = patch.name;
+    const next: CharacterSource = {
+      ...previous,
+      ...patch,
+      defaultPortraitId:
+        patch.defaultPortraitId === null
+          ? undefined
+          : (patch.defaultPortraitId ?? previous.defaultPortraitId),
+      id: previous.id,
+    };
+    if (
+      story.characters.some(
+        (character, candidateIndex) => candidateIndex !== index && character.name === next.name,
+      )
+    ) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Character name already exists: ${next.name}`,
+      );
+    }
+    const fieldError = characterFieldError(story, next, previous.id);
+    if (fieldError) {
+      return operationDiagnostic(operation, operationIndex, 'INVALID_TARGET', fieldError);
+    }
+    for (const field of previous.fields ?? []) {
+      const nextField = next.fields?.find((candidate) => candidate.id === field.id);
+      if (
+        (!nextField || nextField.valueType.kind !== field.valueType.kind) &&
+        graphReferencesVariable(story, field.id)
+      ) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'INVALID_TARGET',
+          `Character field ${previous.name}.${field.name} is referenced and cannot be removed or retyped`,
+        );
+      }
+    }
+    story.characters[index] = next;
     return undefined;
   }
   const graph = graphFor(story, operation.graph);
@@ -1222,7 +1446,13 @@ export function executeBlueprintCommandTransaction(
       ],
     };
   }
+  const hasCharacterOperations = transaction.operations.some(
+    (operation) => operation.kind === 'add-character' || operation.kind === 'update-character',
+  );
   const working = structuredClone(source) as unknown as MutableStory;
+  if (options.semanticContext && hasCharacterOperations) {
+    working.characters = structuredClone(options.semanticContext.characters) as CharacterSource[];
+  }
   for (let index = 0; index < transaction.operations.length; index += 1) {
     const diagnostic = applyOperation(working, transaction.operations[index], index);
     if (diagnostic) {
@@ -1238,7 +1468,14 @@ export function executeBlueprintCommandTransaction(
     ok: true,
     committed: options.dryRun !== true,
     document,
-    snapshot: createStorySemanticSnapshot(withSemanticContext(document, options.semanticContext)),
+    snapshot: createStorySemanticSnapshot(
+      hasCharacterOperations
+        ? {
+            ...withSemanticContext(document, options.semanticContext),
+            characters: document.characters,
+          }
+        : withSemanticContext(document, options.semanticContext),
+    ),
     appliedOperationIds: transaction.operations.map((operation) => operation.operationId),
     layoutRequests: transaction.operations.filter(
       (operation): operation is BlueprintLayoutRequest =>

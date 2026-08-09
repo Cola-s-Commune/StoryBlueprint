@@ -38,6 +38,16 @@ const character: CharacterSource = {
   emotions: {
     happy: { displayName: 'Happy', portraitId: 'a_happy' },
   },
+  fields: [
+    {
+      id: 'v_affinity',
+      name: 'affinity',
+      displayName: 'Affinity',
+      scope: 'character',
+      valueType: { kind: 'number' },
+      defaultValue: 0,
+    },
+  ],
 };
 
 const stories: ResourceReferenceStory[] = [
@@ -114,6 +124,31 @@ describe('character and asset reference index', () => {
     expect(findCharacterReferences('c_other', stories)).toEqual([]);
     expect(findEmotionReferences(character.id, 'sad', stories)).toEqual([]);
     expect(findAssetReferences('a_other', stories, [{ character }])).toEqual([]);
+  });
+
+  it('indexes qualified character fields across Stories', () => {
+    const fieldStory: ResourceReferenceStory = {
+      id: 's_fields',
+      label: 'Field Story',
+      rootGraph: graph([
+        {
+          id: 'n_fieldbranch',
+          type: StoryNodeType.Branch,
+          definitionVersion: 1,
+          position: { x: 0, y: 0 },
+          data: {
+            condition: {
+              source: 'alice.affinity > 0',
+              bindings: { 'alice.affinity': 'v_affinity' },
+            },
+          },
+        },
+      ]),
+      chapters: [],
+    };
+    const index = buildStoryResourceReferenceIndex([fieldStory], [{ character }]);
+    expect(index.characterFields.get('v_affinity')).toHaveLength(1);
+    expect(index.characterFields.get('v_affinity')?.[0]?.location).toBe('Field Story · Main Story');
   });
 
   it('builds one shared index for a large set of Dialogue references', () => {

@@ -427,6 +427,111 @@ describe('AI semantic editing foundation', () => {
     expect(result.document.characters).toEqual([]);
   });
 
+  it('adds and updates characters with stable Character fields', () => {
+    const source = story();
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'add-alice',
+          kind: 'add-character',
+          character: {
+            id: 'c_alice',
+            name: 'Alice',
+            displayName: 'Alice',
+            emotions: {},
+            fields: [
+              {
+                id: 'v_affinity',
+                name: 'affinity',
+                displayName: 'Affinity',
+                scope: 'character',
+                valueType: { kind: 'number' },
+                defaultValue: 0,
+              },
+            ],
+          },
+        },
+        {
+          operationId: 'rename-alice-field',
+          kind: 'update-character',
+          characterId: 'c_alice',
+          patch: {
+            fields: [
+              {
+                id: 'v_affinity',
+                name: 'relationship',
+                displayName: 'Relationship',
+                scope: 'character',
+                valueType: { kind: 'number' },
+                defaultValue: 0,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.characters[0]?.fields?.[0]).toMatchObject({
+      id: 'v_affinity',
+      name: 'relationship',
+      scope: 'character',
+    });
+  });
+
+  it('rejects removing an AI-managed Character field that is already referenced', () => {
+    const source = story();
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'add-character-with-field',
+          kind: 'add-character',
+          character: {
+            id: 'c_guarded',
+            name: 'Guarded',
+            displayName: 'Guarded',
+            emotions: {},
+            fields: [
+              {
+                id: 'v_guardedfield',
+                name: 'state',
+                displayName: 'State',
+                scope: 'character',
+                valueType: { kind: 'boolean' },
+                defaultValue: false,
+              },
+            ],
+          },
+        },
+        {
+          operationId: 'add-field-reference',
+          kind: 'add-node',
+          graph: { kind: 'root' },
+          node: {
+            id: 'n_guardedfield',
+            type: StoryNodeType.GetVariable,
+            data: { variableId: 'v_guardedfield' },
+          },
+        },
+        {
+          operationId: 'remove-referenced-field',
+          kind: 'update-character',
+          characterId: 'c_guarded',
+          patch: { fields: [] },
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics[0]?.message).toMatch(/referenced/);
+  });
+
   it('adds variables and edits Dialogue lines with stable line and text IDs', () => {
     const source = story();
     const transaction: BlueprintCommandTransaction = {

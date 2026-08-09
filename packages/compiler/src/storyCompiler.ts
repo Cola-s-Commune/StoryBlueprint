@@ -269,7 +269,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 });
               }
               const text = compileSafe(node, () =>
-                compileTextTemplate(line.text.source, line.textId, allVariables, source.characters),
+                compileTextTemplate(line.text, line.textId, allVariables, source.characters),
               );
               if (text) {
                 instructions.push({
@@ -437,7 +437,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
               if (!target) return [];
               const text = compileSafe(node, () =>
                 compileTextTemplate(
-                  option.text.source,
+                  option.text,
                   textId(option.id),
                   allVariables,
                   source.characters,
@@ -459,7 +459,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
             const prompt = data.prompt.source
               ? compileSafe(node, () =>
                   compileTextTemplate(
-                    data.prompt.source,
+                    data.prompt,
                     textId(`${node.id}_prompt`),
                     allVariables,
                     source.characters,

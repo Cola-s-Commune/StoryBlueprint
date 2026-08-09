@@ -1,5 +1,14 @@
-import type { ChapterId, DialogueLineId, NodeId, OptionId, VariableId } from '../types/ids';
+import type {
+  ChapterId,
+  AssetId,
+  CharacterId,
+  DialogueLineId,
+  NodeId,
+  OptionId,
+  VariableId,
+} from '../types/ids';
 import type { DialogueLine, StoryNodeDataMap, StoryNodeType } from '../types/nodes';
+import type { CharacterSource } from '../types/source';
 import type { RuntimeValue, ValueType, VariableDefinition, VariableScope } from '../types/values';
 
 export const BLUEPRINT_COMMAND_FORMAT = 'story-blueprint-commands' as const;
@@ -146,6 +155,23 @@ export interface SetExpressionCommand extends BlueprintGraphCommandBase {
   source: string | null;
 }
 
+export interface AddCharacterCommand extends BlueprintCommandBase {
+  kind: 'add-character';
+  character: CharacterSource;
+}
+
+export interface UpdateCharacterCommand extends BlueprintCommandBase {
+  kind: 'update-character';
+  characterId: CharacterId;
+  patch: {
+    name?: string;
+    displayName?: string;
+    defaultPortraitId?: AssetId | null;
+    emotions?: CharacterSource['emotions'];
+    fields?: CharacterSource['fields'];
+  };
+}
+
 export interface LayoutSelectionCommand extends BlueprintGraphCommandBase {
   kind: 'layout-selection';
   nodeIds: readonly NodeId[];
@@ -166,6 +192,8 @@ export type BlueprintCommand =
   | DisconnectNodesCommand
   | AddVariableCommand
   | UpdateVariableCommand
+  | AddCharacterCommand
+  | UpdateCharacterCommand
   | AddDialogueLineCommand
   | UpdateDialogueLineCommand
   | RemoveDialogueLineCommand
@@ -193,6 +221,8 @@ export type BlueprintCommandDiagnosticCode =
   | 'DUPLICATE_NODE_ID'
   | 'UNKNOWN_VARIABLE'
   | 'DUPLICATE_VARIABLE_ID'
+  | 'UNKNOWN_CHARACTER'
+  | 'DUPLICATE_CHARACTER_ID'
   | 'UNKNOWN_LINE'
   | 'DUPLICATE_LINE_ID'
   | 'UNKNOWN_OPTION'

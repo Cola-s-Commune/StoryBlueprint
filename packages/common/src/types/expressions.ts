@@ -11,6 +11,8 @@ export interface ExpressionSource {
 /** Inline authoring text. Expressions inside braces use the same safe expression grammar. */
 export interface TextTemplateSource {
   source: string;
+  /** Expression symbol bindings used inside `{...}` template fragments. */
+  bindings?: Readonly<Record<string, VariableId>>;
 }
 
 export type UnaryOperator = 'not' | 'negate';

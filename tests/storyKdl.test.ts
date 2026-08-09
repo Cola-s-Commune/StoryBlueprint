@@ -192,6 +192,53 @@ describe('story KDL v4', () => {
     expect(parsed.root.nodes.at(-1)?.data).toMatchObject({ value: { source: '"A"' } });
   });
 
+  it('persists stable character field bindings for expressions and text templates', () => {
+    const source = sourceDocument();
+    source.characters[0]!.fields = [
+      {
+        id: 'v_affinity',
+        name: 'affinity',
+        displayName: 'Affinity',
+        scope: 'character',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    source.root.nodes = [
+      ...source.root.nodes,
+      {
+        id: 'n_fieldbranch',
+        type: StoryNodeType.Branch,
+        definitionVersion: 1,
+        position: { x: 520, y: 260 },
+        data: {
+          condition: {
+            source: 'arys.affinity > 0',
+            bindings: { 'arys.affinity': 'v_affinity' },
+          },
+        },
+      },
+    ];
+    const dialogue = source.root.nodes.find((node) => node.id === 'n_talk')!;
+    const line = (
+      dialogue.data as {
+        lines: Array<{ text: { source: string; bindings?: Record<string, string> } }>;
+      }
+    ).lines[0]!;
+    line.text = {
+      source: 'Affinity {arys.affinity}',
+      bindings: { 'arys.affinity': 'v_affinity' },
+    };
+
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('binding condition arys.affinity v_affinity');
+    expect(serialized).toContain('binding text arys.affinity v_affinity');
+    const parsed = parseStorySource(serialized);
+    expect(
+      (parsed.root.nodes.at(-1)?.data as { condition: { bindings: object } }).condition.bindings,
+    ).toEqual({ 'arys.affinity': 'v_affinity' });
+  });
+
   it('rejects the discarded v1 format without migration', () => {
     const serialized = serializeStorySource(sourceDocument()).replace('version=4', 'version=3');
     expect(() => parseStorySource(serialized)).toThrow(StoryFormatError);

@@ -330,6 +330,8 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - 禁止隐式 String/Number/Boolean 转换，转换必须在表达式中显式写出。
 - Chapter 参数按值传入，局部变量随 Call Frame 创建，Return 可以返回一个声明类型的值。
 - Character 字段由角色资源声明，表达式使用 `CharacterName.fieldName`，Get / Set 节点内部仍保存字段稳定 ID。
+- 编辑器为限定字段表达式保存 `CharacterName.fieldName -> VariableId` Binding；`.story` KDL 将 Binding 与所属表达式一起持久化。角色或字段改名时，所有已加载 Story / Substory 按稳定字段 ID 统一改写，字符串字面量和模板转义花括号不受影响。
+- Character Field 引用索引覆盖直接 Get / Set、Dialogue / Choice 模板、Branch / Choice 条件、Event Argument 与 Signal Match。删除角色、删除字段或修改字段类型前必须清除相关引用；单纯改名允许安全改写。
 - Runtime 启动时通过 Adapter 读取 Character 字段；执行中的写入立即更新 Runtime 缓存，并在暂停或结束时通过 Adapter 回写。Project 变量后续沿用同一边界。
 - 删除或改型变量前必须执行引用检查和迁移预览。
 
@@ -356,6 +358,8 @@ interface CharacterDefinition {
 ```
 
 首版 Character Field 只支持 Boolean、Number、String，不支持动态 CharacterRef、数组或结构体。字段属于引擎持久化状态，`.character` / 内嵌 Character 仅保存定义与默认值。
+
+AI Semantic Snapshot 直接包含 Character Field 定义；Blueprint Command API 支持 `add-character` 与 `update-character`，字段列表按稳定 ID 原子更新。AI 同样不能删除或改型仍被图引用的字段。
 
 修改角色脚本 Name 时，编辑器默认让 Display Name 同步变化；作者仍可随后单独修改 Display Name。项目模式下角色文件在创建时采用 `<initial-name>-<id-suffix>.character`，之后修改 Name 或 Display Name 都不移动文件。稳定 ID、项目索引路径和所有 Story 引用保持不变；未来需要整理磁盘名称时，通过独立的 Rename File 操作完成。
 

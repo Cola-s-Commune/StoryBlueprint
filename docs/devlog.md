@@ -1,5 +1,6 @@
 # Dev Log
 
+- Character Field 引用闭环：限定表达式 Binding 写入 `.story` KDL，角色/字段改名跨已加载 Story 安全改写；引用索引覆盖 Get/Set、模板、条件、Event 与 Signal，并保护角色/字段删除和字段改型。AI Command API 新增 Add/Update Character（含 Field）且复用引用保护。
 - Character 新增强类型 Field：角色资源保存稳定字段 ID、名称、标量类型与默认值；表达式支持 `CharacterName.fieldName`，Get / Set Variable 可直接选择角色字段，Runtime Driver 通过 Adapter 在启动时读取并在暂停或结束时回写。
 - 资源引用性能优化：Character、Emotion 与 Asset 从逐项重复扫描改为相关 Inspector 打开时单次构建共享 Map；查询按 ID 直接读取，列表默认只渲染前 30 项，并新增 1000 个 Dialogue 引用覆盖测试。
 - Character、Emotion、Voice 与 Portrait Asset Inspector 接入跨 Story 引用审查：引用项可跳到具体 Graph/Dialogue Line 或 Character 配置，存在引用时 UI 与 Store 双层阻止删除，不再静默清空 Speaker、Voice 或 Portrait。

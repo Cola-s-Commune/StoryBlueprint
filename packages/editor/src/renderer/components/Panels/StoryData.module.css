@@ -276,6 +276,11 @@
   gap: 7px;
 }
 
+.characterFieldBlock {
+  display: grid;
+  gap: 6px;
+}
+
 .emotionRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 26px;

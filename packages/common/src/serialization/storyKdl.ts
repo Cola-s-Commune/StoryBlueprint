@@ -91,9 +91,57 @@ function addCommonNodeProperties(target: Node, source: SourceNode): void {
     target.setProperty('definition-version', source.definitionVersion);
 }
 
-function expressionSource(value: unknown, path: string) {
+function readBindings(
+  node: Node,
+  target: string,
+  path: string,
+): Record<string, StableId<'variable'>> {
+  const bindings: Record<string, StableId<'variable'>> = {};
+  for (const binding of node.findNodesByName('binding')) {
+    assertShape(binding, `${path}.binding`, { arguments: 3 });
+    if (requiredString(binding.getArgument(0), `${path}.binding.target`) !== target) continue;
+    const symbol = requiredString(binding.getArgument(1), `${path}.binding.symbol`);
+    if (bindings[symbol])
+      throw new StoryFormatError(`${path} contains duplicate binding ${symbol}`);
+    bindings[symbol] = requiredId(binding.getArgument(2), 'variable', `${path}.binding.variable`);
+  }
+  return bindings;
+}
+
+function assertBindingTargets(node: Node, targets: readonly string[], path: string): void {
+  for (const binding of node.findNodesByName('binding')) {
+    const target = requiredString(binding.getArgument(0), `${path}.binding.target`);
+    if (!targets.includes(target)) {
+      throw new StoryFormatError(`${path} contains unsupported binding target ${target}`);
+    }
+  }
+}
+
+function appendBindings(
+  node: Node,
+  target: string,
+  bindings: Readonly<Record<string, StableId<'variable'>>> | undefined,
+): void {
+  for (const [symbol, variableId] of Object.entries(bindings ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const binding = Node.create('binding');
+    binding.addArgument(target);
+    binding.addArgument(symbol);
+    binding.addArgument(variableId);
+    node.appendNode(binding);
+  }
+}
+
+function expressionSource(value: unknown, path: string, node?: Node, target?: string) {
   const source = requiredString(value, path);
-  return { source, bindings: {} } as const;
+  return { source, bindings: node && target ? readBindings(node, target, path) : {} } as const;
+}
+
+function textTemplateSource(value: unknown, path: string, node: Node, target: string) {
+  const source = requiredString(value, path);
+  const bindings = readBindings(node, target, path);
+  return Object.keys(bindings).length > 0 ? { source, bindings } : { source };
 }
 
 function serializeSourceNode(source: SourceNode): Node {
@@ -127,6 +175,7 @@ function serializeSourceNode(source: SourceNode): Node {
         lineNode.addArgument(line.id);
         lineNode.addArgument(line.textId);
         lineNode.addArgument(requiredString(line.text.source, `${line.id}.text`));
+        appendBindings(lineNode, 'text', line.text.bindings);
         if (line.speakerId) lineNode.setProperty('speaker', line.speakerId);
         if (line.voiceId) lineNode.setProperty('voice', line.voiceId);
         if (line.emotion) lineNode.setProperty('emotion', line.emotion);
@@ -142,12 +191,16 @@ function serializeSourceNode(source: SourceNode): Node {
     case StoryNodeType.Choice: {
       const choice = data as StoryNodeDataMap[StoryNodeType.Choice];
       target.setProperty('prompt', requiredString(choice.prompt.source, `${source.id}.prompt`));
+      appendBindings(target, 'prompt', choice.prompt.bindings);
       for (const option of choice.options) {
         const optionNode = Node.create('option');
         optionNode.addArgument(option.id);
         optionNode.addArgument(requiredString(option.text.source, `${source.id}.option.text`));
+        appendBindings(optionNode, 'text', option.text.bindings);
         if (option.visibleIf?.source) optionNode.setProperty('visible-if', option.visibleIf.source);
         if (option.enabledIf?.source) optionNode.setProperty('enabled-if', option.enabledIf.source);
+        appendBindings(optionNode, 'visible-if', option.visibleIf?.bindings);
+        appendBindings(optionNode, 'enabled-if', option.enabledIf?.bindings);
         target.appendNode(optionNode);
       }
       break;
@@ -160,6 +213,11 @@ function serializeSourceNode(source: SourceNode): Node {
           `${source.id}.condition`,
         ),
       );
+      appendBindings(
+        target,
+        'condition',
+        (data as StoryNodeDataMap[StoryNodeType.Branch]).condition.bindings,
+      );
       break;
     case StoryNodeType.GetVariable: {
       const variableId = (data as StoryNodeDataMap[StoryNodeType.GetVariable]).variableId;
@@ -170,6 +228,7 @@ function serializeSourceNode(source: SourceNode): Node {
       const setVariable = data as StoryNodeDataMap[StoryNodeType.SetVariable];
       if (setVariable.variableId) target.setProperty('variable', setVariable.variableId);
       target.setProperty('value', setVariable.value.source);
+      appendBindings(target, 'value', setVariable.value.bindings);
       break;
     }
     case StoryNodeType.CallEvent: {
@@ -181,6 +240,7 @@ function serializeSourceNode(source: SourceNode): Node {
         const argument = Node.create('argument');
         argument.addArgument(name);
         argument.addArgument(value.source);
+        appendBindings(argument, 'value', value.bindings);
         target.appendNode(argument);
       }
       break;
@@ -195,6 +255,7 @@ function serializeSourceNode(source: SourceNode): Node {
         const match = Node.create('match');
         match.addArgument(name);
         match.addArgument(value.source);
+        appendBindings(match, 'value', value.bindings);
         target.appendNode(match);
       }
       break;
@@ -360,7 +421,6 @@ function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined
 
 function validateStoryReferences(source: StorySourceDocument): void {
   const chapterIds = new Set(source.chapters.map((chapter) => chapter.id));
-  const variableIds = new Set(source.variables.map((variable) => variable.id));
   const allNodeIds = new Set<string>();
   const allLineIds = new Set<string>();
   const allTextIds = new Set<string>();
@@ -399,13 +459,6 @@ function validateStoryReferences(source: StorySourceDocument): void {
     }
   }
   for (const node of graphs.flatMap((graph) => graph.nodes)) {
-    if (node.type === StoryNodeType.GetVariable || node.type === StoryNodeType.SetVariable) {
-      const data = node.data as unknown as
-        StoryNodeDataMap[StoryNodeType.GetVariable] | StoryNodeDataMap[StoryNodeType.SetVariable];
-      if (data.variableId && !variableIds.has(data.variableId)) {
-        throw new StoryFormatError(`${node.id} references missing variable ${data.variableId}`);
-      }
-    }
     if (node.type === StoryNodeType.CallSubstory) {
       const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
       if (!data.chapterId || !chapterIds.has(data.chapterId)) {
@@ -466,11 +519,11 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Dialogue]: ['line'],
-    [StoryNodeType.Choice]: ['option'],
+    [StoryNodeType.Choice]: ['option', 'binding'],
     [StoryNodeType.Start]: [],
-    [StoryNodeType.Branch]: [],
+    [StoryNodeType.Branch]: ['binding'],
     [StoryNodeType.GetVariable]: [],
-    [StoryNodeType.SetVariable]: [],
+    [StoryNodeType.SetVariable]: ['binding'],
     [StoryNodeType.CallEvent]: ['argument'],
     [StoryNodeType.WaitSignal]: ['match'],
     [StoryNodeType.CallSubstory]: [],
@@ -501,8 +554,9 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         assertShape(lineNode, `${id}.line`, {
           arguments: 3,
           properties: ['speaker', 'voice', 'emotion'],
-          children: ['tag'],
+          children: ['tag', 'binding'],
         });
+        assertBindingTargets(lineNode, ['text'], `${id}.line`);
         const lineId = requiredId(lineNode.getArgument(0), 'line', `${id}.line.id`);
         const textId = requiredId(lineNode.getArgument(1), 'text', `${lineId}.text-id`);
         const tags = lineNode.findNodesByName('tag').map((tagNode) => {
@@ -512,7 +566,7 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         return {
           id: lineId,
           textId,
-          text: { source: requiredString(lineNode.getArgument(2), `${lineId}.text`) },
+          text: textTemplateSource(lineNode.getArgument(2), `${lineId}.text`, lineNode, 'text'),
           speakerId: lineNode.getProperty('speaker')
             ? requiredId(lineNode.getProperty('speaker'), 'character', `${lineId}.speaker`)
             : undefined,
@@ -532,7 +586,9 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         assertShape(optionNode, `${id}.option`, {
           arguments: 2,
           properties: ['visible-if', 'enabled-if'],
+          children: ['binding'],
         });
+        assertBindingTargets(optionNode, ['text', 'visible-if', 'enabled-if'], `${id}.option`);
         const optionId = requiredId(optionNode.getArgument(0), 'option', `${id}.option.id`);
         if (optionIds.has(optionId)) throw new StoryFormatError(`Duplicate option ID: ${optionId}`);
         optionIds.add(optionId);
@@ -546,19 +602,37 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         );
         return {
           id: optionId,
-          text: { source: requiredString(optionNode.getArgument(1), `${optionId}.text`) },
-          visibleIf: visible ? expressionSource(visible, `${optionId}.visible-if`) : undefined,
-          enabledIf: enabled ? expressionSource(enabled, `${optionId}.enabled-if`) : undefined,
+          text: textTemplateSource(
+            optionNode.getArgument(1),
+            `${optionId}.text`,
+            optionNode,
+            'text',
+          ),
+          visibleIf: visible
+            ? expressionSource(visible, `${optionId}.visible-if`, optionNode, 'visible-if')
+            : undefined,
+          enabledIf: enabled
+            ? expressionSource(enabled, `${optionId}.enabled-if`, optionNode, 'enabled-if')
+            : undefined,
         };
       });
       data = {
-        prompt: { source: requiredString(node.getProperty('prompt'), `${id}.prompt`) },
+        prompt: textTemplateSource(node.getProperty('prompt'), `${id}.prompt`, node, 'prompt'),
         options,
       };
+      assertBindingTargets(node, ['prompt'], id);
       break;
     }
     case StoryNodeType.Branch:
-      data = { condition: expressionSource(node.getProperty('condition'), `${id}.condition`) };
+      assertBindingTargets(node, ['condition'], id);
+      data = {
+        condition: expressionSource(
+          node.getProperty('condition'),
+          `${id}.condition`,
+          node,
+          'condition',
+        ),
+      };
       break;
     case StoryNodeType.GetVariable:
       data = {
@@ -568,11 +642,12 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
       };
       break;
     case StoryNodeType.SetVariable:
+      assertBindingTargets(node, ['value'], id);
       data = {
         variableId: node.getProperty('variable')
           ? requiredId(node.getProperty('variable'), 'variable', `${id}.variable`)
           : undefined,
-        value: expressionSource(node.getProperty('value'), `${id}.value`),
+        value: expressionSource(node.getProperty('value'), `${id}.value`, node, 'value'),
       };
       break;
     case StoryNodeType.CallEvent:
@@ -583,10 +658,11 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         arguments: Object.fromEntries(
           node.findNodesByName('argument').map((argument, index) => {
             const path = `${id}.argument[${index}]`;
-            assertShape(argument, path, { arguments: 2 });
+            assertShape(argument, path, { arguments: 2, children: ['binding'] });
+            assertBindingTargets(argument, ['value'], path);
             return [
               requiredString(argument.getArgument(0), `${path}.name`),
-              expressionSource(argument.getArgument(1), `${path}.value`),
+              expressionSource(argument.getArgument(1), `${path}.value`, argument, 'value'),
             ];
           }),
         ),
@@ -600,10 +676,11 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         matches: Object.fromEntries(
           node.findNodesByName('match').map((match, index) => {
             const path = `${id}.match[${index}]`;
-            assertShape(match, path, { arguments: 2 });
+            assertShape(match, path, { arguments: 2, children: ['binding'] });
+            assertBindingTargets(match, ['value'], path);
             return [
               requiredString(match.getArgument(0), `${path}.name`),
-              expressionSource(match.getArgument(1), `${path}.value`),
+              expressionSource(match.getArgument(1), `${path}.value`, match, 'value'),
             ];
           }),
         ),

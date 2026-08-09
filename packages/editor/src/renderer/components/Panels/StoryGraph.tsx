@@ -1884,7 +1884,7 @@ export function StoryGraph() {
               <span>
                 +{aiChanges.addedNodeIds.length} nodes · ~{aiChanges.changedNodeIds.length} nodes ·
                 −{aiChanges.removedNodeIds.length} nodes · ~{aiChanges.variableChangeCount}{' '}
-                variables
+                variables · ~{aiChanges.characterChangeCount} characters
               </span>
             </div>
             <button type="button" onClick={clearAIChanges}>

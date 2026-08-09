@@ -7,8 +7,15 @@ import {
   type NodeId,
   type StoryId,
   type StoryNodeDataMap,
+  type VariableId,
 } from '@story-blueprint/common';
 import type { EditorGraphNode, EditorGraphState } from './editorGraph';
+import {
+  expressionEntries,
+  expressionReferencesCharacterField,
+  templateEntries,
+  templateReferencesCharacterField,
+} from './variableReferences';
 
 export interface ResourceReferenceStory {
   id: StoryId;
@@ -44,6 +51,7 @@ export interface StoryResourceReferenceIndex {
   characters: ReadonlyMap<CharacterId, readonly StoryResourceReference[]>;
   emotions: ReadonlyMap<string, readonly StoryResourceReference[]>;
   assets: ReadonlyMap<AssetId, readonly StoryResourceReference[]>;
+  characterFields: ReadonlyMap<VariableId, readonly StoryResourceReference[]>;
 }
 
 export function emotionReferenceKey(characterId: CharacterId, emotion: string): string {
@@ -81,22 +89,26 @@ export function buildStoryResourceReferenceIndex(
   const characterIndex = new Map<CharacterId, StoryResourceReference[]>();
   const emotionIndex = new Map<string, StoryResourceReference[]>();
   const assetIndex = new Map<AssetId, StoryResourceReference[]>();
+  const characterFieldIndex = new Map<VariableId, StoryResourceReference[]>();
+  const uniqueCharacters = [
+    ...new Map(characters.map((owner) => [owner.character.id, owner.character])).values(),
+  ];
   for (const story of stories) {
     for (const graph of storyGraphs(story)) {
       for (const node of graph.graph.nodes) {
+        const reference = (field: string): StoryResourceReference => ({
+          id: `${story.id}:${graph.id}:${node.id}:${field}`,
+          label: nodeLabel(node),
+          location: `${story.label} · ${graph.label}`,
+          field,
+          target: {
+            kind: 'node',
+            storyId: story.id,
+            graphId: graph.id,
+            nodeId: node.id,
+          },
+        });
         dialogueLines(node).forEach((line, index) => {
-          const reference = (field: string): StoryResourceReference => ({
-            id: `${story.id}:${graph.id}:${node.id}:${field}`,
-            label: nodeLabel(node),
-            location: `${story.label} · ${graph.label}`,
-            field,
-            target: {
-              kind: 'node',
-              storyId: story.id,
-              graphId: graph.id,
-              nodeId: node.id,
-            },
-          });
           if (line.speakerId) {
             addReference(characterIndex, line.speakerId, reference(`Line ${index + 1} Speaker`));
             if (line.emotion) {
@@ -111,6 +123,27 @@ export function buildStoryResourceReferenceIndex(
             addReference(assetIndex, line.voiceId, reference(`Line ${index + 1} Voice`));
           }
         });
+        for (const character of uniqueCharacters) {
+          for (const field of character.fields ?? []) {
+            if (
+              (node.type === StoryNodeType.GetVariable ||
+                node.type === StoryNodeType.SetVariable) &&
+              node.data.variableId === field.id
+            ) {
+              addReference(characterFieldIndex, field.id, reference('Variable'));
+            }
+            for (const [label, expression] of expressionEntries(node)) {
+              if (expressionReferencesCharacterField(expression, character.name, field)) {
+                addReference(characterFieldIndex, field.id, reference(label));
+              }
+            }
+            for (const [label, template] of templateEntries(node)) {
+              if (templateReferencesCharacterField(template, character.name, field)) {
+                addReference(characterFieldIndex, field.id, reference(label));
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -140,7 +173,12 @@ export function buildStoryResourceReferenceIndex(
       }
     }
   }
-  return { characters: characterIndex, emotions: emotionIndex, assets: assetIndex };
+  return {
+    characters: characterIndex,
+    emotions: emotionIndex,
+    assets: assetIndex,
+    characterFields: characterFieldIndex,
+  };
 }
 
 export function findCharacterReferences(

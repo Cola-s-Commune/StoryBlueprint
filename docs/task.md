@@ -399,6 +399,8 @@
 - [x] Character Field（Boolean / Number / String）定义、KDL 存储与稳定字段 ID
 - [x] `CharacterName.fieldName` 表达式解析及 Get / Set Variable 选择
 - [x] Character Field Runtime Adapter 读取、缓存与暂停点回写
+- [x] Character Field 跨 Story 引用索引、字段 ID Binding 持久化与安全重命名
+- [x] Character / Field 删除及字段改型的引用保护
 
 ---
 
@@ -698,7 +700,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Command Format / Version / Transaction 内 Operation ID
 - [x] Add / Update / Remove Node 原语
 - [x] Connect / Disconnect 与显式 Replace Existing
-- [ ] Add / Update Character
+- [x] Add / Update Character（含 Character Field）
 - [x] Add / Update Variable
 - [x] Set Expression（Branch、Set Variable、Choice 条件、Event 参数与 Signal Match）
 - [x] Add / Update / Remove Dialogue Line

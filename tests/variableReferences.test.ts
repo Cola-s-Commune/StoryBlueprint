@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { StoryNodeType, type VariableDefinition } from '../packages/common/src';
+import {
+  StoryNodeType,
+  type CharacterSource,
+  type VariableDefinition,
+} from '../packages/common/src';
 import type {
   EditorGraphNode,
   EditorGraphState,
@@ -9,6 +13,8 @@ import {
   renameExpressionVariable,
   renameTemplateVariable,
   renameVariableReferencesInNode,
+  bindCharacterFieldExpression,
+  renameCharacterFieldReferencesInNode,
 } from '../packages/editor/src/renderer/graph/variableReferences';
 
 const score: VariableDefinition = {
@@ -18,6 +24,23 @@ const score: VariableDefinition = {
   scope: 'story',
   valueType: { kind: 'number' },
   defaultValue: 0,
+};
+
+const affinity: VariableDefinition = {
+  id: 'v_affinity',
+  name: 'affinity',
+  displayName: 'Affinity',
+  scope: 'character',
+  valueType: { kind: 'number' },
+  defaultValue: 0,
+};
+
+const alice: CharacterSource = {
+  id: 'c_alice',
+  name: 'Alice',
+  displayName: 'Alice',
+  emotions: {},
+  fields: [affinity],
 };
 
 function node(
@@ -128,5 +151,38 @@ describe('variable reference index', () => {
     expect((signal.data as { matches: { amount: { source: string } } }).matches.amount.source).toBe(
       'points',
     );
+  });
+
+  it('binds and safely renames qualified character fields in expressions and templates', () => {
+    expect(
+      bindCharacterFieldExpression({ source: 'Alice.affinity + Bob.affinity', bindings: {} }, [
+        alice,
+      ]).bindings,
+    ).toEqual({ 'Alice.affinity': affinity.id });
+
+    const renamed = renameCharacterFieldReferencesInNode(
+      node('n_characterfield', StoryNodeType.Dialogue, {
+        lines: [
+          {
+            id: 'ln_affinity',
+            textId: 't_affinity',
+            text: {
+              source: 'Value {Alice.affinity}; literal {{Alice.affinity}}',
+              bindings: { 'Alice.affinity': affinity.id },
+            },
+          },
+        ],
+      }),
+      affinity.id,
+      'Alice.affinity',
+      'Alicia.relationship',
+    );
+    const text = (
+      renamed.data as {
+        lines: Array<{ text: { source: string; bindings?: Record<string, string> } }>;
+      }
+    ).lines[0]!.text;
+    expect(text.source).toBe('Value {Alicia.relationship}; literal {{Alice.affinity}}');
+    expect(text.bindings).toEqual({ 'Alicia.relationship': affinity.id });
   });
 });

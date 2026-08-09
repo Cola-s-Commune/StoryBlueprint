@@ -7,6 +7,7 @@ const stableIdPatterns = {
   line: '^ln_[a-z0-9][a-z0-9_-]{2,}$',
   text: '^t_[a-z0-9][a-z0-9_-]{2,}$',
   option: '^o_[a-z0-9][a-z0-9_-]{2,}$',
+  character: '^c_[a-z0-9][a-z0-9_-]{2,}$',
 } as const;
 
 const graph = { $ref: '#/$defs/graphTarget' } as const;
@@ -204,6 +205,28 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             },
             ['graph', 'nodeId', 'target', 'source'],
           ),
+          operation('add-character', { character: { $ref: '#/$defs/character' } }, ['character']),
+          operation(
+            'update-character',
+            {
+              characterId: { type: 'string', pattern: stableIdPatterns.character },
+              patch: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  displayName: { type: 'string', minLength: 1 },
+                  defaultPortraitId: {
+                    type: ['string', 'null'],
+                    pattern: '^a_[a-z0-9][a-z0-9_-]{2,}$',
+                  },
+                  emotions: { $ref: '#/$defs/emotions' },
+                  fields: { type: 'array', items: { $ref: '#/$defs/characterField' } },
+                },
+              },
+            },
+            ['characterId', 'patch'],
+          ),
           operation(
             'layout-selection',
             {
@@ -283,6 +306,44 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         scope: { enum: ['story', 'chapter', 'local'] },
         valueType: { $ref: '#/$defs/scalarValueType' },
         defaultValue: { type: ['null', 'boolean', 'number', 'string'] },
+      },
+    },
+    characterField: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'name', 'displayName', 'scope', 'valueType', 'defaultValue'],
+      properties: {
+        id: { type: 'string', pattern: stableIdPatterns.variable },
+        name: { type: 'string', minLength: 1 },
+        displayName: { type: 'string', minLength: 1 },
+        scope: { const: 'character' },
+        valueType: { $ref: '#/$defs/scalarValueType' },
+        defaultValue: { type: ['boolean', 'number', 'string'] },
+      },
+    },
+    emotions: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['displayName'],
+        properties: {
+          displayName: { type: 'string', minLength: 1 },
+          portraitId: { type: 'string', pattern: '^a_[a-z0-9][a-z0-9_-]{2,}$' },
+        },
+      },
+    },
+    character: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'name', 'displayName', 'emotions'],
+      properties: {
+        id: { type: 'string', pattern: stableIdPatterns.character },
+        name: { type: 'string', minLength: 1 },
+        displayName: { type: 'string', minLength: 1 },
+        defaultPortraitId: { type: 'string', pattern: '^a_[a-z0-9][a-z0-9_-]{2,}$' },
+        emotions: { $ref: '#/$defs/emotions' },
+        fields: { type: 'array', items: { $ref: '#/$defs/characterField' } },
       },
     },
     dialogueLineInput: {

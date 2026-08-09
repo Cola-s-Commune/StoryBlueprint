@@ -4,6 +4,7 @@ import type {
   RuntimeTextPart,
   RuntimeTextTemplate,
   TextId,
+  TextTemplateSource,
   TypedExpression,
   UnaryOperator,
   ValueType,
@@ -317,11 +318,13 @@ export function compileExpression(
 }
 
 export function compileTextTemplate(
-  source: string,
+  template: string | TextTemplateSource,
   id: TextId,
   variables: readonly VariableDefinition[],
   characters: readonly CharacterSource[] = [],
 ): RuntimeTextTemplate {
+  const source = typeof template === 'string' ? template : template.source;
+  const bindings = typeof template === 'string' ? {} : (template.bindings ?? {});
   const parts: RuntimeTextPart[] = [];
   let text = '';
   let index = 0;
@@ -350,7 +353,7 @@ export function compileTextTemplate(
     const expressionSource = source.slice(index + 1, end).trim();
     parts.push({
       kind: 'expression',
-      expression: compileExpression(expressionSource, variables, characters),
+      expression: compileExpression({ source: expressionSource, bindings }, variables, characters),
     });
     index = end + 1;
   }

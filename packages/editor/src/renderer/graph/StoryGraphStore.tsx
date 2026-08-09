@@ -80,6 +80,8 @@ import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from '
 import {
   findVariableReferences as collectVariableReferences,
   renameVariableReferencesInNode,
+  renameCharacterFieldReferencesInNode,
+  bindCharacterFieldReferencesInNode,
   type VariableReference,
   type VariableReferenceGraph,
 } from './variableReferences';
@@ -87,7 +89,6 @@ import {
   buildStoryResourceReferenceIndex,
   emotionReferenceKey,
   findAssetReferences as collectAssetReferences,
-  findCharacterReferences as collectCharacterReferences,
   findEmotionReferences as collectEmotionReferences,
   type ResourceReferenceCharacter,
   type ResourceReferenceStory,
@@ -232,6 +233,7 @@ interface AIEditorChanges {
   removedNodeIds: NodeId[];
   layoutNodeIds: NodeId[];
   variableChangeCount: number;
+  characterChangeCount: number;
 }
 
 interface AIEditorProposal extends AIEditorChanges {
@@ -340,6 +342,7 @@ interface StoryGraphStoreValue {
   addCharacter: () => CharacterId;
   findCharacterReferences: (id: CharacterId) => readonly StoryResourceReference[];
   findEmotionReferences: (id: CharacterId, emotion: string) => readonly StoryResourceReference[];
+  findCharacterFieldReferences: (id: VariableId) => readonly StoryResourceReference[];
   findAssetReferences: (id: AssetId) => readonly StoryResourceReference[];
   focusStoryResourceReference: (reference: StoryResourceReference) => boolean;
   updateCharacter: (id: CharacterId, update: Partial<CharacterSource>) => void;
@@ -437,6 +440,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
   const currentStoryItemsRef = useRef<() => EditorStoryWorkspaceItem[]>(() => []);
+  const updateCharacterRef = useRef<(id: CharacterId, update: Partial<CharacterSource>) => void>(
+    () => undefined,
+  );
   const resourceReferenceIndexRef = useRef<StoryResourceReferenceIndex | undefined>(undefined);
   const [projectResourcesDirty, setProjectResourcesDirty] = useState(false);
   const source = useMemo<StorySourceDocument>(
@@ -803,9 +809,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         semanticContext: aiSemanticContext,
       });
       if (!result.ok) return result;
+      const hasCharacterOperations =
+        typeof transactionValue === 'object' &&
+        transactionValue !== null &&
+        Array.isArray((transactionValue as Partial<BlueprintCommandTransaction>).operations) &&
+        (transactionValue as BlueprintCommandTransaction).operations.some(
+          (operation) =>
+            operation.kind === 'add-character' || operation.kind === 'update-character',
+        );
+      const resultCharacters = hasCharacterOperations
+        ? result.document.characters
+        : resolvedCharacters;
       const compiled = compileStory({
         ...result.document,
-        characters: resolvedCharacters,
+        characters: resultCharacters,
         assets: resolvedAssets,
         events,
         signals,
@@ -837,10 +854,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           diagnostics: [{ code: 'UNKNOWN_GRAPH', message: 'Active graph no longer exists' }],
         };
       }
-      const proposalGraph = applyBlueprintLayoutRequests(
+      const unboundProposalGraph = applyBlueprintLayoutRequests(
         fromSourceGraph(nextSourceGraph),
         result.layoutRequests,
       );
+      const proposalGraph = {
+        ...unboundProposalGraph,
+        nodes: unboundProposalGraph.nodes.map((node) =>
+          bindCharacterFieldReferencesInNode(node, resultCharacters),
+        ),
+      };
       const prepared = prepareAIGraphChanges(graph, proposalGraph);
       const movedNodeIds = proposalGraph.nodes
         .filter((node) => {
@@ -860,6 +883,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const variableChangeCount = [...variableIds].filter(
         (id) => JSON.stringify(beforeVariables.get(id)) !== JSON.stringify(afterVariables.get(id)),
       ).length;
+      const beforeCharacters = new Map(
+        resolvedCharacters.map((character) => [character.id, character]),
+      );
+      const afterCharacters = new Map(
+        resultCharacters.map((character) => [character.id, character]),
+      );
+      const characterIds = new Set([...beforeCharacters.keys(), ...afterCharacters.keys()]);
+      const characterChangeCount = [...characterIds].filter(
+        (id) =>
+          JSON.stringify(beforeCharacters.get(id)) !== JSON.stringify(afterCharacters.get(id)),
+      ).length;
       if (options.stage) {
         setAIChanges(undefined);
         setAIProposal({
@@ -874,6 +908,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           removedNodeIds: prepared.removedNodeIds,
           layoutNodeIds: movedNodeIds,
           variableChangeCount,
+          characterChangeCount,
         });
         return result;
       }
@@ -888,6 +923,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       checkpoint();
       restoreGraph(committedGraph);
       setVariables([...structuredClone(result.document.variables)]);
+      for (const [id, character] of afterCharacters) {
+        const previous = beforeCharacters.get(id);
+        if (previous && JSON.stringify(previous) === JSON.stringify(character)) continue;
+        if (previous) {
+          updateCharacterRef.current(id, structuredClone(character));
+        } else if (workspace?.project && window.electronAPI) {
+          queueProjectResourceWrite(() =>
+            window.electronAPI!.createProjectCharacter(structuredClone(character)),
+          );
+        } else {
+          setCharacters((current) => [...current, structuredClone(character)]);
+        }
+      }
       setAIProposal(undefined);
       setAIChanges(
         stagedProposal
@@ -899,6 +947,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               removedNodeIds: prepared.removedNodeIds,
               layoutNodeIds: movedNodeIds,
               variableChangeCount,
+              characterChangeCount,
             },
       );
       markDirty();
@@ -915,8 +964,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedAssets,
       resolvedCharacters,
       restoreGraph,
+      queueProjectResourceWrite,
       signals,
       source,
+      workspace?.project,
     ],
   );
 
@@ -1314,12 +1365,92 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     return id;
   }, [markDirty, queueProjectResourceWrite, resolvedCharacters.length, workspace?.project]);
 
+  const rewriteCharacterFieldReferences = useCallback(
+    (
+      renames: readonly {
+        fieldId: VariableId;
+        oldQualifiedName: string;
+        newQualifiedName: string;
+      }[],
+    ) => {
+      if (renames.length === 0) return;
+      const rewrite = (candidate: EditorGraphState): EditorGraphState => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) =>
+          renames.reduce(
+            (current, rename) =>
+              renameCharacterFieldReferencesInNode(
+                current,
+                rename.fieldId,
+                rename.oldQualifiedName,
+                rename.newQualifiedName,
+              ),
+            node,
+          ),
+        ),
+      });
+      setNodes((current) => rewrite({ nodes: current, edges }).nodes);
+      updateInactiveGraphs(rewrite);
+      setWorkspaceStories((current) =>
+        current.map((story) => ({
+          ...story,
+          rootGraph: rewrite(story.rootGraph),
+          chapters: story.chapters.map((chapter) => ({
+            ...chapter,
+            graph: rewrite(chapter.graph),
+          })),
+          document: { ...story.document, dirty: true },
+          revision: story.revision + 1,
+        })),
+      );
+      markDirty();
+    },
+    [edges, markDirty, setNodes, updateInactiveGraphs],
+  );
+
   const updateCharacter = useCallback(
     (id: CharacterId, update: Partial<CharacterSource>) => {
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
           : update;
+      const previous = resolvedCharacters.find((candidate) => candidate.id === id);
+      if (previous) {
+        const nextName = nextUpdate.name ?? previous.name;
+        const nextFields = nextUpdate.fields ?? previous.fields ?? [];
+        const referenceIndex =
+          resourceReferenceIndexRef.current ??
+          buildStoryResourceReferenceIndex(
+            resourceReferenceStories(currentStoryItemsRef.current()),
+            resourceReferenceCharacters(
+              currentStoryItemsRef.current(),
+              workspace?.characterResources.map((candidate) => candidate.character) ?? [],
+            ),
+          );
+        const unsafeField = (previous.fields ?? []).find((field) => {
+          const nextField = nextFields.find((candidate) => candidate.id === field.id);
+          return (
+            (!nextField || nextField.valueType.kind !== field.valueType.kind) &&
+            (referenceIndex.characterFields.get(field.id)?.length ?? 0) > 0
+          );
+        });
+        if (unsafeField) {
+          setWorkspaceError(
+            `Character field ${previous.name}.${unsafeField.name} is referenced. Remove its references before deleting it or changing its type.`,
+          );
+          return;
+        }
+        const renames = (previous.fields ?? []).flatMap((field) => {
+          const nextField = nextFields.find((candidate) => candidate.id === field.id);
+          if (!nextField) return [];
+          const oldQualifiedName = `${previous.name}.${field.name}`;
+          const newQualifiedName = `${nextName}.${nextField.name}`;
+          return oldQualifiedName === newQualifiedName
+            ? []
+            : [{ fieldId: field.id, oldQualifiedName, newQualifiedName }];
+        });
+        rewriteCharacterFieldReferences(renames);
+      }
       const resource = workspace?.characterResources.find(
         (candidate) => candidate.character.id === id,
       );
@@ -1347,8 +1478,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty, queueProjectResourceWrite, workspace?.characterResources],
+    [
+      markDirty,
+      queueProjectResourceWrite,
+      resolvedCharacters,
+      rewriteCharacterFieldReferences,
+      workspace?.characterResources,
+    ],
   );
+  updateCharacterRef.current = updateCharacter;
 
   const rewriteCharacterEmotionReferences = useCallback(
     (id: CharacterId, fromEmotion: string, toEmotion?: string) => {
@@ -1416,11 +1554,26 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const removeCharacter = useCallback(
     (id: CharacterId) => {
-      const references =
-        resourceReferenceIndexRef.current?.characters.get(id) ??
-        collectCharacterReferences(id, resourceReferenceStories(currentStoryItemsRef.current()));
+      const characterDefinition = resolvedCharacters.find((candidate) => candidate.id === id);
+      const referenceIndex =
+        resourceReferenceIndexRef.current ??
+        buildStoryResourceReferenceIndex(
+          resourceReferenceStories(currentStoryItemsRef.current()),
+          resourceReferenceCharacters(
+            currentStoryItemsRef.current(),
+            workspace?.characterResources.map((candidate) => candidate.character) ?? [],
+          ),
+        );
+      const references = [
+        ...(referenceIndex.characters.get(id) ?? []),
+        ...(characterDefinition?.fields ?? []).flatMap(
+          (field) => referenceIndex.characterFields.get(field.id) ?? [],
+        ),
+      ];
       if (references.length > 0) {
-        setWorkspaceError('Character is used by Dialogue lines. Remove its references first.');
+        setWorkspaceError(
+          'Character is used by Dialogue lines or Character fields. Remove its references first.',
+        );
         return;
       }
       const resource = workspace?.characterResources.find(
@@ -1485,6 +1638,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [
       markDirty,
       queueProjectResourceWrite,
+      resolvedCharacters,
       setNodes,
       updateInactiveGraphs,
       characters,
@@ -1910,13 +2064,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setNodes((current) =>
         current.map((node) =>
           node.id === id && node.type === type
-            ? { ...node, data: { ...node.data, ...update } }
+            ? bindCharacterFieldReferencesInNode(
+                { ...node, data: { ...node.data, ...update } },
+                resolvedCharacters,
+              )
             : node,
         ),
       );
       markDirty();
     },
-    [markDirty, setNodes],
+    [markDirty, resolvedCharacters, setNodes],
   );
 
   const captureActiveStory = useCallback(
@@ -1987,6 +2144,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const findEmotionReferencesByKey = useCallback(
     (id: CharacterId, emotion: string): readonly StoryResourceReference[] =>
       resourceReferenceIndex?.emotions.get(emotionReferenceKey(id, emotion)) ?? [],
+    [resourceReferenceIndex],
+  );
+
+  const findCharacterFieldReferencesById = useCallback(
+    (id: VariableId): readonly StoryResourceReference[] =>
+      resourceReferenceIndex?.characterFields.get(id) ?? [],
     [resourceReferenceIndex],
   );
 
@@ -3043,6 +3206,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addCharacter,
       findCharacterReferences: findCharacterReferencesById,
       findEmotionReferences: findEmotionReferencesByKey,
+      findCharacterFieldReferences: findCharacterFieldReferencesById,
       findAssetReferences: findAssetReferencesById,
       focusStoryResourceReference,
       updateCharacter,
@@ -3118,6 +3282,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addCharacter,
       findCharacterReferencesById,
       findEmotionReferencesByKey,
+      findCharacterFieldReferencesById,
       findAssetReferencesById,
       focusStoryResourceReference,
       addAsset,
