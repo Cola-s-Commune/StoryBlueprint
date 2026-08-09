@@ -649,38 +649,43 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     );
   }, [document.dirty, hasActiveStory, projectResourcesDirty, workspaceStories]);
 
-  const queueProjectResourceWrite = useCallback((write: () => Promise<WorkspaceInfo>) => {
-    const key = 'project-resources';
-    const previous = projectResourceWritesRef.current.get(key);
-    const operation = (previous ?? Promise.resolve(undefined)).catch(() => undefined).then(write);
-    projectResourceWritesRef.current.set(key, operation);
-    setProjectResourcesDirty(true);
-    void operation
-      .then((nextWorkspace) => {
-        if (projectResourceWritesRef.current.get(key) !== operation) return;
-        projectResourceWritesRef.current.delete(key);
-        setWorkspace(nextWorkspace);
-        setWorkspaceError(undefined);
-        setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
-      })
-      .catch((error: unknown) => {
-        if (projectResourceWritesRef.current.get(key) === operation) {
+  const queueProjectResourceWrite = useCallback(
+    (write: () => Promise<WorkspaceInfo>, dependsOnPrevious = false) => {
+      const key = 'project-resources';
+      const previous = projectResourceWritesRef.current.get(key);
+      const ready = previous ?? Promise.resolve(undefined);
+      const operation = (dependsOnPrevious ? ready : ready.catch(() => undefined)).then(write);
+      projectResourceWritesRef.current.set(key, operation);
+      setProjectResourcesDirty(true);
+      void operation
+        .then((nextWorkspace) => {
+          if (projectResourceWritesRef.current.get(key) !== operation) return;
           projectResourceWritesRef.current.delete(key);
+          setWorkspace(nextWorkspace);
+          setWorkspaceError(undefined);
           setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
-        }
-        setWorkspaceError(error instanceof Error ? error.message : String(error));
-        void window.electronAPI
-          ?.refreshWorkspace()
-          .then(setWorkspace)
-          .catch(() => undefined);
-      });
-  }, []);
+        })
+        .catch((error: unknown) => {
+          if (projectResourceWritesRef.current.get(key) === operation) {
+            projectResourceWritesRef.current.delete(key);
+            setProjectResourcesDirty(projectResourceWritesRef.current.size > 0);
+          }
+          setWorkspaceError(error instanceof Error ? error.message : String(error));
+          void window.electronAPI
+            ?.refreshWorkspace()
+            .then(setWorkspace)
+            .catch(() => undefined);
+        });
+    },
+    [],
+  );
 
   const writeProjectVariables = useCallback(
-    (nextVariables: readonly VariableDefinition[]) => {
+    (nextVariables: readonly VariableDefinition[], dependsOnPrevious = false) => {
       if (!workspace?.project || !window.electronAPI) return;
-      queueProjectResourceWrite(() =>
-        window.electronAPI!.updateProjectSettings({ variables: nextVariables }),
+      queueProjectResourceWrite(
+        () => window.electronAPI!.updateProjectSettings({ variables: nextVariables }),
+        dependsOnPrevious,
       );
     },
     [queueProjectResourceWrite, workspace?.project],
@@ -1556,6 +1561,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           return false;
         }
         const normalized = { ...nextUpdate, scope: 'project' as const };
+        let projectVariableWriteDependsOnStoryRewrite = false;
         if (normalized.name && normalized.name !== previous.name) {
           const affectedStoryIds = new Set(
             references
@@ -1606,10 +1612,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               normalized.name,
             );
             if (rewritten.length > 0 && window.electronAPI) {
+              const revisionsByPath = new Map(
+                projectVariableReferenceScan.stories.map((story) => [story.path, story.revision]),
+              );
               projectStoryTextCacheRef.current = undefined;
               queueProjectResourceWrite(() =>
-                window.electronAPI!.updateWorkspaceProjectStories({ files: rewritten }),
+                window.electronAPI!.updateWorkspaceProjectStories({
+                  files: rewritten.map((file) => ({
+                    ...file,
+                    expectedRevision: revisionsByPath.get(file.path)!,
+                  })),
+                }),
               );
+              projectVariableWriteDependsOnStoryRewrite = true;
             }
           }
         }
@@ -1617,6 +1632,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           projectVariables.map((variable) =>
             variable.id === id ? { ...variable, ...normalized, id } : variable,
           ),
+          projectVariableWriteDependsOnStoryRewrite,
         );
         return true;
       }

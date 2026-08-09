@@ -60,6 +60,11 @@ import type {
 import { readStoryGitConflict, readWorkspaceGitConflicts } from './storyGitConflict';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
 import {
+  replaceProjectStoriesAtomically,
+  storyContentRevision,
+  type ProjectStoryBatchWrite,
+} from './projectStoryBatch';
+import {
   initializeWorkspaceGitRepository,
   readWorkspaceGitRepository,
   workspaceGitCheckoutKey,
@@ -1882,7 +1887,7 @@ function registerStoryFileHandlers(): void {
         if (source.id !== story.id) {
           throw new Error(`Story ID does not match project index: ${story.path}`);
         }
-        return { path: story.path, content };
+        return { path: story.path, content, revision: storyContentRevision(content) };
       }),
     );
   });
@@ -1897,7 +1902,7 @@ function registerStoryFileHandlers(): void {
     }
     const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
     const storiesByPath = new Map(project.stories.map((story) => [story.path, story]));
-    const writes: { filePath: string; content: string }[] = [];
+    const writes: ProjectStoryBatchWrite[] = [];
     const seen = new Set<string>();
     for (const candidate of request.files) {
       if (
@@ -1905,6 +1910,8 @@ function registerStoryFileHandlers(): void {
         !candidate ||
         typeof candidate.path !== 'string' ||
         typeof candidate.content !== 'string' ||
+        typeof candidate.expectedRevision !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(candidate.expectedRevision) ||
         Buffer.byteLength(candidate.content, 'utf8') > MAX_STORY_BYTES ||
         seen.has(candidate.path)
       ) {
@@ -1919,11 +1926,14 @@ function registerStoryFileHandlers(): void {
       const filePath = await resolveExistingWorkspacePath(candidate.path);
       if (!filePath.toLowerCase().endsWith('.story')) throw new Error('Not a Story file');
       seen.add(candidate.path);
-      writes.push({ filePath, content: candidate.content });
+      writes.push({
+        filePath,
+        displayPath: candidate.path,
+        content: candidate.content,
+        expectedRevision: candidate.expectedRevision,
+      });
     }
-    await Promise.all(
-      writes.map((write) => writeFile(write.filePath, write.content, { encoding: 'utf8' })),
-    );
+    await replaceProjectStoriesAtomically(writes);
     return (await readWorkspace())!;
   });
 

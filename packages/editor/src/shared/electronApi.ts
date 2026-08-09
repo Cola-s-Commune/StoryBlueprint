@@ -132,10 +132,17 @@ export interface RestoredEditorSession {
 export interface ProjectStoryFile {
   path: string;
   content: string;
+  revision: string;
+}
+
+export interface UpdateProjectStoryFile {
+  path: string;
+  content: string;
+  expectedRevision: string;
 }
 
 export interface UpdateProjectStoryFilesRequest {
-  files: readonly ProjectStoryFile[];
+  files: readonly UpdateProjectStoryFile[];
 }
 
 export type ExportCompiledProjectResult =
