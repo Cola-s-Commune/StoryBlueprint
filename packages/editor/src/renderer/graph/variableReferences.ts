@@ -5,17 +5,25 @@ import {
   type NodeId,
   type StoryNodeDataMap,
   type StoryId,
+  parseStorySource,
+  serializeStorySource,
   type CharacterSource,
   type TextTemplateSource,
   type VariableDefinition,
   type VariableId,
 } from '@story-blueprint/common';
-import type { EditorGraphNode, EditorGraphState } from './editorGraph';
+import {
+  fromSourceGraph,
+  toSourceGraph,
+  type EditorGraphNode,
+  type EditorGraphState,
+} from './editorGraph';
 
 export type VariableReferenceKind = 'target' | 'expression' | 'text-template';
 
 export interface VariableReference {
   storyId?: StoryId;
+  storyPath?: string;
   graphId: 'root' | ChapterId;
   graphLabel: string;
   nodeId: NodeId;
@@ -27,6 +35,7 @@ export interface VariableReference {
 
 export interface VariableReferenceGraph {
   storyId?: StoryId;
+  storyPath?: string;
   id: 'root' | ChapterId;
   label: string;
   graph: EditorGraphState;
@@ -407,6 +416,7 @@ export function findVariableReferences(
   ) =>
     references.push({
       storyId: owner.storyId,
+      storyPath: owner.storyPath,
       graphId: owner.id,
       graphLabel: owner.label,
       nodeId: node.id,
@@ -436,6 +446,63 @@ export function findVariableReferences(
     }
   }
   return references;
+}
+
+export function findProjectVariableReferences(
+  variable: Pick<VariableDefinition, 'id' | 'name'>,
+  stories: readonly { path: string; content: string }[],
+): VariableReference[] {
+  return stories.flatMap((story) => {
+    const source = parseStorySource(story.content);
+    return findVariableReferences(variable, [
+      {
+        storyId: source.id,
+        storyPath: story.path,
+        id: 'root',
+        label: `${source.displayName} / Main Story`,
+        graph: fromSourceGraph(source.root),
+      },
+      ...source.chapters.map((chapter) => ({
+        storyId: source.id,
+        storyPath: story.path,
+        id: chapter.id,
+        label: `${source.displayName} / ${chapter.displayName}`,
+        graph: fromSourceGraph(chapter.graph),
+      })),
+    ]);
+  });
+}
+
+export function rewriteProjectVariableReferences(
+  stories: readonly { path: string; content: string }[],
+  storyIds: ReadonlySet<StoryId>,
+  variableId: VariableId,
+  oldName: string,
+  newName: string,
+): { path: string; content: string }[] {
+  return stories.flatMap((story) => {
+    const source = parseStorySource(story.content);
+    if (!storyIds.has(source.id)) return [];
+    const rewrite = (graph: EditorGraphState): EditorGraphState => ({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        renameVariableReferencesInNode(node, variableId, oldName, newName),
+      ),
+    });
+    return [
+      {
+        path: story.path,
+        content: serializeStorySource({
+          ...source,
+          root: toSourceGraph(rewrite(fromSourceGraph(source.root))),
+          chapters: source.chapters.map((chapter) => ({
+            ...chapter,
+            graph: toSourceGraph(rewrite(fromSourceGraph(chapter.graph))),
+          })),
+        }),
+      },
+    ];
+  });
 }
 
 export function renameVariableReferencesInNode(

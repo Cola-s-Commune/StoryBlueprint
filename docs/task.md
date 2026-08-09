@@ -412,6 +412,10 @@
 - [x] 删除前扫描已加载 Story / Substory 的稳定 ID 引用
 - [x] Project Variable 引用跨 Story / Substory 跳转，并在重命名时批量改写已加载 Story
 - [x] Story / Project 表达式与 Text Template 自动绑定稳定变量 ID，重命名时保留 Binding
+- [x] 选择 Project Variable 时按需扫描项目内全部 Story，已打开 Story 使用内存版本覆盖磁盘索引
+- [x] 未打开 Story 的引用可按需打开并定位；项目变量重命名批量改写受影响文件
+- [x] 全项目索引完成前禁止删除、改名和改型；存在引用时禁止直接改型
+- [x] Story 文本扫描结果按项目索引/Git Revision 缓存，切换变量时复用解析输入
 
 ---
 

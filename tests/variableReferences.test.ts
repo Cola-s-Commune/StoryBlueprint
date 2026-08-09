@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  STORY_SOURCE_FORMAT,
+  STORY_SOURCE_VERSION,
   StoryNodeType,
+  parseStorySource,
+  serializeStorySource,
+  nodeRegistry,
   type CharacterSource,
   type VariableDefinition,
-} from '../packages/common/src';
+} from '@story-blueprint/common';
 import type {
   EditorGraphNode,
   EditorGraphState,
 } from '../packages/editor/src/renderer/graph/editorGraph';
 import {
   findVariableReferences,
+  findProjectVariableReferences,
   renameExpressionVariable,
   renameTemplateVariable,
   renameVariableReferencesInNode,
+  rewriteProjectVariableReferences,
   bindCharacterFieldExpression,
   bindVariableReferencesInNode,
   renameCharacterFieldReferencesInNode,
@@ -199,6 +206,71 @@ describe('variable reference index', () => {
       (expressionNode.data as { condition: { bindings: Record<string, string> } }).condition
         .bindings,
     ).toEqual({ score: projectScore.id });
+  });
+
+  it('indexes and rewrites project variable references in unopened Story text', () => {
+    nodeRegistry.registerBuiltins();
+    const projectScore: VariableDefinition = {
+      ...score,
+      id: 'v_projectscore',
+      scope: 'project',
+    };
+    const content = serializeStorySource({
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: 's_unopened',
+      name: 'unopened',
+      displayName: 'Unopened Story',
+      root: {
+        nodes: [
+          {
+            id: 'n_unopenedline',
+            type: StoryNodeType.Dialogue,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: {
+              lines: [
+                {
+                  id: 'ln_unopenedscore',
+                  textId: 't_unopenedscore',
+                  text: { source: 'Score: {score}', bindings: { score: projectScore.id } },
+                },
+              ],
+            },
+          },
+        ],
+        edges: [],
+      },
+      chapters: [],
+      variables: [],
+      characters: [],
+      assets: [],
+      events: [],
+    });
+    const stories = [{ path: 'Stories/unopened.story', content }];
+    const references = findProjectVariableReferences(projectScore, stories);
+    expect(references).toHaveLength(1);
+    expect(references[0]).toMatchObject({
+      storyId: 's_unopened',
+      storyPath: 'Stories/unopened.story',
+      nodeId: 'n_unopenedline',
+    });
+
+    const rewritten = rewriteProjectVariableReferences(
+      stories,
+      new Set(['s_unopened']),
+      projectScore.id,
+      'score',
+      'points',
+    );
+    const parsed = parseStorySource(rewritten[0]!.content);
+    const dialogue = parsed.root.nodes[0]!.data as {
+      lines: Array<{ text: { source: string; bindings?: Record<string, string> } }>;
+    };
+    expect(dialogue.lines[0]!.text).toEqual({
+      source: 'Score: {points}',
+      bindings: { points: projectScore.id },
+    });
   });
 
   it('binds and safely renames qualified character fields in expressions and templates', () => {

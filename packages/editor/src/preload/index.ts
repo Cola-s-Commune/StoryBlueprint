@@ -29,6 +29,8 @@ const electronAPI = {
   updateEditorSession: (session) => ipcRenderer.invoke('session:update', session),
   writeRecoverySnapshots: (snapshots) => ipcRenderer.invoke('recovery:write', snapshots),
   readWorkspaceProjectStories: () => ipcRenderer.invoke('workspace:read-project-stories'),
+  updateWorkspaceProjectStories: (request) =>
+    ipcRenderer.invoke('workspace:update-project-stories', request),
   exportCompiledProject: (content) => ipcRenderer.invoke('workspace:export-compiled', content),
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
   updateProjectSettings: (settings) =>

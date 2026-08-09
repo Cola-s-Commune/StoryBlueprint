@@ -46,6 +46,7 @@ import type {
   RecoverySnapshot,
   SaveStoryRequest,
   UpdateProjectSettingsRequest,
+  UpdateProjectStoryFilesRequest,
   AIChatSession,
   AIProviderSettings,
   ApplyWorkspaceMergeFile,
@@ -1884,6 +1885,46 @@ function registerStoryFileHandlers(): void {
         return { path: story.path, content };
       }),
     );
+  });
+
+  ipcMain.handle('workspace:update-project-stories', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile || typeof value !== 'object' || !value) {
+      throw new Error('Invalid project Story update');
+    }
+    const request = value as Partial<UpdateProjectStoryFilesRequest>;
+    if (!Array.isArray(request.files) || request.files.length > MAX_WORKSPACE_ENTRIES) {
+      throw new Error('Invalid project Story update');
+    }
+    const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+    const storiesByPath = new Map(project.stories.map((story) => [story.path, story]));
+    const writes: { filePath: string; content: string }[] = [];
+    const seen = new Set<string>();
+    for (const candidate of request.files) {
+      if (
+        typeof candidate !== 'object' ||
+        !candidate ||
+        typeof candidate.path !== 'string' ||
+        typeof candidate.content !== 'string' ||
+        Buffer.byteLength(candidate.content, 'utf8') > MAX_STORY_BYTES ||
+        seen.has(candidate.path)
+      ) {
+        throw new Error('Invalid project Story update');
+      }
+      const reference = storiesByPath.get(candidate.path);
+      if (!reference) throw new Error(`Story is not registered in project: ${candidate.path}`);
+      const source = parseStorySource(candidate.content);
+      if (source.id !== reference.id) {
+        throw new Error(`Story ID does not match project index: ${candidate.path}`);
+      }
+      const filePath = await resolveExistingWorkspacePath(candidate.path);
+      if (!filePath.toLowerCase().endsWith('.story')) throw new Error('Not a Story file');
+      seen.add(candidate.path);
+      writes.push({ filePath, content: candidate.content });
+    }
+    await Promise.all(
+      writes.map((write) => writeFile(write.filePath, write.content, { encoding: 'utf8' })),
+    );
+    return (await readWorkspace())!;
   });
 
   ipcMain.handle('workspace:update-project-settings', async (event, value: unknown) => {

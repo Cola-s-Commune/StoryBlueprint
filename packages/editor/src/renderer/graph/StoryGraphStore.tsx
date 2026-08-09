@@ -79,6 +79,8 @@ import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePrev
 import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 import {
   findVariableReferences as collectVariableReferences,
+  findProjectVariableReferences,
+  rewriteProjectVariableReferences,
   bindVariableReferencesInNode,
   renameVariableReferencesInNode,
   renameCharacterFieldReferencesInNode,
@@ -99,6 +101,7 @@ import {
 import type {
   ApplyWorkspaceMergeFile,
   OpenStoryResult,
+  ProjectStoryFile,
   RecentProject,
   WorkspaceInfo,
 } from '../../shared/electronApi';
@@ -215,6 +218,34 @@ function resourceReferenceCharacters(
       })),
     ),
   ];
+}
+
+function editorStoryItemFromOpenedStory(
+  result: Exclude<OpenStoryResult, { canceled: true }>,
+  recovered: { dirty?: boolean; filePath?: string; fileToken?: string } = {},
+): EditorStoryWorkspaceItem {
+  const source = parseStorySource(result.content);
+  const graphLoadOptions = { allowInvalidConnections: result.gitConflict === true };
+  return {
+    document: {
+      id: source.id,
+      name: source.name,
+      displayName: source.displayName,
+      filePath: recovered.dirty ? recovered.filePath : result.filePath,
+      fileToken: recovered.dirty ? recovered.fileToken : result.fileToken,
+      dirty: recovered.dirty ?? false,
+      gitConflict: result.gitConflict,
+    },
+    rootGraph: fromSourceGraph(source.root, graphLoadOptions),
+    chapters: source.chapters.map((chapter) => ({
+      ...chapter,
+      graph: fromSourceGraph(chapter.graph, graphLoadOptions),
+    })),
+    variables: [...source.variables],
+    characters: [...source.characters],
+    assets: [...source.assets],
+    revision: recovered.dirty ? 1 : 0,
+  };
 }
 
 export type ActiveGraphId = 'root' | ChapterId;
@@ -338,7 +369,9 @@ interface StoryGraphStoreValue {
   addVariable: () => VariableId;
   addProjectVariable: () => VariableId | undefined;
   findVariableReferences: (id: VariableId) => readonly VariableReference[];
-  focusVariableReference: (reference: VariableReference) => boolean;
+  variableReferencesLoading: boolean;
+  variableReferencesError?: string;
+  focusVariableReference: (reference: VariableReference) => Promise<boolean>;
   updateVariable: (id: VariableId, update: Partial<VariableDefinition>) => boolean;
   removeVariable: (
     id: VariableId,
@@ -441,6 +474,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
+  const [projectVariableReferenceScan, setProjectVariableReferenceScan] = useState<{
+    variableId?: VariableId;
+    loading: boolean;
+    references: readonly VariableReference[];
+    stories?: readonly ProjectStoryFile[];
+    error?: string;
+  }>({ loading: false, references: [] });
+  const projectStoryTextCacheRef = useRef<{
+    key: string;
+    stories: readonly ProjectStoryFile[];
+  }>();
   const [sessionReady, setSessionReady] = useState(false);
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
@@ -507,6 +551,80 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }),
     [aiSemanticContext, projectVariables, source],
   );
+  const selectedProjectVariable =
+    storyDataSelection?.kind === 'variable'
+      ? projectVariables.find((variable) => variable.id === storyDataSelection.id)
+      : undefined;
+  const selectedProjectVariableScanTarget = useMemo(
+    () =>
+      selectedProjectVariable
+        ? { id: selectedProjectVariable.id, name: selectedProjectVariable.name }
+        : undefined,
+    [selectedProjectVariable?.id, selectedProjectVariable?.name],
+  );
+  const projectStoryIndexKey = [
+    workspace?.project?.stories.map((story) => `${story.id}:${story.path}`).join('|') ?? '',
+    workspace?.git.headRevision ?? '',
+    workspace?.git.conflictRevision ?? '',
+  ].join('::');
+  const variableReferencesLoading =
+    selectedProjectVariable !== undefined &&
+    (projectVariableReferenceScan.loading ||
+      projectVariableReferenceScan.variableId !== selectedProjectVariable.id);
+  const variableReferencesError =
+    projectVariableReferenceScan.variableId === selectedProjectVariable?.id
+      ? projectVariableReferenceScan.error
+      : undefined;
+
+  useEffect(() => {
+    if (!selectedProjectVariableScanTarget || !window.electronAPI || !workspace?.project) {
+      setProjectVariableReferenceScan({ loading: false, references: [] });
+      return;
+    }
+    let canceled = false;
+    setProjectVariableReferenceScan({
+      variableId: selectedProjectVariableScanTarget.id,
+      loading: true,
+      references: [],
+    });
+    const cached = projectStoryTextCacheRef.current;
+    if (cached?.key === projectStoryIndexKey) {
+      setProjectVariableReferenceScan({
+        variableId: selectedProjectVariableScanTarget.id,
+        loading: false,
+        references: findProjectVariableReferences(
+          selectedProjectVariableScanTarget,
+          cached.stories,
+        ),
+        stories: cached.stories,
+      });
+      return;
+    }
+    void window.electronAPI
+      .readWorkspaceProjectStories()
+      .then((stories) => {
+        if (canceled) return;
+        projectStoryTextCacheRef.current = { key: projectStoryIndexKey, stories };
+        setProjectVariableReferenceScan({
+          variableId: selectedProjectVariableScanTarget.id,
+          loading: false,
+          references: findProjectVariableReferences(selectedProjectVariableScanTarget, stories),
+          stories,
+        });
+      })
+      .catch((error: unknown) => {
+        if (canceled) return;
+        setProjectVariableReferenceScan({
+          variableId: selectedProjectVariableScanTarget.id,
+          loading: false,
+          references: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [projectStoryIndexKey, selectedProjectVariableScanTarget]);
 
   const markDirty = useCallback(() => {
     if (!hasActiveStory) return;
@@ -1354,24 +1472,47 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (variable.scope !== 'project') {
         return collectVariableReferences(variable, variableReferenceGraphs());
       }
-      return currentStoryItemsRef.current().flatMap((story) =>
+      const loadedStories = currentStoryItemsRef.current();
+      const loadedStoryIds = new Set(loadedStories.map((story) => story.document.id));
+      const liveReferences = loadedStories.flatMap((story) =>
         collectVariableReferences(variable, [
           {
             storyId: story.document.id,
+            storyPath: workspace?.project?.stories.find(
+              (candidate) => candidate.id === story.document.id,
+            )?.path,
             id: 'root',
             label: `${story.document.displayName} / Main Story`,
             graph: story.rootGraph,
           },
           ...story.chapters.map((chapter) => ({
             storyId: story.document.id,
+            storyPath: workspace?.project?.stories.find(
+              (candidate) => candidate.id === story.document.id,
+            )?.path,
             id: chapter.id,
             label: `${story.document.displayName} / ${chapter.displayName}`,
             graph: chapter.graph,
           })),
         ]),
       );
+      const indexedReferences =
+        projectVariableReferenceScan.variableId === id
+          ? projectVariableReferenceScan.references.filter(
+              (reference) => !reference.storyId || !loadedStoryIds.has(reference.storyId),
+            )
+          : [];
+      return [...liveReferences, ...indexedReferences];
     },
-    [projectVariables, resolvedCharacters, variableReferenceGraphs, variables],
+    [
+      projectVariableReferenceScan.references,
+      projectVariableReferenceScan.variableId,
+      projectVariables,
+      resolvedCharacters,
+      variableReferenceGraphs,
+      variables,
+      workspace?.project?.stories,
+    ],
   );
 
   const updateVariable = useCallback(
@@ -1392,12 +1533,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const previous = projectVariable ?? variables.find((variable) => variable.id === id);
       if (!previous) return false;
       if (projectVariable) {
+        const requiresCompleteIndex = update.name !== undefined || update.valueType !== undefined;
+        if (
+          requiresCompleteIndex &&
+          (projectVariableReferenceScan.loading ||
+            projectVariableReferenceScan.variableId !== id ||
+            projectVariableReferenceScan.error)
+        ) {
+          setWorkspaceError(
+            projectVariableReferenceScan.error ??
+              'Wait for the full project variable reference scan before renaming or changing type.',
+          );
+          return false;
+        }
+        const references = findVariableReferencesById(id);
+        if (
+          update.valueType !== undefined &&
+          update.valueType.kind !== previous.valueType.kind &&
+          references.length > 0
+        ) {
+          setWorkspaceError('Remove or migrate all references before changing this variable type.');
+          return false;
+        }
         const normalized = { ...nextUpdate, scope: 'project' as const };
         if (normalized.name && normalized.name !== previous.name) {
           const affectedStoryIds = new Set(
-            findVariableReferencesById(id)
+            references
               .filter((reference) => reference.kind !== 'target')
               .flatMap((reference) => (reference.storyId ? [reference.storyId] : [])),
+          );
+          const loadedStoryIds = new Set(
+            currentStoryItemsRef.current().map((story) => story.document.id),
+          );
+          const unopenedStoryIds = new Set(
+            [...affectedStoryIds].filter((storyId) => !loadedStoryIds.has(storyId)),
           );
           const rewrite = (candidate: EditorGraphState): EditorGraphState => ({
             ...candidate,
@@ -1427,6 +1596,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                   : story,
               ),
             );
+          }
+          if (unopenedStoryIds.size > 0 && projectVariableReferenceScan.stories) {
+            const rewritten = rewriteProjectVariableReferences(
+              projectVariableReferenceScan.stories,
+              unopenedStoryIds,
+              id,
+              previous.name,
+              normalized.name,
+            );
+            if (rewritten.length > 0 && window.electronAPI) {
+              projectStoryTextCacheRef.current = undefined;
+              queueProjectResourceWrite(() =>
+                window.electronAPI!.updateWorkspaceProjectStories({ files: rewritten }),
+              );
+            }
           }
         }
         writeProjectVariables(
@@ -1465,6 +1649,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       findVariableReferencesById,
       markDirty,
       projectVariables,
+      projectVariableReferenceScan.error,
+      projectVariableReferenceScan.loading,
+      projectVariableReferenceScan.stories,
+      projectVariableReferenceScan.variableId,
+      queueProjectResourceWrite,
+      rewriteProjectVariableReferences,
       setNodes,
       updateInactiveGraphs,
       variables,
@@ -1474,6 +1664,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const removeVariable = useCallback(
     (id: VariableId): { ok: true } | { ok: false; references: readonly VariableReference[] } => {
+      if (
+        projectVariables.some((variable) => variable.id === id) &&
+        (projectVariableReferenceScan.loading ||
+          projectVariableReferenceScan.variableId !== id ||
+          projectVariableReferenceScan.error)
+      ) {
+        setWorkspaceError(
+          projectVariableReferenceScan.error ??
+            'Wait for the full project variable reference scan before deleting this variable.',
+        );
+        return { ok: false, references: [] };
+      }
       const references = findVariableReferencesById(id);
       if (references.length > 0) return { ok: false, references };
       if (projectVariables.some((variable) => variable.id === id)) {
@@ -1491,7 +1693,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
       return { ok: true };
     },
-    [checkpoint, findVariableReferencesById, markDirty, projectVariables, writeProjectVariables],
+    [
+      checkpoint,
+      findVariableReferencesById,
+      markDirty,
+      projectVariableReferenceScan.error,
+      projectVariableReferenceScan.loading,
+      projectVariableReferenceScan.variableId,
+      projectVariables,
+      writeProjectVariables,
+    ],
   );
 
   const addCharacter = useCallback((): CharacterId => {
@@ -2515,13 +2726,22 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const focusVariableReference = useCallback(
-    (reference: VariableReference): boolean => {
+    async (reference: VariableReference): Promise<boolean> => {
       if (!reference.storyId || reference.storyId === document.id) {
         return focusGraphNode(reference.graphId, reference.nodeId);
       }
       let target = currentStoryItemsRef
         .current()
         .find((story) => story.document.id === reference.storyId);
+      if (!target && reference.storyPath && window.electronAPI) {
+        try {
+          const opened = await window.electronAPI.openWorkspaceStory(reference.storyPath);
+          if (!opened.canceled) target = editorStoryItemFromOpenedStory(opened);
+        } catch (error) {
+          setWorkspaceError(error instanceof Error ? error.message : String(error));
+          return false;
+        }
+      }
       if (!target) return false;
       const selectNode = (candidate: EditorGraphState): EditorGraphState => ({
         ...candidate,
@@ -2540,14 +2760,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             : chapter,
         ),
       };
-      setWorkspaceStories((current) =>
-        current.map((story) => (story.document.id === target!.document.id ? target! : story)),
-      );
+      const active = hasActiveStory ? captureActiveStory() : undefined;
+      setWorkspaceStories((current) => {
+        const next = current.map((story) =>
+          active && story.document.id === active.document.id ? active : story,
+        );
+        const index = next.findIndex((story) => story.document.id === target!.document.id);
+        if (index < 0) return [...next, target!];
+        return next.map((story) => (story.document.id === target!.document.id ? target! : story));
+      });
       loadStory(target, reference.graphId);
       setProblemFocus({ nodeId: reference.nodeId, nonce: Date.now() });
       return true;
     },
-    [document.id, focusGraphNode, loadStory],
+    [captureActiveStory, document.id, focusGraphNode, hasActiveStory, loadStory],
   );
 
   const newStory = useCallback(() => {
@@ -3392,6 +3618,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       addProjectVariable,
       findVariableReferences: findVariableReferencesById,
+      variableReferencesLoading,
+      variableReferencesError,
       focusVariableReference,
       updateVariable,
       removeVariable,
@@ -3472,6 +3700,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addVariable,
       addProjectVariable,
       findVariableReferencesById,
+      variableReferencesLoading,
+      variableReferencesError,
       focusVariableReference,
       addCharacter,
       findCharacterReferencesById,

@@ -28,9 +28,11 @@ function defaultForType(kind: ScalarKind): RuntimeValue {
 function ScriptNameInput({
   value,
   onCommit,
+  disabled = false,
 }: {
   value: string;
   onCommit: (value: string) => void | boolean;
+  disabled?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const beforeEdit = useRef(value);
@@ -57,6 +59,7 @@ function ScriptNameInput({
 
   return (
     <input
+      disabled={disabled}
       value={draft}
       onFocus={() => {
         beforeEdit.current = value;
@@ -128,6 +131,8 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     variables,
     projectVariables,
     findVariableReferences,
+    variableReferencesLoading,
+    variableReferencesError,
     focusVariableReference,
     updateVariable,
     removeVariable,
@@ -140,6 +145,9 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     (candidate) => candidate.id !== variable.id && candidate.name === variable.name,
   );
   const kind = variable.valueType.kind as ScalarKind;
+  const projectIndexUnavailable =
+    variable.scope === 'project' &&
+    (variableReferencesLoading || variableReferencesError !== undefined);
   return (
     <div className={styles.details}>
       <div className={styles.detailsTitle}>Variable</div>
@@ -147,6 +155,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
         <span>Name</span>
         <ScriptNameInput
           value={variable.name}
+          disabled={projectIndexUnavailable}
           onCommit={(name) => updateVariable(variable.id, { name, displayName: name })}
         />
       </label>
@@ -161,6 +170,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       <label>
         <span>Type</span>
         <select
+          disabled={projectIndexUnavailable || references.length > 0}
           value={kind}
           onChange={(event) => {
             const nextKind = event.target.value as ScalarKind;
@@ -223,7 +233,11 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           <span>References</span>
           <strong>{references.length}</strong>
         </div>
-        {references.length === 0 ? (
+        {variableReferencesLoading ? (
+          <div className={styles.referenceEmpty}>Scanning all project Stories…</div>
+        ) : variableReferencesError ? (
+          <div className={styles.warning}>{variableReferencesError}</div>
+        ) : references.length === 0 ? (
           <div className={styles.referenceEmpty}>This variable is not used by any node.</div>
         ) : (
           <div className={styles.referenceList}>
@@ -231,7 +245,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
               <button
                 type="button"
                 key={`${reference.storyId ?? 'active'}:${reference.graphId}:${reference.nodeId}:${reference.field}:${reference.kind}`}
-                onClick={() => focusVariableReference(reference)}
+                onClick={() => void focusVariableReference(reference)}
               >
                 <span>
                   <strong>{reference.nodeLabel}</strong>
@@ -255,12 +269,15 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
         )}
       </div>
       {references.length > 0 && (
-        <div className={styles.warning}>Remove these references before deleting the variable.</div>
+        <div className={styles.warning}>
+          Remove or migrate these references before deleting the variable
+          {variable.scope === 'project' ? ' or changing its type' : ''}.
+        </div>
       )}
       <button
         className={styles.dangerButton}
         type="button"
-        disabled={references.length > 0}
+        disabled={references.length > 0 || projectIndexUnavailable}
         onClick={() => {
           if (window.confirm(`Delete variable ${variable.name}?`)) removeVariable(variable.id);
         }}

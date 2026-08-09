@@ -134,6 +134,10 @@ export interface ProjectStoryFile {
   content: string;
 }
 
+export interface UpdateProjectStoryFilesRequest {
+  files: readonly ProjectStoryFile[];
+}
+
 export type ExportCompiledProjectResult =
   { canceled: true } | { canceled: false; filePath: string };
 
@@ -244,6 +248,9 @@ export interface ElectronAPI {
   updateEditorSession: (session: EditorSessionState) => Promise<void>;
   writeRecoverySnapshots: (snapshots: RecoverySnapshot[]) => Promise<void>;
   readWorkspaceProjectStories: () => Promise<ProjectStoryFile[]>;
+  updateWorkspaceProjectStories: (
+    request: UpdateProjectStoryFilesRequest,
+  ) => Promise<WorkspaceInfo>;
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
