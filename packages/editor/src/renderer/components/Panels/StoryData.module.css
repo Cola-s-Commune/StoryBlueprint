@@ -166,6 +166,47 @@
   font-size: 9px;
 }
 
+.characterTableRow {
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.characterTableRow .typeDot {
+  margin-top: 3px;
+}
+
+.characterSummary {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.characterSummary strong,
+.characterSummary code,
+.characterSummary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.characterSummary strong {
+  color: #d5dae2;
+  font-size: 11px;
+}
+
+.characterSummary code {
+  color: #9da8b5;
+  font-family: inherit;
+  font-size: 9px;
+}
+
+.characterSummary small {
+  color: #68727f;
+  font-size: 9px;
+}
+
 .itemName {
   min-width: 0;
   flex: 1;

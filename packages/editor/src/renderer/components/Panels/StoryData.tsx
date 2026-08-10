@@ -14,6 +14,7 @@ import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import type { StoryResourceReference } from '../../graph/resourceReferences';
 import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import { CopyButton } from './CopyButton';
+import { matchesCharacterSearch } from './storyDataSearch';
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
@@ -1118,12 +1119,7 @@ export function StoryData() {
   } = useStoryGraphStore();
   const [resourceSearch, setResourceSearch] = useState('');
   const filteredCharacters = useMemo(() => {
-    const query = resourceSearch.trim().toLowerCase();
-    return query
-      ? characters.filter((item) =>
-          `${item.name} ${item.displayName}`.toLowerCase().includes(query),
-        )
-      : characters;
+    return characters.filter((character) => matchesCharacterSearch(character, resourceSearch));
   }, [characters, resourceSearch]);
   const filteredAssets = useMemo(() => {
     const query = resourceSearch.trim().toLowerCase();
@@ -1403,10 +1399,13 @@ export function StoryData() {
             </button>
           </div>
           {characters.length === 0 && <div className={styles.empty}>No characters</div>}
+          {characters.length > 0 && filteredCharacters.length === 0 && (
+            <div className={styles.empty}>No matching characters</div>
+          )}
           {filteredCharacters.map((character) => (
             <div
               key={character.id}
-              className={`${styles.item} ${storyDataSelection?.kind === 'character' && storyDataSelection.id === character.id ? styles.selected : ''}`}
+              className={`${styles.item} ${styles.characterTableRow} ${storyDataSelection?.kind === 'character' && storyDataSelection.id === character.id ? styles.selected : ''}`}
               draggable
               onClick={() => selectStoryData({ kind: 'character', id: character.id })}
               onDragStart={(event) =>
@@ -1414,8 +1413,13 @@ export function StoryData() {
               }
             >
               <span className={`${styles.typeDot} ${styles.character}`} />
-              <span className={styles.itemName}>{character.displayName}</span>
-              <span className={styles.itemType}>character</span>
+              <span className={styles.characterSummary}>
+                <strong>{character.displayName}</strong>
+                <code>{character.name}</code>
+                {(character.description || character.dialogueStyle) && (
+                  <small>{character.description || character.dialogueStyle}</small>
+                )}
+              </span>
             </div>
           ))}
         </section>
