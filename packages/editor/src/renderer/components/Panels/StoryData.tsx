@@ -374,6 +374,28 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         />
       </label>
       <label>
+        <span>Description</span>
+        <textarea
+          rows={4}
+          placeholder="Biography, role in the story, goals, and important background."
+          value={character.description ?? ''}
+          onChange={(event) =>
+            updateCharacter(character.id, { description: event.target.value || undefined })
+          }
+        />
+      </label>
+      <label>
+        <span>Dialogue Style</span>
+        <textarea
+          rows={3}
+          placeholder="Tone, vocabulary, verbal habits, and dialogue guidance for writers and AI."
+          value={character.dialogueStyle ?? ''}
+          onChange={(event) =>
+            updateCharacter(character.id, { dialogueStyle: event.target.value || undefined })
+          }
+        />
+      </label>
+      <label>
         <span>Default Portrait</span>
         <select
           value={character.defaultPortraitId ?? ''}

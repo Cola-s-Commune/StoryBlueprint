@@ -441,6 +441,7 @@ describe('AI semantic editing foundation', () => {
             id: 'c_alice',
             name: 'Alice',
             displayName: 'Alice',
+            description: 'A patient investigator.',
             emotions: {},
             fields: [
               {
@@ -459,6 +460,7 @@ describe('AI semantic editing foundation', () => {
           kind: 'update-character',
           characterId: 'c_alice',
           patch: {
+            dialogueStyle: 'Short sentences with dry humor.',
             fields: [
               {
                 id: 'v_affinity',
@@ -479,6 +481,10 @@ describe('AI semantic editing foundation', () => {
       id: 'v_affinity',
       name: 'relationship',
       scope: 'character',
+    });
+    expect(result.document.characters[0]).toMatchObject({
+      description: 'A patient investigator.',
+      dialogueStyle: 'Short sentences with dry humor.',
     });
   });
 

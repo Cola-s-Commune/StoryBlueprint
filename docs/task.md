@@ -401,6 +401,7 @@
 - [x] Character Field Runtime Adapter 读取、缓存与暂停点回写
 - [x] Character Field 跨 Story 引用索引、字段 ID Binding 持久化与安全重命名
 - [x] Character / Field 删除及字段改型的引用保护
+- [x] Character Description / Dialogue Style 人物资料持久化、Inspector 编辑与 AI Semantic Context / Commands 支持
 
 ## Project Variables
 

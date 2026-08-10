@@ -333,6 +333,7 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - Character 字段由角色资源声明，表达式使用 `CharacterName.fieldName`，Get / Set 节点内部仍保存字段稳定 ID。
 - 编辑器为限定字段表达式保存 `CharacterName.fieldName -> VariableId` Binding；`.story` KDL 将 Binding 与所属表达式一起持久化。角色或字段改名时，所有已加载 Story / Substory 按稳定字段 ID 统一改写，字符串字面量和模板转义花括号不受影响。
 - Character Field 引用索引覆盖直接 Get / Set、Dialogue / Choice 模板、Branch / Choice 条件、Event Argument 与 Signal Match。删除角色、删除字段或修改字段类型前必须清除相关引用；单纯改名允许安全改写。
+- Character Resource 可保存 Description 与 Dialogue Style。前者记录人物背景、目标和剧情职责，后者记录语气、用词与说话习惯；两者不进入 Runtime 状态，但会进入 AI Semantic Snapshot，并可由 AI Character Commands 创建或更新。
 - Project 变量定义集中存入 `.storyproject`，各 `.story` 只保存稳定变量 ID 引用；项目编译时把定义注入 Story Program。
 - Story / Project 变量写入表达式或 Text Template 时自动建立稳定 ID Binding。Project 变量引用列表携带 Story / Graph / Node 定位信息；重命名改写所有受影响 Story 的文本表达式并保留 Binding。
 - Project Variable Inspector 打开时按需扫描 `.storyproject` 登记的全部 Story；已打开 Story 使用内存图覆盖磁盘结果，未打开 Story 只保留轻量引用定位。点击引用时才打开目标 Story。改名会批量改写受影响的未打开 Story；扫描失败或未完成时禁止删除、改名和改型。

@@ -349,6 +349,8 @@ function serializeCharacters(characters: readonly CharacterSource[]): Node | und
     node.addArgument(character.id);
     node.setProperty('name', character.name);
     node.setProperty('display-name', character.displayName);
+    if (character.description) node.setProperty('description', character.description);
+    if (character.dialogueStyle) node.setProperty('dialogue-style', character.dialogueStyle);
     if (character.defaultPortraitId) node.setProperty('portrait', character.defaultPortraitId);
     for (const field of character.fields ?? []) {
       const fieldNode = Node.create('field');
@@ -846,7 +848,7 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
   return container.findNodesByName('character').map((node) => {
     assertShape(node, 'story.characters.character', {
       arguments: 1,
-      properties: ['name', 'display-name', 'portrait'],
+      properties: ['name', 'display-name', 'description', 'dialogue-style', 'portrait'],
       children: ['emotion', 'field'],
     });
     const id = requiredId(node.getArgument(0), 'character', 'character.id');
@@ -915,6 +917,8 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
       id,
       name,
       displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
+      description: optionalString(node.getProperty('description'), `${id}.description`),
+      dialogueStyle: optionalString(node.getProperty('dialogue-style'), `${id}.dialogue-style`),
       defaultPortraitId: node.getProperty('portrait')
         ? requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`)
         : undefined,

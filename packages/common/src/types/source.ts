@@ -71,6 +71,10 @@ export interface CharacterSource {
   id: CharacterId;
   name: string;
   displayName: string;
+  /** Writer-facing biography and role summary, also exposed to AI authoring tools. */
+  description?: string;
+  /** Guidance for generated dialogue, such as vocabulary, tone, and verbal habits. */
+  dialogueStyle?: string;
   defaultPortraitId?: AssetId;
   emotions: Readonly<Record<string, { displayName: string; portraitId?: AssetId }>>;
   /** Engine-owned typed state addressed through the Story Adapter. */

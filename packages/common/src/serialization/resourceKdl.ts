@@ -112,6 +112,8 @@ export function serializeCharacterResource(character: CharacterSource): string {
   root.setProperty('version', STORY_CHARACTER_VERSION);
   root.setProperty('name', character.name);
   root.setProperty('display-name', character.displayName);
+  if (character.description) root.setProperty('description', character.description);
+  if (character.dialogueStyle) root.setProperty('dialogue-style', character.dialogueStyle);
   if (character.defaultPortraitId) root.setProperty('portrait', character.defaultPortraitId);
   for (const field of character.fields ?? []) root.appendNode(serializeCharacterField(field));
   for (const [key, emotion] of Object.entries(character.emotions).sort(([a], [b]) =>
@@ -132,7 +134,7 @@ export function parseCharacterResource(text: string): CharacterSource {
     root,
     'character',
     1,
-    ['format', 'version', 'name', 'display-name', 'portrait'],
+    ['format', 'version', 'name', 'display-name', 'description', 'dialogue-style', 'portrait'],
     ['emotion', 'field'],
   );
   assertRoot(root, STORY_CHARACTER_FORMAT, STORY_CHARACTER_VERSION);
@@ -176,10 +178,20 @@ export function parseCharacterResource(text: string): CharacterSource {
   if (portrait !== undefined && (typeof portrait !== 'string' || !isStableId(portrait, 'asset'))) {
     throw new StoryFormatError(`${id}.portrait is invalid`);
   }
+  const description = root.getProperty('description');
+  if (description !== undefined && typeof description !== 'string') {
+    throw new StoryFormatError(`${id}.description must be a string`);
+  }
+  const dialogueStyle = root.getProperty('dialogue-style');
+  if (dialogueStyle !== undefined && typeof dialogueStyle !== 'string') {
+    throw new StoryFormatError(`${id}.dialogue-style must be a string`);
+  }
   return {
     id,
     name: stringValue(root.getProperty('name'), `${id}.name`),
     displayName: stringValue(root.getProperty('display-name'), `${id}.display-name`),
+    description: description || undefined,
+    dialogueStyle: dialogueStyle || undefined,
     defaultPortraitId: portrait as CharacterSource['defaultPortraitId'],
     emotions,
     fields,

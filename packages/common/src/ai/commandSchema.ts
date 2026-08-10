@@ -216,6 +216,8 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
                 properties: {
                   name: { type: 'string', minLength: 1 },
                   displayName: { type: 'string', minLength: 1 },
+                  description: { type: ['string', 'null'] },
+                  dialogueStyle: { type: ['string', 'null'] },
                   defaultPortraitId: {
                     type: ['string', 'null'],
                     pattern: '^a_[a-z0-9][a-z0-9_-]{2,}$',
@@ -341,6 +343,8 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         id: { type: 'string', pattern: stableIdPatterns.character },
         name: { type: 'string', minLength: 1 },
         displayName: { type: 'string', minLength: 1 },
+        description: { type: 'string' },
+        dialogueStyle: { type: 'string' },
         defaultPortraitId: { type: 'string', pattern: '^a_[a-z0-9][a-z0-9_-]{2,}$' },
         emotions: { $ref: '#/$defs/emotions' },
         fields: { type: 'array', items: { $ref: '#/$defs/characterField' } },

@@ -20,6 +20,8 @@ const character: CharacterSource = {
   id: 'c_alice',
   name: 'alice',
   displayName: 'Alice',
+  description: 'A careful navigator searching for her missing sister.',
+  dialogueStyle: 'Precise, understated, and rarely uses contractions.',
   defaultPortraitId: 'a_aliceportrait',
   emotions: {
     happy: { displayName: 'Happy', portraitId: 'a_aliceportrait' },
@@ -45,6 +47,8 @@ describe('project resource KDL', () => {
     expect(serializeAssetResource(parseAssetResource(assetText))).toBe(assetText);
     expect(characterText).toContain('emotion happy');
     expect(characterText).toContain('field v_aliceaffinity');
+    expect(characterText).toContain('description="A careful navigator');
+    expect(characterText).toContain('dialogue-style="Precise, understated');
     expect(assetText).toContain('locale zh-CN');
   });
 

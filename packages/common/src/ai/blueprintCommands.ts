@@ -166,6 +166,8 @@ export interface UpdateCharacterCommand extends BlueprintCommandBase {
   patch: {
     name?: string;
     displayName?: string;
+    description?: string | null;
+    dialogueStyle?: string | null;
     defaultPortraitId?: AssetId | null;
     emotions?: CharacterSource['emotions'];
     fields?: CharacterSource['fields'];

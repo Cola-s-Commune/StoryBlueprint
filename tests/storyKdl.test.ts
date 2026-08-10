@@ -78,6 +78,8 @@ function sourceDocument(): StorySourceDocument {
         id: 'c_arys',
         name: 'arys',
         displayName: 'Arys',
+        description: 'A wandering scholar.',
+        dialogueStyle: 'Warm, curious, and concise.',
         emotions: { happy: { displayName: 'Happy' } },
       },
     ],

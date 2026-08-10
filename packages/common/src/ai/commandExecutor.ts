@@ -150,6 +150,8 @@ function validVariable(value: unknown): value is VariableDefinition {
     value.name.length > 0 &&
     typeof value.displayName === 'string' &&
     value.displayName.length > 0 &&
+    (value.description === undefined || typeof value.description === 'string') &&
+    (value.dialogueStyle === undefined || typeof value.dialogueStyle === 'string') &&
     (value.scope === 'project' ||
       value.scope === 'story' ||
       value.scope === 'chapter' ||
@@ -581,7 +583,15 @@ export function validateBlueprintCommandTransaction(
           diagnostics.push(
             ...unexpectedKeyDiagnostics(
               raw.patch,
-              ['name', 'displayName', 'defaultPortraitId', 'emotions', 'fields'],
+              [
+                'name',
+                'displayName',
+                'description',
+                'dialogueStyle',
+                'defaultPortraitId',
+                'emotions',
+                'fields',
+              ],
               `${path}.patch`,
               operationIndex,
             ),
@@ -595,6 +605,12 @@ export function validateBlueprintCommandTransaction(
             (typeof raw.patch.name !== 'string' || raw.patch.name.length === 0)) ||
           (raw.patch.displayName !== undefined &&
             (typeof raw.patch.displayName !== 'string' || raw.patch.displayName.length === 0)) ||
+          (raw.patch.description !== undefined &&
+            raw.patch.description !== null &&
+            typeof raw.patch.description !== 'string') ||
+          (raw.patch.dialogueStyle !== undefined &&
+            raw.patch.dialogueStyle !== null &&
+            typeof raw.patch.dialogueStyle !== 'string') ||
           (raw.patch.defaultPortraitId !== undefined &&
             raw.patch.defaultPortraitId !== null &&
             (typeof raw.patch.defaultPortraitId !== 'string' ||
@@ -845,6 +861,10 @@ function applyOperation(
     const next: CharacterSource = {
       ...previous,
       ...patch,
+      description:
+        patch.description === null ? undefined : (patch.description ?? previous.description),
+      dialogueStyle:
+        patch.dialogueStyle === null ? undefined : (patch.dialogueStyle ?? previous.dialogueStyle),
       defaultPortraitId:
         patch.defaultPortraitId === null
           ? undefined
