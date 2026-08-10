@@ -195,6 +195,7 @@ export function StoryGraph() {
   const [contextMenu, setContextMenu] = useState<{
     left: number;
     top: number;
+    maxHeight: number;
     flowPosition: { x: number; y: number };
     edge?: EditorGraphEdge;
   } | null>(null);
@@ -347,9 +348,11 @@ export function StoryGraph() {
       const actualEdge = edges.find((candidate) => candidate.id === edge.id);
       if (!actualEdge || !isExecutionEdge(actualEdge, nodes)) return;
       const bounds = canvasRef.current.getBoundingClientRect();
+      const maxHeight = Math.max(48, Math.min(150, bounds.height - 8));
       setContextMenu({
         left: Math.max(4, Math.min(event.clientX - bounds.left, bounds.width - 200)),
-        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - 150)),
+        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - maxHeight - 4)),
+        maxHeight,
         flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
         edge: actualEdge,
       });
@@ -413,9 +416,11 @@ export function StoryGraph() {
       rightDragRef.current = undefined;
       if (!flowInstance || !canvasRef.current) return;
       const bounds = canvasRef.current.getBoundingClientRect();
+      const maxHeight = Math.max(48, Math.min(480, bounds.height - 8));
       setContextMenu({
         left: Math.max(4, Math.min(event.clientX - bounds.left, bounds.width - 200)),
-        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - 390)),
+        top: Math.max(4, Math.min(event.clientY - bounds.top, bounds.height - maxHeight - 4)),
+        maxHeight,
         flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
       });
     },
@@ -1501,7 +1506,7 @@ export function StoryGraph() {
           panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
-          <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" />
+          <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" pannable />
           <Controls />
         </ReactFlow>
         {showSearch && (
@@ -1962,7 +1967,11 @@ export function StoryGraph() {
         {contextMenu && (
           <div
             className={styles.contextMenu}
-            style={{ left: contextMenu.left, top: contextMenu.top }}
+            style={{
+              left: contextMenu.left,
+              top: contextMenu.top,
+              maxHeight: contextMenu.maxHeight,
+            }}
           >
             <div className={styles.contextMenuTitle}>
               {contextMenu.edge ? 'Wire Actions' : 'Create Node'}
