@@ -22,6 +22,9 @@ const character: CharacterSource = {
   displayName: 'Alice',
   description: 'A careful navigator searching for her missing sister.',
   dialogueStyle: 'Precise, understated, and rarely uses contractions.',
+  relationships: {
+    c_bob: { label: 'Trusted ally', description: 'Relies on Bob under pressure.' },
+  },
   defaultPortraitId: 'a_aliceportrait',
   emotions: {
     happy: { displayName: 'Happy', portraitId: 'a_aliceportrait' },
@@ -49,6 +52,7 @@ describe('project resource KDL', () => {
     expect(characterText).toContain('field v_aliceaffinity');
     expect(characterText).toContain('description="A careful navigator');
     expect(characterText).toContain('dialogue-style="Precise, understated');
+    expect(characterText).toContain('relationship c_bob label="Trusted ally"');
     expect(assetText).toContain('locale zh-CN');
   });
 

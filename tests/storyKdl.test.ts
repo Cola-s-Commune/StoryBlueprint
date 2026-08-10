@@ -80,7 +80,14 @@ function sourceDocument(): StorySourceDocument {
         displayName: 'Arys',
         description: 'A wandering scholar.',
         dialogueStyle: 'Warm, curious, and concise.',
+        relationships: { c_bryn: { label: 'Old friend' } },
         emotions: { happy: { displayName: 'Happy' } },
+      },
+      {
+        id: 'c_bryn',
+        name: 'bryn',
+        displayName: 'Bryn',
+        emotions: {},
       },
     ],
     assets: [],
@@ -156,6 +163,12 @@ describe('story KDL v4', () => {
   it('rejects duplicate stable IDs', () => {
     const serialized = serializeStorySource(sourceDocument()).replace('n_endx', 'n_start');
     expect(() => parseStorySource(serialized)).toThrow(/Duplicate node ID/);
+  });
+
+  it('rejects a Character relationship whose target is missing', () => {
+    const source = sourceDocument();
+    source.characters = source.characters.filter((character) => character.id !== 'c_bryn');
+    expect(() => serializeStorySource(source)).toThrow(/relationship references missing character/);
   });
 
   it('preserves variables and characters', () => {

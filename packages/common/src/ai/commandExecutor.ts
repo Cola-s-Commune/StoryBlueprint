@@ -6,7 +6,7 @@ import {
 } from '../graph/connectionValidation';
 import { NodeRegistry } from '../registry/nodeRegistry';
 import { serializeStorySource } from '../serialization/storyKdl';
-import { isStableId } from '../types/ids';
+import { isStableId, type CharacterId } from '../types/ids';
 import {
   StoryNodeType,
   type ChoiceNodeData,
@@ -150,8 +150,6 @@ function validVariable(value: unknown): value is VariableDefinition {
     value.name.length > 0 &&
     typeof value.displayName === 'string' &&
     value.displayName.length > 0 &&
-    (value.description === undefined || typeof value.description === 'string') &&
-    (value.dialogueStyle === undefined || typeof value.dialogueStyle === 'string') &&
     (value.scope === 'project' ||
       value.scope === 'story' ||
       value.scope === 'chapter' ||
@@ -190,6 +188,21 @@ function validEmotions(value: unknown): boolean {
   );
 }
 
+function validRelationships(value: unknown, ownerId?: CharacterId): boolean {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([targetId, relationship]) =>
+        isStableId(targetId, 'character') &&
+        targetId !== ownerId &&
+        isRecord(relationship) &&
+        typeof relationship.label === 'string' &&
+        relationship.label.trim().length > 0 &&
+        (relationship.description === undefined || typeof relationship.description === 'string'),
+    )
+  );
+}
+
 function validCharacter(value: unknown): value is CharacterSource {
   return (
     isRecord(value) &&
@@ -199,6 +212,9 @@ function validCharacter(value: unknown): value is CharacterSource {
     value.name.length > 0 &&
     typeof value.displayName === 'string' &&
     value.displayName.length > 0 &&
+    (value.description === undefined || typeof value.description === 'string') &&
+    (value.dialogueStyle === undefined || typeof value.dialogueStyle === 'string') &&
+    (value.relationships === undefined || validRelationships(value.relationships, value.id)) &&
     (value.defaultPortraitId === undefined ||
       (typeof value.defaultPortraitId === 'string' &&
         isStableId(value.defaultPortraitId, 'asset'))) &&
@@ -588,6 +604,7 @@ export function validateBlueprintCommandTransaction(
                 'displayName',
                 'description',
                 'dialogueStyle',
+                'relationships',
                 'defaultPortraitId',
                 'emotions',
                 'fields',
@@ -611,6 +628,9 @@ export function validateBlueprintCommandTransaction(
           (raw.patch.dialogueStyle !== undefined &&
             raw.patch.dialogueStyle !== null &&
             typeof raw.patch.dialogueStyle !== 'string') ||
+          (raw.patch.relationships !== undefined &&
+            raw.patch.relationships !== null &&
+            !validRelationships(raw.patch.relationships, raw.characterId as CharacterId)) ||
           (raw.patch.defaultPortraitId !== undefined &&
             raw.patch.defaultPortraitId !== null &&
             (typeof raw.patch.defaultPortraitId !== 'string' ||
@@ -865,6 +885,8 @@ function applyOperation(
         patch.description === null ? undefined : (patch.description ?? previous.description),
       dialogueStyle:
         patch.dialogueStyle === null ? undefined : (patch.dialogueStyle ?? previous.dialogueStyle),
+      relationships:
+        patch.relationships === null ? undefined : (patch.relationships ?? previous.relationships),
       defaultPortraitId:
         patch.defaultPortraitId === null
           ? undefined

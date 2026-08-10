@@ -35,7 +35,7 @@ export async function replaceProjectStoriesAtomically(
     const current = await readFile(write.filePath, 'utf8');
     if (storyContentRevision(current) !== write.expectedRevision) {
       throw new Error(
-        `Project file changed on disk since the reference scan: ${write.displayPath}`,
+        `Project file changed on disk before it could be updated: ${write.displayPath}`,
       );
     }
     const nonce = randomUUID();

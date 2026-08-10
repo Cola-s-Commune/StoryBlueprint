@@ -8,6 +8,9 @@ const character: CharacterSource = {
   displayName: 'Captain Mira',
   description: 'A cautious navigator searching for a lost expedition.',
   dialogueStyle: 'Formal nautical vocabulary with dry humor.',
+  relationships: {
+    c_orrin: { label: 'Former mentor', description: 'A source of unresolved resentment.' },
+  },
   emotions: { suspicious: { displayName: 'Suspicious' } },
   fields: [
     {
@@ -27,6 +30,7 @@ describe('Story Data character search', () => {
     expect(matchesCharacterSearch(character, 'nautical humor')).toBe(true);
     expect(matchesCharacterSearch(character, 'suspicious')).toBe(true);
     expect(matchesCharacterSearch(character, 'crew trust number')).toBe(true);
+    expect(matchesCharacterSearch(character, 'former resentment')).toBe(true);
   });
 
   it('requires every search term to match while ignoring case and outer whitespace', () => {

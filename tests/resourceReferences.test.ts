@@ -48,6 +48,16 @@ const character: CharacterSource = {
       defaultValue: 0,
     },
   ],
+  relationships: {
+    c_bob: { label: 'Trusted ally', description: 'Alice depends on Bob.' },
+  },
+};
+
+const bob: CharacterSource = {
+  id: 'c_bob',
+  name: 'bob',
+  displayName: 'Bob',
+  emotions: {},
 };
 
 const stories: ResourceReferenceStory[] = [
@@ -118,6 +128,18 @@ describe('character and asset reference index', () => {
     expect(findAssetReferences('a_happy', stories, [{ character }])[0]?.field).toBe(
       'Emotion Happy Portrait',
     );
+  });
+
+  it('indexes directed Character relationships as target references', () => {
+    const index = buildStoryResourceReferenceIndex([], [{ character }, { character: bob }]);
+    expect(index.characters.get(bob.id)).toEqual([
+      expect.objectContaining({
+        label: 'Alice',
+        field: 'Relationship · Trusted ally',
+        target: { kind: 'character', characterId: character.id },
+      }),
+    ]);
+    expect(index.characters.get(character.id)).toBeUndefined();
   });
 
   it('does not report unrelated resources', () => {

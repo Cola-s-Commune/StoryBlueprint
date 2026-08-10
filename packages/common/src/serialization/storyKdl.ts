@@ -352,6 +352,20 @@ function serializeCharacters(characters: readonly CharacterSource[]): Node | und
     if (character.description) node.setProperty('description', character.description);
     if (character.dialogueStyle) node.setProperty('dialogue-style', character.dialogueStyle);
     if (character.defaultPortraitId) node.setProperty('portrait', character.defaultPortraitId);
+    for (const [targetId, relationship] of Object.entries(character.relationships ?? {})) {
+      if (!isStableId(targetId, 'character') || targetId === character.id) {
+        throw new StoryFormatError(`${character.id}.relationship target is invalid`);
+      }
+      if (!relationship.label.trim()) {
+        throw new StoryFormatError(`${character.id}.${targetId}.label cannot be empty`);
+      }
+      const relationshipNode = Node.create('relationship');
+      relationshipNode.addArgument(targetId);
+      relationshipNode.setProperty('label', relationship.label);
+      if (relationship.description)
+        relationshipNode.setProperty('description', relationship.description);
+      node.appendNode(relationshipNode);
+    }
     for (const field of character.fields ?? []) {
       const fieldNode = Node.create('field');
       fieldNode.addArgument(field.id);
@@ -423,6 +437,16 @@ function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined
 
 function validateStoryReferences(source: StorySourceDocument): void {
   const chapterIds = new Set(source.chapters.map((chapter) => chapter.id));
+  const characterIds = new Set(source.characters.map((character) => character.id));
+  for (const character of source.characters) {
+    for (const targetId of Object.keys(character.relationships ?? {})) {
+      if (!characterIds.has(targetId as CharacterSource['id'])) {
+        throw new StoryFormatError(
+          `Character ${character.id} relationship references missing character ${targetId}`,
+        );
+      }
+    }
+  }
   const allNodeIds = new Set<string>();
   const allLineIds = new Set<string>();
   const allTextIds = new Set<string>();
@@ -849,7 +873,7 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
     assertShape(node, 'story.characters.character', {
       arguments: 1,
       properties: ['name', 'display-name', 'description', 'dialogue-style', 'portrait'],
-      children: ['emotion', 'field'],
+      children: ['emotion', 'field', 'relationship'],
     });
     const id = requiredId(node.getArgument(0), 'character', 'character.id');
     const name = requiredString(node.getProperty('name'), `${id}.name`);
@@ -913,12 +937,44 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
         ];
       }),
     );
+    const relationshipTargets = new Set<string>();
+    const relationships: NonNullable<CharacterSource['relationships']> = Object.fromEntries(
+      node.findNodesByName('relationship').map((relationship) => {
+        assertShape(relationship, `${id}.relationship`, {
+          arguments: 1,
+          properties: ['label', 'description'],
+        });
+        const targetId = requiredId(
+          relationship.getArgument(0),
+          'character',
+          `${id}.relationship.target`,
+        );
+        if (targetId === id) throw new StoryFormatError(`${id} cannot relate to itself`);
+        if (relationshipTargets.has(targetId)) {
+          throw new StoryFormatError(`Duplicate relationship target ${targetId}`);
+        }
+        relationshipTargets.add(targetId);
+        const label = requiredString(relationship.getProperty('label'), `${id}.${targetId}.label`);
+        if (!label.trim()) throw new StoryFormatError(`${id}.${targetId}.label cannot be empty`);
+        return [
+          targetId,
+          {
+            label,
+            description: optionalString(
+              relationship.getProperty('description'),
+              `${id}.${targetId}.description`,
+            ),
+          },
+        ];
+      }),
+    );
     return {
       id,
       name,
       displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
       description: optionalString(node.getProperty('description'), `${id}.description`),
       dialogueStyle: optionalString(node.getProperty('dialogue-style'), `${id}.dialogue-style`),
+      ...(Object.keys(relationships).length > 0 ? { relationships } : {}),
       defaultPortraitId: node.getProperty('portrait')
         ? requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`)
         : undefined,

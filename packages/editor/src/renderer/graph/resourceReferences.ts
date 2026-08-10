@@ -160,6 +160,15 @@ export function buildStoryResourceReferenceIndex(
         field,
         target: { kind: 'character', characterId: character.id, storyId: owner.storyId },
       });
+    for (const [targetId, relationship] of Object.entries(character.relationships ?? {})) {
+      addReference(characterIndex, targetId as CharacterId, {
+        id: `character:${character.id}:relationship:${targetId}`,
+        label: character.displayName,
+        location: owner.storyLabel ?? 'Project Characters',
+        field: `Relationship · ${relationship.label}`,
+        target: { kind: 'character', characterId: character.id, storyId: owner.storyId },
+      });
+    }
     if (character.defaultPortraitId) {
       addCharacterReference(character.defaultPortraitId, 'Default Portrait');
     }

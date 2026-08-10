@@ -75,6 +75,8 @@ export interface CharacterSource {
   description?: string;
   /** Guidance for generated dialogue, such as vocabulary, tone, and verbal habits. */
   dialogueStyle?: string;
+  /** Directed, writer-facing relationships keyed by the target Character ID. */
+  relationships?: Readonly<Record<CharacterId, { label: string; description?: string }>>;
   defaultPortraitId?: AssetId;
   emotions: Readonly<Record<string, { displayName: string; portraitId?: AssetId }>>;
   /** Engine-owned typed state addressed through the Story Adapter. */

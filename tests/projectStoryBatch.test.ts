@@ -84,7 +84,7 @@ describe('project Story batch replacement', () => {
           expectedRevision: secondRevision,
         },
       ]),
-    ).rejects.toThrow('Project file changed on disk since the reference scan: second.story');
+    ).rejects.toThrow('Project file changed on disk before it could be updated: second.story');
 
     await expect(readFile(firstPath, 'utf8')).resolves.toBe('first before');
     await expect(readFile(secondPath, 'utf8')).resolves.toBe('external edit');
@@ -117,7 +117,7 @@ describe('project Story batch replacement', () => {
         },
       ]),
     ).rejects.toThrow(
-      'Project file changed on disk since the reference scan: project.storyproject',
+      'Project file changed on disk before it could be updated: project.storyproject',
     );
 
     await expect(readFile(storyPath, 'utf8')).resolves.toBe('story before');

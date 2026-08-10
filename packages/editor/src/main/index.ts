@@ -715,6 +715,15 @@ async function applyWorkspaceMerge(
         throw new Error(`Project index does not match merged Character ${relativePath}`);
       }
     }
+    for (const character of characters.values()) {
+      for (const targetId of Object.keys(character.relationships ?? {})) {
+        if (!characterIds.has(targetId)) {
+          throw new Error(
+            `Character ${character.displayName} relationship references missing character ${targetId}`,
+          );
+        }
+      }
+    }
     for (const reference of project.characters) {
       if (reference.path && !characters.has(reference.path)) {
         throw new Error(`Project references missing Character file ${reference.path}`);
@@ -1019,6 +1028,11 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
     if (!reference.path) continue;
     const character = externalCharacters.get(reference.path);
     if (!character) continue;
+    for (const targetId of Object.keys(character.relationships ?? {})) {
+      if (!characters.has(targetId as CharacterSource['id'])) {
+        throw new Error(`Character ${character.id} references missing character ${targetId}`);
+      }
+    }
     const portraitIds = [
       character.defaultPortraitId,
       ...Object.values(character.emotions).map((emotion) => emotion.portraitId),
@@ -1058,6 +1072,11 @@ async function validateCharacterResourceWrite(
       (candidate.id === character.id || candidate.name === character.name),
   );
   if (conflict) throw new Error(`Character conflicts with ${conflict.displayName}`);
+  for (const targetId of Object.keys(character.relationships ?? {})) {
+    if (!project.characters.some((candidate) => candidate.id === targetId)) {
+      throw new Error(`Character references missing character ${targetId}`);
+    }
+  }
   const portraitIds = [
     character.defaultPortraitId,
     ...Object.values(character.emotions).map((emotion) => emotion.portraitId),
@@ -2009,11 +2028,19 @@ function registerStoryFileHandlers(): void {
       }
       const filePath = await resolveExistingWorkspacePath(relativePath);
       if (!filePath.toLowerCase().endsWith('.character')) throw new Error('Not a character file');
-      const previous = parseCharacterResource(await readFile(filePath, 'utf8'));
+      const previousContent = await readFile(filePath, 'utf8');
+      const previous = parseCharacterResource(previousContent);
       const character = value as CharacterSource;
       if (character.id !== previous.id) throw new Error('Character ID cannot be changed');
       await validateCharacterResourceWrite(character, relativePath);
-      await writeFile(filePath, serializeCharacterResource(character), 'utf8');
+      await replaceProjectStoriesAtomically([
+        {
+          filePath,
+          displayPath: relativePath,
+          content: serializeCharacterResource(character),
+          expectedRevision: storyContentRevision(previousContent),
+        },
+      ]);
       return syncWorkspaceProject();
     },
   );
@@ -2031,6 +2058,15 @@ function registerStoryFileHandlers(): void {
     const reference = project.characters.find((character) => character.path === relativePath);
     if (reference?.storyIds.length) {
       throw new Error(`Character is used by ${reference.storyIds.length} Story file(s)`);
+    }
+    const workspace = await readWorkspace();
+    const relationshipOwner = workspace?.characterResources.find(({ character }) =>
+      Object.hasOwn(character.relationships ?? {}, reference?.id ?? ''),
+    );
+    if (relationshipOwner) {
+      throw new Error(
+        `Character is referenced by ${relationshipOwner.character.displayName}'s relationship`,
+      );
     }
     const filePath = await resolveExistingWorkspacePath(relativePath);
     if (!filePath.toLowerCase().endsWith('.character')) throw new Error('Not a character file');

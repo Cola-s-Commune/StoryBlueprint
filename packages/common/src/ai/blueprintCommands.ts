@@ -168,6 +168,7 @@ export interface UpdateCharacterCommand extends BlueprintCommandBase {
     displayName?: string;
     description?: string | null;
     dialogueStyle?: string | null;
+    relationships?: CharacterSource['relationships'] | null;
     defaultPortraitId?: AssetId | null;
     emotions?: CharacterSource['emotions'];
     fields?: CharacterSource['fields'];

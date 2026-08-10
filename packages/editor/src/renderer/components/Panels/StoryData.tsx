@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createStableId } from '@story-blueprint/common';
 import type {
   CharacterSource,
+  CharacterId,
   EventSource,
   SignalSource,
   AssetId,
@@ -306,6 +307,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     assets,
     workspace,
     workspaceError,
+    selectStoryData,
     updateCharacter,
     findCharacterReferences,
     findEmotionReferences,
@@ -324,6 +326,17 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
   );
   const portraitAssets = assets.filter((asset) => asset.kind === 'portrait');
   const references = findCharacterReferences(character.id);
+  const relationships = character.relationships ?? {};
+  const availableRelationshipTarget = characters.find(
+    (candidate) => candidate.id !== character.id && !relationships[candidate.id],
+  );
+  const updateRelationships = (next: Record<string, { label: string; description?: string }>) =>
+    updateCharacter(character.id, {
+      relationships:
+        Object.keys(next).length > 0
+          ? (next as NonNullable<CharacterSource['relationships']>)
+          : undefined,
+    });
   const addEmotion = () => {
     let index = Object.keys(character.emotions).length + 1;
     let key = `emotion${index}`;
@@ -410,6 +423,120 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           ))}
         </select>
       </label>
+      <div className={styles.parameterHeader}>
+        <span>Relationships</span>
+        <button
+          type="button"
+          disabled={!availableRelationshipTarget}
+          title={
+            availableRelationshipTarget
+              ? 'Add a directed character relationship'
+              : 'Every other character already has a relationship'
+          }
+          onClick={() => {
+            if (!availableRelationshipTarget) return;
+            updateRelationships({
+              ...relationships,
+              [availableRelationshipTarget.id]: { label: 'Relationship' },
+            });
+          }}
+        >
+          Add Relationship
+        </button>
+      </div>
+      <div className={styles.relationshipList}>
+        {Object.entries(relationships).map(([targetId, relationship]) => {
+          const target = characters.find((candidate) => candidate.id === targetId);
+          return (
+            <div className={styles.relationshipBlock} key={targetId}>
+              <label>
+                <span>Character</span>
+                <select
+                  value={targetId}
+                  onChange={(event) => {
+                    const nextTargetId = event.target.value as CharacterId;
+                    updateRelationships({
+                      ...Object.fromEntries(
+                        Object.entries(relationships).filter(
+                          ([candidateId]) => candidateId !== targetId,
+                        ),
+                      ),
+                      [nextTargetId]: relationship,
+                    });
+                  }}
+                >
+                  {characters
+                    .filter(
+                      (candidate) =>
+                        candidate.id !== character.id &&
+                        (candidate.id === targetId || !relationships[candidate.id]),
+                    )
+                    .map((candidate) => (
+                      <option value={candidate.id} key={candidate.id}>
+                        {candidate.displayName}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <CommitTextarea
+                label="Relationship"
+                rows={1}
+                value={relationship.label}
+                saveError={workspaceError}
+                onCommit={(value) => {
+                  if (!value.trim()) return;
+                  updateRelationships({
+                    ...relationships,
+                    [targetId]: { ...relationship, label: value },
+                  });
+                }}
+              />
+              <CommitTextarea
+                label="Description"
+                rows={2}
+                placeholder="How this character sees and treats the other character."
+                value={relationship.description ?? ''}
+                saveError={workspaceError}
+                onCommit={(value) =>
+                  updateRelationships({
+                    ...relationships,
+                    [targetId]: { ...relationship, description: value || undefined },
+                  })
+                }
+              />
+              <div className={styles.relationshipActions}>
+                {target && (
+                  <button
+                    className={styles.secondaryButton}
+                    type="button"
+                    onClick={() => selectStoryData({ kind: 'character', id: target.id })}
+                  >
+                    Show {target.displayName}
+                  </button>
+                )}
+                <button
+                  className={styles.dangerButton}
+                  type="button"
+                  onClick={() =>
+                    updateRelationships(
+                      Object.fromEntries(
+                        Object.entries(relationships).filter(
+                          ([candidateId]) => candidateId !== targetId,
+                        ),
+                      ),
+                    )
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {Object.keys(relationships).length === 0 && (
+          <div className={styles.infoText}>No static character relationships.</div>
+        )}
+      </div>
       <div className={styles.parameterHeader}>
         <span>Fields</span>
         <button type="button" onClick={addField}>

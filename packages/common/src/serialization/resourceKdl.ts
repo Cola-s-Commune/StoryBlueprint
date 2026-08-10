@@ -115,6 +115,21 @@ export function serializeCharacterResource(character: CharacterSource): string {
   if (character.description) root.setProperty('description', character.description);
   if (character.dialogueStyle) root.setProperty('dialogue-style', character.dialogueStyle);
   if (character.defaultPortraitId) root.setProperty('portrait', character.defaultPortraitId);
+  for (const [targetId, relationship] of Object.entries(character.relationships ?? {}).sort(
+    ([a], [b]) => a.localeCompare(b),
+  )) {
+    if (!isStableId(targetId, 'character') || targetId === character.id) {
+      throw new StoryFormatError(`${character.id}.relationship target is invalid`);
+    }
+    if (!relationship.label.trim()) {
+      throw new StoryFormatError(`${character.id}.${targetId}.label cannot be empty`);
+    }
+    const node = Node.create('relationship');
+    node.addArgument(targetId);
+    node.setProperty('label', relationship.label);
+    if (relationship.description) node.setProperty('description', relationship.description);
+    root.appendNode(node);
+  }
   for (const field of character.fields ?? []) root.appendNode(serializeCharacterField(field));
   for (const [key, emotion] of Object.entries(character.emotions).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -135,12 +150,13 @@ export function parseCharacterResource(text: string): CharacterSource {
     'character',
     1,
     ['format', 'version', 'name', 'display-name', 'description', 'dialogue-style', 'portrait'],
-    ['emotion', 'field'],
+    ['emotion', 'field', 'relationship'],
   );
   assertRoot(root, STORY_CHARACTER_FORMAT, STORY_CHARACTER_VERSION);
   const id = stringValue(root.getArgument(0), 'character.id');
   if (!isStableId(id, 'character')) throw new StoryFormatError('Invalid character ID');
   const emotionKeys = new Set<string>();
+  const relationshipTargets = new Set<string>();
   const fieldIds = new Set<string>();
   const fieldNames = new Set<string>();
   const fields = root.findNodesByName('field').map((node) => {
@@ -174,6 +190,26 @@ export function parseCharacterResource(text: string): CharacterSource {
       ];
     }),
   );
+  const relationships: NonNullable<CharacterSource['relationships']> = Object.fromEntries(
+    root.findNodesByName('relationship').map((node) => {
+      assertShape(node, `${id}.relationship`, 1, ['label', 'description'], []);
+      const targetId = stringValue(node.getArgument(0), `${id}.relationship.target`);
+      if (!isStableId(targetId, 'character') || targetId === id) {
+        throw new StoryFormatError(`${id}.relationship target is invalid`);
+      }
+      if (relationshipTargets.has(targetId)) {
+        throw new StoryFormatError(`Duplicate relationship target ${targetId}`);
+      }
+      relationshipTargets.add(targetId);
+      const label = stringValue(node.getProperty('label'), `${id}.${targetId}.label`);
+      if (!label.trim()) throw new StoryFormatError(`${id}.${targetId}.label cannot be empty`);
+      const description = node.getProperty('description');
+      if (description !== undefined && typeof description !== 'string') {
+        throw new StoryFormatError(`${id}.${targetId}.description must be a string`);
+      }
+      return [targetId, { label, description: description || undefined }];
+    }),
+  );
   const portrait = root.getProperty('portrait');
   if (portrait !== undefined && (typeof portrait !== 'string' || !isStableId(portrait, 'asset'))) {
     throw new StoryFormatError(`${id}.portrait is invalid`);
@@ -192,6 +228,7 @@ export function parseCharacterResource(text: string): CharacterSource {
     displayName: stringValue(root.getProperty('display-name'), `${id}.display-name`),
     description: description || undefined,
     dialogueStyle: dialogueStyle || undefined,
+    ...(Object.keys(relationships).length > 0 ? { relationships } : {}),
     defaultPortraitId: portrait as CharacterSource['defaultPortraitId'],
     emotions,
     fields,

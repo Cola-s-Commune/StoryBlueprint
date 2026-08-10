@@ -442,6 +442,9 @@ describe('AI semantic editing foundation', () => {
             name: 'Alice',
             displayName: 'Alice',
             description: 'A patient investigator.',
+            relationships: {
+              c_bob: { label: 'Reluctant partner', description: 'Trust is still developing.' },
+            },
             emotions: {},
             fields: [
               {
@@ -453,6 +456,16 @@ describe('AI semantic editing foundation', () => {
                 defaultValue: 0,
               },
             ],
+          },
+        },
+        {
+          operationId: 'add-bob',
+          kind: 'add-character',
+          character: {
+            id: 'c_bob',
+            name: 'Bob',
+            displayName: 'Bob',
+            emotions: {},
           },
         },
         {
@@ -485,6 +498,9 @@ describe('AI semantic editing foundation', () => {
     expect(result.document.characters[0]).toMatchObject({
       description: 'A patient investigator.',
       dialogueStyle: 'Short sentences with dry humor.',
+      relationships: {
+        c_bob: { label: 'Reluctant partner', description: 'Trust is still developing.' },
+      },
     });
   });
 

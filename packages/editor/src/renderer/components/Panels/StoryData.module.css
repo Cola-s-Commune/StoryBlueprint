@@ -23,6 +23,26 @@
   overflow-wrap: anywhere;
 }
 
+.relationshipList {
+  display: grid;
+  gap: 7px;
+}
+
+.relationshipBlock {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid #343b45;
+  border-radius: 5px;
+  background: #20242a;
+}
+
+.relationshipActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .resourceSearch {
   padding: 8px 8px 0;
 }
