@@ -57,7 +57,11 @@ import type {
   WorkspaceEntry,
   WorkspaceInfo,
 } from '../shared/electronApi';
-import { readStoryGitConflict, readWorkspaceGitConflicts } from './storyGitConflict';
+import {
+  markStoryGitConflictResolved,
+  readStoryGitConflict,
+  readWorkspaceGitConflicts,
+} from './storyGitConflict';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
 import {
   replaceProjectStoriesAtomically,
@@ -936,9 +940,13 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
   };
 
   for (const entry of storyEntries) {
-    const source = parseStorySource(
-      await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'),
-    );
+    let source: StorySourceDocument;
+    try {
+      source = parseStorySource(await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${entry.relativePath}: ${message}`, { cause: error });
+    }
     stories.push({
       id: source.id,
       path: entry.relativePath,
@@ -1459,6 +1467,9 @@ function registerStoryFileHandlers(): void {
       }
     }
     await writeFile(filePath, request.content, 'utf8');
+    if (request.gitConflictRevision) {
+      await markStoryGitConflictResolved(filePath, request.gitConflictRevision);
+    }
     const fileToken = randomUUID();
     const tokens = storyFileTokens.get(filePath) ?? new Set<string>();
     tokens.add(fileToken);
@@ -2033,6 +2044,28 @@ function registerStoryFileHandlers(): void {
       const character = value as CharacterSource;
       if (character.id !== previous.id) throw new Error('Character ID cannot be changed');
       await validateCharacterResourceWrite(character, relativePath);
+      if (!workspaceProjectFile) throw new Error('Open a project first');
+      const projectContent = await readFile(workspaceProjectFile, 'utf8');
+      const project = parseStoryProject(projectContent);
+      const projectCharacter = project.characters.find(
+        (candidate) => candidate.path === relativePath,
+      );
+      if (!projectCharacter) {
+        throw new Error(`Character is missing from the project index: ${relativePath}`);
+      }
+      const nextProject: StoryProjectDocument = {
+        ...project,
+        characters: project.characters.map((candidate) =>
+          candidate.path === relativePath
+            ? {
+                ...candidate,
+                id: character.id,
+                name: character.name,
+                displayName: character.displayName,
+              }
+            : candidate,
+        ),
+      };
       await replaceProjectStoriesAtomically([
         {
           filePath,
@@ -2040,8 +2073,14 @@ function registerStoryFileHandlers(): void {
           content: serializeCharacterResource(character),
           expectedRevision: storyContentRevision(previousContent),
         },
+        {
+          filePath: workspaceProjectFile,
+          displayPath: toWorkspaceRelative(workspaceProjectFile),
+          content: serializeStoryProject(nextProject),
+          expectedRevision: storyContentRevision(projectContent),
+        },
       ]);
-      return syncWorkspaceProject();
+      return (await readWorkspace())!;
     },
   );
 

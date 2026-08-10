@@ -74,6 +74,20 @@ export async function readStoryGitConflict(
   };
 }
 
+export async function markStoryGitConflictResolved(
+  filePath: string,
+  expectedRevision: string,
+): Promise<void> {
+  const conflict = await readStoryGitConflict(filePath);
+  if (!conflict || conflict.revision !== expectedRevision) {
+    throw new Error('Git conflict stages changed before the Story could be marked resolved.');
+  }
+  await runGit(['add', '--', conflict.relativePath], conflict.repositoryRoot);
+  if (await readStoryGitConflict(filePath)) {
+    throw new Error('Git still reports the Story as unresolved after staging it.');
+  }
+}
+
 function resourceKind(filePath: string): WorkspaceMergeResourceKind | undefined {
   const extension = extname(filePath).toLowerCase();
   if (extension === '.storyproject') return 'project';

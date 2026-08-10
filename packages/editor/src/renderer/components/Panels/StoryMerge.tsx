@@ -971,7 +971,7 @@ export function StoryMerge() {
       setValidatedKey('');
       setGitConflictRevision('');
       setError(undefined);
-      setStatus('Merge validated, applied, and saved. Git staging remains under your control.');
+      setStatus('Merge validated, applied, saved, and marked resolved in Git.');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {

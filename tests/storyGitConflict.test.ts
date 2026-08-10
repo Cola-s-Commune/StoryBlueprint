@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  markStoryGitConflictResolved,
   readStoryGitConflict,
   readWorkspaceGitConflicts,
 } from '../packages/editor/src/main/storyGitConflict';
@@ -69,6 +70,39 @@ describe('Story Git conflict stages', () => {
     await writeFile(storyPath, 'clean\n', 'utf8');
 
     await expect(readStoryGitConflict(storyPath)).resolves.toBeUndefined();
+  });
+
+  it('marks only the resolved Story as staged in Git', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'story-blueprint-git-resolve-'));
+    temporaryDirectories.push(repository);
+    const storyPath = join(repository, 'main.story');
+
+    await git(repository, 'init');
+    await git(repository, 'checkout', '-b', 'local');
+    await git(repository, 'config', 'user.email', 'story-blueprint@example.invalid');
+    await git(repository, 'config', 'user.name', 'Story Blueprint Test');
+    await writeFile(storyPath, 'base\n', 'utf8');
+    await git(repository, 'add', 'main.story');
+    await git(repository, 'commit', '-m', 'base');
+    await git(repository, 'checkout', '-b', 'remote');
+    await writeFile(storyPath, 'remote\n', 'utf8');
+    await git(repository, 'commit', '-am', 'remote');
+    await git(repository, 'checkout', 'local');
+    await writeFile(storyPath, 'local\n', 'utf8');
+    await git(repository, 'commit', '-am', 'local');
+    await expect(git(repository, 'merge', 'remote')).rejects.toThrow();
+
+    const conflict = await readStoryGitConflict(storyPath);
+    await writeFile(storyPath, 'resolved\n', 'utf8');
+    await markStoryGitConflictResolved(storyPath, conflict!.revision);
+
+    await expect(readStoryGitConflict(storyPath)).resolves.toBeUndefined();
+    const staged = await execFileAsync('git', ['diff', '--cached', '--name-only'], {
+      cwd: repository,
+      windowsHide: true,
+      encoding: 'utf8',
+    });
+    expect(staged.stdout.trim()).toBe('main.story');
   });
 
   it('discovers supported project resource conflicts under a workspace', async () => {

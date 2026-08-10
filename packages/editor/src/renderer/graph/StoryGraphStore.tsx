@@ -1408,6 +1408,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setVariables([...structuredClone(merged.variables)]);
       revisionRef.current += 1;
       window.electronAPI.setStoryDirty(false);
+      if (gitConflictRevision) {
+        setWorkspace(await window.electronAPI.refreshWorkspace());
+      }
       setDocument((current) => ({
         ...current,
         filePath: saved.filePath,
