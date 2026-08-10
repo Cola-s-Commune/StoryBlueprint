@@ -8,6 +8,21 @@
   gap: 6px;
 }
 
+.draftSaveError {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  color: #e6a0a0;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.draftSaveError > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .resourceSearch {
   padding: 8px 8px 0;
 }

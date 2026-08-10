@@ -14,6 +14,7 @@ import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import type { StoryResourceReference } from '../../graph/resourceReferences';
 import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import { CopyButton } from './CopyButton';
+import { CommitTextarea } from './CommitTextarea';
 import { matchesCharacterSearch } from './storyDataSearch';
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
@@ -304,6 +305,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     characters,
     assets,
     workspace,
+    workspaceError,
     updateCharacter,
     findCharacterReferences,
     findEmotionReferences,
@@ -374,28 +376,22 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           onChange={(event) => updateCharacter(character.id, { displayName: event.target.value })}
         />
       </label>
-      <label>
-        <span>Description</span>
-        <textarea
-          rows={4}
-          placeholder="Biography, role in the story, goals, and important background."
-          value={character.description ?? ''}
-          onChange={(event) =>
-            updateCharacter(character.id, { description: event.target.value || undefined })
-          }
-        />
-      </label>
-      <label>
-        <span>Dialogue Style</span>
-        <textarea
-          rows={3}
-          placeholder="Tone, vocabulary, verbal habits, and dialogue guidance for writers and AI."
-          value={character.dialogueStyle ?? ''}
-          onChange={(event) =>
-            updateCharacter(character.id, { dialogueStyle: event.target.value || undefined })
-          }
-        />
-      </label>
+      <CommitTextarea
+        label="Description"
+        rows={4}
+        placeholder="Biography, role in the story, goals, and important background."
+        value={character.description ?? ''}
+        saveError={workspaceError}
+        onCommit={(value) => updateCharacter(character.id, { description: value || undefined })}
+      />
+      <CommitTextarea
+        label="Dialogue Style"
+        rows={3}
+        placeholder="Tone, vocabulary, verbal habits, and dialogue guidance for writers and AI."
+        value={character.dialogueStyle ?? ''}
+        saveError={workspaceError}
+        onCommit={(value) => updateCharacter(character.id, { dialogueStyle: value || undefined })}
+      />
       <label>
         <span>Default Portrait</span>
         <select
@@ -741,7 +737,7 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
 }
 
 function EventEditor({ event }: { event: EventSource }) {
-  const { events, updateEvent, removeEvent } = useStoryGraphStore();
+  const { events, workspaceError, updateEvent, removeEvent } = useStoryGraphStore();
   const duplicate = events.some(
     (candidate) => candidate.id !== event.id && candidate.name === event.name,
   );
@@ -763,17 +759,14 @@ function EventEditor({ event }: { event: EventSource }) {
           onChange={(change) => updateEvent(event.id, { displayName: change.target.value })}
         />
       </label>
-      <label>
-        <span>Description</span>
-        <textarea
-          rows={4}
-          value={event.description ?? ''}
-          placeholder="Explain when this event is called and what the engine handler should do."
-          onChange={(change) =>
-            updateEvent(event.id, { description: change.target.value || undefined })
-          }
-        />
-      </label>
+      <CommitTextarea
+        label="Description"
+        rows={4}
+        value={event.description ?? ''}
+        saveError={workspaceError}
+        placeholder="Explain when this event is called and what the engine handler should do."
+        onCommit={(value) => updateEvent(event.id, { description: value || undefined })}
+      />
       <div className={styles.parameterHeader}>
         <span>Parameters</span>
         <button
@@ -846,7 +839,7 @@ function EventEditor({ event }: { event: EventSource }) {
 }
 
 function SignalEditor({ signal }: { signal: SignalSource }) {
-  const { signals, updateSignal, removeSignal } = useStoryGraphStore();
+  const { signals, workspaceError, updateSignal, removeSignal } = useStoryGraphStore();
   const duplicate = signals.some(
     (candidate) => candidate.id !== signal.id && candidate.name === signal.name,
   );
@@ -868,17 +861,14 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
           onChange={(change) => updateSignal(signal.id, { displayName: change.target.value })}
         />
       </label>
-      <label>
-        <span>Description</span>
-        <textarea
-          rows={4}
-          value={signal.description ?? ''}
-          placeholder="Explain when the engine sends this signal."
-          onChange={(change) =>
-            updateSignal(signal.id, { description: change.target.value || undefined })
-          }
-        />
-      </label>
+      <CommitTextarea
+        label="Description"
+        rows={4}
+        value={signal.description ?? ''}
+        saveError={workspaceError}
+        placeholder="Explain when the engine sends this signal."
+        onCommit={(value) => updateSignal(signal.id, { description: value || undefined })}
+      />
       <div className={styles.parameterHeader}>
         <span>Parameters</span>
         <button

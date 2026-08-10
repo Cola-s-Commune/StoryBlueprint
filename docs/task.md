@@ -403,6 +403,7 @@
 - [x] Character / Field 删除及字段改型的引用保护
 - [x] Character Description / Dialogue Style 人物资料持久化、Inspector 编辑与 AI Semantic Context / Commands 支持
 - [x] Character 列表显示脚本名与资料摘要；资源搜索覆盖人物背景、说话风格、情绪与字段
+- [x] Character / Event / Signal 长文本使用延迟提交草稿；失焦与 Ctrl+S 立即保存，Escape 恢复，写入错误可复制
 
 ## Project Variables
 
