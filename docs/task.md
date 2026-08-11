@@ -76,6 +76,7 @@
 - [x] 创建 Main Layout
 - [x] 创建 Menu Bar
 - [x] 使用统一应用内菜单与自绘窗口控制，移除系统菜单和空 Console
+- [x] 持久化窗口位置/尺寸/最大化状态，纠正离屏窗口并限制单实例运行
 - [x] 创建 Dock Layout
 - [x] 创建 Status Bar
 

@@ -296,7 +296,14 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           )}
         </div>
       ))}
-      <div className={styles.dragSpace} />
+      <div
+        className={styles.dragSpace}
+        onDoubleClick={() =>
+          void window.electronAPI
+            ?.toggleMaximizeWindow()
+            .then((state) => setMaximized(state.maximized))
+        }
+      />
       <div className={styles.windowControls}>
         <button
           type="button"

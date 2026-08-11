@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   safeStorage,
+  screen,
   shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -75,6 +76,11 @@ import {
   workspaceGitCheckoutKey,
 } from './workspaceGit';
 import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
+import {
+  isPersistedWindowState,
+  resolveWindowBounds,
+  type PersistedWindowState,
+} from './windowState';
 
 let mainWindow: BrowserWindow | null = null;
 let storyDirty = false;
@@ -86,6 +92,8 @@ let closeSavePending = false;
 let observedWorkspaceGitCheckout: string | undefined;
 let workspaceGitPollBusy = false;
 const releaseSmokeTest = process.argv.includes('--smoke-test');
+const ownsSingleInstance = releaseSmokeTest || app.requestSingleInstanceLock();
+let windowStateSaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 const MAX_STORY_BYTES = 64 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES = 10_000;
@@ -179,6 +187,36 @@ function aiProviderKeyFile(): string {
 
 function aiChatSessionsFile(): string {
   return join(app.getPath('userData'), 'ai-chat-sessions.json');
+}
+
+function windowStateFile(): string {
+  return join(app.getPath('userData'), 'window-state.json');
+}
+
+async function readWindowState(): Promise<PersistedWindowState | undefined> {
+  const value = await readJsonFile(windowStateFile());
+  return isPersistedWindowState(value) ? value : undefined;
+}
+
+async function writeWindowState(window: BrowserWindow): Promise<void> {
+  if (releaseSmokeTest || window.isDestroyed()) return;
+  const bounds = window.getNormalBounds();
+  await writeUserDataJson(windowStateFile(), {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+    maximized: window.isMaximized(),
+  } satisfies PersistedWindowState);
+}
+
+function scheduleWindowStateSave(window: BrowserWindow): void {
+  if (releaseSmokeTest) return;
+  if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+  windowStateSaveTimer = setTimeout(() => {
+    windowStateSaveTimer = undefined;
+    void writeWindowState(window);
+  }, 250);
 }
 
 function isAIChatSession(value: unknown): value is AIChatSession {
@@ -2266,12 +2304,19 @@ function registerStoryFileHandlers(): void {
   });
 }
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
   closeAfterSave = false;
   closeSavePending = false;
+  const storedWindowState = await readWindowState();
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const initialBounds = resolveWindowBounds(
+    storedWindowState,
+    screen.getAllDisplays().map((display) => display.workArea),
+    primaryWorkArea,
+    { width: 1400, height: 900 },
+  );
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    ...initialBounds,
     minWidth: 1024,
     minHeight: 640,
     title: 'Story Blueprint',
@@ -2291,6 +2336,12 @@ function createWindow(): void {
     });
   mainWindow.on('maximize', sendWindowState);
   mainWindow.on('unmaximize', sendWindowState);
+  mainWindow.on('move', () => mainWindow && scheduleWindowStateSave(mainWindow));
+  mainWindow.on('resize', () => mainWindow && scheduleWindowStateSave(mainWindow));
+  mainWindow.on('maximize', () => mainWindow && scheduleWindowStateSave(mainWindow));
+  mainWindow.on('unmaximize', () => mainWindow && scheduleWindowStateSave(mainWindow));
+
+  if (storedWindowState?.maximized) mainWindow.maximize();
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
@@ -2330,6 +2381,8 @@ function createWindow(): void {
   }
 
   mainWindow.on('closed', () => {
+    if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+    windowStateSaveTimer = undefined;
     mainWindow = null;
   });
 
@@ -2357,12 +2410,23 @@ function createWindow(): void {
   });
 }
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
-  registerStoryFileHandlers();
-  createWindow();
-  startWorkspaceGitPolling();
-});
+if (!ownsSingleInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    registerStoryFileHandlers();
+    void createWindow();
+    startWorkspaceGitPolling();
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -2372,7 +2436,7 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+    void createWindow();
   }
 });
 
