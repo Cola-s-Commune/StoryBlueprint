@@ -2,9 +2,9 @@ import {
   STORY_COMPILED_PROJECT_FORMAT,
   STORY_COMPILED_PROJECT_VERSION,
   StoryNodeType,
+  createGraphConnectionValidator,
   nodeRegistry,
   resolveNodePorts,
-  validateGraphConnection,
   type ChapterId,
   type CompiledStoryProgram,
   type GraphNodeLike,
@@ -67,21 +67,17 @@ function graphDiagnostics(
     data: node.data as GraphNodeLike['data'],
   }));
   const validExecutionEdges: { source: string; target: string }[] = [];
-  const acceptedEdges: {
-    id: string;
-    source: string;
-    sourcePortId: string;
-    target: string;
-    targetPortId: string;
-  }[] = [];
-  for (const [edgeIndex, edge] of graph.edges.entries()) {
+  const connectionValidator = createGraphConnectionValidator(graphNodes);
+  const graphNodesById = new Map(graphNodes.map((node) => [node.id, node] as const));
+  const resolvedPortsByNodeId = new Map<string, ReturnType<typeof resolveNodePorts>>();
+  for (const edge of graph.edges) {
     const candidate = {
       source: edge.from.nodeId,
       sourcePortId: edge.from.portId,
       target: edge.to.nodeId,
       targetPortId: edge.to.portId,
     };
-    const validation = validateGraphConnection(candidate, graphNodes, acceptedEdges);
+    const validation = connectionValidator.validate(candidate);
     if (!validation.valid) {
       diagnostics.push(
         decorate({
@@ -93,12 +89,14 @@ function graphDiagnostics(
       );
       continue;
     }
-    acceptedEdges.push({ id: `source-edge-${edgeIndex}`, ...candidate });
-    const sourceNode = graphNodes.find((node) => node.id === candidate.source);
-    const sourcePort = sourceNode
-      ? resolveNodePorts(sourceNode).ports.find(
-          (port: { id: string }) => port.id === candidate.sourcePortId,
-        )
+    const sourceNode = graphNodesById.get(candidate.source);
+    let sourceResolution = sourceNode ? resolvedPortsByNodeId.get(sourceNode.id) : undefined;
+    if (sourceNode && !sourceResolution) {
+      sourceResolution = resolveNodePorts(sourceNode);
+      resolvedPortsByNodeId.set(sourceNode.id, sourceResolution);
+    }
+    const sourcePort = sourceResolution
+      ? sourceResolution.ports.find((port: { id: string }) => port.id === candidate.sourcePortId)
       : undefined;
     if (sourcePort?.kind === 'execution') {
       validExecutionEdges.push({ source: candidate.source, target: candidate.target });

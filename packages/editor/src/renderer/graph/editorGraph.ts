@@ -1,5 +1,6 @@
 import type { Edge, Node } from '@xyflow/react';
 import {
+  createGraphConnectionValidator,
   createStableId,
   nodeRegistry,
   resolveNodePorts,
@@ -172,7 +173,9 @@ export function autoLayoutGraph(
   const estimatedLayer = (node: EditorGraphNode) =>
     Math.max(
       0,
-      Math.round((node.position.x - originalOriginX) / (autoLayoutFallbackWidth + autoLayoutColumnGap)),
+      Math.round(
+        (node.position.x - originalOriginX) / (autoLayoutFallbackWidth + autoLayoutColumnGap),
+      ),
     );
   const nearestVisitedLayer = (node: EditorGraphNode): number | undefined => {
     let nearest: { distance: number; layer: number } | undefined;
@@ -198,8 +201,9 @@ export function autoLayoutGraph(
   const visitFrom = (rootId: NodeId, startLayer: number) => {
     if (visited.has(rootId)) return;
     const queue: Array<{ id: NodeId; layer: number }> = [{ id: rootId, layer: startLayer }];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
+    let queueIndex = 0;
+    while (queueIndex < queue.length) {
+      const current = queue[queueIndex++];
       if (visited.has(current.id)) continue;
       visited.add(current.id);
       layers.set(current.id, current.layer);
@@ -1056,6 +1060,9 @@ export function fromSourceGraph(
   });
 
   const edges: EditorGraphEdge[] = [];
+  const connectionValidator = createGraphConnectionValidator(
+    nodes.map((node) => ({ id: node.id, type: node.type, data: node.data })),
+  );
   for (const edge of source.edges) {
     const candidate = {
       source: edge.from.nodeId,
@@ -1064,17 +1071,7 @@ export function fromSourceGraph(
       targetPortId: edge.to.portId,
     };
     if (!options.allowInvalidConnections) {
-      const result = validateGraphConnection(
-        candidate,
-        nodes.map((node) => ({ id: node.id, type: node.type, data: node.data })),
-        edges.map((existing) => ({
-          id: existing.id,
-          source: existing.source,
-          sourcePortId: existing.sourceHandle,
-          target: existing.target,
-          targetPortId: existing.targetHandle,
-        })),
-      );
+      const result = connectionValidator.validate(candidate);
       if (!result.valid) throw new Error(`Invalid link: ${result.diagnostic.message}`);
     }
     edges.push({

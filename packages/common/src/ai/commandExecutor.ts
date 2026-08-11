@@ -1,4 +1,5 @@
 import {
+  createGraphConnectionValidator,
   resolveNodePorts,
   validateGraphConnection,
   type GraphEdgeLike,
@@ -1427,29 +1428,20 @@ function validateFinalGraph(story: StorySourceDocument): BlueprintCommandDiagnos
         })),
       );
     }
-    const accepted: GraphEdgeLike[] = [];
-    graph.edges.forEach((edge, index) => {
-      const validation = validateGraphConnection(
-        {
-          source: edge.from.nodeId,
-          sourcePortId: edge.from.portId,
-          target: edge.to.nodeId,
-          targetPortId: edge.to.portId,
-        },
-        graphNodes(graph),
-        accepted,
-        commandRegistry,
-      );
+    const connectionValidator = createGraphConnectionValidator(
+      graphNodes(graph),
+      [],
+      commandRegistry,
+    );
+    graph.edges.forEach((edge) => {
+      const validation = connectionValidator.validate({
+        source: edge.from.nodeId,
+        sourcePortId: edge.from.portId,
+        target: edge.to.nodeId,
+        targetPortId: edge.to.portId,
+      });
       if (!validation.valid) {
         diagnostics.push({ code: 'INVALID_CONNECTION', message: validation.diagnostic.message });
-      } else {
-        accepted.push({
-          id: `edge-${index}`,
-          source: edge.from.nodeId,
-          sourcePortId: edge.from.portId,
-          target: edge.to.nodeId,
-          targetPortId: edge.to.portId,
-        });
       }
     });
   }

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   StoryNodeType,
+  createGraphConnectionValidator,
   nodeRegistry,
   validateGraphConnection,
   type GraphNodeLike,
@@ -48,6 +49,29 @@ describe('connection validation', () => {
       ],
     );
     expect(result).toMatchObject({
+      valid: false,
+      diagnostic: { code: 'OUTPUT_ALREADY_CONNECTED' },
+    });
+  });
+
+  it('records accepted connections in a reusable validator', () => {
+    const validator = createGraphConnectionValidator(nodes);
+    expect(
+      validator.validate({
+        source: 'start',
+        sourcePortId: 'out',
+        target: 'dialogue',
+        targetPortId: 'in',
+      }),
+    ).toEqual({ valid: true });
+    expect(
+      validator.validate({
+        source: 'start',
+        sourcePortId: 'out',
+        target: 'end',
+        targetPortId: 'in',
+      }),
+    ).toMatchObject({
       valid: false,
       diagnostic: { code: 'OUTPUT_ALREADY_CONNECTED' },
     });

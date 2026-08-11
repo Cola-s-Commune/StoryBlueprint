@@ -172,14 +172,17 @@ export class DefaultStoryCompiler implements StoryCompiler {
     const blocks: Record<string, RuntimeBlock> = {};
     const compileGraph = (graph: SourceGraph, chapterId?: ChapterId) => {
       const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+      const outgoingByPort = new Map<string, SourceGraph['edges'][number]>();
+      for (const edge of graph.edges) {
+        const key = `${edge.from.nodeId}\0${edge.from.portId}`;
+        if (!outgoingByPort.has(key)) outgoingByPort.set(key, edge);
+      }
       const resolveTarget = (
         nodeId: NodeId,
         portId: string,
         visited = new Set<NodeId>(),
       ): BlockId | undefined => {
-        const edge = graph.edges.find(
-          (candidate) => candidate.from.nodeId === nodeId && candidate.from.portId === portId,
-        );
+        const edge = outgoingByPort.get(`${nodeId}\0${portId}`);
         if (!edge) return undefined;
         const target = nodesById.get(edge.to.nodeId);
         if (!target || target.type !== StoryNodeType.Reroute) return blockId(edge.to.nodeId);

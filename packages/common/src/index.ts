@@ -81,6 +81,7 @@ export {
 
 // ---- Typed graph connection rules ----
 export {
+  createGraphConnectionValidator,
   resolveNodePorts,
   validateGraphConnection,
   type GraphNodeLike,
@@ -89,6 +90,7 @@ export {
   type ConnectionDiagnosticCode,
   type ConnectionDiagnostic,
   type ConnectionValidationResult,
+  type GraphConnectionValidator,
 } from './graph/connectionValidation';
 
 // ---- .story KDL serialization ----

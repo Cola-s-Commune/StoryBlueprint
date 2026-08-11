@@ -1041,10 +1041,13 @@ export function StoryGraph() {
     const mergeConflicts = new Set(activeMergePreview?.conflictNodeIds ?? []);
     const mergeBoundaries = new Set(activeMergePreview?.boundaryNodeIds ?? []);
     const mergeResolved = new Set(activeMergePreview?.resolvedNodeIds ?? []);
-    return canvasNodes.map((node) => ({
-      ...node,
-      draggable: activeMergePreview ? false : aiProposal ? added.has(node.id) : node.draggable,
-      className: [
+    return canvasNodes.map((node) => {
+      const draggable = activeMergePreview
+        ? false
+        : aiProposal
+          ? added.has(node.id)
+          : node.draggable;
+      const className = [
         node.className,
         mergeConflicts.has(node.id)
           ? mergeBoundaries.has(node.id)
@@ -1070,16 +1073,19 @@ export function StoryGraph() {
             : '',
       ]
         .filter(Boolean)
-        .join(' '),
-    }));
+        .join(' ');
+      const normalizedClassName = className || undefined;
+      return node.draggable === draggable && node.className === normalizedClassName
+        ? node
+        : { ...node, draggable, className: normalizedClassName };
+    });
   }, [activeMergePreview, aiChanges, aiProposal, canvasNodes]);
   const renderedEdges = useMemo<EditorGraphEdge[]>(() => {
+    const canvasNodesById = new Map(canvasNodes.map((node) => [node.id, node] as const));
     const virtualEdges = canvasNodes.flatMap((node): EditorGraphEdge[] => {
       if (node.type !== StoryNodeType.FlowJump) return [];
       const targetNodeId = (node.data as FlowJumpNodeData).targetNodeId;
-      const target = targetNodeId
-        ? canvasNodes.find((candidate) => candidate.id === targetNodeId)
-        : undefined;
+      const target = targetNodeId ? canvasNodesById.get(targetNodeId) : undefined;
       if (!target || (!node.selected && !target.selected)) return [];
       return [
         {
@@ -1098,9 +1104,8 @@ export function StoryGraph() {
     const mergeAdded = new Set(activeMergePreview?.addedEdgeIds ?? []);
     const mergeRemoved = new Set(activeMergePreview?.removedEdgeIds ?? []);
     const mergeConflicts = new Set(activeMergePreview?.conflictEdgeIds ?? []);
-    return [...canvasEdges, ...virtualEdges].map((edge) => ({
-      ...edge,
-      className: [
+    return [...canvasEdges, ...virtualEdges].map((edge) => {
+      const className = [
         edge.className,
         mergeConflicts.has(edge.id)
           ? 'merge-preview-edge-conflict'
@@ -1111,8 +1116,12 @@ export function StoryGraph() {
               : '',
       ]
         .filter(Boolean)
-        .join(' '),
-    }));
+        .join(' ');
+      const normalizedClassName = className || undefined;
+      return edge.className === normalizedClassName
+        ? edge
+        : { ...edge, className: normalizedClassName };
+    });
   }, [activeMergePreview, canvasEdges, canvasNodes]);
   const selectedMergeConflicts = useMemo(() => {
     if (!storyMergePreview || !mergeConflictSelection) return [];
@@ -1497,6 +1506,7 @@ export function StoryGraph() {
           connectionLineStyle={{ stroke: '#dbe2eb', strokeWidth: 2.25 }}
           colorMode="dark"
           fitView
+          onlyRenderVisibleElements
           deleteKeyCode={null}
           multiSelectionKeyCode={['Shift', 'Control']}
           selectionKeyCode={controlMode === 'blueprint' ? null : 'Shift'}

@@ -1,5 +1,6 @@
 # Dev Log
 
+- 大型蓝图性能基线覆盖 1000 节点 / 999 连线的 KDL 往返、编辑器加载/保存、自动布局和项目编译；连接校验改为节点、端口与占用关系索引，图加载、Compiler 和 AI 最终校验不再逐边复制并扫描完整图。画布只渲染可视元素，装饰层保留未变化节点/连线的对象身份，布局队列与 Flow Portal 查找也移除平方级路径。
 - Character Field 引用闭环：限定表达式 Binding 写入 `.story` KDL，角色/字段改名跨已加载 Story 安全改写；引用索引覆盖 Get/Set、模板、条件、Event 与 Signal，并保护角色/字段删除和字段改型。AI Command API 新增 Add/Update Character（含 Field）且复用引用保护。
 - Character 新增强类型 Field：角色资源保存稳定字段 ID、名称、标量类型与默认值；表达式支持 `CharacterName.fieldName`，Get / Set Variable 可直接选择角色字段，Runtime Driver 通过 Adapter 在启动时读取并在暂停或结束时回写。
 - 资源引用性能优化：Character、Emotion 与 Asset 从逐项重复扫描改为相关 Inspector 打开时单次构建共享 Map；查询按 ID 直接读取，列表默认只渲染前 30 项，并新增 1000 个 Dialogue 引用覆盖测试。

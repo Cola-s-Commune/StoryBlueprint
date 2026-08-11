@@ -687,8 +687,8 @@
 
 ## Performance
 
-- [ ] Large Graph Test
-- [ ] 1000 Nodes Test
+- [x] Large Graph Test：覆盖 KDL 往返、Editor Graph 加载/保存、自动布局与项目编译
+- [x] 1000 Nodes Test：每个 CPU 阶段设置宽松性能门禁，防止恢复为平方级连接扫描
 
 ---
 
