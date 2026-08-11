@@ -12,7 +12,6 @@ import { StatusBar } from './StatusBar';
 import { ResourceBrowser } from '../Panels/ResourceBrowser';
 import { StoryGraph } from '../Panels/StoryGraph';
 import { Inspector } from '../Panels/Inspector';
-import { ConsolePanel } from '../Panels/Console';
 import { StoryData } from '../Panels/StoryData';
 import { RuntimePreview } from '../Panels/RuntimePreview';
 import { Problems } from '../Panels/Problems';
@@ -21,14 +20,13 @@ import { StoryMerge } from '../Panels/StoryMerge';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v5';
+const layoutStorageKey = 'story-blueprint:dock-layout:v6';
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
   storyData: (_props: IDockviewPanelProps) => <StoryData />,
   graph: (_props: IDockviewPanelProps) => <StoryGraph />,
   inspector: (_props: IDockviewPanelProps) => <Inspector />,
-  console: (_props: IDockviewPanelProps) => <ConsolePanel />,
   preview: (_props: IDockviewPanelProps) => <RuntimePreview />,
   problems: (_props: IDockviewPanelProps) => <Problems />,
   aiCommands: (_props: IDockviewPanelProps) => <AICommands />,
@@ -38,8 +36,8 @@ const dockComponents = {
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
   if (panelId === 'resources' || panelId === 'storyData') return 'left';
   if (
-    panelId === 'console' ||
     panelId === 'preview' ||
+    panelId === 'problems' ||
     panelId === 'aiCommands' ||
     panelId === 'storyMerge'
   )
@@ -81,40 +79,33 @@ function createDefaultLayout(api: DockviewApi) {
     initialHeight: 320,
     minimumHeight: 160,
   });
-  const consolePanel = api.addPanel({
-    id: 'console',
-    component: 'console',
-    title: 'Console',
-    position: { referencePanel: 'graph', direction: 'below' },
-    initialHeight: 230,
-    minimumHeight: 120,
-  });
-  api.addPanel({
+  const bottomPanel = api.addPanel({
     id: 'preview',
     component: 'preview',
     title: 'Runtime Preview',
-    position: { referencePanel: consolePanel },
+    position: { referencePanel: 'graph', direction: 'below' },
+    initialHeight: 230,
     minimumHeight: 160,
   });
   api.addPanel({
     id: 'problems',
     component: 'problems',
     title: 'Problems',
-    position: { referencePanel: consolePanel },
+    position: { referencePanel: bottomPanel },
     minimumHeight: 120,
   });
   api.addPanel({
     id: 'aiCommands',
     component: 'aiCommands',
     title: 'AI Commands',
-    position: { referencePanel: consolePanel },
+    position: { referencePanel: bottomPanel },
     minimumHeight: 180,
   });
 
   resources.api.group.api.setSize({ width: 240 });
   storyData.api.group.api.setSize({ height: 320 });
   inspector.api.group.api.setSize({ width: 420 });
-  consolePanel.api.group.api.setSize({ height: 230 });
+  bottomPanel.api.group.api.setSize({ height: 230 });
   graph.api.setActive();
 }
 
@@ -166,24 +157,15 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
         maximumWidth: 720,
       });
       break;
-    case 'console':
-      api.addPanel({
-        ...common,
-        title: 'Console',
-        ...(graph && { position: { referencePanel: graph, direction: 'below' as const } }),
-        initialHeight: 230,
-        minimumHeight: 120,
-      });
-      break;
     case 'preview': {
-      const consolePanel = api.getPanel('console');
+      const bottomPanel = api.getPanel('problems') ?? api.getPanel('aiCommands');
       api.addPanel({
         ...common,
         title: 'Runtime Preview',
-        ...((consolePanel ?? graph) && {
+        ...((bottomPanel ?? graph) && {
           position: {
-            referencePanel: consolePanel ?? graph!,
-            ...(consolePanel ? {} : { direction: 'below' as const }),
+            referencePanel: bottomPanel ?? graph!,
+            ...(bottomPanel ? {} : { direction: 'below' as const }),
           },
         }),
         initialHeight: 260,
@@ -192,14 +174,14 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       break;
     }
     case 'problems': {
-      const consolePanel = api.getPanel('console');
+      const bottomPanel = api.getPanel('preview') ?? api.getPanel('aiCommands');
       api.addPanel({
         ...common,
         title: 'Problems',
-        ...((consolePanel ?? graph) && {
+        ...((bottomPanel ?? graph) && {
           position: {
-            referencePanel: consolePanel ?? graph!,
-            ...(consolePanel ? {} : { direction: 'below' as const }),
+            referencePanel: bottomPanel ?? graph!,
+            ...(bottomPanel ? {} : { direction: 'below' as const }),
           },
         }),
         initialHeight: 230,
@@ -208,14 +190,14 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       break;
     }
     case 'aiCommands': {
-      const consolePanel = api.getPanel('console');
+      const bottomPanel = api.getPanel('preview') ?? api.getPanel('problems');
       api.addPanel({
         ...common,
         title: 'AI Commands',
-        ...((consolePanel ?? graph) && {
+        ...((bottomPanel ?? graph) && {
           position: {
-            referencePanel: consolePanel ?? graph!,
-            ...(consolePanel ? {} : { direction: 'below' as const }),
+            referencePanel: bottomPanel ?? graph!,
+            ...(bottomPanel ? {} : { direction: 'below' as const }),
           },
         }),
         initialHeight: 320,
@@ -224,14 +206,15 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       break;
     }
     case 'storyMerge': {
-      const consolePanel = api.getPanel('console');
+      const bottomPanel =
+        api.getPanel('preview') ?? api.getPanel('problems') ?? api.getPanel('aiCommands');
       api.addPanel({
         ...common,
         title: 'Story Merge',
-        ...((consolePanel ?? graph) && {
+        ...((bottomPanel ?? graph) && {
           position: {
-            referencePanel: consolePanel ?? graph!,
-            ...(consolePanel ? {} : { direction: 'below' as const }),
+            referencePanel: bottomPanel ?? graph!,
+            ...(bottomPanel ? {} : { direction: 'below' as const }),
           },
         }),
         initialHeight: 360,
@@ -323,7 +306,6 @@ export function MainLayout() {
                           width:
                             panel.id === 'inspector' ? 520 : panel.id === 'storyData' ? 360 : 480,
                           height:
-                            panel.id === 'console' ||
                             panel.id === 'preview' ||
                             panel.id === 'problems' ||
                             panel.id === 'aiCommands'

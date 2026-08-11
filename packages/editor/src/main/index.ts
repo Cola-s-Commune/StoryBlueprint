@@ -4,6 +4,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  Menu,
   safeStorage,
   shell,
   type IpcMainEvent,
@@ -84,6 +85,7 @@ let closeAfterSave = false;
 let closeSavePending = false;
 let observedWorkspaceGitCheckout: string | undefined;
 let workspaceGitPollBusy = false;
+const releaseSmokeTest = process.argv.includes('--smoke-test');
 
 const MAX_STORY_BYTES = 64 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES = 10_000;
@@ -1237,6 +1239,24 @@ function registerStoryFileHandlers(): void {
     event.sender.setZoomFactor(next);
     return next;
   });
+  ipcMain.handle('app:get-window-state', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    return { maximized: mainWindow.isMaximized() };
+  });
+  ipcMain.handle('app:minimize-window', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    mainWindow.minimize();
+  });
+  ipcMain.handle('app:toggle-maximize-window', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    return { maximized: mainWindow.isMaximized() };
+  });
+  ipcMain.handle('app:close-window', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    mainWindow.close();
+  });
 
   ipcMain.handle('ai:get-provider-settings', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
@@ -2255,6 +2275,8 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 640,
     title: 'Story Blueprint',
+    frame: false,
+    show: !releaseSmokeTest,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -2262,6 +2284,13 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+
+  const sendWindowState = () =>
+    mainWindow?.webContents.send('app:window-state-changed', {
+      maximized: mainWindow.isMaximized(),
+    });
+  mainWindow.on('maximize', sendWindowState);
+  mainWindow.on('unmaximize', sendWindowState);
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
@@ -2280,6 +2309,18 @@ function createWindow(): void {
       nextWindowZoom(mainWindow.webContents.getZoomFactor(), action),
     );
   });
+
+  if (releaseSmokeTest) {
+    mainWindow.webContents.once('did-fail-load', () => app.exit(1));
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void mainWindow?.webContents
+          .executeJavaScript("Boolean(document.querySelector('#root')?.childElementCount)")
+          .then((rendered) => app.exit(rendered ? 0 : 1))
+          .catch(() => app.exit(1));
+      }, 250);
+    });
+  }
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
@@ -2317,6 +2358,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   registerStoryFileHandlers();
   createWindow();
   startWorkspaceGitPolling();

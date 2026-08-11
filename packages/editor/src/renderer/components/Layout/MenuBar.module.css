@@ -7,6 +7,11 @@
   -webkit-app-region: drag;
 }
 
+.dragSpace {
+  flex: 1;
+  min-width: 40px;
+}
+
 .menuItem {
   position: relative;
   padding: 4px 12px;
@@ -67,4 +72,107 @@
   &:hover {
     background: none;
   }
+}
+
+.windowControls {
+  display: flex;
+  height: 100%;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.windowButton {
+  position: relative;
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #cccccc;
+  cursor: default;
+
+  &:hover {
+    background: #454545;
+  }
+
+  &:focus-visible {
+    outline: 1px solid #75beff;
+    outline-offset: -2px;
+  }
+}
+
+.closeButton:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.minimizeIcon,
+.maximizeIcon,
+.restoreIcon,
+.closeIcon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 10px;
+  height: 10px;
+}
+
+.minimizeIcon::before {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  height: 1px;
+  background: currentColor;
+  content: '';
+}
+
+.maximizeIcon {
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+}
+
+.restoreIcon::before,
+.restoreIcon::after {
+  position: absolute;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  content: '';
+}
+
+.restoreIcon::before {
+  top: 0;
+  right: 0;
+}
+
+.restoreIcon::after {
+  bottom: 0;
+  left: 0;
+  background: #2d2d2d;
+}
+
+.windowButton:hover .restoreIcon::after {
+  background: #454545;
+}
+
+.closeIcon::before,
+.closeIcon::after {
+  position: absolute;
+  top: 4px;
+  left: -1px;
+  width: 12px;
+  height: 1px;
+  background: currentColor;
+  content: '';
+}
+
+.closeIcon::before {
+  transform: rotate(45deg);
+}
+
+.closeIcon::after {
+  transform: rotate(-45deg);
 }

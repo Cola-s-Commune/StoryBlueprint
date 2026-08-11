@@ -7,6 +7,16 @@ const electronAPI = {
   copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   setWindowZoom: (action) => ipcRenderer.invoke('app:set-window-zoom', action),
+  getWindowState: () => ipcRenderer.invoke('app:get-window-state'),
+  minimizeWindow: () => ipcRenderer.invoke('app:minimize-window'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('app:toggle-maximize-window'),
+  closeWindow: () => ipcRenderer.invoke('app:close-window'),
+  onWindowStateChanged: (listener) => {
+    const handler = (_event: IpcRendererEvent, state: Parameters<typeof listener>[0]) =>
+      listener(state);
+    ipcRenderer.on('app:window-state-changed', handler);
+    return () => ipcRenderer.removeListener('app:window-state-changed', handler);
+  },
   openStory: () => ipcRenderer.invoke('story:open'),
   readStoryGitConflict: (filePath, fileToken) =>
     ipcRenderer.invoke('story:read-git-conflict', filePath, fileToken),

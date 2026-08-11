@@ -4,7 +4,15 @@ import { resolve } from 'path';
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: [
+          '@story-blueprint/common',
+          '@story-blueprint/compiler',
+          '@story-blueprint/runtime',
+        ],
+      }),
+    ],
     build: {
       outDir: '.output/main',
     },

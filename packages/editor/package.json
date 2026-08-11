@@ -9,29 +9,58 @@
     "dev": "node scripts/dev.cjs",
     "prebuild": "npm run build --workspace @story-blueprint/common",
     "build": "electron-vite build",
+    "prerelease:win:dir": "node scripts/check-release-node.cjs",
+    "release:win:dir": "npm run build && electron-builder --win --x64 --dir",
+    "prerelease:win:portable": "node scripts/check-release-node.cjs",
+    "release:win:portable": "npm run build && electron-builder --win portable --x64",
+    "verify:win": "node scripts/verify-release.cjs",
     "preview": "electron-vite preview",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
     "@monaco-editor/react": "^4.7.0",
     "@story-blueprint/common": "*",
     "@story-blueprint/compiler": "*",
     "@story-blueprint/runtime": "*",
-    "@xyflow/react": "^12.10.0",
-    "dockview-react": "^7.0.4",
-    "monaco-editor": "^0.56.0"
-  },
-  "devDependencies": {
-    "@electron-toolkit/utils": "^4.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "@xyflow/react": "^12.10.0",
     "concurrently": "^8.2.0",
+    "dockview-react": "^7.0.4",
     "electron": "43.2.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "monaco-editor": "^0.56.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "vite": "^5.4.0"
+  },
+  "build": {
+    "appId": "com.storyblueprint.editor",
+    "productName": "Story Blueprint",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "../../release"
+    },
+    "files": [
+      ".output/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "StoryBlueprint-${version}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    }
   }
 }

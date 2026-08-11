@@ -30,7 +30,7 @@
 - [x] 创建 React Renderer
 - [x] 配置 IPC
 - [x] 配置 热更新（Hot Reload）
-- [ ] 配置 Release Build
+- [x] 配置 Windows x64 Release Build：ASAR、unpacked、portable 与隐藏启动 smoke test
 - [x] 启动时显示项目/文件欢迎页，不自动创建 Untitled Story
 - [x] 支持原生新建、打开与保存项目
 - [x] 关闭、退出及切换项目时提供 Save / Don't Save / Cancel 未保存保护
@@ -65,7 +65,7 @@
 |Browser |                          |                |
 |        |                          |                |
 +--------+--------------------------+----------------+
-| Console                                           |
+| Runtime Preview / Problems / AI Commands          |
 +----------------------------------------------------+
 ```
 
@@ -75,6 +75,7 @@
 
 - [x] 创建 Main Layout
 - [x] 创建 Menu Bar
+- [x] 使用统一应用内菜单与自绘窗口控制，移除系统菜单和空 Console
 - [x] 创建 Dock Layout
 - [x] 创建 Status Bar
 

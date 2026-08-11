@@ -235,12 +235,21 @@ export interface GenerateAICommandResult {
   reasoning?: string;
 }
 
+export interface EditorWindowState {
+  maximized: boolean;
+}
+
 export interface ElectronAPI {
   platform: string;
   isElectron: true;
   copyText: (text: string) => Promise<void>;
   readClipboardText: () => Promise<string>;
   setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
+  getWindowState: () => Promise<EditorWindowState>;
+  minimizeWindow: () => Promise<void>;
+  toggleMaximizeWindow: () => Promise<EditorWindowState>;
+  closeWindow: () => Promise<void>;
+  onWindowStateChanged: (listener: (state: EditorWindowState) => void) => () => void;
   openStory: () => Promise<OpenStoryResult>;
   readStoryGitConflict: (
     filePath: string,

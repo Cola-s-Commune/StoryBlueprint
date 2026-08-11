@@ -12,6 +12,9 @@
   "scripts": {
     "dev": "npm run dev --workspace @story-blueprint/editor",
     "build": "npm run build --workspaces",
+    "release:win:dir": "npm run release:win:dir --workspace @story-blueprint/editor",
+    "release:win": "npm run release:win:portable --workspace @story-blueprint/editor",
+    "verify:release:win": "npm run verify:win --workspace @story-blueprint/editor",
     "lint": "npm run lint --workspaces",
     "typecheck": "npm run build --workspace @story-blueprint/common && npm run typecheck --workspaces",
     "test": "vitest run",

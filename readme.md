@@ -235,6 +235,25 @@ Project Status：
 
 ---
 
+# Windows Release
+
+发布环境需要 Node.js 22.12 或更高版本。
+
+```powershell
+# 可直接运行的目录版本
+npm run release:win:dir
+
+# 单文件 portable 版本
+npm run release:win
+
+# 隐藏启动两个发行版本，验证 ASAR、preload 和 renderer
+npm run verify:release:win
+```
+
+发行产物写入 `release/`。当前早期版本不包含自定义应用图标、代码签名、安装器或自动更新。
+
+---
+
 # Long-term Roadmap
 
 ## Phase 1

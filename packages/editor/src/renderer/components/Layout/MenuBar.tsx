@@ -37,7 +37,6 @@ type SubMenuItem =
         | 'storyData'
         | 'graph'
         | 'inspector'
-        | 'console'
         | 'preview'
         | 'problems'
         | 'aiCommands'
@@ -92,7 +91,6 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Story Data', panelId: 'storyData' },
       { type: 'item', label: 'Story Graph', panelId: 'graph' },
       { type: 'item', label: 'Inspector', panelId: 'inspector' },
-      { type: 'item', label: 'Console', panelId: 'console' },
       { type: 'item', label: 'AI Commands', panelId: 'aiCommands' },
       { type: 'item', label: 'Story Merge', panelId: 'storyMerge' },
       { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
@@ -119,7 +117,6 @@ interface MenuBarProps {
       | 'storyData'
       | 'graph'
       | 'inspector'
-      | 'console'
       | 'preview'
       | 'problems'
       | 'aiCommands'
@@ -144,6 +141,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     redo,
   } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
+  const [maximized, setMaximized] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -154,6 +152,13 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    void api.getWindowState().then((state) => setMaximized(state.maximized));
+    return api.onWindowStateChanged((state) => setMaximized(state.maximized));
   }, []);
 
   useEffect(() => {
@@ -240,7 +245,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         void window.electronAPI?.setWindowZoom('reset');
         break;
       case 'exit':
-        window.close();
+        void window.electronAPI?.closeWindow();
         break;
       case 'copy-text':
         document.execCommand('copy');
@@ -291,6 +296,40 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           )}
         </div>
       ))}
+      <div className={styles.dragSpace} />
+      <div className={styles.windowControls}>
+        <button
+          type="button"
+          className={styles.windowButton}
+          aria-label="Minimize window"
+          title="Minimize"
+          onClick={() => void window.electronAPI?.minimizeWindow()}
+        >
+          <span className={styles.minimizeIcon} />
+        </button>
+        <button
+          type="button"
+          className={styles.windowButton}
+          aria-label={maximized ? 'Restore window' : 'Maximize window'}
+          title={maximized ? 'Restore' : 'Maximize'}
+          onClick={() =>
+            void window.electronAPI
+              ?.toggleMaximizeWindow()
+              .then((state) => setMaximized(state.maximized))
+          }
+        >
+          <span className={maximized ? styles.restoreIcon : styles.maximizeIcon} />
+        </button>
+        <button
+          type="button"
+          className={`${styles.windowButton} ${styles.closeButton}`}
+          aria-label="Close window"
+          title="Close"
+          onClick={() => void window.electronAPI?.closeWindow()}
+        >
+          <span className={styles.closeIcon} />
+        </button>
+      </div>
     </div>
   );
 }
