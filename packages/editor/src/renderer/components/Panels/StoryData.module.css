@@ -226,6 +226,131 @@
   margin-top: 3px;
 }
 
+.characterCheckbox {
+  width: 13px;
+  height: 13px;
+  margin: 4px 0 0;
+  accent-color: #4f9ac8;
+  cursor: pointer;
+}
+
+.characterAvatar {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-top: 1px;
+  border: 1px solid #76583d;
+  border-radius: 5px;
+  background: #3b3027;
+  color: #f0b77e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.characterAvatar.hasPortrait {
+  border-color: #4b7896;
+  background: #263c4b;
+  color: #8fc9ed;
+}
+
+.characterTags,
+.tagFilters {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.characterTags em {
+  padding: 1px 4px;
+  border-radius: 7px;
+  background: #303943;
+  color: #91b4d0;
+  font-size: 8px;
+  font-style: normal;
+}
+
+.tagFilters {
+  max-height: 72px;
+  margin: 0 3px 6px;
+  overflow: auto;
+}
+
+.tagFilters button,
+.batchBar button {
+  padding: 2px 6px;
+  border: 1px solid #3b4651;
+  border-radius: 8px;
+  background: #222931;
+  color: #94a3b2;
+  cursor: pointer;
+  font: inherit;
+  font-size: 8px;
+}
+
+.tagFilters button.activeTagFilter {
+  border-color: #4f82a5;
+  background: #263b49;
+  color: #b9dcf4;
+}
+
+.batchBar {
+  display: grid;
+  grid-template-columns: auto minmax(58px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 4px;
+  margin: 0 3px 7px;
+  padding: 5px;
+  border: 1px solid #3b4b57;
+  border-radius: 4px;
+  background: #202a32;
+}
+
+.batchBar strong {
+  color: #b6c8d7;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.batchBar input {
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid #3d4853;
+  border-radius: 3px;
+  background: #191e24;
+  color: #d1d8df;
+  font: inherit;
+  font-size: 8px;
+}
+
+.referenceCount {
+  min-width: 15px;
+  margin-top: 3px;
+  color: #7f8b97;
+  font-size: 8px;
+  text-align: center;
+}
+
+.inlineAction {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #82909d;
+  cursor: pointer;
+}
+
+.inlineAction:hover {
+  border-color: #465563;
+  background: #2b3540;
+  color: #c6d4df;
+}
+
 .characterSummary {
   display: grid;
   min-width: 0;

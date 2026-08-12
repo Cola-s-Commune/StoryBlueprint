@@ -17,6 +17,7 @@ import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import { CopyButton } from './CopyButton';
 import { CommitTextarea } from './CommitTextarea';
 import { matchesCharacterSearch } from './storyDataSearch';
+import { updateCharacterTags } from '../../graph/characterManagement';
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
@@ -1353,6 +1354,9 @@ export function StoryData() {
     addVariable,
     addProjectVariable,
     addCharacter,
+    duplicateCharacter,
+    updateCharacter,
+    findCharacterReferences,
     addAsset,
     addEvent,
     addSignal,
@@ -1360,9 +1364,38 @@ export function StoryData() {
     selectStoryData,
   } = useStoryGraphStore();
   const [resourceSearch, setResourceSearch] = useState('');
+  const [characterTagFilter, setCharacterTagFilter] = useState<string>();
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<CharacterId>>(new Set());
+  const [batchTag, setBatchTag] = useState('');
+  const characterTags = useMemo(
+    () => [...new Set(characters.flatMap((character) => character.tags ?? []))].sort(),
+    [characters],
+  );
   const filteredCharacters = useMemo(() => {
-    return characters.filter((character) => matchesCharacterSearch(character, resourceSearch));
-  }, [characters, resourceSearch]);
+    return characters.filter(
+      (character) =>
+        (!characterTagFilter || character.tags?.includes(characterTagFilter)) &&
+        matchesCharacterSearch(character, resourceSearch),
+    );
+  }, [characterTagFilter, characters, resourceSearch]);
+  useEffect(() => {
+    setSelectedCharacterIds(
+      (current) => new Set([...current].filter((id) => characters.some((item) => item.id === id))),
+    );
+    if (characterTagFilter && !characterTags.includes(characterTagFilter)) {
+      setCharacterTagFilter(undefined);
+    }
+  }, [characterTagFilter, characterTags, characters]);
+  const applyBatchTag = (mode: 'add' | 'remove') => {
+    const tag = batchTag.trim();
+    if (!tag || selectedCharacterIds.size === 0) return;
+    for (const character of characters) {
+      if (!selectedCharacterIds.has(character.id)) continue;
+      updateCharacter(character.id, {
+        tags: updateCharacterTags(character.tags, tag, mode),
+      });
+    }
+  };
   const filteredAssets = useMemo(() => {
     const query = resourceSearch.trim().toLowerCase();
     return query
@@ -1640,6 +1673,57 @@ export function StoryData() {
               +
             </button>
           </div>
+          {characterTags.length > 0 && (
+            <div className={styles.tagFilters}>
+              <button
+                type="button"
+                className={!characterTagFilter ? styles.activeTagFilter : undefined}
+                onClick={() => setCharacterTagFilter(undefined)}
+              >
+                All
+              </button>
+              {characterTags.map((tag) => (
+                <button
+                  type="button"
+                  key={tag}
+                  className={characterTagFilter === tag ? styles.activeTagFilter : undefined}
+                  onClick={() => setCharacterTagFilter(tag)}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedCharacterIds.size > 0 && (
+            <div className={styles.batchBar}>
+              <strong>{selectedCharacterIds.size} selected</strong>
+              <input
+                value={batchTag}
+                placeholder="Tag"
+                onChange={(event) => setBatchTag(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') applyBatchTag('add');
+                }}
+              />
+              <button
+                type="button"
+                disabled={!batchTag.trim()}
+                onClick={() => applyBatchTag('add')}
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                disabled={!batchTag.trim()}
+                onClick={() => applyBatchTag('remove')}
+              >
+                Remove
+              </button>
+              <button type="button" onClick={() => setSelectedCharacterIds(new Set())}>
+                Clear
+              </button>
+            </div>
+          )}
           {characters.length === 0 && <div className={styles.empty}>No characters</div>}
           {characters.length > 0 && filteredCharacters.length === 0 && (
             <div className={styles.empty}>No matching characters</div>
@@ -1654,14 +1738,61 @@ export function StoryData() {
                 writeStoryDataDrag(event, { kind: 'character', id: character.id })
               }
             >
-              <span className={`${styles.typeDot} ${styles.character}`} />
+              <input
+                className={styles.characterCheckbox}
+                type="checkbox"
+                checked={selectedCharacterIds.has(character.id)}
+                aria-label={`Select ${character.displayName}`}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  setSelectedCharacterIds((current) => {
+                    const next = new Set(current);
+                    if (event.target.checked) next.add(character.id);
+                    else next.delete(character.id);
+                    return next;
+                  });
+                }}
+              />
+              <span
+                className={`${styles.characterAvatar} ${character.defaultPortraitId ? styles.hasPortrait : ''}`}
+                title={
+                  character.defaultPortraitId
+                    ? `Portrait: ${assets.find((asset) => asset.id === character.defaultPortraitId)?.displayName ?? character.defaultPortraitId}`
+                    : 'No default portrait'
+                }
+              >
+                {character.displayName.trim().charAt(0).toLocaleUpperCase() || '?'}
+              </span>
               <span className={styles.characterSummary}>
                 <strong>{character.displayName}</strong>
                 <code>{character.name}</code>
+                {(character.tags?.length ?? 0) > 0 && (
+                  <span className={styles.characterTags}>
+                    {character.tags!.slice(0, 3).map((tag) => (
+                      <em key={tag}>{tag}</em>
+                    ))}
+                    {character.tags!.length > 3 && <em>+{character.tags!.length - 3}</em>}
+                  </span>
+                )}
                 {(character.description || character.dialogueStyle) && (
                   <small>{character.description || character.dialogueStyle}</small>
                 )}
               </span>
+              <span className={styles.referenceCount} title="References in loaded Stories">
+                {findCharacterReferences(character.id).length}
+              </span>
+              <button
+                className={styles.inlineAction}
+                type="button"
+                title={`Duplicate ${character.displayName}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  const id = duplicateCharacter(character.id);
+                  if (id) selectStoryData({ kind: 'character', id });
+                }}
+              >
+                ⧉
+              </button>
             </div>
           ))}
         </section>

@@ -81,6 +81,7 @@ import { useGraphHistory } from './useGraphHistory';
 import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
 import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 import { planExternalFileChange } from './externalFileChangePlan';
+import { duplicateCharacterDefinition } from './characterManagement';
 import {
   findVariableReferences as collectVariableReferences,
   findProjectVariableReferences,
@@ -403,6 +404,7 @@ interface StoryGraphStoreValue {
     id: VariableId,
   ) => { ok: true } | { ok: false; references: readonly VariableReference[] };
   addCharacter: () => CharacterId;
+  duplicateCharacter: (id: CharacterId) => CharacterId | undefined;
   findCharacterReferences: (id: CharacterId) => readonly StoryResourceReference[];
   findEmotionReferences: (id: CharacterId, emotion: string) => readonly StoryResourceReference[];
   findCharacterFieldReferences: (id: VariableId) => readonly StoryResourceReference[];
@@ -1803,6 +1805,28 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     markDirty();
     return id;
   }, [markDirty, queueProjectResourceWrite, resolvedCharacters.length, workspace?.project]);
+
+  const duplicateCharacter = useCallback(
+    (id: CharacterId): CharacterId | undefined => {
+      const source = resolvedCharacters.find((candidate) => candidate.id === id);
+      if (!source) return undefined;
+      const usedNames = new Set(resolvedCharacters.map((candidate) => candidate.name));
+      const character = duplicateCharacterDefinition(
+        source,
+        usedNames,
+        () => createStableId('character'),
+        () => createStableId('variable'),
+      );
+      if (workspace?.project && window.electronAPI) {
+        queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
+      } else {
+        setCharacters((current) => [...current, character]);
+        markDirty();
+      }
+      return character.id;
+    },
+    [markDirty, queueProjectResourceWrite, resolvedCharacters, workspace?.project],
+  );
 
   const rewriteCharacterFieldReferences = useCallback(
     (
@@ -4037,6 +4061,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateVariable,
       removeVariable,
       addCharacter,
+      duplicateCharacter,
       findCharacterReferences: findCharacterReferencesById,
       findEmotionReferences: findEmotionReferencesByKey,
       findCharacterFieldReferences: findCharacterFieldReferencesById,
@@ -4131,6 +4156,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       refreshProjectVariableReferences,
       focusVariableReference,
       addCharacter,
+      duplicateCharacter,
       findCharacterReferencesById,
       findEmotionReferencesByKey,
       findCharacterFieldReferencesById,

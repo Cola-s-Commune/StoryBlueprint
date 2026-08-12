@@ -437,6 +437,7 @@
 - [x] Voice / Portrait Asset 跨 Story 与 Character 配置引用列表、跳转与删除保护
 - [x] Character / Emotion / Asset 引用单次共享索引与长列表渐进显示
 - [x] Character 标签与可扩展标量 Metadata：编辑、搜索、KDL、语义快照及 AI Commands
+- [x] Character 管理：标签筛选、多选批量标签、角色复制、头像状态、引用数量概览
 
 ---
 
