@@ -124,10 +124,17 @@ export interface RecoverySnapshot {
   savedAt: string;
 }
 
+export interface RecoveryCandidate extends RecoverySnapshot {
+  diskStatus: 'unsaved' | 'unchanged' | 'changed' | 'missing';
+  diskContent?: string;
+  fileToken?: string;
+}
+
 export interface RestoredEditorSession {
   workspace?: WorkspaceInfo;
   stories: Exclude<OpenStoryResult, { canceled: true }>[];
-  recoveries: RecoverySnapshot[];
+  recoveries: RecoveryCandidate[];
+  recoveryError?: string;
 }
 
 export interface ProjectStoryFile {
@@ -280,7 +287,9 @@ export interface ElectronAPI {
   confirmUnsavedStories: (storyNames: string[], action: string) => Promise<UnsavedChoice>;
   restoreEditorSession: () => Promise<RestoredEditorSession>;
   updateEditorSession: (session: EditorSessionState) => Promise<void>;
-  writeRecoverySnapshots: (snapshots: RecoverySnapshot[]) => Promise<void>;
+  writeRecoverySnapshots: (snapshots: readonly RecoverySnapshot[]) => Promise<void>;
+  clearRecoverySnapshots: () => Promise<void>;
+  saveRecoveryAs: (snapshot: RecoverySnapshot) => Promise<SaveStoryResult>;
   readWorkspaceProjectStories: () => Promise<ProjectStorySnapshot>;
   updateWorkspaceProjectStories: (
     request: UpdateProjectStoryFilesRequest,

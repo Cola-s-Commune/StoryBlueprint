@@ -17,6 +17,7 @@ import { RuntimePreview } from '../Panels/RuntimePreview';
 import { Problems } from '../Panels/Problems';
 import { AICommands } from '../Panels/AICommands';
 import { StoryMerge } from '../Panels/StoryMerge';
+import { RecoveryCenter } from './RecoveryCenter';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
@@ -321,6 +322,7 @@ export function MainLayout() {
           />
         </div>
         <StatusBar />
+        <RecoveryCenter />
       </div>
     </StoryGraphStoreProvider>
   );

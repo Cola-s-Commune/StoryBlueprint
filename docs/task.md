@@ -698,7 +698,7 @@
 ## Stability
 
 - [ ] Memory Leak Check
-- [ ] Crash Recovery
+- [x] Crash Recovery：逐项恢复、另存为、丢弃，显示磁盘状态并保护损坏恢复数据
 
 ---
 

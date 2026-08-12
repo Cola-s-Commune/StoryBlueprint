@@ -54,6 +54,7 @@ import {
   type StoryId,
   type StorySourceDocument,
 } from '@story-blueprint/common';
+import type { RecoveryCandidate } from '../../shared/electronApi';
 import {
   compileProject,
   compileStory,
@@ -303,6 +304,13 @@ interface StoryGraphStoreValue {
   activeStoryId?: StoryId;
   workspace?: WorkspaceInfo;
   workspaceError?: string;
+  recoveries: readonly RecoveryCandidate[];
+  recoveryError?: string;
+  recoverStory: (storyId: string) => void;
+  saveRecoveryAs: (storyId: string) => Promise<void>;
+  discardRecovery: (storyId: string) => void;
+  discardAllRecoveries: () => void;
+  dismissRecoveryError: () => void;
   recentProjects: RecentProject[];
   problems: readonly ProjectCompilerDiagnostic[];
   lastBuildPath?: string;
@@ -491,6 +499,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     projectRevision: string;
   }>();
   const [sessionReady, setSessionReady] = useState(false);
+  const [recoveries, setRecoveries] = useState<RecoveryCandidate[]>([]);
+  const [recoveryError, setRecoveryError] = useState<string>();
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
   const currentStoryItemsRef = useRef<() => EditorStoryWorkspaceItem[]>(() => []);
@@ -2915,6 +2925,104 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [captureActiveStory, hasActiveStory, loadStory, storyItemFromOpenedStory],
   );
 
+  const persistRecoveryCandidates = useCallback((next: readonly RecoveryCandidate[]) => {
+    const snapshots = next.map(({ storyId, displayName, filePath, content, savedAt }) => ({
+      storyId,
+      displayName,
+      filePath,
+      content,
+      savedAt,
+    }));
+    void window.electronAPI
+      ?.writeRecoverySnapshots(snapshots)
+      .catch((error: unknown) =>
+        setRecoveryError(error instanceof Error ? error.message : String(error)),
+      );
+  }, []);
+
+  const removeRecoveryCandidate = useCallback(
+    (storyId: string) => {
+      setRecoveries((current) => {
+        const next = current.filter((candidate) => candidate.storyId !== storyId);
+        persistRecoveryCandidates(next);
+        return next;
+      });
+    },
+    [persistRecoveryCandidates],
+  );
+
+  const recoverStory = useCallback(
+    (storyId: string) => {
+      const recovery = recoveries.find((candidate) => candidate.storyId === storyId);
+      if (!recovery) return;
+      let diskItem: EditorStoryWorkspaceItem | undefined;
+      if (recovery.diskContent && recovery.filePath && recovery.fileToken) {
+        diskItem = storyItemFromOpenedStory({
+          canceled: false,
+          filePath: recovery.filePath,
+          fileToken: recovery.fileToken,
+          content: recovery.diskContent,
+        });
+      }
+      acceptOpenedStory(
+        {
+          canceled: false,
+          filePath: recovery.filePath ?? '',
+          fileToken: recovery.fileToken ?? '',
+          content: recovery.content,
+        },
+        {
+          dirty: true,
+          filePath: recovery.filePath,
+          fileToken: recovery.fileToken,
+        },
+      );
+      if (diskItem) {
+        history.checkpoint({
+          activeGraphId: 'root',
+          graph: structuredClone(diskItem.rootGraph),
+          rootGraph: structuredClone(diskItem.rootGraph),
+          chapters: structuredClone(diskItem.chapters),
+          variables: structuredClone(diskItem.variables),
+        });
+      }
+      removeRecoveryCandidate(storyId);
+    },
+    [acceptOpenedStory, history, recoveries, removeRecoveryCandidate, storyItemFromOpenedStory],
+  );
+
+  const saveRecoveryAs = useCallback(
+    async (storyId: string) => {
+      const recovery = recoveries.find((candidate) => candidate.storyId === storyId);
+      if (!recovery || !window.electronAPI) return;
+      try {
+        const result = await window.electronAPI.saveRecoveryAs(recovery);
+        if (result.canceled) return;
+        acceptOpenedStory({ ...result, canceled: false, content: recovery.content });
+        removeRecoveryCandidate(storyId);
+      } catch (error) {
+        setRecoveryError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [acceptOpenedStory, recoveries, removeRecoveryCandidate],
+  );
+
+  const discardRecovery = useCallback(
+    (storyId: string) => removeRecoveryCandidate(storyId),
+    [removeRecoveryCandidate],
+  );
+
+  const discardAllRecoveries = useCallback(() => {
+    setRecoveries([]);
+    void window.electronAPI
+      ?.clearRecoverySnapshots()
+      .catch((error: unknown) =>
+        setRecoveryError(error instanceof Error ? error.message : String(error)),
+      );
+  }, []);
+
+  const dismissRecoveryError = useCallback(() => setRecoveryError(undefined), []);
+
   useEffect(() => {
     if (!window.electronAPI) return;
     let reloading = false;
@@ -3542,24 +3650,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         const restored = await window.electronAPI!.restoreEditorSession();
         if (restored.workspace) setWorkspace(restored.workspace);
         for (const story of restored.stories) acceptOpenedStory(story);
-        for (const recovery of restored.recoveries) {
-          const diskStory = restored.stories.find(
-            (story) => story.filePath.toLowerCase() === recovery.filePath?.toLowerCase(),
-          );
-          acceptOpenedStory(
-            {
-              canceled: false,
-              filePath: recovery.filePath ?? '',
-              fileToken: diskStory?.fileToken ?? '',
-              content: recovery.content,
-            },
-            {
-              dirty: true,
-              filePath: recovery.filePath,
-              fileToken: diskStory?.fileToken,
-            },
-          );
-        }
+        setRecoveries(restored.recoveries);
+        setRecoveryError(restored.recoveryError);
         setRecentProjects(await window.electronAPI!.getRecentProjects());
         setWorkspaceError(undefined);
       } catch (error) {
@@ -3571,7 +3663,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, [acceptOpenedStory]);
 
   useEffect(() => {
-    if (!sessionReady || !window.electronAPI) return;
+    if (!sessionReady || !window.electronAPI || recoveries.length > 0) return;
     const timer = window.setTimeout(() => {
       const items = currentStoryItems();
       const storyFilePaths = items
@@ -3591,7 +3683,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, [currentStoryItems, document.filePath, hasActiveStory, sessionReady, workspace?.rootPath]);
 
   useEffect(() => {
-    if (!sessionReady || !window.electronAPI) return;
+    if (!sessionReady || !window.electronAPI || recoveries.length > 0) return;
     const timer = window.setTimeout(() => {
       try {
         const savedAt = new Date().toISOString();
@@ -3614,7 +3706,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
     }, 1_500);
     return () => window.clearTimeout(timer);
-  }, [currentStoryItems, sessionReady, storyItemToSource]);
+  }, [currentStoryItems, recoveries.length, sessionReady, storyItemToSource]);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onSaveBeforeClose(() => {
@@ -3698,6 +3790,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       activeStoryId: hasActiveStory ? document.id : undefined,
       workspace,
       workspaceError,
+      recoveries,
+      recoveryError,
+      recoverStory,
+      saveRecoveryAs,
+      discardRecovery,
+      discardAllRecoveries,
+      dismissRecoveryError,
       recentProjects,
       problems,
       lastBuildPath,
@@ -3776,6 +3875,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       hasActiveStory,
       workspace,
       workspaceError,
+      recoveries,
+      recoveryError,
+      recoverStory,
+      saveRecoveryAs,
+      discardRecovery,
+      discardAllRecoveries,
+      dismissRecoveryError,
       recentProjects,
       problems,
       lastBuildPath,

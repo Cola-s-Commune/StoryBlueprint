@@ -1,5 +1,6 @@
 # Dev Log
 
+- Crash Recovery 从原生二选一提示升级为应用内恢复中心：逐项显示保存时间、原路径与磁盘状态，支持 Recover / Save As / Discard；磁盘已变化时恢复后可 Undo 回磁盘图状态，损坏数据会报告且不覆盖恢复文件。
 - Windows 发布加入 Story Blueprint 专属图标、EXE 产品元数据和 NSIS 安装包；安装器可选择目录并创建桌面/开始菜单快捷方式，同时保留 portable。Help → About 显示版本、Electron/Chromium/Node、平台和当前项目位置。
 - 主窗口记忆普通位置、尺寸和最大化状态；显示器变更后会把离屏窗口安全居中。应用限制为单实例，重复启动会还原并聚焦已有窗口，标题栏空白区支持双击最大化/还原。
 - 主窗口改用应用内统一标题栏：移除 Electron / Windows 原生菜单和空的 Console 占位面板，右侧加入自绘最小化、最大化/还原、关闭按钮；关闭仍经过未保存 Story 保护。

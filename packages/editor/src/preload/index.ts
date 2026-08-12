@@ -39,6 +39,8 @@ const electronAPI = {
   restoreEditorSession: () => ipcRenderer.invoke('session:restore'),
   updateEditorSession: (session) => ipcRenderer.invoke('session:update', session),
   writeRecoverySnapshots: (snapshots) => ipcRenderer.invoke('recovery:write', snapshots),
+  clearRecoverySnapshots: () => ipcRenderer.invoke('recovery:clear'),
+  saveRecoveryAs: (snapshot) => ipcRenderer.invoke('recovery:save-as', snapshot),
   readWorkspaceProjectStories: () => ipcRenderer.invoke('workspace:read-project-stories'),
   updateWorkspaceProjectStories: (request) =>
     ipcRenderer.invoke('workspace:update-project-stories', request),

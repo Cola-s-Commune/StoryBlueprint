@@ -81,6 +81,7 @@ import {
   resolveWindowBounds,
   type PersistedWindowState,
 } from './windowState';
+import { parseRecoveryStore } from './recoveryStore';
 
 let mainWindow: BrowserWindow | null = null;
 let storyDirty = false;
@@ -389,14 +390,38 @@ function isRecoverySnapshot(value: unknown): value is RecoverySnapshot {
   );
 }
 
+function isValidStoryContent(content: string): boolean {
+  try {
+    parseStorySource(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function writeUserDataJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(app.getPath('userData'), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-async function readRecoverySnapshots(): Promise<RecoverySnapshot[]> {
-  const value = await readJsonFile(recoverySnapshotsFile());
-  return Array.isArray(value) ? value.filter(isRecoverySnapshot).slice(0, MAX_SESSION_STORIES) : [];
+async function readRecoverySnapshots(): Promise<{
+  snapshots: RecoverySnapshot[];
+  error?: string;
+}> {
+  let text: string;
+  try {
+    text = await readFile(recoverySnapshotsFile(), 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { snapshots: [] };
+    return { snapshots: [], error: 'Recovery data could not be read.' };
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text) as unknown;
+  } catch {
+    return { snapshots: [], error: 'Recovery data is damaged and could not be parsed.' };
+  }
+  return parseRecoveryStore(value, isValidStoryContent, MAX_SESSION_STORIES);
 }
 
 async function clearRecoverySnapshots(): Promise<void> {
@@ -1176,6 +1201,14 @@ async function openStoryFile(filePath: string) {
   };
 }
 
+function issueStoryFileToken(filePath: string): string {
+  const fileToken = randomUUID();
+  const tokens = storyFileTokens.get(filePath) ?? new Set<string>();
+  tokens.add(fileToken);
+  storyFileTokens.set(filePath, tokens);
+  return fileToken;
+}
+
 async function createInitialStoryFile(rootPath: string): Promise<{
   source: StorySourceDocument;
   opened: Exclude<Awaited<ReturnType<typeof openStoryFile>>, { canceled: true }>;
@@ -1656,6 +1689,30 @@ function registerStoryFileHandlers(): void {
     for (const snapshot of snapshots) parseStorySource(snapshot.content);
     await writeUserDataJson(recoverySnapshotsFile(), snapshots);
   });
+  ipcMain.handle('recovery:clear', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    await clearRecoverySnapshots();
+  });
+  ipcMain.handle('recovery:save-as', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !mainWindow || !isRecoverySnapshot(value)) {
+      throw new Error('Invalid recovery snapshot');
+    }
+    parseStorySource(value.content);
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Recovered Story As',
+      defaultPath: join(
+        workspaceRoot ?? app.getPath('documents'),
+        `${value.displayName.replace(/[<>:"/\\|?*]/g, '-').trim() || 'recovered'}.story`,
+      ),
+      filters: [{ name: 'Story Blueprint', extensions: ['story'] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const filePath = result.filePath.toLowerCase().endsWith('.story')
+      ? result.filePath
+      : `${result.filePath}.story`;
+    await writeFile(filePath, value.content, 'utf8');
+    return { canceled: false, filePath, fileToken: issueStoryFileToken(filePath) };
+  });
 
   ipcMain.handle('session:restore', async (event) => {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
@@ -1690,24 +1747,39 @@ function registerStoryFileHandlers(): void {
         // Missing or inaccessible files are omitted from the restored session.
       }
     }
-    let recoveries = await readRecoverySnapshots();
-    if (recoveries.length > 0) {
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        title: 'Recover Unsaved Stories',
-        message: `Recover ${recoveries.length} unsaved ${recoveries.length === 1 ? 'Story' : 'Stories'}?`,
-        detail: 'Story Blueprint saved recovery copies from the previous session.',
-        buttons: ['Recover', 'Discard Recovery'],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-      });
-      if (result.response === 1) {
-        await clearRecoverySnapshots();
-        recoveries = [];
+    const recoveryState = await readRecoverySnapshots();
+    const recoveries = [];
+    for (const recovery of recoveryState.snapshots) {
+      let diskStory = recovery.filePath
+        ? restoredStories.find(
+            (story) => story.filePath.toLowerCase() === recovery.filePath!.toLowerCase(),
+          )
+        : undefined;
+      if (!diskStory && recovery.filePath) {
+        try {
+          diskStory = await openStoryFile(await realpath(recovery.filePath));
+        } catch {
+          // Missing or unreadable originals are represented explicitly in the recovery center.
+        }
       }
+      recoveries.push({
+        ...recovery,
+        diskStatus: !recovery.filePath
+          ? ('unsaved' as const)
+          : !diskStory
+            ? ('missing' as const)
+            : diskStory.content === recovery.content
+              ? ('unchanged' as const)
+              : ('changed' as const),
+        ...(diskStory ? { diskContent: diskStory.content, fileToken: diskStory.fileToken } : {}),
+      });
     }
-    return { workspace: restoredWorkspace, stories: restoredStories, recoveries };
+    return {
+      workspace: restoredWorkspace,
+      stories: restoredStories,
+      recoveries,
+      recoveryError: recoveryState.error,
+    };
   });
 
   ipcMain.on('app:finish-close', (event, saved: unknown) => {
