@@ -37,6 +37,21 @@
   background: #20242a;
 }
 
+.metadataRow {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 82px minmax(100px, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid #343d46;
+  border-radius: 4px;
+  background: #20262d;
+}
+
+.metadataRow label {
+  min-width: 0;
+}
+
 .relationshipActions {
   display: flex;
   justify-content: flex-end;

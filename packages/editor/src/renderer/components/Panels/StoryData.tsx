@@ -327,6 +327,11 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
   const portraitAssets = assets.filter((asset) => asset.kind === 'portrait');
   const references = findCharacterReferences(character.id);
   const relationships = character.relationships ?? {};
+  const metadata = character.metadata ?? {};
+  const updateMetadata = (next: Record<string, string | number | boolean>) =>
+    updateCharacter(character.id, {
+      metadata: Object.keys(next).length > 0 ? next : undefined,
+    });
   const availableRelationshipTarget = characters.find(
     (candidate) => candidate.id !== character.id && !relationships[candidate.id],
   );
@@ -405,6 +410,126 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         saveError={workspaceError}
         onCommit={(value) => updateCharacter(character.id, { dialogueStyle: value || undefined })}
       />
+      <CommitTextarea
+        label="Tags"
+        rows={2}
+        placeholder="protagonist, merchant, faction:royal"
+        value={(character.tags ?? []).join(', ')}
+        saveError={workspaceError}
+        onCommit={(value) => {
+          const tags = [
+            ...new Set(
+              value
+                .split(',')
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            ),
+          ];
+          updateCharacter(character.id, { tags: tags.length > 0 ? tags : undefined });
+        }}
+      />
+      <div className={styles.infoText}>
+        Tags are searchable authoring labels. Separate them with commas.
+      </div>
+      <div className={styles.parameterHeader}>
+        <span>Metadata</span>
+        <button
+          type="button"
+          onClick={() => {
+            let index = Object.keys(metadata).length + 1;
+            let key = `key${index}`;
+            while (Object.hasOwn(metadata, key)) key = `key${++index}`;
+            updateMetadata({ ...metadata, [key]: '' });
+          }}
+        >
+          Add Metadata
+        </button>
+      </div>
+      <div className={styles.relationshipList}>
+        {Object.entries(metadata).map(([key, value]) => {
+          const kind = typeof value as ScalarKind;
+          return (
+            <div className={styles.metadataRow} key={key}>
+              <label>
+                <span>Key</span>
+                <ScriptNameInput
+                  value={key}
+                  onCommit={(nextKey) => {
+                    if (nextKey !== key && Object.hasOwn(metadata, nextKey)) return false;
+                    updateMetadata(
+                      Object.fromEntries(
+                        Object.entries(metadata).map(([candidate, item]) => [
+                          candidate === key ? nextKey : candidate,
+                          item,
+                        ]),
+                      ),
+                    );
+                  }}
+                />
+              </label>
+              <label>
+                <span>Type</span>
+                <select
+                  value={kind}
+                  onChange={(event) => {
+                    const nextKind = event.target.value as ScalarKind;
+                    updateMetadata({
+                      ...metadata,
+                      [key]: defaultForType(nextKind) as string | number | boolean,
+                    });
+                  }}
+                >
+                  <option value="string">String</option>
+                  <option value="number">Number</option>
+                  <option value="boolean">Boolean</option>
+                </select>
+              </label>
+              <label>
+                <span>Value</span>
+                {kind === 'boolean' ? (
+                  <select
+                    value={String(value)}
+                    onChange={(event) =>
+                      updateMetadata({ ...metadata, [key]: event.target.value === 'true' })
+                    }
+                  >
+                    <option value="false">False</option>
+                    <option value="true">True</option>
+                  </select>
+                ) : (
+                  <input
+                    type={kind === 'number' ? 'number' : 'text'}
+                    value={String(value)}
+                    onChange={(event) =>
+                      updateMetadata({
+                        ...metadata,
+                        [key]: kind === 'number' ? Number(event.target.value) : event.target.value,
+                      })
+                    }
+                  />
+                )}
+              </label>
+              <button
+                className={styles.emotionRemoveButton}
+                type="button"
+                aria-label={`Delete metadata ${key}`}
+                onClick={() =>
+                  updateMetadata(
+                    Object.fromEntries(
+                      Object.entries(metadata).filter(([candidate]) => candidate !== key),
+                    ),
+                  )
+                }
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+        {Object.keys(metadata).length === 0 && (
+          <div className={styles.infoText}>No project-specific metadata.</div>
+        )}
+      </div>
       <label>
         <span>Default Portrait</span>
         <select

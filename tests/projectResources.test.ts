@@ -22,6 +22,8 @@ const character: CharacterSource = {
   displayName: 'Alice',
   description: 'A careful navigator searching for her missing sister.',
   dialogueStyle: 'Precise, understated, and rarely uses contractions.',
+  tags: ['navigator', 'protagonist'],
+  metadata: { faction: 'Free Fleet', rank: 3, recruitable: true },
   relationships: {
     c_bob: { label: 'Trusted ally', description: 'Relies on Bob under pressure.' },
   },
@@ -53,6 +55,9 @@ describe('project resource KDL', () => {
     expect(characterText).toContain('description="A careful navigator');
     expect(characterText).toContain('dialogue-style="Precise, understated');
     expect(characterText).toContain('relationship c_bob label="Trusted ally"');
+    expect(characterText).toContain('tag navigator');
+    expect(characterText).toContain('meta faction "Free Fleet"');
+    expect(characterText).toContain('meta rank 3');
     expect(assetText).toContain('locale zh-CN');
   });
 

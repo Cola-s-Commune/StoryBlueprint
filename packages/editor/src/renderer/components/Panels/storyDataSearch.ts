@@ -8,6 +8,8 @@ export function matchesCharacterSearch(character: CharacterSource, rawQuery: str
     character.displayName,
     character.description ?? '',
     character.dialogueStyle ?? '',
+    ...(character.tags ?? []),
+    ...Object.entries(character.metadata ?? {}).flatMap(([key, value]) => [key, String(value)]),
     ...Object.entries(character.relationships ?? {}).flatMap(([targetId, relationship]) => [
       targetId,
       relationship.label,

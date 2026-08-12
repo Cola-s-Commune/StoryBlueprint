@@ -474,6 +474,8 @@ describe('AI semantic editing foundation', () => {
           characterId: 'c_alice',
           patch: {
             dialogueStyle: 'Short sentences with dry humor.',
+            tags: ['investigator', 'party-member'],
+            metadata: { faction: 'Watch', rank: 4, recruitable: true },
             fields: [
               {
                 id: 'v_affinity',
@@ -498,6 +500,8 @@ describe('AI semantic editing foundation', () => {
     expect(result.document.characters[0]).toMatchObject({
       description: 'A patient investigator.',
       dialogueStyle: 'Short sentences with dry humor.',
+      tags: ['investigator', 'party-member'],
+      metadata: { faction: 'Watch', rank: 4, recruitable: true },
       relationships: {
         c_bob: { label: 'Reluctant partner', description: 'Trust is still developing.' },
       },

@@ -204,6 +204,17 @@ function validRelationships(value: unknown, ownerId?: CharacterId): boolean {
   );
 }
 
+function validCharacterMetadata(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([key, item]) =>
+        key.trim().length > 0 &&
+        (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean'),
+    )
+  );
+}
+
 function validCharacter(value: unknown): value is CharacterSource {
   return (
     isRecord(value) &&
@@ -215,6 +226,11 @@ function validCharacter(value: unknown): value is CharacterSource {
     value.displayName.length > 0 &&
     (value.description === undefined || typeof value.description === 'string') &&
     (value.dialogueStyle === undefined || typeof value.dialogueStyle === 'string') &&
+    (value.tags === undefined ||
+      (validStringArray(value.tags) &&
+        value.tags.every((tag) => tag.trim().length > 0) &&
+        new Set(value.tags).size === value.tags.length)) &&
+    (value.metadata === undefined || validCharacterMetadata(value.metadata)) &&
     (value.relationships === undefined || validRelationships(value.relationships, value.id)) &&
     (value.defaultPortraitId === undefined ||
       (typeof value.defaultPortraitId === 'string' &&
@@ -605,6 +621,8 @@ export function validateBlueprintCommandTransaction(
                 'displayName',
                 'description',
                 'dialogueStyle',
+                'tags',
+                'metadata',
                 'relationships',
                 'defaultPortraitId',
                 'emotions',
@@ -629,6 +647,14 @@ export function validateBlueprintCommandTransaction(
           (raw.patch.dialogueStyle !== undefined &&
             raw.patch.dialogueStyle !== null &&
             typeof raw.patch.dialogueStyle !== 'string') ||
+          (raw.patch.tags !== undefined &&
+            raw.patch.tags !== null &&
+            (!validStringArray(raw.patch.tags) ||
+              raw.patch.tags.some((tag) => !tag.trim()) ||
+              new Set(raw.patch.tags).size !== raw.patch.tags.length)) ||
+          (raw.patch.metadata !== undefined &&
+            raw.patch.metadata !== null &&
+            !validCharacterMetadata(raw.patch.metadata)) ||
           (raw.patch.relationships !== undefined &&
             raw.patch.relationships !== null &&
             !validRelationships(raw.patch.relationships, raw.characterId as CharacterId)) ||
@@ -886,6 +912,8 @@ function applyOperation(
         patch.description === null ? undefined : (patch.description ?? previous.description),
       dialogueStyle:
         patch.dialogueStyle === null ? undefined : (patch.dialogueStyle ?? previous.dialogueStyle),
+      tags: patch.tags === null ? undefined : (patch.tags ?? previous.tags),
+      metadata: patch.metadata === null ? undefined : (patch.metadata ?? previous.metadata),
       relationships:
         patch.relationships === null ? undefined : (patch.relationships ?? previous.relationships),
       defaultPortraitId:

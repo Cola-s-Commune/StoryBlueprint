@@ -8,6 +8,8 @@ const character: CharacterSource = {
   displayName: 'Captain Mira',
   description: 'A cautious navigator searching for a lost expedition.',
   dialogueStyle: 'Formal nautical vocabulary with dry humor.',
+  tags: ['captain', 'free-fleet'],
+  metadata: { faction: 'Free Fleet', reputation: 7, recruitable: true },
   relationships: {
     c_orrin: { label: 'Former mentor', description: 'A source of unresolved resentment.' },
   },
@@ -31,6 +33,9 @@ describe('Story Data character search', () => {
     expect(matchesCharacterSearch(character, 'suspicious')).toBe(true);
     expect(matchesCharacterSearch(character, 'crew trust number')).toBe(true);
     expect(matchesCharacterSearch(character, 'former resentment')).toBe(true);
+    expect(matchesCharacterSearch(character, 'free-fleet')).toBe(true);
+    expect(matchesCharacterSearch(character, 'faction free fleet')).toBe(true);
+    expect(matchesCharacterSearch(character, 'reputation 7 recruitable true')).toBe(true);
   });
 
   it('requires every search term to match while ignoring case and outer whitespace', () => {

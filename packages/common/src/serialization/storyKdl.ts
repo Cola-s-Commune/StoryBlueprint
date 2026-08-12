@@ -352,6 +352,21 @@ function serializeCharacters(characters: readonly CharacterSource[]): Node | und
     if (character.description) node.setProperty('description', character.description);
     if (character.dialogueStyle) node.setProperty('dialogue-style', character.dialogueStyle);
     if (character.defaultPortraitId) node.setProperty('portrait', character.defaultPortraitId);
+    for (const tag of [...new Set(character.tags ?? [])].sort()) {
+      if (!tag.trim()) throw new StoryFormatError(`${character.id}.tag cannot be empty`);
+      const tagNode = Node.create('tag');
+      tagNode.addArgument(tag);
+      node.appendNode(tagNode);
+    }
+    for (const [key, value] of Object.entries(character.metadata ?? {}).sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      if (!key.trim()) throw new StoryFormatError(`${character.id}.metadata key cannot be empty`);
+      const metaNode = Node.create('meta');
+      metaNode.addArgument(key);
+      metaNode.addArgument(value);
+      node.appendNode(metaNode);
+    }
     for (const [targetId, relationship] of Object.entries(character.relationships ?? {})) {
       if (!isStableId(targetId, 'character') || targetId === character.id) {
         throw new StoryFormatError(`${character.id}.relationship target is invalid`);
@@ -873,7 +888,7 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
     assertShape(node, 'story.characters.character', {
       arguments: 1,
       properties: ['name', 'display-name', 'description', 'dialogue-style', 'portrait'],
-      children: ['emotion', 'field', 'relationship'],
+      children: ['emotion', 'field', 'relationship', 'tag', 'meta'],
     });
     const id = requiredId(node.getArgument(0), 'character', 'character.id');
     const name = requiredString(node.getProperty('name'), `${id}.name`);
@@ -883,6 +898,28 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
     names.add(name);
     const fieldIds = new Set<string>();
     const fieldNames = new Set<string>();
+    const tags = node.findNodesByName('tag').map((tagNode) => {
+      assertShape(tagNode, `${id}.tag`, { arguments: 1 });
+      const tag = requiredString(tagNode.getArgument(0), `${id}.tag`);
+      if (!tag.trim()) throw new StoryFormatError(`${id}.tag cannot be empty`);
+      return tag;
+    });
+    if (new Set(tags).size !== tags.length) throw new StoryFormatError(`Duplicate tag in ${id}`);
+    const metadataKeys = new Set<string>();
+    const metadata = Object.fromEntries(
+      node.findNodesByName('meta').map((metaNode) => {
+        assertShape(metaNode, `${id}.meta`, { arguments: 2 });
+        const key = requiredString(metaNode.getArgument(0), `${id}.meta.key`);
+        const value = metaNode.getArgument(1);
+        if (!key.trim()) throw new StoryFormatError(`${id}.metadata key cannot be empty`);
+        if (metadataKeys.has(key)) throw new StoryFormatError(`Duplicate metadata key ${key}`);
+        if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+          throw new StoryFormatError(`${id}.${key}.metadata value must be scalar`);
+        }
+        metadataKeys.add(key);
+        return [key, value];
+      }),
+    );
     const fields = node.findNodesByName('field').map((fieldNode) => {
       assertShape(fieldNode, `${id}.field`, {
         arguments: 1,
@@ -974,6 +1011,8 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
       displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
       description: optionalString(node.getProperty('description'), `${id}.description`),
       dialogueStyle: optionalString(node.getProperty('dialogue-style'), `${id}.dialogue-style`),
+      ...(tags.length > 0 ? { tags } : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
       ...(Object.keys(relationships).length > 0 ? { relationships } : {}),
       defaultPortraitId: node.getProperty('portrait')
         ? requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`)

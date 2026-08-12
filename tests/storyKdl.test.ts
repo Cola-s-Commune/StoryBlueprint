@@ -80,6 +80,8 @@ function sourceDocument(): StorySourceDocument {
         displayName: 'Arys',
         description: 'A wandering scholar.',
         dialogueStyle: 'Warm, curious, and concise.',
+        tags: ['scholar', 'traveler'],
+        metadata: { faction: 'Academy', level: 2, recruitable: true },
         relationships: { c_bryn: { label: 'Old friend' } },
         emotions: { happy: { displayName: 'Happy' } },
       },
@@ -175,6 +177,10 @@ describe('story KDL v4', () => {
     const parsed = parseStorySource(serializeStorySource(sourceDocument()));
     expect(parsed.variables[0]).toMatchObject({ id: 'v_gold', defaultValue: 5 });
     expect(parsed.characters[0]).toMatchObject({ id: 'c_arys', displayName: 'Arys' });
+    expect(parsed.characters[0]).toMatchObject({
+      tags: ['scholar', 'traveler'],
+      metadata: { faction: 'Academy', level: 2, recruitable: true },
+    });
   });
 
   it('preserves quotes inside string literal expressions', () => {

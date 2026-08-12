@@ -75,6 +75,10 @@ export interface CharacterSource {
   description?: string;
   /** Guidance for generated dialogue, such as vocabulary, tone, and verbal habits. */
   dialogueStyle?: string;
+  /** Lightweight authoring categories used by search, filtering, and AI context. */
+  tags?: readonly string[];
+  /** Project-specific scalar facts that do not warrant engine-backed Character Fields. */
+  metadata?: Readonly<Record<string, string | number | boolean>>;
   /** Directed, writer-facing relationships keyed by the target Character ID. */
   relationships?: Readonly<Record<CharacterId, { label: string; description?: string }>>;
   defaultPortraitId?: AssetId;

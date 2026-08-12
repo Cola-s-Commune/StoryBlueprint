@@ -218,6 +218,12 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
                   displayName: { type: 'string', minLength: 1 },
                   description: { type: ['string', 'null'] },
                   dialogueStyle: { type: ['string', 'null'] },
+                  tags: {
+                    anyOf: [{ $ref: '#/$defs/characterTags' }, { type: 'null' }],
+                  },
+                  metadata: {
+                    anyOf: [{ $ref: '#/$defs/characterMetadata' }, { type: 'null' }],
+                  },
                   relationships: {
                     anyOf: [{ $ref: '#/$defs/relationships' }, { type: 'null' }],
                   },
@@ -351,6 +357,16 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         },
       },
     },
+    characterTags: {
+      type: 'array',
+      uniqueItems: true,
+      items: { type: 'string', minLength: 1 },
+    },
+    characterMetadata: {
+      type: 'object',
+      propertyNames: { minLength: 1 },
+      additionalProperties: { type: ['string', 'number', 'boolean'] },
+    },
     character: {
       type: 'object',
       additionalProperties: false,
@@ -361,6 +377,8 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         displayName: { type: 'string', minLength: 1 },
         description: { type: 'string' },
         dialogueStyle: { type: 'string' },
+        tags: { $ref: '#/$defs/characterTags' },
+        metadata: { $ref: '#/$defs/characterMetadata' },
         relationships: { $ref: '#/$defs/relationships' },
         defaultPortraitId: { type: 'string', pattern: '^a_[a-z0-9][a-z0-9_-]{2,}$' },
         emotions: { $ref: '#/$defs/emotions' },
