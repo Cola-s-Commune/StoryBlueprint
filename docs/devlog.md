@@ -1,5 +1,8 @@
 # Dev Log
 
+- 新增项目级《编辑器撤销与重做规范》：所有内容新增、删除与修改默认必须可原子恢复；统一定义事务边界、文本草稿、跨文件写回、快捷键、例外和新功能验收清单，并登记全项目资源操作审计任务。
+- Character 资源状态加入统一 Editor History；添加/删除 Field、Emotion、Relationship，以及 Tags / Metadata / 文本提交均形成一次 Undo 步骤。Ctrl+Z / Ctrl+Y 恢复项目角色后会按队列写回 `.character`，Emotion 重命名/删除与 Dialogue 引用改写共享同一原子历史点。
+- 修复 Character Inspector 中文本框看似可聚焦却无法稳定编辑：表单键鼠事件不再冒泡给画布与 Dock，Display Name、Metadata、Field 默认值和 Emotion 名称改为本地草稿，失焦/Enter 后一次提交，避免逐键写磁盘及异步 Workspace 回写打断输入。
 - Character Template 使用独立 `.character-template` KDL 资源保存在项目 `Templates` 目录；可从角色保存并从 Blank / 内置 / 项目模板新建。模板保留 Fields、Emotions、Tags、Metadata 与 Dialogue Style，但剥离角色身份、关系和 Portrait，实例化时重建全部稳定 ID；AI Semantic Snapshot 暴露可用模板并支持 `add-character-from-template` Command。
 - Character 列表加入标签筛选、多选与批量 Add/Remove Tag；列表展示头像状态、标签和已加载 Story 引用数，并可一键复制角色。复制会为角色及其 Character Fields 生成全新稳定 ID，避免运行时状态身份冲突。
 - Character 新增可搜索 Tags 与项目自定义 Metadata（String / Number / Boolean）；独立资源和内嵌 Story KDL 均稳定排序持久化，编辑器可增删改并自动去重标签，AI Add / Update Character Schema 同步支持。

@@ -82,6 +82,48 @@ function ScriptNameInput({
   );
 }
 
+function CommitInput({
+  value,
+  onCommit,
+  type = 'text',
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+  type?: 'text' | 'number';
+}) {
+  const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    editing.current = false;
+    if (draft !== value) onCommit(draft);
+  };
+
+  return (
+    <input
+      type={type}
+      value={draft}
+      onFocus={() => {
+        editing.current = true;
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          setDraft(value);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 function ResourceReferenceSection({
   references,
   emptyMessage,
@@ -154,7 +196,14 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     variable.scope === 'project' &&
     (variableReferencesLoading || variableReferencesError !== undefined);
   return (
-    <div className={styles.details}>
+    <div
+      className={styles.details}
+      onKeyDown={(event) => event.stopPropagation()}
+      onKeyUp={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+    >
       <div className={styles.detailsTitle}>Variable</div>
       <label>
         <span>Name</span>
@@ -391,9 +440,9 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
       <label>
         <span>Display Name</span>
-        <input
+        <CommitInput
           value={character.displayName}
-          onChange={(event) => updateCharacter(character.id, { displayName: event.target.value })}
+          onCommit={(displayName) => updateCharacter(character.id, { displayName })}
         />
       </label>
       <CommitTextarea
@@ -499,13 +548,13 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                     <option value="true">True</option>
                   </select>
                 ) : (
-                  <input
+                  <CommitInput
                     type={kind === 'number' ? 'number' : 'text'}
                     value={String(value)}
-                    onChange={(event) =>
+                    onCommit={(nextValue) =>
                       updateMetadata({
                         ...metadata,
-                        [key]: kind === 'number' ? Number(event.target.value) : event.target.value,
+                        [key]: kind === 'number' ? Number(nextValue) : nextValue,
                       })
                     }
                   />
@@ -728,13 +777,12 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                       <option value="true">True</option>
                     </select>
                   ) : (
-                    <input
+                    <CommitInput
                       type={kind === 'number' ? 'number' : 'text'}
                       value={String(field.defaultValue)}
-                      onChange={(event) =>
+                      onCommit={(nextValue) =>
                         updateField(field.id, {
-                          defaultValue:
-                            kind === 'number' ? Number(event.target.value) : event.target.value,
+                          defaultValue: kind === 'number' ? Number(nextValue) : nextValue,
                         })
                       }
                     />
@@ -786,13 +834,13 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
               </label>
               <label>
                 <span>Display Name</span>
-                <input
+                <CommitInput
                   value={emotion.displayName}
-                  onChange={(event) =>
+                  onCommit={(displayName) =>
                     updateCharacter(character.id, {
                       emotions: {
                         ...character.emotions,
-                        [key]: { ...emotion, displayName: event.target.value },
+                        [key]: { ...emotion, displayName },
                       },
                     })
                   }

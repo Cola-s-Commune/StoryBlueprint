@@ -129,6 +129,12 @@ sdk/
 examples/
 ```
 
+项目规范与设计文档：
+
+- [编辑器撤销与重做规范](docs/editor-undo-redo-spec.md)
+- [Story 系统设计](docs/story-system-design.md)
+- [开发任务](docs/task.md)
+
 ---
 
 # Modules

@@ -267,6 +267,7 @@ interface EditorHistoryState {
   rootGraph: EditorGraphState;
   chapters: EditorChapter[];
   variables: VariableDefinition[];
+  characters: CharacterSource[];
 }
 
 interface AIEditorChanges {
@@ -739,6 +740,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       });
   }, []);
 
+  const restoreCharactersFromHistory = useCallback(
+    (nextCharacters: readonly CharacterSource[]) => {
+      const externalById = new Map(
+        (workspace?.characterResources ?? []).map((resource) => [resource.character.id, resource]),
+      );
+      const nextById = new Map(nextCharacters.map((character) => [character.id, character]));
+      setCharacters(
+        nextCharacters
+          .filter((character) => !externalById.has(character.id))
+          .map((character) => structuredClone(character)),
+      );
+      if (!window.electronAPI || externalById.size === 0) return;
+      for (const [id, resource] of externalById) {
+        const next = nextById.get(id);
+        if (!next || JSON.stringify(next) === JSON.stringify(resource.character)) continue;
+        const character = structuredClone(next);
+        setWorkspace((current) =>
+          current
+            ? {
+                ...current,
+                characterResources: current.characterResources.map((candidate) =>
+                  candidate.character.id === id ? { ...candidate, character } : candidate,
+                ),
+              }
+            : current,
+        );
+        queueProjectResourceWrite(() =>
+          window.electronAPI!.updateProjectCharacter(resource.relativePath, character),
+        );
+      }
+    },
+    [queueProjectResourceWrite, workspace?.characterResources],
+  );
+
   const writeProjectVariables = useCallback(
     (nextVariables: readonly VariableDefinition[]) => {
       if (!workspace?.project || !window.electronAPI) return;
@@ -788,9 +823,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         rootGraph: rootGraphRef.current,
         chapters,
         variables,
+        characters: resolvedCharacters,
       });
     },
-    [activeGraphId, chapters, graph, history, variables],
+    [activeGraphId, chapters, graph, history, resolvedCharacters, variables],
   );
 
   useEffect(() => {
@@ -919,6 +955,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       rootGraph: rootGraphRef.current,
       chapters,
       variables,
+      characters: resolvedCharacters,
     });
     if (previous) {
       setActiveGraphId(previous.activeGraphId);
@@ -926,11 +963,22 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setChapters(previous.chapters);
       restoreGraph(previous.graph);
       setVariables(previous.variables);
+      restoreCharactersFromHistory(previous.characters);
       setAIChanges(undefined);
       setAIProposal(undefined);
       markDirty();
     }
-  }, [activeGraphId, chapters, graph, history, markDirty, restoreGraph, variables]);
+  }, [
+    activeGraphId,
+    chapters,
+    graph,
+    history,
+    markDirty,
+    resolvedCharacters,
+    restoreCharactersFromHistory,
+    restoreGraph,
+    variables,
+  ]);
 
   const redo = useCallback(() => {
     const next = history.redo({
@@ -939,6 +987,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       rootGraph: rootGraphRef.current,
       chapters,
       variables,
+      characters: resolvedCharacters,
     });
     if (next) {
       setActiveGraphId(next.activeGraphId);
@@ -946,11 +995,22 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setChapters(next.chapters);
       restoreGraph(next.graph);
       setVariables(next.variables);
+      restoreCharactersFromHistory(next.characters);
       setAIChanges(undefined);
       setAIProposal(undefined);
       markDirty();
     }
-  }, [activeGraphId, chapters, graph, history, markDirty, restoreGraph, variables]);
+  }, [
+    activeGraphId,
+    chapters,
+    graph,
+    history,
+    markDirty,
+    resolvedCharacters,
+    restoreCharactersFromHistory,
+    restoreGraph,
+    variables,
+  ]);
 
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
   const discardAIProposal = useCallback(() => setAIProposal(undefined), []);
@@ -1931,7 +1991,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const updateCharacter = useCallback(
-    (id: CharacterId, update: Partial<CharacterSource>) => {
+    (
+      id: CharacterId,
+      update: Partial<CharacterSource>,
+      options: { recordHistory?: boolean } = {},
+    ) => {
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
@@ -1971,6 +2035,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             ? []
             : [{ fieldId: field.id, oldQualifiedName, newQualifiedName }];
         });
+        if (options.recordHistory !== false) checkpoint();
         rewriteCharacterFieldReferences(renames);
       }
       const resource = workspace?.characterResources.find(
@@ -2002,6 +2067,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     },
     [
       markDirty,
+      checkpoint,
       queueProjectResourceWrite,
       resolvedCharacters,
       rewriteCharacterFieldReferences,
@@ -2044,10 +2110,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           key === fromEmotion ? [toEmotion, value] : [key, value],
         ),
       );
+      checkpoint();
       rewriteCharacterEmotionReferences(id, fromEmotion, toEmotion);
-      updateCharacter(id, { emotions });
+      updateCharacter(id, { emotions }, { recordHistory: false });
     },
-    [resolvedCharacters, rewriteCharacterEmotionReferences, updateCharacter],
+    [checkpoint, resolvedCharacters, rewriteCharacterEmotionReferences, updateCharacter],
   );
 
   const removeCharacterEmotion = useCallback(
@@ -2068,10 +2135,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const emotions = Object.fromEntries(
         Object.entries(character.emotions).filter(([key]) => key !== emotion),
       );
+      checkpoint();
       rewriteCharacterEmotionReferences(id, emotion);
-      updateCharacter(id, { emotions });
+      updateCharacter(id, { emotions }, { recordHistory: false });
     },
-    [resolvedCharacters, rewriteCharacterEmotionReferences, updateCharacter],
+    [checkpoint, resolvedCharacters, rewriteCharacterEmotionReferences, updateCharacter],
   );
 
   const removeCharacter = useCallback(
@@ -3087,6 +3155,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           rootGraph: structuredClone(diskItem.rootGraph),
           chapters: structuredClone(diskItem.chapters),
           variables: structuredClone(diskItem.variables),
+          characters: structuredClone(diskItem.characters),
         });
       }
       removeRecoveryCandidate(storyId);

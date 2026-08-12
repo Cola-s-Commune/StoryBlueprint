@@ -196,6 +196,8 @@
 - [x] Graph Snapshot Transaction
 - [x] Undo
 - [x] Redo
+- [x] 建立项目级[编辑器撤销与重做规范](editor-undo-redo-spec.md)：所有内容新增、删除和修改默认必须原子 Undo / Redo
+- [ ] 按撤销规范审计 Story / Character / Variable / Asset / Event / Signal 等项目资源的新增、删除、移动和跨文件恢复
 
 ---
 
@@ -439,6 +441,8 @@
 - [x] Character 标签与可扩展标量 Metadata：编辑、搜索、KDL、语义快照及 AI Commands
 - [x] Character 管理：标签筛选、多选批量标签、角色复制、头像状态、引用数量概览
 - [x] Character Template：项目模板文件、从角色保存、内置模板、新建时选择、AI Command 并重建稳定 ID
+- [x] Character Inspector 输入保护：表单事件与画布快捷键隔离，文本使用本地草稿并在失焦时提交
+- [x] Character 编辑接入全局 Undo / Redo：Field、Emotion、Relationship、Tags、Metadata 与文本提交均可回退并同步项目资源
 
 ---
 
