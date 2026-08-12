@@ -360,10 +360,7 @@ export function ResourceBrowser() {
       const resource = workspace?.assetResources.find(
         (candidate) => candidate.relativePath === entry.relativePath,
       );
-      if (
-        resource &&
-        window.confirm(`Delete asset "${resource.asset.displayName}"? This cannot be undone.`)
-      ) {
+      if (resource) {
         removeAsset(resource.asset.id);
       } else if (
         !resource &&

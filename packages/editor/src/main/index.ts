@@ -61,6 +61,7 @@ import type {
   UpdateAIProviderSettingsRequest,
   WorkspaceEntry,
   WorkspaceInfo,
+  ProjectResourceSnapshot,
 } from '../shared/electronApi';
 import {
   markStoryGitConflictResolved,
@@ -78,6 +79,7 @@ import {
   readWorkspaceGitRepository,
   workspaceGitCheckoutKey,
 } from './workspaceGit';
+import { validateProjectResourceSnapshot } from './projectResourceSnapshot';
 import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
 import {
   isPersistedWindowState,
@@ -2478,6 +2480,74 @@ function registerStoryFileHandlers(): void {
     if (!filePath.toLowerCase().endsWith('.asset')) throw new Error('Not an asset file');
     await unlink(filePath);
     return syncWorkspaceProject();
+  });
+
+  ipcMain.handle('workspace:restore-project-resources', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile || !workspaceRoot) {
+      throw new Error('Open a project first');
+    }
+    const snapshot = value as Partial<ProjectResourceSnapshot>;
+    if (!Array.isArray(snapshot.characters) || !Array.isArray(snapshot.assets)) {
+      throw new Error('Invalid project resource snapshot');
+    }
+    const current = (await readWorkspace())!;
+    const currentPaths = [
+      ...current.characterResources.map((resource) => resource.relativePath),
+      ...current.assetResources.map((resource) => resource.relativePath),
+    ];
+    const targetFiles = validateProjectResourceSnapshot(
+      snapshot as ProjectResourceSnapshot,
+      serializeCharacterResource,
+      serializeAssetResource,
+      current.project?.characters
+        .filter((resource) => !resource.path)
+        .map((resource) => resource.id),
+      current.project?.assets
+        .filter((resource) => !resource.path && resource.kind === 'portrait')
+        .map((resource) => resource.id),
+    );
+    const targetPaths = new Set<string>();
+    for (const file of targetFiles) {
+      targetPaths.add(file.relativePath);
+    }
+    const affected = new Set([...currentPaths, ...targetPaths]);
+    const previousFiles = new Map<string, string | undefined>();
+    for (const relativePath of affected) {
+      const filePath = resolveWorkspacePath(relativePath);
+      try {
+        previousFiles.set(relativePath, await readFile(filePath, 'utf8'));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        previousFiles.set(relativePath, undefined);
+      }
+    }
+    try {
+      for (const file of targetFiles) {
+        const filePath = resolveWorkspacePath(file.relativePath);
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, file.content, 'utf8');
+      }
+      for (const relativePath of currentPaths) {
+        if (!targetPaths.has(relativePath)) await unlink(resolveWorkspacePath(relativePath));
+      }
+      return await syncWorkspaceProject();
+    } catch (error) {
+      for (const [relativePath, content] of previousFiles) {
+        const filePath = resolveWorkspacePath(relativePath);
+        if (content === undefined) {
+          try {
+            await unlink(filePath);
+          } catch (rollbackError) {
+            if ((rollbackError as NodeJS.ErrnoException).code !== 'ENOENT') throw rollbackError;
+          }
+        } else {
+          await mkdir(dirname(filePath), { recursive: true });
+          await writeFile(filePath, content, 'utf8');
+        }
+      }
+      await syncWorkspaceProject();
+      throw error;
+    }
   });
 
   ipcMain.handle('workspace:export-compiled', async (event, content: unknown) => {
