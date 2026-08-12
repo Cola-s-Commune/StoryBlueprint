@@ -169,6 +169,13 @@ export {
   type StorySourceDocument,
   type BoundExpressionSource,
 } from './types/source';
+export type { CharacterTemplateField, CharacterTemplateSource } from './types/characterTemplate';
+export {
+  STORY_CHARACTER_TEMPLATE_FORMAT,
+  STORY_CHARACTER_TEMPLATE_VERSION,
+  parseCharacterTemplate,
+  serializeCharacterTemplate,
+} from './serialization/characterTemplateKdl';
 
 export {
   STORY_PROJECT_FORMAT,

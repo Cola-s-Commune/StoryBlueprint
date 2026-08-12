@@ -207,6 +207,27 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
           ),
           operation('add-character', { character: { $ref: '#/$defs/character' } }, ['character']),
           operation(
+            'add-character-from-template',
+            {
+              templateName: { type: 'string', minLength: 1 },
+              character: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'name', 'displayName'],
+                properties: {
+                  id: { type: 'string', pattern: stableIdPatterns.character },
+                  name: { type: 'string', minLength: 1 },
+                  displayName: { type: 'string', minLength: 1 },
+                },
+              },
+              fieldIds: {
+                type: 'object',
+                additionalProperties: { type: 'string', pattern: stableIdPatterns.variable },
+              },
+            },
+            ['templateName', 'character', 'fieldIds'],
+          ),
+          operation(
             'update-character',
             {
               characterId: { type: 'string', pattern: stableIdPatterns.character },

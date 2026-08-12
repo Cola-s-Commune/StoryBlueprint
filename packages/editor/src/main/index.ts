@@ -20,10 +20,12 @@ import {
   parseStoryProject,
   parseStorySource,
   parseCharacterResource,
+  parseCharacterTemplate,
   parseAssetResource,
   serializeStoryProject,
   serializeStorySource,
   serializeCharacterResource,
+  serializeCharacterTemplate,
   serializeAssetResource,
   STORY_PROJECT_FORMAT,
   STORY_PROJECT_VERSION,
@@ -34,6 +36,7 @@ import {
   StoryNodeType,
   type AssetSource,
   type CharacterSource,
+  type CharacterTemplateSource,
   type DialogueNodeData,
   type ProjectAssetReference,
   type ProjectCharacterReference,
@@ -129,6 +132,7 @@ function workspaceFileKind(filePath: string): WorkspaceFileKind | undefined {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.storyproject')) return 'project';
   if (lower.endsWith('.story')) return 'story';
+  if (lower.endsWith('.character-template')) return 'character-template';
   if (lower.endsWith('.character')) return 'character';
   if (lower.endsWith('.asset')) return 'asset';
   return undefined;
@@ -144,6 +148,7 @@ async function scanWorkspaceFileFingerprints(
     ...collectEntries(entries, 'story'),
     ...collectEntries(entries, 'project'),
     ...collectEntries(entries, 'character'),
+    ...collectEntries(entries, 'character-template'),
     ...collectEntries(entries, 'asset'),
   ];
   await Promise.all(
@@ -694,6 +699,14 @@ async function scanWorkspaceDirectory(
         name: entry.name,
         relativePath: toWorkspaceRelative(entryPath),
       });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.character-template')) {
+      if (++budget.count > MAX_WORKSPACE_ENTRIES)
+        throw new Error('Workspace contains too many entries');
+      result.push({
+        kind: 'character-template',
+        name: entry.name,
+        relativePath: toWorkspaceRelative(entryPath),
+      });
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.character')) {
       if (++budget.count > MAX_WORKSPACE_ENTRIES)
         throw new Error('Workspace contains too many entries');
@@ -744,6 +757,7 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
     }
   }
   const characterResources: WorkspaceInfo['characterResources'] = [];
+  const characterTemplates: WorkspaceInfo['characterTemplates'] = [];
   const assetResources: WorkspaceInfo['assetResources'] = [];
   const resourceErrors: WorkspaceInfo['resourceErrors'] = [];
   for (const entry of collectEntries(entries, 'character')) {
@@ -792,6 +806,21 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
       });
     }
   }
+  for (const entry of collectEntries(entries, 'character-template')) {
+    try {
+      characterTemplates.push({
+        relativePath: entry.relativePath,
+        template: parseCharacterTemplate(
+          await readFile(resolveWorkspacePath(entry.relativePath), 'utf8'),
+        ),
+      });
+    } catch (error) {
+      resourceErrors.push({
+        relativePath: entry.relativePath,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   return {
     name: basename(workspaceRoot),
     rootPath: workspaceRoot,
@@ -800,6 +829,7 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
     projectRevision,
     projectError,
     characterResources,
+    characterTemplates,
     assetResources,
     resourceErrors,
     git,
@@ -2288,6 +2318,20 @@ function registerStoryFileHandlers(): void {
     const filePath = join(directory, `${character.name}-${character.id.slice(-6)}.character`);
     await writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' });
     return syncWorkspaceProject();
+  });
+
+  ipcMain.handle('workspace:save-character-template', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile) throw new Error('Open a project first');
+    const template = value as CharacterTemplateSource;
+    const content = serializeCharacterTemplate(template);
+    const directory = resolveWorkspacePath('Templates');
+    await mkdir(directory, { recursive: true });
+    const safeName = template.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'character-template';
+    await writeFile(join(directory, `${safeName}.character-template`), content, {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+    return (await readWorkspace())!;
   });
 
   ipcMain.handle(

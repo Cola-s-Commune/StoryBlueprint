@@ -17,7 +17,7 @@ import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import { CopyButton } from './CopyButton';
 import { CommitTextarea } from './CommitTextarea';
 import { matchesCharacterSearch } from './storyDataSearch';
-import { updateCharacterTags } from '../../graph/characterManagement';
+import { BUILTIN_CHARACTER_TEMPLATES, updateCharacterTags } from '../../graph/characterManagement';
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
@@ -317,6 +317,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     renameCharacterEmotion,
     removeCharacterEmotion,
     removeCharacter,
+    saveCharacterAsTemplate,
     revealWorkspaceItem,
   } = useStoryGraphStore();
   const resourcePath = workspace?.characterResources.find(
@@ -867,6 +868,15 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
         </div>
       )}
       <div className={styles.detailActions}>
+        {workspace?.project && (
+          <button
+            className={styles.secondaryButton}
+            type="button"
+            onClick={() => void saveCharacterAsTemplate(character.id)}
+          >
+            Save as Template
+          </button>
+        )}
         {resourcePath && (
           <button
             className={styles.secondaryButton}
@@ -1355,6 +1365,7 @@ export function StoryData() {
     addProjectVariable,
     addCharacter,
     duplicateCharacter,
+    addCharacterFromTemplate,
     updateCharacter,
     findCharacterReferences,
     addAsset,
@@ -1367,6 +1378,17 @@ export function StoryData() {
   const [characterTagFilter, setCharacterTagFilter] = useState<string>();
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<CharacterId>>(new Set());
   const [batchTag, setBatchTag] = useState('');
+  const [characterTemplateName, setCharacterTemplateName] = useState('blank');
+  const characterTemplates = useMemo(
+    () => [
+      ...BUILTIN_CHARACTER_TEMPLATES.map((template) => ({ template, source: 'Built-in' })),
+      ...(workspace?.characterTemplates ?? []).map(({ template }) => ({
+        template,
+        source: 'Project',
+      })),
+    ],
+    [workspace?.characterTemplates],
+  );
   const characterTags = useMemo(
     () => [...new Set(characters.flatMap((character) => character.tags ?? []))].sort(),
     [characters],
@@ -1665,13 +1687,36 @@ export function StoryData() {
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <span>{workspace?.project ? 'Project Characters' : 'Characters'}</span>
-            <button
-              type="button"
-              title="Add character"
-              onClick={() => selectStoryData({ kind: 'character', id: addCharacter() })}
-            >
-              +
-            </button>
+            <div className={styles.characterCreateControls}>
+              <select
+                value={characterTemplateName}
+                title="Character template"
+                onChange={(event) => setCharacterTemplateName(event.target.value)}
+              >
+                <option value="blank">Blank</option>
+                {characterTemplates.map(({ template, source }) => (
+                  <option value={`${source}:${template.name}`} key={`${source}:${template.name}`}>
+                    {template.displayName} ({source})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                title="Add character"
+                onClick={() => {
+                  const selected = characterTemplates.find(
+                    ({ template, source }) =>
+                      `${source}:${template.name}` === characterTemplateName,
+                  );
+                  const id = selected
+                    ? addCharacterFromTemplate(selected.template)
+                    : addCharacter();
+                  selectStoryData({ kind: 'character', id });
+                }}
+              >
+                +
+              </button>
+            </div>
           </div>
           {characterTags.length > 0 && (
             <div className={styles.tagFilters}>

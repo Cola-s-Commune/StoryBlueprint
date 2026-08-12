@@ -5,6 +5,7 @@ const kindLabels = {
   story: 'Story',
   project: 'Project',
   character: 'Character',
+  'character-template': 'Character Template',
   asset: 'Asset',
 } as const;
 

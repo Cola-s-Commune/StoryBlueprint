@@ -1,5 +1,6 @@
 # Dev Log
 
+- Character Template 使用独立 `.character-template` KDL 资源保存在项目 `Templates` 目录；可从角色保存并从 Blank / 内置 / 项目模板新建。模板保留 Fields、Emotions、Tags、Metadata 与 Dialogue Style，但剥离角色身份、关系和 Portrait，实例化时重建全部稳定 ID；AI Semantic Snapshot 暴露可用模板并支持 `add-character-from-template` Command。
 - Character 列表加入标签筛选、多选与批量 Add/Remove Tag；列表展示头像状态、标签和已加载 Story 引用数，并可一键复制角色。复制会为角色及其 Character Fields 生成全新稳定 ID，避免运行时状态身份冲突。
 - Character 新增可搜索 Tags 与项目自定义 Metadata（String / Number / Boolean）；独立资源和内嵌 Story KDL 均稳定排序持久化，编辑器可增删改并自动去重标签，AI Add / Update Character Schema 同步支持。
 - 外部文件监听与编辑器重载规则拆为可测试的纯决策模块；新增内容指纹 Diff、自保存过滤、干净/脏 Story、资源删除、快速连续写入与 Git checkout 可控时钟抑制测试，避免轮询测试依赖真实等待。

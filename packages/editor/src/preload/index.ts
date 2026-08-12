@@ -59,6 +59,8 @@ const electronAPI = {
     ipcRenderer.invoke('ai:delete-chat-session', scopeKey, sessionId),
   createProjectCharacter: (character) =>
     ipcRenderer.invoke('workspace:create-character', character),
+  saveCharacterTemplate: (template) =>
+    ipcRenderer.invoke('workspace:save-character-template', template),
   updateProjectCharacter: (relativePath, character) =>
     ipcRenderer.invoke('workspace:update-character', relativePath, character),
   deleteProjectCharacter: (relativePath) =>

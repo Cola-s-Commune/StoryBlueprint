@@ -527,6 +527,7 @@
 }
 
 .characterFileIcon,
+.templateFileIcon,
 .assetFileIcon {
   display: grid;
   width: 14px;
@@ -541,6 +542,10 @@
 
 .characterFileIcon {
   background: #66518b;
+}
+
+.templateFileIcon {
+  background: #8a6639;
 }
 
 .assetFileIcon {

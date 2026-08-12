@@ -118,6 +118,23 @@
   gap: 4px;
 }
 
+.characterCreateControls {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+}
+
+.characterCreateControls select {
+  max-width: 128px;
+  min-width: 0;
+  border: 1px solid #414852;
+  border-radius: 4px;
+  background: #262b32;
+  color: #b7c0cb;
+  font: inherit;
+  font-size: 8px;
+}
+
 .item {
   display: flex;
   min-height: 28px;

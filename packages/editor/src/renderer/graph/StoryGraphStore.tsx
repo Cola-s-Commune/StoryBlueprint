@@ -44,6 +44,7 @@ import {
   type VariableDefinition,
   type CharacterId,
   type CharacterSource,
+  type CharacterTemplateSource,
   type AssetSource,
   type AssetId,
   type EventId,
@@ -81,7 +82,12 @@ import { useGraphHistory } from './useGraphHistory';
 import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
 import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
 import { planExternalFileChange } from './externalFileChangePlan';
-import { duplicateCharacterDefinition } from './characterManagement';
+import {
+  BUILTIN_CHARACTER_TEMPLATES,
+  characterFromTemplate,
+  characterToTemplate,
+  duplicateCharacterDefinition,
+} from './characterManagement';
 import {
   findVariableReferences as collectVariableReferences,
   findProjectVariableReferences,
@@ -405,6 +411,8 @@ interface StoryGraphStoreValue {
   ) => { ok: true } | { ok: false; references: readonly VariableReference[] };
   addCharacter: () => CharacterId;
   duplicateCharacter: (id: CharacterId) => CharacterId | undefined;
+  addCharacterFromTemplate: (template: CharacterTemplateSource) => CharacterId;
+  saveCharacterAsTemplate: (id: CharacterId) => Promise<void>;
   findCharacterReferences: (id: CharacterId) => readonly StoryResourceReference[];
   findEmotionReferences: (id: CharacterId, emotion: string) => readonly StoryResourceReference[];
   findCharacterFieldReferences: (id: VariableId) => readonly StoryResourceReference[];
@@ -576,16 +584,23 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets: resolvedAssets,
       events,
       signals,
+      characterTemplates: [
+        ...BUILTIN_CHARACTER_TEMPLATES,
+        ...(workspace?.characterTemplates.map((item) => item.template) ?? []),
+      ],
     }),
-    [events, resolvedAssets, resolvedCharacters, signals],
+    [events, resolvedAssets, resolvedCharacters, signals, workspace?.characterTemplates],
   );
   const semanticSnapshot = useMemo(
     () =>
-      createStorySemanticSnapshot({
-        ...source,
-        ...aiSemanticContext,
-        variables: [...source.variables, ...projectVariables],
-      }),
+      createStorySemanticSnapshot(
+        {
+          ...source,
+          ...aiSemanticContext,
+          variables: [...source.variables, ...projectVariables],
+        },
+        aiSemanticContext.characterTemplates,
+      ),
     [aiSemanticContext, projectVariables, source],
   );
   const selectedProjectVariable =
@@ -1826,6 +1841,50 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       return character.id;
     },
     [markDirty, queueProjectResourceWrite, resolvedCharacters, workspace?.project],
+  );
+
+  const addCharacterFromTemplate = useCallback(
+    (template: CharacterTemplateSource): CharacterId => {
+      const id = createStableId('character');
+      const index = resolvedCharacters.length + 1;
+      const character = characterFromTemplate(
+        template,
+        id,
+        `character${index}`,
+        `Character ${index}`,
+        () => createStableId('variable'),
+      );
+      if (workspace?.project && window.electronAPI) {
+        queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
+      } else {
+        setCharacters((current) => [...current, character]);
+        markDirty();
+      }
+      return id;
+    },
+    [markDirty, queueProjectResourceWrite, resolvedCharacters.length, workspace?.project],
+  );
+
+  const saveCharacterAsTemplate = useCallback(
+    async (id: CharacterId) => {
+      const character = resolvedCharacters.find((candidate) => candidate.id === id);
+      if (!character || !window.electronAPI || !workspace?.project) return;
+      const baseName = `${character.name}_template`;
+      const used = new Set(workspace.characterTemplates.map((item) => item.template.name));
+      let name = baseName;
+      let suffix = 2;
+      while (used.has(name)) name = `${baseName}${suffix++}`;
+      try {
+        setWorkspace(
+          await window.electronAPI.saveCharacterTemplate(
+            characterToTemplate(character, name, `${character.displayName} Template`),
+          ),
+        );
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [resolvedCharacters, workspace?.characterTemplates, workspace?.project],
   );
 
   const rewriteCharacterFieldReferences = useCallback(
@@ -3247,6 +3306,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                           return resource ? serializeAssetResource(resource.asset) : undefined;
                         })()
                       : undefined;
+              if (change.kind === 'character-template') {
+                refreshResources = true;
+                continue;
+              }
               const action = planExternalFileChange({
                 change,
                 matchesEditorContent: Boolean(change.content && currentContent === change.content),
@@ -4062,6 +4125,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeVariable,
       addCharacter,
       duplicateCharacter,
+      addCharacterFromTemplate,
+      saveCharacterAsTemplate,
       findCharacterReferences: findCharacterReferencesById,
       findEmotionReferences: findEmotionReferencesByKey,
       findCharacterFieldReferences: findCharacterFieldReferencesById,
@@ -4157,6 +4222,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       focusVariableReference,
       addCharacter,
       duplicateCharacter,
+      addCharacterFromTemplate,
+      saveCharacterAsTemplate,
       findCharacterReferencesById,
       findEmotionReferencesByKey,
       findCharacterFieldReferencesById,

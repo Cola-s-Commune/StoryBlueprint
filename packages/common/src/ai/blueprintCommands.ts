@@ -160,6 +160,13 @@ export interface AddCharacterCommand extends BlueprintCommandBase {
   character: CharacterSource;
 }
 
+export interface AddCharacterFromTemplateCommand extends BlueprintCommandBase {
+  kind: 'add-character-from-template';
+  templateName: string;
+  character: Pick<CharacterSource, 'id' | 'name' | 'displayName'>;
+  fieldIds: Readonly<Record<string, VariableId>>;
+}
+
 export interface UpdateCharacterCommand extends BlueprintCommandBase {
   kind: 'update-character';
   characterId: CharacterId;
@@ -198,6 +205,7 @@ export type BlueprintCommand =
   | AddVariableCommand
   | UpdateVariableCommand
   | AddCharacterCommand
+  | AddCharacterFromTemplateCommand
   | UpdateCharacterCommand
   | AddDialogueLineCommand
   | UpdateDialogueLineCommand

@@ -49,7 +49,7 @@ export type SaveStoryResult =
   { canceled: true } | { canceled: false; filePath: string; fileToken: string };
 
 export interface WorkspaceEntry {
-  kind: 'directory' | 'story' | 'project' | 'character' | 'asset';
+  kind: 'directory' | 'story' | 'project' | 'character' | 'character-template' | 'asset';
   name: string;
   relativePath: string;
   children?: WorkspaceEntry[];
@@ -72,7 +72,7 @@ export interface ReloadWorkspaceAfterGitChangeResult {
 
 export interface ExternalWorkspaceFileChange {
   relativePath: string;
-  kind: 'story' | 'project' | 'character' | 'asset';
+  kind: 'story' | 'project' | 'character' | 'character-template' | 'asset';
   change: 'created' | 'modified' | 'deleted';
   previousContent?: string;
   content?: string;
@@ -86,6 +86,7 @@ export interface WorkspaceInfo {
   projectRevision?: string;
   projectError?: string;
   characterResources: { relativePath: string; character: CharacterSource }[];
+  characterTemplates: { relativePath: string; template: CharacterTemplateSource }[];
   assetResources: { relativePath: string; asset: AssetSource }[];
   resourceErrors: { relativePath: string; message: string }[];
   git: WorkspaceGitRepository;
@@ -315,6 +316,7 @@ export interface ElectronAPI {
   saveAIChatSession: (session: AIChatSession) => Promise<void>;
   deleteAIChatSession: (scopeKey: string, sessionId: string) => Promise<void>;
   createProjectCharacter: (character: CharacterSource) => Promise<WorkspaceInfo>;
+  saveCharacterTemplate: (template: CharacterTemplateSource) => Promise<WorkspaceInfo>;
   updateProjectCharacter: (
     relativePath: string,
     character: CharacterSource,
@@ -350,6 +352,7 @@ export interface ElectronAPI {
 import type {
   AssetSource,
   CharacterSource,
+  CharacterTemplateSource,
   EventSource,
   SignalSource,
   StoryProjectDocument,

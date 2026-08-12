@@ -120,20 +120,36 @@ function WorkspaceTree({
       );
     }
 
-    if (entry.kind === 'character' || entry.kind === 'asset') {
+    if (
+      entry.kind === 'character' ||
+      entry.kind === 'character-template' ||
+      entry.kind === 'asset'
+    ) {
+      const isCharacter = entry.kind === 'character';
+      const isTemplate = entry.kind === 'character-template';
       return (
         <div
           key={entry.relativePath}
           className={styles.fileRow}
           style={{ paddingLeft: 26 + depth * 13 }}
           title={
-            entry.kind === 'character' ? 'Project character resource' : 'Project asset resource'
+            isCharacter
+              ? 'Project character resource'
+              : isTemplate
+                ? 'Character template'
+                : 'Project asset resource'
           }
         >
           <span
-            className={entry.kind === 'character' ? styles.characterFileIcon : styles.assetFileIcon}
+            className={
+              isCharacter
+                ? styles.characterFileIcon
+                : isTemplate
+                  ? styles.templateFileIcon
+                  : styles.assetFileIcon
+            }
           >
-            {entry.kind === 'character' ? 'C' : 'A'}
+            {isCharacter ? 'C' : isTemplate ? 'T' : 'A'}
           </span>
           <span className={styles.fileName}>{entry.name}</span>
           <span className={styles.fileActions}>
@@ -144,13 +160,15 @@ function WorkspaceTree({
             >
               ◎
             </button>
-            <button
-              type="button"
-              title={`Delete ${entry.kind === 'character' ? 'Character' : 'Asset'}`}
-              onClick={() => onDelete(entry)}
-            >
-              ×
-            </button>
+            {!isTemplate && (
+              <button
+                type="button"
+                title={`Delete ${isCharacter ? 'Character' : 'Asset'}`}
+                onClick={() => onDelete(entry)}
+              >
+                ×
+              </button>
+            )}
           </span>
         </div>
       );
@@ -572,7 +590,10 @@ export function ResourceBrowser() {
                       </span>
                     )}
                     {story.document.gitConflict && (
-                      <span className={styles.conflictDot} title="Git conflict · Open Story Merge" />
+                      <span
+                        className={styles.conflictDot}
+                        title="Git conflict · Open Story Merge"
+                      />
                     )}
                     {story.document.dirty && <span className={styles.dirtyDot} title="Unsaved" />}
                   </div>

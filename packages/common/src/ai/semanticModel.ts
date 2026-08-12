@@ -10,6 +10,7 @@ import type {
   StorySourceDocument,
 } from '../types/source';
 import type { VariableDefinition } from '../types/values';
+import type { CharacterTemplateSource } from '../types/characterTemplate';
 
 export const STORY_SEMANTIC_FORMAT = 'story-blueprint-semantic' as const;
 export const STORY_SEMANTIC_VERSION = 1 as const;
@@ -53,6 +54,7 @@ export interface StorySemanticSnapshot {
   };
   variables: readonly VariableDefinition[];
   characters: readonly CharacterSource[];
+  characterTemplates?: readonly CharacterTemplateSource[];
   assets: readonly AssetSource[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
@@ -104,11 +106,15 @@ function revisionOf(value: unknown): string {
 }
 
 /** Creates an AI-facing view without coordinates, definition versions, or editor selection state. */
-export function createStorySemanticSnapshot(source: StorySourceDocument): StorySemanticSnapshot {
+export function createStorySemanticSnapshot(
+  source: StorySourceDocument,
+  characterTemplates?: readonly CharacterTemplateSource[],
+): StorySemanticSnapshot {
   const content = {
     story: { id: source.id, name: source.name, displayName: source.displayName },
     variables: clone(source.variables),
     characters: clone(source.characters),
+    ...(characterTemplates?.length ? { characterTemplates: clone(characterTemplates) } : {}),
     assets: clone(source.assets),
     events: clone(source.events),
     signals: clone(source.signals ?? []),

@@ -438,6 +438,7 @@
 - [x] Character / Emotion / Asset 引用单次共享索引与长列表渐进显示
 - [x] Character 标签与可扩展标量 Metadata：编辑、搜索、KDL、语义快照及 AI Commands
 - [x] Character 管理：标签筛选、多选批量标签、角色复制、头像状态、引用数量概览
+- [x] Character Template：项目模板文件、从角色保存、内置模板、新建时选择、AI Command 并重建稳定 ID
 
 ---
 

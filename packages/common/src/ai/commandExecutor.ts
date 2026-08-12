@@ -22,6 +22,7 @@ import type {
   StorySourceDocument,
 } from '../types/source';
 import type { RuntimeValue, ValueType, VariableDefinition } from '../types/values';
+import type { CharacterTemplateSource } from '../types/characterTemplate';
 import {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_VERSION,
@@ -78,6 +79,7 @@ export interface BlueprintSemanticContext {
   assets: StorySourceDocument['assets'];
   events: StorySourceDocument['events'];
   signals: NonNullable<StorySourceDocument['signals']>;
+  characterTemplates?: readonly CharacterTemplateSource[];
 }
 
 export interface BlueprintTransactionOptions {
@@ -90,7 +92,15 @@ function withSemanticContext(
   source: StorySourceDocument,
   context: BlueprintSemanticContext | undefined,
 ): StorySourceDocument {
-  return context ? { ...source, ...context } : source;
+  return context
+    ? {
+        ...source,
+        characters: context.characters,
+        assets: context.assets,
+        events: context.events,
+        signals: context.signals,
+      }
+    : source;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -291,9 +301,13 @@ function validExpressionTarget(value: unknown): boolean {
 }
 
 function requiresGraphTarget(kind: unknown): boolean {
-  return !['add-variable', 'update-variable', 'add-character', 'update-character'].includes(
-    String(kind),
-  );
+  return ![
+    'add-variable',
+    'update-variable',
+    'add-character',
+    'add-character-from-template',
+    'update-character',
+  ].includes(String(kind));
 }
 
 const operationKeys: Readonly<Record<string, readonly string[]>> = {
@@ -305,6 +319,7 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-variable': ['operationId', 'kind', 'variable'],
   'update-variable': ['operationId', 'kind', 'variableId', 'patch'],
   'add-character': ['operationId', 'kind', 'character'],
+  'add-character-from-template': ['operationId', 'kind', 'templateName', 'character', 'fieldIds'],
   'update-character': ['operationId', 'kind', 'characterId', 'patch'],
   'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
   'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
@@ -611,6 +626,27 @@ export function validateBlueprintCommandTransaction(
           );
         }
         break;
+      case 'add-character-from-template':
+        if (
+          typeof raw.templateName !== 'string' ||
+          !raw.templateName ||
+          !isRecord(raw.character) ||
+          typeof raw.character.id !== 'string' ||
+          !isStableId(raw.character.id, 'character') ||
+          typeof raw.character.name !== 'string' ||
+          !raw.character.name ||
+          typeof raw.character.displayName !== 'string' ||
+          !raw.character.displayName ||
+          !isRecord(raw.fieldIds) ||
+          !Object.values(raw.fieldIds).every(
+            (fieldId) => typeof fieldId === 'string' && isStableId(fieldId, 'variable'),
+          )
+        ) {
+          diagnostics.push(
+            invalidShape('add-character-from-template has invalid fields', operationIndex, path),
+          );
+        }
+        break;
       case 'update-character':
         if (isRecord(raw.patch)) {
           diagnostics.push(
@@ -800,6 +836,7 @@ function applyOperation(
   story: MutableStory,
   operation: BlueprintCommand,
   operationIndex: number,
+  options: BlueprintTransactionOptions,
 ): BlueprintCommandDiagnostic | undefined {
   if (operation.kind === 'add-variable') {
     if (story.variables.some((variable) => variable.id === operation.variable.id)) {
@@ -891,6 +928,47 @@ function applyOperation(
     }
     story.characters.push(structuredClone(operation.character));
     return undefined;
+  }
+  if (operation.kind === 'add-character-from-template') {
+    const template = options.semanticContext?.characterTemplates?.find(
+      (candidate) => candidate.name === operation.templateName,
+    );
+    if (!template) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Character template does not exist: ${operation.templateName}`,
+      );
+    }
+    const fieldNames = new Set((template.fields ?? []).map((field) => field.name));
+    if (
+      Object.keys(operation.fieldIds).some((name) => !fieldNames.has(name)) ||
+      [...fieldNames].some((name) => !operation.fieldIds[name]) ||
+      new Set(Object.values(operation.fieldIds)).size !== Object.values(operation.fieldIds).length
+    ) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'fieldIds must map every template field name to a unique Variable ID',
+      );
+    }
+    const character: CharacterSource = {
+      ...structuredClone(template),
+      ...operation.character,
+      fields: template.fields?.map((field) => ({
+        ...field,
+        id: operation.fieldIds[field.name]!,
+        scope: 'character',
+      })),
+    };
+    return applyOperation(
+      story,
+      { ...operation, kind: 'add-character', character },
+      operationIndex,
+      options,
+    );
   }
   if (operation.kind === 'update-character') {
     const index = story.characters.findIndex((character) => character.id === operation.characterId);
@@ -1502,6 +1580,7 @@ export function executeBlueprintCommandTransaction(
   const transaction = transactionValue as BlueprintCommandTransaction;
   const currentSnapshot = createStorySemanticSnapshot(
     withSemanticContext(source, options.semanticContext),
+    options.semanticContext?.characterTemplates,
   );
   if (transaction.baseRevision !== currentSnapshot.revision) {
     return {
@@ -1517,14 +1596,17 @@ export function executeBlueprintCommandTransaction(
     };
   }
   const hasCharacterOperations = transaction.operations.some(
-    (operation) => operation.kind === 'add-character' || operation.kind === 'update-character',
+    (operation) =>
+      operation.kind === 'add-character' ||
+      operation.kind === 'add-character-from-template' ||
+      operation.kind === 'update-character',
   );
   const working = structuredClone(source) as unknown as MutableStory;
   if (options.semanticContext && hasCharacterOperations) {
     working.characters = structuredClone(options.semanticContext.characters) as CharacterSource[];
   }
   for (let index = 0; index < transaction.operations.length; index += 1) {
-    const diagnostic = applyOperation(working, transaction.operations[index], index);
+    const diagnostic = applyOperation(working, transaction.operations[index], index, options);
     if (diagnostic) {
       return { ok: false, committed: false, document: source, diagnostics: [diagnostic] };
     }
@@ -1545,6 +1627,7 @@ export function executeBlueprintCommandTransaction(
             characters: document.characters,
           }
         : withSemanticContext(document, options.semanticContext),
+      options.semanticContext?.characterTemplates,
     ),
     appliedOperationIds: transaction.operations.map((operation) => operation.operationId),
     layoutRequests: transaction.operations.filter(
