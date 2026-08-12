@@ -116,6 +116,11 @@ export interface ProjectResourceSnapshot {
   assets: { relativePath: string; asset: AssetSource }[];
 }
 
+export interface RestoreWorkspaceStoryResult {
+  workspace: WorkspaceInfo;
+  story?: Exclude<OpenStoryResult, { canceled: true }>;
+}
+
 export interface RecentProject {
   name: string;
   filePath: string;
@@ -331,6 +336,10 @@ export interface ElectronAPI {
   updateProjectAsset: (relativePath: string, asset: AssetSource) => Promise<WorkspaceInfo>;
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   restoreProjectResources: (snapshot: ProjectResourceSnapshot) => Promise<WorkspaceInfo>;
+  restoreWorkspaceStory: (
+    relativePath: string,
+    content?: string,
+  ) => Promise<RestoreWorkspaceStoryResult>;
   refreshWorkspace: () => Promise<WorkspaceInfo | undefined>;
   initializeWorkspaceGit: () => Promise<WorkspaceInfo>;
   reloadWorkspaceAfterGitChange: (

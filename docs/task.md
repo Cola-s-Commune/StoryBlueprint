@@ -200,6 +200,8 @@
 - [ ] 按撤销规范审计 Story / Character / Variable / Asset / Event / Signal 等项目资源的新增、删除、移动和跨文件恢复
 - [x] Project Variable / Event / Signal 的新增、删除与属性修改接入统一 History；参数改写和受影响的已打开 Story 作为同一事务恢复
 - [x] 独立 Character / Asset 文件的新增与删除支持保留原相对路径、项目索引和稳定 ID 的 Undo / Redo；历史回放按队列原子调和资源快照并在失败时回滚磁盘
+- [x] Story 文件新增/删除接入 History：保留原相对路径、完整文本、项目索引与打开标签；Undo / Redo 原子恢复或移除磁盘文件，失败时回滚
+- [x] Substory 新增、删除、重命名及 Extract Selection 使用统一事务，不再通过清空 History 规避跨 Graph 撤销
 
 ---
 

@@ -71,6 +71,8 @@ const electronAPI = {
   deleteProjectAsset: (relativePath) => ipcRenderer.invoke('workspace:delete-asset', relativePath),
   restoreProjectResources: (snapshot) =>
     ipcRenderer.invoke('workspace:restore-project-resources', snapshot),
+  restoreWorkspaceStory: (relativePath, content) =>
+    ipcRenderer.invoke('workspace:restore-story', relativePath, content),
   refreshWorkspace: () => ipcRenderer.invoke('workspace:refresh'),
   initializeWorkspaceGit: () => ipcRenderer.invoke('workspace:initialize-git'),
   reloadWorkspaceAfterGitChange: (stories) =>

@@ -3,6 +3,7 @@
 - 新增项目级《编辑器撤销与重做规范》：所有内容新增、删除与修改默认必须可原子恢复；统一定义事务边界、文本草稿、跨文件写回、快捷键、例外和新功能验收清单，并登记全项目资源操作审计任务。
 - 撤销规范首轮审计将 Project Variable、Event 与 Signal 纳入统一 Editor History；新增、删除、属性及参数改写可 Undo / Redo，事务同时快照受影响的已打开 Story，并按顺序写回 `.storyproject`。Event / Signal 删除不再错误提示“不可撤销”。
 - Character / Asset 的外部资源新增和删除接入资源快照历史：Undo / Redo 保留稳定 ID、内容与原相对路径，由主进程校验引用后原子调和文件并同步项目索引，失败时回滚本轮文件变化；快速连续撤销也严格服从项目写入队列。
+- Story / Substory 撤销审计完成：新增或删除 `.story` 会保留原路径、完整文本、项目索引和编辑器标签状态，历史回放按队列恢复/移除文件并在同步失败时回滚；Substory 新增、删除、重命名与选区提取均保留跨 Graph 原子历史，不再清空 Undo。
 - Character 资源状态加入统一 Editor History；添加/删除 Field、Emotion、Relationship，以及 Tags / Metadata / 文本提交均形成一次 Undo 步骤。Ctrl+Z / Ctrl+Y 恢复项目角色后会按队列写回 `.character`，Emotion 重命名/删除与 Dialogue 引用改写共享同一原子历史点。
 - 修复 Character Inspector 中文本框看似可聚焦却无法稳定编辑：表单键鼠事件不再冒泡给画布与 Dock，Display Name、Metadata、Field 默认值和 Emotion 名称改为本地草稿，失焦/Enter 后一次提交，避免逐键写磁盘及异步 Workspace 回写打断输入。
 - Character Template 使用独立 `.character-template` KDL 资源保存在项目 `Templates` 目录；可从角色保存并从 Blank / 内置 / 项目模板新建。模板保留 Fields、Emotions、Tags、Metadata 与 Dialogue Style，但剥离角色身份、关系和 Portrait，实例化时重建全部稳定 ID；AI Semantic Snapshot 暴露可用模板并支持 `add-character-from-template` Command。

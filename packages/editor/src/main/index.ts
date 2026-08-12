@@ -80,6 +80,7 @@ import {
   workspaceGitCheckoutKey,
 } from './workspaceGit';
 import { validateProjectResourceSnapshot } from './projectResourceSnapshot';
+import { restoreStoryHistoryFile } from './storyHistoryRestore';
 import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
 import {
   isPersistedWindowState,
@@ -2107,6 +2108,38 @@ function registerStoryFileHandlers(): void {
     storyFileTokens.delete(filePath);
     return workspaceProjectFile ? syncWorkspaceProject() : (await readWorkspace())!;
   });
+
+  ipcMain.handle(
+    'workspace:restore-story',
+    async (event, relativePath: unknown, content: unknown) => {
+      if (
+        !isTrustedSender(event) ||
+        typeof relativePath !== 'string' ||
+        (content !== undefined &&
+          (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_STORY_BYTES))
+      ) {
+        throw new Error('Invalid Story history restore');
+      }
+      if (!relativePath.toLowerCase().endsWith('.story')) throw new Error('Not a Story file');
+      const filePath = resolveWorkspacePath(relativePath);
+      let workspace: WorkspaceInfo | undefined;
+      await restoreStoryHistoryFile(
+        filePath,
+        content as string | undefined,
+        parseStorySource,
+        async () => {
+          workspace = workspaceProjectFile
+            ? await syncWorkspaceProject()
+            : (await readWorkspace())!;
+        },
+      );
+      if (content === undefined) storyFileTokens.delete(filePath);
+      return {
+        workspace: workspace!,
+        story: content === undefined ? undefined : await openStoryFile(filePath),
+      };
+    },
+  );
 
   ipcMain.handle('workspace:delete-project', async (event, relativePath: unknown) => {
     if (!isTrustedSender(event) || typeof relativePath !== 'string') {
