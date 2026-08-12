@@ -312,10 +312,14 @@ interface StoryGraphStoreValue {
   onEdgesChange: OnEdgesChange<EditorGraphEdge>;
   setNodes: Dispatch<SetStateAction<EditorGraphNode[]>>;
   setEdges: Dispatch<SetStateAction<EditorGraphEdge[]>>;
-  checkpoint: (snapshot?: EditorGraphState) => void;
+  checkpoint: (snapshot?: EditorGraphState, label?: string) => void;
   restoreGraph: (graph: EditorGraphState) => void;
   undo: () => void;
   redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  undoLabel?: string;
+  redoLabel?: string;
   addNode: (
     type: StoryNodeType,
     position: XYPosition,
@@ -870,29 +874,32 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, []);
 
   const checkpoint = useCallback(
-    (snapshot?: EditorGraphState) => {
+    (snapshot?: EditorGraphState, label = 'Edit') => {
       setAIChanges(undefined);
       setAIProposal(undefined);
-      history.checkpoint({
-        document,
-        hasActiveStory,
-        activeGraphId,
-        graph: snapshot ?? graph,
-        rootGraph: rootGraphRef.current,
-        chapters,
-        variables,
-        characters: resolvedCharacters,
-        assets,
-        projectResources: projectResourceSnapshot,
-        workspaceStories,
-        projectVariables,
-        events,
-        signals,
-        storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
-          relativePath,
-          content,
-        })),
-      });
+      history.checkpoint(
+        {
+          document,
+          hasActiveStory,
+          activeGraphId,
+          graph: snapshot ?? graph,
+          rootGraph: rootGraphRef.current,
+          chapters,
+          variables,
+          characters: resolvedCharacters,
+          assets,
+          projectResources: projectResourceSnapshot,
+          workspaceStories,
+          projectVariables,
+          events,
+          signals,
+          storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
+            relativePath,
+            content,
+          })),
+        },
+        label,
+      );
     },
     [
       activeGraphId,
@@ -1068,7 +1075,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const undo = useCallback(() => {
-    const previous = history.undo({
+    const previousEntry = history.undo({
       document,
       hasActiveStory,
       activeGraphId,
@@ -1088,7 +1095,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         content,
       })),
     });
-    if (previous) {
+    if (previousEntry) {
+      const previous = previousEntry.state;
       setDocument(previous.document);
       setHasActiveStory(previous.hasActiveStory);
       setActiveGraphId(previous.activeGraphId);
@@ -1130,7 +1138,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   ]);
 
   const redo = useCallback(() => {
-    const next = history.redo({
+    const nextEntry = history.redo({
       document,
       hasActiveStory,
       activeGraphId,
@@ -1150,7 +1158,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         content,
       })),
     });
-    if (next) {
+    if (nextEntry) {
+      const next = nextEntry.state;
       setDocument(next.document);
       setHasActiveStory(next.hasActiveStory);
       setActiveGraphId(next.activeGraphId);
@@ -1381,7 +1390,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const committedGraph = stagedProposal
         ? applyAIProposalPositions(prepared.graph, stagedProposal.graph)
         : prepared.graph;
-      checkpoint();
+      checkpoint(undefined, 'Apply AI Changes');
       restoreGraph(committedGraph);
       const nextProjectVariables = result.document.variables.filter(
         (variable) => variable.scope === 'project',
@@ -1460,7 +1469,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const instance = NodeFactory.create(NodeFactory.generateId(type), type, position);
       if (!instance) return null;
 
-      checkpoint();
+      checkpoint(undefined, `Add ${nodeRegistry.get(type)?.label ?? 'Node'}`);
       const node = {
         ...toEditorGraphNode(instance),
         position: { x: Math.round(position.x), y: Math.round(position.y) },
@@ -1496,7 +1505,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       localVariables: [],
       graph: createNewSubstoryGraph(),
     };
-    checkpoint();
+    checkpoint(undefined, 'Add Substory');
     if (activeGraphId === 'root') rootGraphRef.current = structuredClone(graph);
     setChapters((current) => [
       ...current.map((item) =>
@@ -1512,7 +1521,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const updateSubstory = useCallback(
     (id: ChapterId, update: { name?: string; displayName?: string }) => {
-      checkpoint();
+      checkpoint(undefined, 'Rename Substory');
       setChapters((current) =>
         current.map((chapter) => (chapter.id === id ? { ...chapter, ...update, id } : chapter)),
       );
@@ -1535,7 +1544,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         ),
       );
       if (referenced) return 'Remove Call Substory nodes that reference this substory first.';
-      checkpoint();
+      checkpoint(undefined, 'Delete Substory');
       if (activeGraphId === id) {
         setActiveGraphId('root');
         restoreGraph(structuredClone(rootGraphRef.current));
@@ -1553,7 +1562,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     const extracted = extractGraphSelection(graph, id);
     if (!extracted.ok) return extracted;
     const identity = nextSubstoryIdentity();
-    checkpoint();
+    checkpoint(undefined, 'Extract to Substory');
     restoreGraph(extracted.remainingGraph);
     setChapters((current) => [
       ...current.map((chapter) =>
@@ -1582,7 +1591,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       nodes.filter((node) => node.selected).map((node) => node.id),
     );
     if (!result.ok) return result;
-    checkpoint();
+    checkpoint(undefined, 'Merge Dialogue Nodes');
     restoreGraph(result.graph);
     markDirty();
     return { ok: true };
@@ -1595,7 +1604,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ): { ok: true } | { ok: false; message: string } => {
       const result = splitGraphDialogueLines(graph, nodeId, lineIds);
       if (!result.ok) return result;
-      checkpoint();
+      checkpoint(undefined, 'Split Dialogue Lines');
       restoreGraph(result.graph);
       markDirty();
       return { ok: true };
@@ -1687,7 +1696,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
       if (saved.canceled) return { ok: false, message: 'Merge save was canceled.' };
-      checkpoint();
+      checkpoint(undefined, 'Apply Story Merge');
       rootGraphRef.current = structuredClone(nextRoot);
       setChapters(nextChapters);
       setActiveGraphId(nextActiveGraphId);
@@ -1723,7 +1732,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const addVariable = useCallback((): VariableId => {
     const id = createStableId('variable');
-    checkpoint();
+    checkpoint(undefined, 'Add Variable');
     setVariables((current) => {
       const used = new Set(current.map((variable) => variable.name));
       let index = current.length + 1;
@@ -1752,7 +1761,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     let index = projectVariables.length + 1;
     let name = `projectVariable${index}`;
     while (used.has(name)) name = `projectVariable${++index}`;
-    checkpoint();
+    checkpoint(undefined, 'Add Project Variable');
     writeProjectVariables([
       ...projectVariables,
       {
@@ -1880,7 +1889,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         const nextProjectVariables = projectVariables.map((variable) =>
           variable.id === id ? { ...variable, ...normalized, id } : variable,
         );
-        checkpoint();
+        checkpoint(undefined, 'Edit Project Variable');
         if (normalized.name && normalized.name !== previous.name) {
           const affectedStoryIds = new Set(
             references
@@ -1958,7 +1967,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         writeProjectVariables(nextProjectVariables);
         return true;
       }
-      checkpoint();
+      checkpoint(undefined, 'Edit Variable');
       if (previous && nextUpdate.name && nextUpdate.name !== previous.name) {
         setNodes((current) =>
           current.map((node) =>
@@ -2017,14 +2026,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const references = findVariableReferencesById(id);
       if (references.length > 0) return { ok: false, references };
       if (projectVariables.some((variable) => variable.id === id)) {
-        checkpoint();
+        checkpoint(undefined, 'Delete Project Variable');
         setStoryDataSelection((current) =>
           current?.kind === 'variable' && current.id === id ? undefined : current,
         );
         writeProjectVariables(projectVariables.filter((variable) => variable.id !== id));
         return { ok: true };
       }
-      checkpoint();
+      checkpoint(undefined, 'Delete Variable');
       setStoryDataSelection((current) =>
         current?.kind === 'variable' && current.id === id ? undefined : current,
       );
@@ -2054,11 +2063,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       emotions: { neutral: { displayName: 'Neutral' } },
     };
     if (workspace?.project && window.electronAPI) {
-      checkpoint();
+      checkpoint(undefined, 'Add Character');
       queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
       return id;
     }
-    checkpoint();
+    checkpoint(undefined, 'Add Character');
     setCharacters((current) => {
       return [...current, character];
     });
@@ -2084,10 +2093,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         () => createStableId('variable'),
       );
       if (workspace?.project && window.electronAPI) {
-        checkpoint();
+        checkpoint(undefined, 'Duplicate Character');
         queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
       } else {
-        checkpoint();
+        checkpoint(undefined, 'Duplicate Character');
         setCharacters((current) => [...current, character]);
         markDirty();
       }
@@ -2108,10 +2117,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         () => createStableId('variable'),
       );
       if (workspace?.project && window.electronAPI) {
-        checkpoint();
+        checkpoint(undefined, 'Add Character from Template');
         queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
       } else {
-        checkpoint();
+        checkpoint(undefined, 'Add Character from Template');
         setCharacters((current) => [...current, character]);
         markDirty();
       }
@@ -2236,7 +2245,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             ? []
             : [{ fieldId: field.id, oldQualifiedName, newQualifiedName }];
         });
-        if (options.recordHistory !== false) checkpoint();
+        if (options.recordHistory !== false) checkpoint(undefined, 'Edit Character');
         rewriteCharacterFieldReferences(renames);
       }
       const resource = workspace?.characterResources.find(
@@ -2311,7 +2320,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           key === fromEmotion ? [toEmotion, value] : [key, value],
         ),
       );
-      checkpoint();
+      checkpoint(undefined, 'Rename Emotion');
       rewriteCharacterEmotionReferences(id, fromEmotion, toEmotion);
       updateCharacter(id, { emotions }, { recordHistory: false });
     },
@@ -2336,7 +2345,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const emotions = Object.fromEntries(
         Object.entries(character.emotions).filter(([key]) => key !== emotion),
       );
-      checkpoint();
+      checkpoint(undefined, 'Delete Emotion');
       rewriteCharacterEmotionReferences(id, emotion);
       updateCharacter(id, { emotions }, { recordHistory: false });
     },
@@ -2374,7 +2383,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         queueProjectResourceWrite(async () => {
           const result = await window.electronAPI!.deleteProjectCharacter(resource.relativePath);
           if (!result.canceled) {
-            checkpoint();
+            checkpoint(undefined, 'Delete Character');
             setStoryDataSelection((current) =>
               current?.kind === 'character' && current.id === id ? undefined : current,
             );
@@ -2393,7 +2402,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setStoryDataSelection((current) =>
         current?.kind === 'character' && current.id === id ? undefined : current,
       );
-      checkpoint();
+      checkpoint(undefined, 'Delete Character');
       setCharacters((current) => current.filter((character) => character.id !== id));
       setNodes((current) =>
         current.map((node) =>
@@ -2451,11 +2460,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       locales: { default: '' },
     };
     if (workspace?.project && window.electronAPI) {
-      checkpoint();
+      checkpoint(undefined, 'Add Asset');
       queueProjectResourceWrite(() => window.electronAPI!.createProjectAsset(asset));
       return id;
     }
-    checkpoint();
+    checkpoint(undefined, 'Add Asset');
     setAssets((current) => {
       return [...current, asset];
     });
@@ -2511,7 +2520,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
       if (resource && window.electronAPI) {
         if (!window.confirm(`Delete asset "${resource.asset.displayName}"?`)) return;
-        checkpoint();
+        checkpoint(undefined, 'Delete Asset');
         setStoryDataSelection((current) =>
           current?.kind === 'asset' && current.id === id ? undefined : current,
         );
@@ -2523,7 +2532,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setStoryDataSelection((current) =>
         current?.kind === 'asset' && current.id === id ? undefined : current,
       );
-      checkpoint();
+      checkpoint(undefined, 'Delete Asset');
       setAssets((current) => current.filter((asset) => asset.id !== id));
       setNodes((current) =>
         current.map((node) =>
@@ -2611,7 +2620,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     let index = events.length + 1;
     let name = `event${index}`;
     while (used.has(name)) name = `event${++index}`;
-    checkpoint();
+    checkpoint(undefined, 'Add Event');
     writeProjectEvents([
       ...events,
       {
@@ -2630,7 +2639,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (id: EventId, update: Partial<EventSource>) => {
       const previous = events.find((event) => event.id === id);
       if (!previous) return;
-      checkpoint();
+      checkpoint(undefined, 'Edit Event');
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
@@ -2717,7 +2726,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return;
       }
       if (!window.confirm(`Delete event "${event.displayName}"?`)) return;
-      checkpoint();
+      checkpoint(undefined, 'Delete Event');
       setStoryDataSelection((current) =>
         current?.kind === 'event' && current.id === id ? undefined : current,
       );
@@ -2756,7 +2765,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     let index = signals.length + 1;
     let name = `signal${index}`;
     while (used.has(name)) name = `signal${++index}`;
-    checkpoint();
+    checkpoint(undefined, 'Add Signal');
     writeProjectSignals([...signals, { id, name, displayName: name, parameters: [] }]);
     return id;
   }, [checkpoint, signals, workspace?.project, writeProjectSignals]);
@@ -2765,7 +2774,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (id: SignalId, update: Partial<SignalSource>) => {
       const previous = signals.find((signal) => signal.id === id);
       if (!previous) return;
-      checkpoint();
+      checkpoint(undefined, 'Edit Signal');
       const nextUpdate =
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
@@ -2846,7 +2855,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return;
       }
       if (!window.confirm(`Delete signal "${signal.displayName}"?`)) return;
-      checkpoint();
+      checkpoint(undefined, 'Delete Signal');
       setStoryDataSelection((current) =>
         current?.kind === 'signal' && current.id === id ? undefined : current,
       );
@@ -3246,7 +3255,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets: [],
       revision: 1,
     };
-    checkpoint();
+    checkpoint(undefined, 'New Story');
     setWorkspaceStories((items) => [
       ...items.map((story) =>
         current && story.document.id === current.document.id ? current : story,
@@ -3818,7 +3827,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         const opened = await window.electronAPI.openWorkspaceStory(relativePath);
         if (opened.canceled) return;
         managedStoryFilesRef.current.set(relativePath, opened.content);
-        checkpoint();
+        checkpoint(undefined, 'Delete Story');
         setWorkspace(await window.electronAPI.deleteWorkspaceStory(relativePath));
         managedStoryFilesRef.current.delete(relativePath);
         setWorkspaceError(undefined);
@@ -3970,7 +3979,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         const relativePath = result.filePath
           .slice((workspace?.rootPath.length ?? 0) + 1)
           .replaceAll('\\', '/');
-        checkpoint();
+        checkpoint(undefined, 'Create Story');
         managedStoryFilesRef.current.set(relativePath, result.content);
         acceptOpenedStory(result, {}, false, true);
         setWorkspace(await window.electronAPI.refreshWorkspace());
@@ -4245,7 +4254,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           relativePath,
           serializeStorySource(storyItemToSource(target)),
         );
-        checkpoint();
+        checkpoint(undefined, 'Delete Story');
         const nextWorkspace = await window.electronAPI.deleteStory(
           target.document.filePath,
           target.document.fileToken,
@@ -4426,6 +4435,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       restoreGraph,
       undo,
       redo,
+      canUndo: history.canUndo,
+      canRedo: history.canRedo,
+      undoLabel: history.undoLabel,
+      redoLabel: history.redoLabel,
       addNode,
       addSubstory,
       updateNode,
@@ -4617,6 +4630,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       focusStoryMergePreviewNode,
       edges,
       graph,
+      history.canUndo,
+      history.canRedo,
+      history.undoLabel,
+      history.redoLabel,
       activeGraphId,
       nodes,
       markDirty,

@@ -1,40 +1,50 @@
-import { useCallback, useMemo, useRef } from 'react';
-
-function cloneState<State>(state: State): State {
-  return structuredClone(state);
-}
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { GraphHistory } from './graphHistory';
 
 export function useGraphHistory<State>(limit = 100) {
-  const past = useRef<State[]>([]);
-  const future = useRef<State[]>([]);
+  const history = useRef(new GraphHistory<State>(limit));
+  const [, setRevision] = useState(0);
+  const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   const checkpoint = useCallback(
-    (state: State) => {
-      past.current.push(cloneState(state));
-      if (past.current.length > limit) past.current.shift();
-      future.current = [];
+    (state: State, label = 'Edit') => {
+      history.current.checkpoint(state, label);
+      refresh();
     },
-    [limit],
+    [refresh],
   );
-
-  const undo = useCallback((current: State): State | null => {
-    const previous = past.current.pop();
-    if (!previous) return null;
-    future.current.push(cloneState(current));
-    return cloneState(previous);
-  }, []);
-
-  const redo = useCallback((current: State): State | null => {
-    const next = future.current.pop();
-    if (!next) return null;
-    past.current.push(cloneState(current));
-    return cloneState(next);
-  }, []);
-
+  const undo = useCallback(
+    (current: State) => {
+      const entry = history.current.undo(current);
+      if (entry) refresh();
+      return entry;
+    },
+    [refresh],
+  );
+  const redo = useCallback(
+    (current: State) => {
+      const entry = history.current.redo(current);
+      if (entry) refresh();
+      return entry;
+    },
+    [refresh],
+  );
   const clear = useCallback(() => {
-    past.current = [];
-    future.current = [];
-  }, []);
+    history.current.clear();
+    refresh();
+  }, [refresh]);
 
-  return useMemo(() => ({ checkpoint, undo, redo, clear }), [checkpoint, undo, redo, clear]);
+  return useMemo(
+    () => ({
+      checkpoint,
+      undo,
+      redo,
+      clear,
+      canUndo: history.current.canUndo,
+      canRedo: history.current.canRedo,
+      undoLabel: history.current.undoLabel,
+      redoLabel: history.current.redoLabel,
+    }),
+    [checkpoint, clear, redo, undo, history.current.canUndo, history.current.canRedo],
+  );
 }

@@ -142,6 +142,10 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     buildProject,
     undo,
     redo,
+    canUndo,
+    canRedo,
+    undoLabel,
+    redoLabel,
   } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [maximized, setMaximized] = useState(false);
@@ -288,15 +292,23 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
                 ) : (
                   <div
                     key={j}
-                    className={`${styles.subItem} ${sub.disabled || (!sub.action && !sub.panelId) ? styles.disabled : ''}`}
+                    className={`${styles.subItem} ${sub.disabled || (sub.action === 'undo' && !canUndo) || (sub.action === 'redo' && !canRedo) || (!sub.action && !sub.panelId) ? styles.disabled : ''}`}
                     onMouseDown={(e) => {
                       e.stopPropagation();
                       setOpenMenu(null);
-                      if (!sub.disabled && sub.action) runAction(sub.action);
+                      const historyDisabled =
+                        (sub.action === 'undo' && !canUndo) || (sub.action === 'redo' && !canRedo);
+                      if (!sub.disabled && !historyDisabled && sub.action) runAction(sub.action);
                       if (!sub.disabled && sub.panelId) onShowPanel(sub.panelId);
                     }}
                   >
-                    <span>{sub.label}</span>
+                    <span>
+                      {sub.action === 'undo' && undoLabel
+                        ? `Undo ${undoLabel}`
+                        : sub.action === 'redo' && redoLabel
+                          ? `Redo ${redoLabel}`
+                          : sub.label}
+                    </span>
                     {sub.shortcut && <span className={styles.shortcut}>{sub.shortcut}</span>}
                   </div>
                 ),
