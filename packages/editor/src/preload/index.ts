@@ -7,6 +7,7 @@ const electronAPI = {
   copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   setWindowZoom: (action) => ipcRenderer.invoke('app:set-window-zoom', action),
+  getAppInfo: () => ipcRenderer.invoke('app:get-info'),
   getWindowState: () => ipcRenderer.invoke('app:get-window-state'),
   minimizeWindow: () => ipcRenderer.invoke('app:minimize-window'),
   toggleMaximizeWindow: () => ipcRenderer.invoke('app:toggle-maximize-window'),

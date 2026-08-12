@@ -2,7 +2,10 @@
   "name": "@story-blueprint/editor",
   "version": "0.1.0",
   "private": true,
-  "description": "Story Blueprint Editor - Electron + React",
+  "description": "Blueprint-style visual narrative editor",
+  "author": {
+    "name": "Story Blueprint Contributors"
+  },
   "main": "./.output/main/index.js",
   "scripts": {
     "predev": "npm run build --workspace @story-blueprint/common",
@@ -13,6 +16,8 @@
     "release:win:dir": "npm run build && electron-builder --win --x64 --dir",
     "prerelease:win:portable": "node scripts/check-release-node.cjs",
     "release:win:portable": "npm run build && electron-builder --win portable --x64",
+    "prerelease:win:installer": "node scripts/check-release-node.cjs",
+    "release:win:installer": "npm run build && electron-builder --win nsis --x64",
     "verify:win": "node scripts/verify-release.cjs",
     "preview": "electron-vite preview",
     "lint": "eslint src --ext .ts,.tsx",
@@ -41,6 +46,7 @@
   "build": {
     "appId": "com.storyblueprint.editor",
     "productName": "Story Blueprint",
+    "copyright": "Copyright © 2026 Story Blueprint Contributors",
     "asar": true,
     "npmRebuild": false,
     "directories": {
@@ -48,6 +54,7 @@
     },
     "files": [
       ".output/**/*",
+      "build/icon.ico",
       "package.json"
     ],
     "win": {
@@ -57,10 +64,33 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "artifactName": "StoryBlueprint-${version}-${arch}.${ext}",
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico",
+      "executableName": "StoryBlueprint",
+      "legalTrademarks": "Story Blueprint",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "StoryBlueprint-Portable-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "StoryBlueprint-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Story Blueprint",
+      "uninstallDisplayName": "Story Blueprint",
+      "deleteAppDataOnUninstall": false
     }
   }
 }

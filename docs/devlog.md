@@ -1,8 +1,9 @@
 # Dev Log
 
+- Windows 发布加入 Story Blueprint 专属图标、EXE 产品元数据和 NSIS 安装包；安装器可选择目录并创建桌面/开始菜单快捷方式，同时保留 portable。Help → About 显示版本、Electron/Chromium/Node、平台和当前项目位置。
 - 主窗口记忆普通位置、尺寸和最大化状态；显示器变更后会把离屏窗口安全居中。应用限制为单实例，重复启动会还原并聚焦已有窗口，标题栏空白区支持双击最大化/还原。
 - 主窗口改用应用内统一标题栏：移除 Electron / Windows 原生菜单和空的 Console 占位面板，右侧加入自绘最小化、最大化/还原、关闭按钮；关闭仍经过未保存 Story 保护。
-- Windows Release Build 接入 electron-builder：工作区 Common / Compiler / Runtime 内联到主进程 bundle，ASAR 仅包含生产 `.output`，支持 `win-unpacked` 与单文件 portable；隐藏启动 smoke test 会验证 EXE、ASAR、preload 与 renderer，发布要求 Node.js 22.12+，暂不包含自定义图标、代码签名和自动更新。
+- Windows Release Build 接入 electron-builder：工作区 Common / Compiler / Runtime 内联到主进程 bundle，ASAR 仅包含生产 `.output`，支持 `win-unpacked` 与单文件 portable；隐藏启动 smoke test 会验证 EXE、ASAR、preload 与 renderer，发布要求 Node.js 22.12+，代码签名和自动更新尚未配置。
 - 大型蓝图性能基线覆盖 1000 节点 / 999 连线的 KDL 往返、编辑器加载/保存、自动布局和项目编译；连接校验改为节点、端口与占用关系索引，图加载、Compiler 和 AI 最终校验不再逐边复制并扫描完整图。画布只渲染可视元素，装饰层保留未变化节点/连线的对象身份，布局队列与 Flow Portal 查找也移除平方级路径。
 - Character Field 引用闭环：限定表达式 Binding 写入 `.story` KDL，角色/字段改名跨已加载 Story 安全改写；引用索引覆盖 Get/Set、模板、条件、Event 与 Signal，并保护角色/字段删除和字段改型。AI Command API 新增 Add/Update Character（含 Field）且复用引用保护。
 - Character 新增强类型 Field：角色资源保存稳定字段 ID、名称、标量类型与默认值；表达式支持 `CharacterName.fieldName`，Get / Set Variable 可直接选择角色字段，Runtime Driver 通过 Adapter 在启动时读取并在暂停或结束时回写。

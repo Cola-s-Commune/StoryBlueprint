@@ -244,13 +244,19 @@ Project Status：
 npm run release:win:dir
 
 # 单文件 portable 版本
+npm run release:win:portable
+
+# 可选择安装目录、创建桌面/开始菜单快捷方式的安装包
+npm run release:win:installer
+
+# 同时生成安装包和 portable 版本
 npm run release:win
 
 # 隐藏启动两个发行版本，验证 ASAR、preload 和 renderer
 npm run verify:release:win
 ```
 
-发行产物写入 `release/`。当前早期版本不包含自定义应用图标、代码签名、安装器或自动更新。
+发行产物写入 `release/`。当前版本包含自定义应用图标、Windows 安装器和 portable 版本；尚未配置代码签名或自动更新。
 
 ---
 

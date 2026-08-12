@@ -35,8 +35,17 @@ function smokeTest(filePath, cwd) {
 smokeTest(resolve(releaseDirectory, executable), releaseDirectory);
 
 const portable = readdirSync(releaseRoot).find((name) =>
-  /^StoryBlueprint-.*-x64\.exe$/i.test(name),
+  /^StoryBlueprint-Portable-.*-x64\.exe$/i.test(name),
 );
 if (portable) smokeTest(resolve(releaseRoot, portable), releaseRoot);
 
-console.log(`Verified ${executable}, resources/app.asar${portable ? `, and ${portable}` : ''}`);
+const installer = readdirSync(releaseRoot).find((name) =>
+  /^StoryBlueprint-Setup-.*-x64\.exe$/i.test(name),
+);
+if (installer && statSync(resolve(releaseRoot, installer)).size < 1024 * 1024) {
+  throw new Error(`Windows installer is unexpectedly small: ${installer}`);
+}
+
+console.log(
+  `Verified ${executable}, resources/app.asar${portable ? `, ${portable}` : ''}${installer ? `, and ${installer}` : ''}`,
+);

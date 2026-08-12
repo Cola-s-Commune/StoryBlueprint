@@ -6,6 +6,10 @@ node_modules/
 # Build outputs
 dist/
 build/
+!packages/editor/build/
+packages/editor/build/*
+!packages/editor/build/icon.ico
+!packages/editor/build/icon.png
 out/
 out2/
 .output/

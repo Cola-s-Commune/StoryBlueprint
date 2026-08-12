@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import type { AppInfo } from '../../../shared/electronApi';
+import { AboutDialog } from './AboutDialog';
 import styles from './MenuBar.module.css';
 
 type MenuItem = {
@@ -31,7 +33,8 @@ type SubMenuItem =
         | 'zoom-in'
         | 'zoom-out'
         | 'zoom-reset'
-        | 'reset-layout';
+        | 'reset-layout'
+        | 'about';
       panelId?:
         | 'resources'
         | 'storyData'
@@ -105,7 +108,7 @@ const menuItems: MenuItem[] = [
   },
   {
     label: 'Help',
-    submenu: [{ type: 'item', label: 'About Story Blueprint' }],
+    submenu: [{ type: 'item', label: 'About Story Blueprint', action: 'about' }],
   },
 ];
 
@@ -142,6 +145,8 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
   } = useStoryGraphStore();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [maximized, setMaximized] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [appInfo, setAppInfo] = useState<AppInfo>();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -253,6 +258,10 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
       case 'reset-layout':
         onResetLayout();
         break;
+      case 'about':
+        setAboutOpen(true);
+        void window.electronAPI?.getAppInfo().then(setAppInfo);
+        break;
     }
   };
 
@@ -337,6 +346,13 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           <span className={styles.closeIcon} />
         </button>
       </div>
+      {aboutOpen && (
+        <AboutDialog
+          appInfo={appInfo}
+          projectPath={workspace?.rootPath}
+          onClose={() => setAboutOpen(false)}
+        />
+      )}
     </div>
   );
 }

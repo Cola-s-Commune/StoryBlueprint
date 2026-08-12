@@ -239,12 +239,22 @@ export interface EditorWindowState {
   maximized: boolean;
 }
 
+export interface AppInfo {
+  version: string;
+  electron: string;
+  chrome: string;
+  node: string;
+  platform: string;
+  arch: string;
+}
+
 export interface ElectronAPI {
   platform: string;
   isElectron: true;
   copyText: (text: string) => Promise<void>;
   readClipboardText: () => Promise<string>;
   setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
+  getAppInfo: () => Promise<AppInfo>;
   getWindowState: () => Promise<EditorWindowState>;
   minimizeWindow: () => Promise<void>;
   toggleMaximizeWindow: () => Promise<EditorWindowState>;

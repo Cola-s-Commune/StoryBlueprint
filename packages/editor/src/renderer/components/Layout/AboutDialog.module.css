@@ -1,0 +1,103 @@
+.backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 58%);
+  -webkit-app-region: no-drag;
+}
+
+.dialog {
+  position: relative;
+  width: min(460px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 28px 30px 24px;
+  border: 1px solid #454b55;
+  border-radius: 8px;
+  background: #20242b;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 55%);
+  color: #e7edf4;
+  text-align: center;
+}
+
+.icon {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+}
+
+.dialog h1 {
+  margin: 10px 0 2px;
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.tagline {
+  margin: 0 0 22px;
+  color: #9faaba;
+  font-size: 13px;
+}
+
+.details {
+  margin: 0;
+  border: 1px solid #343b46;
+  border-radius: 5px;
+  background: #191d23;
+  text-align: left;
+}
+
+.details div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #2c323b;
+}
+
+.details div:last-child {
+  border-bottom: 0;
+}
+
+.details dt {
+  color: #8290a1;
+}
+
+.details dd {
+  min-width: 0;
+  margin: 0;
+  color: #cdd6e0;
+}
+
+.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #aeb7c2;
+  font-size: 22px;
+  line-height: 28px;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: #343b46;
+  color: #ffffff;
+}
+
+.copyright {
+  margin: 18px 0 0;
+  color: #738092;
+  font-size: 11px;
+}

@@ -31,6 +31,7 @@
 - [x] 配置 IPC
 - [x] 配置 热更新（Hot Reload）
 - [x] 配置 Windows x64 Release Build：ASAR、unpacked、portable 与隐藏启动 smoke test
+- [x] 配置应用图标、EXE 元数据、NSIS 安装器、快捷方式与 About 信息
 - [x] 启动时显示项目/文件欢迎页，不自动创建 Untitled Story
 - [x] 支持原生新建、打开与保存项目
 - [x] 关闭、退出及切换项目时提供 Save / Don't Save / Cancel 未保存保护

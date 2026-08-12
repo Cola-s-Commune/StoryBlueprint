@@ -1277,6 +1277,17 @@ function registerStoryFileHandlers(): void {
     event.sender.setZoomFactor(next);
     return next;
   });
+  ipcMain.handle('app:get-info', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return {
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+    };
+  });
   ipcMain.handle('app:get-window-state', async (event) => {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
     return { maximized: mainWindow.isMaximized() };
@@ -2320,6 +2331,7 @@ async function createWindow(): Promise<void> {
     minWidth: 1024,
     minHeight: 640,
     title: 'Story Blueprint',
+    icon: join(app.getAppPath(), 'build', 'icon.ico'),
     frame: false,
     show: !releaseSmokeTest,
     webPreferences: {
