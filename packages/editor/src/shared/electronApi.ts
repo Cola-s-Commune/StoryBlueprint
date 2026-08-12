@@ -70,6 +70,14 @@ export interface ReloadWorkspaceAfterGitChangeResult {
   missingStoryPaths: string[];
 }
 
+export interface ExternalWorkspaceFileChange {
+  relativePath: string;
+  kind: 'story' | 'project' | 'character' | 'asset';
+  change: 'created' | 'modified' | 'deleted';
+  previousContent?: string;
+  content?: string;
+}
+
 export interface WorkspaceInfo {
   name: string;
   rootPath: string;
@@ -322,6 +330,9 @@ export interface ElectronAPI {
   ) => Promise<ReloadWorkspaceAfterGitChangeResult>;
   confirmGitReload: (storyNames: string[]) => Promise<'reload' | 'keep'>;
   onWorkspaceGitChanged: (listener: (git: WorkspaceGitRepository) => void) => () => void;
+  onWorkspaceFilesChanged: (
+    listener: (changes: ExternalWorkspaceFileChange[]) => void,
+  ) => () => void;
   revealWorkspaceItem: (relativePath: string) => Promise<void>;
   deleteWorkspaceStory: (relativePath: string) => Promise<WorkspaceInfo>;
   deleteWorkspaceProject: (relativePath: string) => Promise<WorkspaceInfo>;

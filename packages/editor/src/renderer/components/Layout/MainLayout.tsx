@@ -18,6 +18,7 @@ import { Problems } from '../Panels/Problems';
 import { AICommands } from '../Panels/AICommands';
 import { StoryMerge } from '../Panels/StoryMerge';
 import { RecoveryCenter } from './RecoveryCenter';
+import { ExternalChangesCenter } from './ExternalChangesCenter';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
@@ -323,6 +324,7 @@ export function MainLayout() {
         </div>
         <StatusBar />
         <RecoveryCenter />
+        <ExternalChangesCenter onShowStoryMerge={() => showDockPanel('storyMerge')} />
       </div>
     </StoryGraphStoreProvider>
   );

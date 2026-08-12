@@ -11,8 +11,8 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { mkdir, readFile, readdir, realpath, unlink, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, readdir, realpath, stat, unlink, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { is } from '@electron-toolkit/utils';
 import {
@@ -58,6 +58,7 @@ import type {
   UpdateAIProviderSettingsRequest,
   WorkspaceEntry,
   WorkspaceInfo,
+  ExternalWorkspaceFileChange,
 } from '../shared/electronApi';
 import {
   markStoryGitConflictResolved,
@@ -92,6 +93,9 @@ let closeAfterSave = false;
 let closeSavePending = false;
 let observedWorkspaceGitCheckout: string | undefined;
 let workspaceGitPollBusy = false;
+let workspaceFilePollBusy = false;
+let workspaceFileSnapshot = new Map<string, WorkspaceFileFingerprint>();
+let lastGitCheckoutChangeAt = 0;
 const releaseSmokeTest = process.argv.includes('--smoke-test');
 const ownsSingleInstance = releaseSmokeTest || app.requestSingleInstanceLock();
 let windowStateSaveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -112,9 +116,141 @@ const MAX_AI_CHAT_SESSIONS = 200;
 const MAX_AI_CHAT_SESSION_BYTES = 2 * 1024 * 1024;
 const MAX_AI_CHAT_STORE_BYTES = 32 * 1024 * 1024;
 const WORKSPACE_GIT_POLL_INTERVAL_MS = 1_500;
+const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 let aiChatWriteQueue: Promise<void> = Promise.resolve();
 type WindowZoomAction = 'in' | 'out' | 'reset';
+type WorkspaceFileKind = ExternalWorkspaceFileChange['kind'];
+interface WorkspaceFileFingerprint {
+  kind: WorkspaceFileKind;
+  content: string;
+  hash: string;
+  size: number;
+  modifiedAt: number;
+}
+
+function workspaceFileKind(filePath: string): WorkspaceFileKind | undefined {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.storyproject')) return 'project';
+  if (lower.endsWith('.story')) return 'story';
+  if (lower.endsWith('.character')) return 'character';
+  if (lower.endsWith('.asset')) return 'asset';
+  return undefined;
+}
+
+async function scanWorkspaceFileFingerprints(
+  previous = new Map<string, WorkspaceFileFingerprint>(),
+): Promise<Map<string, WorkspaceFileFingerprint>> {
+  const snapshot = new Map<string, WorkspaceFileFingerprint>();
+  if (!workspaceRoot) return snapshot;
+  const entries = await scanWorkspaceDirectory(workspaceRoot, 0, { count: 0 });
+  const files = [
+    ...collectEntries(entries, 'story'),
+    ...collectEntries(entries, 'project'),
+    ...collectEntries(entries, 'character'),
+    ...collectEntries(entries, 'asset'),
+  ];
+  await Promise.all(
+    files.map(async (entry) => {
+      const kind = workspaceFileKind(entry.relativePath);
+      if (!kind) return;
+      const filePath = resolveWorkspacePath(entry.relativePath);
+      const metadata = await stat(filePath);
+      const known = previous.get(entry.relativePath);
+      if (
+        known &&
+        known.size === metadata.size &&
+        known.modifiedAt === metadata.mtimeMs &&
+        known.kind === kind
+      ) {
+        snapshot.set(entry.relativePath, known);
+        return;
+      }
+      const content = await readFile(filePath, 'utf8');
+      snapshot.set(entry.relativePath, {
+        kind,
+        content,
+        hash: createHash('sha256').update(content).digest('hex'),
+        size: metadata.size,
+        modifiedAt: metadata.mtimeMs,
+      });
+    }),
+  );
+  return snapshot;
+}
+
+async function resetWorkspaceFileSnapshot(): Promise<void> {
+  workspaceFileSnapshot = await scanWorkspaceFileFingerprints();
+}
+
+async function pollWorkspaceFiles(): Promise<void> {
+  if (workspaceFilePollBusy || !workspaceRoot || !mainWindow) return;
+  workspaceFilePollBusy = true;
+  const expectedRoot = workspaceRoot;
+  try {
+    const git = await readWorkspaceGitRepository(expectedRoot);
+    const checkout = workspaceGitCheckoutKey(git);
+    const checkoutChanged =
+      Boolean(observedWorkspaceGitCheckout) &&
+      Boolean(checkout) &&
+      observedWorkspaceGitCheckout !== checkout;
+    if (checkoutChanged) {
+      observedWorkspaceGitCheckout = checkout;
+      lastGitCheckoutChangeAt = Date.now();
+    }
+    const gitCheckoutRecentlyChanged =
+      checkoutChanged || Date.now() - lastGitCheckoutChangeAt < WORKSPACE_FILE_POLL_INTERVAL_MS * 2;
+    const next = await scanWorkspaceFileFingerprints(
+      gitCheckoutRecentlyChanged ? new Map() : workspaceFileSnapshot,
+    );
+    if (workspaceRoot !== expectedRoot) return;
+    if (gitCheckoutRecentlyChanged) {
+      workspaceFileSnapshot = next;
+      if (checkoutChanged && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('workspace:git-changed', git);
+      }
+      return;
+    }
+    const changes: ExternalWorkspaceFileChange[] = [];
+    for (const [relativePath, current] of next) {
+      const previous = workspaceFileSnapshot.get(relativePath);
+      if (!previous) {
+        changes.push({
+          relativePath,
+          kind: current.kind,
+          change: 'created',
+          content: current.content,
+        });
+      } else if (previous.hash !== current.hash) {
+        changes.push({
+          relativePath,
+          kind: current.kind,
+          change: 'modified',
+          previousContent: previous.content,
+          content: current.content,
+        });
+      }
+    }
+    for (const [relativePath, previous] of workspaceFileSnapshot) {
+      if (!next.has(relativePath)) {
+        changes.push({
+          relativePath,
+          kind: previous.kind,
+          change: 'deleted',
+          previousContent: previous.content,
+        });
+      }
+    }
+    workspaceFileSnapshot = next;
+    if (changes.length > 0 && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:files-changed', changes);
+    }
+  } catch {
+    // Transient replacement writes are retried without replacing the last known snapshot.
+  } finally {
+    workspaceFilePollBusy = false;
+  }
+}
 
 async function pollWorkspaceGitCheckout(): Promise<void> {
   if (workspaceGitPollBusy || !workspaceRoot || !mainWindow) return;
@@ -128,6 +264,7 @@ async function pollWorkspaceGitCheckout(): Promise<void> {
     if (previous && !next) return;
     observedWorkspaceGitCheckout = next;
     if (previous && next && previous !== next && !mainWindow.isDestroyed()) {
+      lastGitCheckoutChangeAt = Date.now();
       mainWindow.webContents.send('workspace:git-changed', git);
     }
   } catch {
@@ -139,6 +276,11 @@ async function pollWorkspaceGitCheckout(): Promise<void> {
 
 function startWorkspaceGitPolling(): void {
   const timer = setInterval(() => void pollWorkspaceGitCheckout(), WORKSPACE_GIT_POLL_INTERVAL_MS);
+  timer.unref();
+}
+
+function startWorkspaceFilePolling(): void {
+  const timer = setInterval(() => void pollWorkspaceFiles(), WORKSPACE_FILE_POLL_INTERVAL_MS);
   timer.unref();
 }
 
@@ -1289,6 +1431,7 @@ async function activateWorkspace(rootPath: string, projectFile?: string): Promis
   if (workspaceProjectFile) await rememberProject(workspaceProjectFile);
   const nextWorkspace = (await readWorkspace())!;
   observedWorkspaceGitCheckout = workspaceGitCheckoutKey(nextWorkspace.git);
+  await resetWorkspaceFileSnapshot();
   return nextWorkspace;
 }
 
@@ -2509,6 +2652,7 @@ if (!ownsSingleInstance) {
     registerStoryFileHandlers();
     void createWindow();
     startWorkspaceGitPolling();
+    startWorkspaceFilePolling();
   });
 }
 

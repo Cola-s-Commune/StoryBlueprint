@@ -431,6 +431,8 @@ export function StoryMerge() {
     showStoryMergePreview,
     clearStoryMergePreview,
     focusStoryMergePreviewNode,
+    externalStoryMergeRequest,
+    keepExternalEditorVersion,
   } = useStoryGraphStore();
   const [base, setBase] = useState<MergeableStoryDocument>();
   const [localBase, setLocalBase] = useState<MergeableStoryDocument>();
@@ -440,7 +442,7 @@ export function StoryMerge() {
   const [decisions, setDecisions] = useState<Record<string, StoryMergeChoice>>({});
   const [error, setError] = useState<string>();
   const [status, setStatus] = useState<string>();
-  const [mode, setMode] = useState<'two-way' | 'git-three-way'>('two-way');
+  const [mode, setMode] = useState<'two-way' | 'git-three-way' | 'external-three-way'>('two-way');
   const [applying, setApplying] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validatedKey, setValidatedKey] = useState('');
@@ -453,6 +455,24 @@ export function StoryMerge() {
   const [expandedRegionId, setExpandedRegionId] = useState<string>();
   const handledDecisionRequestNonce = useRef<number>();
   const remoteMergeable = useMemo(() => (remote ? mergeableStory(remote) : undefined), [remote]);
+
+  useEffect(() => {
+    if (!externalStoryMergeRequest || externalStoryMergeRequest.local.id !== source.id) return;
+    setBase(mergeableStory(externalStoryMergeRequest.base));
+    setLocalBase(mergeableStory(externalStoryMergeRequest.local));
+    setRemote(externalStoryMergeRequest.remote);
+    setRemotePath(`External change · ${externalStoryMergeRequest.relativePath}`);
+    setBaseRevision(semanticSnapshot.revision);
+    setDecisions({});
+    setPendingRegionChoice(undefined);
+    setExpandedRegionId(undefined);
+    setCoordinateLayoutOrder(undefined);
+    setMode('external-three-way');
+    setGitConflictRevision('');
+    setValidatedKey('');
+    setStatus('External disk changes loaded as a three-way merge.');
+    setError(undefined);
+  }, [externalStoryMergeRequest, semanticSnapshot.revision, source.id]);
   const threeWayDiff = useMemo(
     () =>
       base && localBase && remoteMergeable
@@ -961,6 +981,9 @@ export function StoryMerge() {
         setError(result.message);
         return;
       }
+      if (mode === 'external-three-way') {
+        keepExternalEditorVersion(remotePath.replace(/^External change · /, ''));
+      }
       setBase(undefined);
       setLocalBase(undefined);
       setRemote(undefined);
@@ -988,7 +1011,9 @@ export function StoryMerge() {
             <span>
               {mode === 'git-three-way'
                 ? 'Git three-way merge · non-overlapping changes are resolved automatically'
-                : 'Semantic two-way comparison · Local is kept unless Remote is selected'}
+                : mode === 'external-three-way'
+                  ? 'External three-way merge · Base is the last disk version'
+                  : 'Semantic two-way comparison · Local is kept unless Remote is selected'}
             </span>
           </div>
           <button type="button" onClick={() => void compareStory()} disabled={!hasActiveStory}>

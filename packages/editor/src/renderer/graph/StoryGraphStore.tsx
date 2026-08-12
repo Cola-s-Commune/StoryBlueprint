@@ -25,6 +25,8 @@ import {
   parseStorySource,
   serializeStorySource,
   serializeStoryProject,
+  serializeCharacterResource,
+  serializeAssetResource,
   STORY_PROJECT_FORMAT,
   STORY_PROJECT_VERSION,
   STORY_SOURCE_FORMAT,
@@ -54,7 +56,7 @@ import {
   type StoryId,
   type StorySourceDocument,
 } from '@story-blueprint/common';
-import type { RecoveryCandidate } from '../../shared/electronApi';
+import type { ExternalWorkspaceFileChange, RecoveryCandidate } from '../../shared/electronApi';
 import {
   compileProject,
   compileStory,
@@ -274,6 +276,14 @@ interface AIEditorProposal extends AIEditorChanges {
   transaction: unknown;
 }
 
+export interface ExternalStoryMergeRequest {
+  relativePath: string;
+  base: StorySourceDocument;
+  local: StorySourceDocument;
+  remote: StorySourceDocument;
+  nonce: number;
+}
+
 interface StoryGraphStoreValue {
   source: StorySourceDocument;
   graph: EditorGraphState;
@@ -311,6 +321,12 @@ interface StoryGraphStoreValue {
   discardRecovery: (storyId: string) => void;
   discardAllRecoveries: () => void;
   dismissRecoveryError: () => void;
+  externalFileChanges: readonly ExternalWorkspaceFileChange[];
+  externalStoryMergeRequest?: ExternalStoryMergeRequest;
+  keepExternalEditorVersion: (relativePath: string) => void;
+  reloadExternalFile: (relativePath: string) => Promise<void>;
+  saveExternalStoryAs: (relativePath: string) => Promise<void>;
+  mergeExternalStory: (relativePath: string) => void;
   recentProjects: RecentProject[];
   problems: readonly ProjectCompilerDiagnostic[];
   lastBuildPath?: string;
@@ -501,6 +517,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [sessionReady, setSessionReady] = useState(false);
   const [recoveries, setRecoveries] = useState<RecoveryCandidate[]>([]);
   const [recoveryError, setRecoveryError] = useState<string>();
+  const [externalFileChanges, setExternalFileChanges] = useState<ExternalWorkspaceFileChange[]>([]);
+  const [externalStoryMergeRequest, setExternalStoryMergeRequest] =
+    useState<ExternalStoryMergeRequest>();
   const restoredSessionRef = useRef(false);
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
   const currentStoryItemsRef = useRef<() => EditorStoryWorkspaceItem[]>(() => []);
@@ -3023,6 +3042,242 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const dismissRecoveryError = useCallback(() => setRecoveryError(undefined), []);
 
+  const absoluteWorkspacePath = useCallback(
+    (relativePath: string) =>
+      workspace
+        ? `${workspace.rootPath.replace(/[\\/]$/, '')}\\${relativePath.replace(/\//g, '\\')}`
+        : relativePath,
+    [workspace],
+  );
+
+  const removeExternalFileChange = useCallback((relativePath: string) => {
+    setExternalFileChanges((current) =>
+      current.filter((change) => change.relativePath !== relativePath),
+    );
+  }, []);
+
+  const keepExternalEditorVersion = useCallback(
+    (relativePath: string) => {
+      removeExternalFileChange(relativePath);
+      setExternalStoryMergeRequest((current) =>
+        current?.relativePath === relativePath ? undefined : current,
+      );
+    },
+    [removeExternalFileChange],
+  );
+
+  const reloadExternalFile = useCallback(
+    async (relativePath: string) => {
+      const change = externalFileChanges.find(
+        (candidate) => candidate.relativePath === relativePath,
+      );
+      if (!change || !window.electronAPI) return;
+      try {
+        if (change.kind === 'story' && change.change === 'deleted') {
+          const targetPath = absoluteWorkspacePath(relativePath).toLowerCase();
+          const items = currentStoryItems();
+          const removed = items.find(
+            (story) => story.document.filePath?.toLowerCase() === targetPath,
+          );
+          if (removed) {
+            const remaining = items.filter((story) => story.document.id !== removed.document.id);
+            setWorkspaceStories(remaining);
+            if (removed.document.id === document.id) {
+              if (remaining.length > 0) loadStory(remaining[0]);
+              else clearStorySession();
+            }
+          }
+        } else if (change.kind === 'story' && change.content) {
+          const targetPath = absoluteWorkspacePath(relativePath);
+          const existing = currentStoryItems().find(
+            (story) => story.document.filePath?.toLowerCase() === targetPath.toLowerCase(),
+          );
+          if (existing?.document.fileToken) {
+            const reloaded = storyItemFromOpenedStory({
+              canceled: false,
+              filePath: targetPath,
+              fileToken: existing.document.fileToken,
+              content: change.content,
+            });
+            setWorkspaceStories((items) =>
+              items.map((story) => (story.document.id === existing.document.id ? reloaded : story)),
+            );
+            if (existing.document.id === document.id) loadStory(reloaded);
+          }
+        }
+        setWorkspace(await window.electronAPI.refreshWorkspace());
+        setProjectResourcesDirty(false);
+        removeExternalFileChange(relativePath);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [
+      absoluteWorkspacePath,
+      clearStorySession,
+      currentStoryItems,
+      document.id,
+      externalFileChanges,
+      loadStory,
+      removeExternalFileChange,
+      storyItemFromOpenedStory,
+    ],
+  );
+
+  const saveExternalStoryAs = useCallback(
+    async (relativePath: string) => {
+      const change = externalFileChanges.find(
+        (candidate) => candidate.relativePath === relativePath,
+      );
+      if (!change || change.kind !== 'story' || !window.electronAPI) return;
+      const targetPath = absoluteWorkspacePath(relativePath);
+      const item = currentStoryItems().find(
+        (story) => story.document.filePath?.toLowerCase() === targetPath.toLowerCase(),
+      );
+      if (!item) return;
+      try {
+        const content = serializeStorySource(storyItemToSource(item));
+        const result = await window.electronAPI.saveStory({ content, saveAs: true });
+        if (result.canceled) return;
+        acceptOpenedStory({ ...result, canceled: false, content });
+        removeExternalFileChange(relativePath);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [
+      absoluteWorkspacePath,
+      acceptOpenedStory,
+      currentStoryItems,
+      externalFileChanges,
+      removeExternalFileChange,
+      storyItemToSource,
+    ],
+  );
+
+  const mergeExternalStory = useCallback(
+    (relativePath: string) => {
+      const change = externalFileChanges.find(
+        (candidate) => candidate.relativePath === relativePath,
+      );
+      if (
+        !change?.previousContent ||
+        !change.content ||
+        change.kind !== 'story' ||
+        change.change !== 'modified'
+      )
+        return;
+      const targetPath = absoluteWorkspacePath(relativePath);
+      const item = currentStoryItems().find(
+        (story) => story.document.filePath?.toLowerCase() === targetPath.toLowerCase(),
+      );
+      if (!item) return;
+      try {
+        setExternalStoryMergeRequest({
+          relativePath,
+          base: parseStorySource(change.previousContent),
+          local: storyItemToSource(item),
+          remote: parseStorySource(change.content),
+          nonce: Date.now(),
+        });
+        loadStory(item);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [absoluteWorkspacePath, currentStoryItems, externalFileChanges, loadStory, storyItemToSource],
+  );
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    let handling = false;
+    return api.onWorkspaceFilesChanged((changes) => {
+      if (handling) return;
+      handling = true;
+      void (async () => {
+        try {
+          const items = currentStoryItemsRef.current();
+          const pending: ExternalWorkspaceFileChange[] = [];
+          let refreshResources = false;
+          for (const change of changes) {
+            if (change.kind !== 'story') {
+              const currentContent =
+                change.kind === 'project' && workspace?.project
+                  ? serializeStoryProject(workspace.project)
+                  : change.kind === 'character'
+                    ? (() => {
+                        const resource = workspace?.characterResources.find(
+                          (item) => item.relativePath === change.relativePath,
+                        );
+                        return resource
+                          ? serializeCharacterResource(resource.character)
+                          : undefined;
+                      })()
+                    : change.kind === 'asset'
+                      ? (() => {
+                          const resource = workspace?.assetResources.find(
+                            (item) => item.relativePath === change.relativePath,
+                          );
+                          return resource ? serializeAssetResource(resource.asset) : undefined;
+                        })()
+                      : undefined;
+              if (change.content && currentContent === change.content) continue;
+              if (projectResourcesDirty || change.change === 'deleted') pending.push(change);
+              else refreshResources = true;
+              continue;
+            }
+            const targetPath = absoluteWorkspacePath(change.relativePath).toLowerCase();
+            const opened = items.find(
+              (item) => item.document.filePath?.toLowerCase() === targetPath,
+            );
+            if (!opened) {
+              refreshResources = true;
+              continue;
+            }
+            if (change.content === serializeStorySource(storyItemToSource(opened))) continue;
+            if (opened.document.dirty || change.change === 'deleted' || !change.content) {
+              pending.push(change);
+              continue;
+            }
+            const reloaded = storyItemFromOpenedStory({
+              canceled: false,
+              filePath: opened.document.filePath!,
+              fileToken: opened.document.fileToken!,
+              content: change.content,
+            });
+            setWorkspaceStories((current) =>
+              current.map((story) => (story.document.id === opened.document.id ? reloaded : story)),
+            );
+            if (opened.document.id === document.id) loadStory(reloaded);
+          }
+          if (refreshResources) setWorkspace(await api.refreshWorkspace());
+          if (pending.length > 0) {
+            setExternalFileChanges((current) => {
+              const byPath = new Map(current.map((change) => [change.relativePath, change]));
+              for (const change of pending) byPath.set(change.relativePath, change);
+              return [...byPath.values()];
+            });
+          }
+        } catch (error) {
+          setWorkspaceError(error instanceof Error ? error.message : String(error));
+        } finally {
+          handling = false;
+        }
+      })();
+    });
+  }, [
+    absoluteWorkspacePath,
+    document.id,
+    loadStory,
+    projectResourcesDirty,
+    storyItemToSource,
+    storyItemFromOpenedStory,
+    workspace?.assetResources,
+    workspace?.characterResources,
+    workspace?.project,
+  ]);
+
   useEffect(() => {
     if (!window.electronAPI) return;
     let reloading = false;
@@ -3797,6 +4052,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       discardRecovery,
       discardAllRecoveries,
       dismissRecoveryError,
+      externalFileChanges,
+      externalStoryMergeRequest,
+      keepExternalEditorVersion,
+      reloadExternalFile,
+      saveExternalStoryAs,
+      mergeExternalStory,
       recentProjects,
       problems,
       lastBuildPath,
@@ -3882,6 +4143,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       discardRecovery,
       discardAllRecoveries,
       dismissRecoveryError,
+      externalFileChanges,
+      externalStoryMergeRequest,
+      keepExternalEditorVersion,
+      reloadExternalFile,
+      saveExternalStoryAs,
+      mergeExternalStory,
       recentProjects,
       problems,
       lastBuildPath,

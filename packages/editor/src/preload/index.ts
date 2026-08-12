@@ -78,6 +78,12 @@ const electronAPI = {
     ipcRenderer.on('workspace:git-changed', handler);
     return () => ipcRenderer.removeListener('workspace:git-changed', handler);
   },
+  onWorkspaceFilesChanged: (listener) => {
+    const handler = (_event: IpcRendererEvent, changes: Parameters<typeof listener>[0]) =>
+      listener(changes);
+    ipcRenderer.on('workspace:files-changed', handler);
+    return () => ipcRenderer.removeListener('workspace:files-changed', handler);
+  },
   revealWorkspaceItem: (relativePath) => ipcRenderer.invoke('workspace:reveal-item', relativePath),
   deleteWorkspaceStory: (relativePath) =>
     ipcRenderer.invoke('workspace:delete-story', relativePath),

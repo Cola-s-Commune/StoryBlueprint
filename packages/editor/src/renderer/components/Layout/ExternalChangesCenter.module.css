@@ -1,0 +1,136 @@
+.center {
+  position: fixed;
+  z-index: 9000;
+  top: 44px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(560px, calc(100vh - 88px));
+  overflow: hidden;
+  border: 1px solid #6b5938;
+  border-radius: 6px;
+  background: #20252c;
+  box-shadow: 0 18px 55px rgb(0 0 0 / 62%);
+  color: #dce4ed;
+  -webkit-app-region: no-drag;
+}
+
+.center > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 15px;
+  border-bottom: 1px solid #3e3d38;
+  background: #2d2a23;
+}
+
+.center header div {
+  display: grid;
+  gap: 2px;
+}
+
+.center header span {
+  color: #a9a18f;
+  font-size: 11px;
+}
+
+.count {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 12px;
+  background: #76551f;
+  color: #ffe1a1 !important;
+  font-weight: 700;
+}
+
+.list {
+  overflow: auto;
+  scrollbar-color: #5a6370 #252a31;
+  scrollbar-width: thin;
+}
+
+.list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #343b45;
+}
+
+.list article:last-child {
+  border-bottom: 0;
+}
+
+.description {
+  min-width: 0;
+}
+
+.description > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.description strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.description small {
+  color: #d2a759;
+}
+
+.kind {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #33404e;
+  color: #9fd8ff;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.actions button {
+  padding: 5px 8px;
+  border: 1px solid #4c5663;
+  border-radius: 3px;
+  background: #303842;
+  color: #d4dce5;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: #3d4753;
+}
+
+.actions .primary {
+  border-color: #168fe5;
+  background: #0e639c;
+  color: #ffffff;
+}
+
+@media (max-width: 760px) {
+  .list article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+}
