@@ -80,6 +80,7 @@ import {
 import { useGraphHistory } from './useGraphHistory';
 import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
 import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
+import { planExternalFileChange } from './externalFileChangePlan';
 import {
   findVariableReferences as collectVariableReferences,
   findProjectVariableReferences,
@@ -3222,24 +3223,39 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                           return resource ? serializeAssetResource(resource.asset) : undefined;
                         })()
                       : undefined;
-              if (change.content && currentContent === change.content) continue;
-              if (projectResourcesDirty || change.change === 'deleted') pending.push(change);
-              else refreshResources = true;
+              const action = planExternalFileChange({
+                change,
+                matchesEditorContent: Boolean(change.content && currentContent === change.content),
+                openedStory: false,
+                storyDirty: false,
+                projectResourcesDirty,
+              });
+              if (action === 'review') pending.push(change);
+              else if (action === 'refresh-workspace') refreshResources = true;
               continue;
             }
             const targetPath = absoluteWorkspacePath(change.relativePath).toLowerCase();
             const opened = items.find(
               (item) => item.document.filePath?.toLowerCase() === targetPath,
             );
-            if (!opened) {
+            const action = planExternalFileChange({
+              change,
+              matchesEditorContent: Boolean(
+                opened && change.content === serializeStorySource(storyItemToSource(opened)),
+              ),
+              openedStory: Boolean(opened),
+              storyDirty: Boolean(opened?.document.dirty),
+              projectResourcesDirty,
+            });
+            if (action === 'refresh-workspace') {
               refreshResources = true;
               continue;
             }
-            if (change.content === serializeStorySource(storyItemToSource(opened))) continue;
-            if (opened.document.dirty || change.change === 'deleted' || !change.content) {
+            if (action === 'review') {
               pending.push(change);
               continue;
             }
+            if (action === 'ignore' || !opened || !change.content) continue;
             const reloaded = storyItemFromOpenedStory({
               canceled: false,
               filePath: opened.document.filePath!,

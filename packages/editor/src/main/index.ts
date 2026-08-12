@@ -58,7 +58,6 @@ import type {
   UpdateAIProviderSettingsRequest,
   WorkspaceEntry,
   WorkspaceInfo,
-  ExternalWorkspaceFileChange,
 } from '../shared/electronApi';
 import {
   markStoryGitConflictResolved,
@@ -83,6 +82,12 @@ import {
   type PersistedWindowState,
 } from './windowState';
 import { parseRecoveryStore } from './recoveryStore';
+import {
+  canReuseWorkspaceFileFingerprint,
+  planWorkspaceFilePoll,
+  type WorkspaceFileFingerprint,
+  type WorkspaceFileKind,
+} from './workspaceFileChanges';
 
 let mainWindow: BrowserWindow | null = null;
 let storyDirty = false;
@@ -120,15 +125,6 @@ const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 let aiChatWriteQueue: Promise<void> = Promise.resolve();
 type WindowZoomAction = 'in' | 'out' | 'reset';
-type WorkspaceFileKind = ExternalWorkspaceFileChange['kind'];
-interface WorkspaceFileFingerprint {
-  kind: WorkspaceFileKind;
-  content: string;
-  hash: string;
-  size: number;
-  modifiedAt: number;
-}
-
 function workspaceFileKind(filePath: string): WorkspaceFileKind | undefined {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.storyproject')) return 'project';
@@ -158,10 +154,11 @@ async function scanWorkspaceFileFingerprints(
       const metadata = await stat(filePath);
       const known = previous.get(entry.relativePath);
       if (
-        known &&
-        known.size === metadata.size &&
-        known.modifiedAt === metadata.mtimeMs &&
-        known.kind === kind
+        canReuseWorkspaceFileFingerprint(
+          known,
+          { size: metadata.size, modifiedAt: metadata.mtimeMs },
+          kind,
+        )
       ) {
         snapshot.set(entry.relativePath, known);
         return;
@@ -190,60 +187,38 @@ async function pollWorkspaceFiles(): Promise<void> {
   try {
     const git = await readWorkspaceGitRepository(expectedRoot);
     const checkout = workspaceGitCheckoutKey(git);
-    const checkoutChanged =
-      Boolean(observedWorkspaceGitCheckout) &&
-      Boolean(checkout) &&
-      observedWorkspaceGitCheckout !== checkout;
-    if (checkoutChanged) {
-      observedWorkspaceGitCheckout = checkout;
-      lastGitCheckoutChangeAt = Date.now();
-    }
+    const now = Date.now();
+    const checkoutChanged = Boolean(
+      observedWorkspaceGitCheckout && checkout && observedWorkspaceGitCheckout !== checkout,
+    );
+    const checkoutChangeAt = checkoutChanged ? now : lastGitCheckoutChangeAt;
     const gitCheckoutRecentlyChanged =
-      checkoutChanged || Date.now() - lastGitCheckoutChangeAt < WORKSPACE_FILE_POLL_INTERVAL_MS * 2;
+      checkoutChanged || now - checkoutChangeAt < WORKSPACE_FILE_POLL_INTERVAL_MS * 2;
     const next = await scanWorkspaceFileFingerprints(
       gitCheckoutRecentlyChanged ? new Map() : workspaceFileSnapshot,
     );
     if (workspaceRoot !== expectedRoot) return;
-    if (gitCheckoutRecentlyChanged) {
+    const decision = planWorkspaceFilePoll({
+      previous: workspaceFileSnapshot,
+      next,
+      previousCheckout: observedWorkspaceGitCheckout,
+      nextCheckout: checkout,
+      lastCheckoutChangeAt: lastGitCheckoutChangeAt,
+      now,
+      checkoutSuppressionMs: WORKSPACE_FILE_POLL_INTERVAL_MS * 2,
+    });
+    lastGitCheckoutChangeAt = decision.lastCheckoutChangeAt;
+    if (decision.checkoutChanged) observedWorkspaceGitCheckout = checkout;
+    if (decision.suppressFileChanges) {
       workspaceFileSnapshot = next;
-      if (checkoutChanged && !mainWindow.isDestroyed()) {
+      if (decision.checkoutChanged && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('workspace:git-changed', git);
       }
       return;
     }
-    const changes: ExternalWorkspaceFileChange[] = [];
-    for (const [relativePath, current] of next) {
-      const previous = workspaceFileSnapshot.get(relativePath);
-      if (!previous) {
-        changes.push({
-          relativePath,
-          kind: current.kind,
-          change: 'created',
-          content: current.content,
-        });
-      } else if (previous.hash !== current.hash) {
-        changes.push({
-          relativePath,
-          kind: current.kind,
-          change: 'modified',
-          previousContent: previous.content,
-          content: current.content,
-        });
-      }
-    }
-    for (const [relativePath, previous] of workspaceFileSnapshot) {
-      if (!next.has(relativePath)) {
-        changes.push({
-          relativePath,
-          kind: previous.kind,
-          change: 'deleted',
-          previousContent: previous.content,
-        });
-      }
-    }
     workspaceFileSnapshot = next;
-    if (changes.length > 0 && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('workspace:files-changed', changes);
+    if (decision.changes.length > 0 && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:files-changed', decision.changes);
     }
   } catch {
     // Transient replacement writes are retried without replacing the last known snapshot.

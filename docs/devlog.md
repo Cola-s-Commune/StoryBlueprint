@@ -1,5 +1,6 @@
 # Dev Log
 
+- 外部文件监听与编辑器重载规则拆为可测试的纯决策模块；新增内容指纹 Diff、自保存过滤、干净/脏 Story、资源删除、快速连续写入与 Git checkout 可控时钟抑制测试，避免轮询测试依赖真实等待。
 - 外部文件变更保护使用内容指纹轮询覆盖 Story / Project / Character / Asset：无本地修改时自动重载，重叠修改进入审查卡片；Story 支持以上次磁盘内容为 Base 的三方 Story Merge、另存编辑器版本、载入磁盘或保留编辑器版本，删除/移动会明确提示。Git checkout 期间抑制重复外部变更提示。
 - Crash Recovery 从原生二选一提示升级为应用内恢复中心：逐项显示保存时间、原路径与磁盘状态，支持 Recover / Save As / Discard；磁盘已变化时恢复后可 Undo 回磁盘图状态，损坏数据会报告且不覆盖恢复文件。
 - Windows 发布加入 Story Blueprint 专属图标、EXE 产品元数据和 NSIS 安装包；安装器可选择目录并创建桌面/开始菜单快捷方式，同时保留 portable。Help → About 显示版本、Electron/Chromium/Node、平台和当前项目位置。
