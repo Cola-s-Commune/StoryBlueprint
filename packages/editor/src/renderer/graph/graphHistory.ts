@@ -3,6 +3,11 @@ export interface HistoryEntry<State> {
   label: string;
 }
 
+export interface HistoryNavigationEntry {
+  label: string;
+  steps: number;
+}
+
 const cloneState = <State>(state: State): State => structuredClone(state);
 
 export class GraphHistory<State> {
@@ -31,6 +36,20 @@ export class GraphHistory<State> {
     return { state: cloneState(next.state), label: next.label };
   }
 
+  travel(current: State, steps: number): HistoryEntry<State> | null {
+    if (!Number.isInteger(steps) || steps === 0) return null;
+    let state = current;
+    let result: HistoryEntry<State> | null = null;
+    const direction = steps < 0 ? -1 : 1;
+    for (let index = 0; index < Math.abs(steps); index += 1) {
+      const entry = direction < 0 ? this.undo(state) : this.redo(state);
+      if (!entry) break;
+      state = entry.state;
+      result = entry;
+    }
+    return result;
+  }
+
   clear(): void {
     this.past.length = 0;
     this.future.length = 0;
@@ -47,5 +66,15 @@ export class GraphHistory<State> {
   }
   get redoLabel(): string | undefined {
     return this.future.at(-1)?.label;
+  }
+  get undoEntries(): readonly HistoryNavigationEntry[] {
+    return this.past
+      .map((entry, index) => ({ label: entry.label, steps: -(this.past.length - index) }))
+      .reverse();
+  }
+  get redoEntries(): readonly HistoryNavigationEntry[] {
+    return this.future
+      .map((entry, index) => ({ label: entry.label, steps: this.future.length - index }))
+      .reverse();
   }
 }

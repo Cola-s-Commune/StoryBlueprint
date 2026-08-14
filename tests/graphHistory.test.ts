@@ -27,4 +27,25 @@ describe('named graph history', () => {
     expect(history.undo(2)?.state).toBe(1);
     expect(history.undo(1)).toBeNull();
   });
+
+  it('lists navigation targets and travels across several operations', () => {
+    const history = new GraphHistory<number>();
+    history.checkpoint(0, 'Add A');
+    history.checkpoint(1, 'Add B');
+    history.checkpoint(2, 'Add C');
+
+    expect(history.undoEntries).toEqual([
+      { label: 'Add C', steps: -1 },
+      { label: 'Add B', steps: -2 },
+      { label: 'Add A', steps: -3 },
+    ]);
+    expect(history.travel(3, -2)?.state).toBe(1);
+    expect(history.undoLabel).toBe('Add A');
+    expect(history.redoEntries).toEqual([
+      { label: 'Add B', steps: 1 },
+      { label: 'Add C', steps: 2 },
+    ]);
+    expect(history.travel(1, 2)?.state).toBe(3);
+    expect(history.canRedo).toBe(false);
+  });
 });

@@ -1,0 +1,125 @@
+.root {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.toolbar {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid #303030;
+  font-size: 11px;
+}
+
+.toolbar span {
+  color: #858585;
+  font-size: 10px;
+}
+
+.list {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.entry,
+.current {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.entry {
+  cursor: pointer;
+}
+
+.entry:hover {
+  background: #2a2d2e;
+}
+
+.entry::before,
+.current::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 18px;
+  width: 1px;
+  background: #454545;
+  content: '';
+}
+
+.marker,
+.currentMarker {
+  z-index: 1;
+  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border: 2px solid #7b8790;
+  border-radius: 50%;
+  background: #1e1e1e;
+}
+
+.entry[data-kind='redo'] {
+  color: #9fa6ac;
+}
+
+.entry[data-kind='redo'] .marker {
+  border-style: dashed;
+  border-color: #70818f;
+}
+
+.current {
+  background: #253647;
+}
+
+.currentMarker {
+  border-color: #4ca6e8;
+  background: #4ca6e8;
+  box-shadow: 0 0 0 3px rgb(76 166 232 / 18%);
+}
+
+.entryText,
+.current > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.entryText strong,
+.current strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entryText small,
+.current small {
+  color: #777;
+  font-size: 9px;
+}
+
+.empty {
+  padding: 28px 16px;
+  color: #707070;
+  font-size: 12px;
+  text-align: center;
+}

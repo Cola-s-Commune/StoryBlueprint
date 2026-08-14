@@ -203,6 +203,7 @@
 - [x] Story 文件新增/删除接入 History：保留原相对路径、完整文本、项目索引与打开标签；Undo / Redo 原子恢复或移除磁盘文件，失败时回滚
 - [x] Substory 新增、删除、重命名及 Extract Selection 使用统一事务，不再通过清空 History 规避跨 Graph 撤销
 - [x] History 记录用户可读的操作名称并暴露 canUndo / canRedo；Edit 菜单动态显示 `Undo Delete Character` / `Redo Extract to Substory` 并正确禁用空历史
+- [x] 可停靠 History 面板按时间顺序显示可撤销、当前和可重做状态；点击记录可一次跳转多个步骤，并保留反向恢复链
 
 ---
 

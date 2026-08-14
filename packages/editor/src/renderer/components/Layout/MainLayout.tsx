@@ -17,6 +17,7 @@ import { RuntimePreview } from '../Panels/RuntimePreview';
 import { Problems } from '../Panels/Problems';
 import { AICommands } from '../Panels/AICommands';
 import { StoryMerge } from '../Panels/StoryMerge';
+import { History } from '../Panels/History';
 import { RecoveryCenter } from './RecoveryCenter';
 import { ExternalChangesCenter } from './ExternalChangesCenter';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
@@ -33,6 +34,7 @@ const dockComponents = {
   problems: (_props: IDockviewPanelProps) => <Problems />,
   aiCommands: (_props: IDockviewPanelProps) => <AICommands />,
   storyMerge: (_props: IDockviewPanelProps) => <StoryMerge />,
+  history: (_props: IDockviewPanelProps) => <History />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
@@ -41,7 +43,8 @@ function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
     panelId === 'preview' ||
     panelId === 'problems' ||
     panelId === 'aiCommands' ||
-    panelId === 'storyMerge'
+    panelId === 'storyMerge' ||
+    panelId === 'history'
   )
     return 'bottom';
   return 'right';
@@ -102,6 +105,13 @@ function createDefaultLayout(api: DockviewApi) {
     title: 'AI Commands',
     position: { referencePanel: bottomPanel },
     minimumHeight: 180,
+  });
+  api.addPanel({
+    id: 'history',
+    component: 'history',
+    title: 'History',
+    position: { referencePanel: bottomPanel },
+    minimumHeight: 140,
   });
 
   resources.api.group.api.setSize({ width: 240 });
@@ -224,6 +234,23 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       });
       break;
     }
+    case 'history': {
+      const bottomPanel =
+        api.getPanel('preview') ?? api.getPanel('problems') ?? api.getPanel('aiCommands');
+      api.addPanel({
+        ...common,
+        title: 'History',
+        ...((bottomPanel ?? graph) && {
+          position: {
+            referencePanel: bottomPanel ?? graph!,
+            ...(bottomPanel ? {} : { direction: 'below' as const }),
+          },
+        }),
+        initialHeight: 260,
+        minimumHeight: 140,
+      });
+      break;
+    }
   }
 }
 
@@ -310,7 +337,8 @@ export function MainLayout() {
                           height:
                             panel.id === 'preview' ||
                             panel.id === 'problems' ||
-                            panel.id === 'aiCommands'
+                            panel.id === 'aiCommands' ||
+                            panel.id === 'history'
                               ? 420
                               : 640,
                         }),

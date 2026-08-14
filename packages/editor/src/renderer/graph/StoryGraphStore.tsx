@@ -320,6 +320,9 @@ interface StoryGraphStoreValue {
   canRedo: boolean;
   undoLabel?: string;
   redoLabel?: string;
+  undoEntries: readonly { label: string; steps: number }[];
+  redoEntries: readonly { label: string; steps: number }[];
+  travelHistory: (steps: number) => void;
   addNode: (
     type: StoryNodeType,
     position: XYPosition,
@@ -1074,8 +1077,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [activeGraphId],
   );
 
-  const undo = useCallback(() => {
-    const previousEntry = history.undo({
+  const currentHistoryState = useCallback(
+    (): EditorHistoryState => ({
       document,
       hasActiveStory,
       activeGraphId,
@@ -1094,72 +1097,26 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         relativePath,
         content,
       })),
-    });
-    if (previousEntry) {
-      const previous = previousEntry.state;
-      setDocument(previous.document);
-      setHasActiveStory(previous.hasActiveStory);
-      setActiveGraphId(previous.activeGraphId);
-      rootGraphRef.current = previous.rootGraph;
-      setChapters(previous.chapters);
-      restoreGraph(previous.graph);
-      setVariables(previous.variables);
-      restoreCharactersFromHistory(previous.characters, previous.projectResources);
-      setAssets(structuredClone(previous.assets));
-      restoreProjectResourcesFromHistory(previous.projectResources);
-      setWorkspaceStories(structuredClone(previous.workspaceStories));
-      restoreProjectSettingsFromHistory(previous);
-      restoreStoryFilesFromHistory(previous.storyFiles);
-      setAIChanges(undefined);
-      setAIProposal(undefined);
-      markDirty();
-    }
-  }, [
-    activeGraphId,
-    assets,
-    chapters,
-    graph,
-    document,
-    history,
-    hasActiveStory,
-    markDirty,
-    resolvedCharacters,
-    projectVariables,
-    projectResourceSnapshot,
-    events,
-    signals,
-    restoreCharactersFromHistory,
-    restoreProjectSettingsFromHistory,
-    restoreProjectResourcesFromHistory,
-    restoreGraph,
-    restoreStoryFilesFromHistory,
-    variables,
-    workspaceStories,
-  ]);
+    }),
+    [
+      activeGraphId,
+      assets,
+      chapters,
+      document,
+      events,
+      graph,
+      hasActiveStory,
+      projectResourceSnapshot,
+      projectVariables,
+      resolvedCharacters,
+      signals,
+      variables,
+      workspaceStories,
+    ],
+  );
 
-  const redo = useCallback(() => {
-    const nextEntry = history.redo({
-      document,
-      hasActiveStory,
-      activeGraphId,
-      graph,
-      rootGraph: rootGraphRef.current,
-      chapters,
-      variables,
-      characters: resolvedCharacters,
-      assets,
-      projectResources: projectResourceSnapshot,
-      workspaceStories,
-      projectVariables,
-      events,
-      signals,
-      storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
-        relativePath,
-        content,
-      })),
-    });
-    if (nextEntry) {
-      const next = nextEntry.state;
+  const applyHistoryState = useCallback(
+    (next: EditorHistoryState) => {
       setDocument(next.document);
       setHasActiveStory(next.hasActiveStory);
       setActiveGraphId(next.activeGraphId);
@@ -1176,29 +1133,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setAIChanges(undefined);
       setAIProposal(undefined);
       markDirty();
-    }
-  }, [
-    activeGraphId,
-    assets,
-    chapters,
-    graph,
-    document,
-    history,
-    hasActiveStory,
-    markDirty,
-    resolvedCharacters,
-    projectVariables,
-    projectResourceSnapshot,
-    events,
-    signals,
-    restoreCharactersFromHistory,
-    restoreProjectSettingsFromHistory,
-    restoreProjectResourcesFromHistory,
-    restoreGraph,
-    restoreStoryFilesFromHistory,
-    variables,
-    workspaceStories,
-  ]);
+    },
+    [
+      markDirty,
+      restoreCharactersFromHistory,
+      restoreGraph,
+      restoreProjectResourcesFromHistory,
+      restoreProjectSettingsFromHistory,
+      restoreStoryFilesFromHistory,
+    ],
+  );
+
+  const undo = useCallback(() => {
+    const entry = history.undo(currentHistoryState());
+    if (entry) applyHistoryState(entry.state);
+  }, [applyHistoryState, currentHistoryState, history]);
+
+  const redo = useCallback(() => {
+    const entry = history.redo(currentHistoryState());
+    if (entry) applyHistoryState(entry.state);
+  }, [applyHistoryState, currentHistoryState, history]);
+
+  const travelHistory = useCallback(
+    (steps: number) => {
+      const entry = history.travel(currentHistoryState(), steps);
+      if (entry) applyHistoryState(entry.state);
+    },
+    [applyHistoryState, currentHistoryState, history],
+  );
 
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
   const discardAIProposal = useCallback(() => setAIProposal(undefined), []);
@@ -4439,6 +4401,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       canRedo: history.canRedo,
       undoLabel: history.undoLabel,
       redoLabel: history.redoLabel,
+      undoEntries: history.undoEntries,
+      redoEntries: history.redoEntries,
+      travelHistory,
       addNode,
       addSubstory,
       updateNode,
@@ -4634,6 +4599,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       history.canRedo,
       history.undoLabel,
       history.redoLabel,
+      history.undoEntries,
+      history.redoEntries,
       activeGraphId,
       nodes,
       markDirty,
@@ -4641,6 +4608,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       onEdgesChange,
       onNodesChange,
       redo,
+      travelHistory,
       removeCharacter,
       removeCharacterEmotion,
       removeAsset,

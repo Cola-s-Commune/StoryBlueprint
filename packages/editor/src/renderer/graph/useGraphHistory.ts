@@ -3,7 +3,7 @@ import { GraphHistory } from './graphHistory';
 
 export function useGraphHistory<State>(limit = 100) {
   const history = useRef(new GraphHistory<State>(limit));
-  const [, setRevision] = useState(0);
+  const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   const checkpoint = useCallback(
@@ -29,6 +29,14 @@ export function useGraphHistory<State>(limit = 100) {
     },
     [refresh],
   );
+  const travel = useCallback(
+    (current: State, steps: number) => {
+      const entry = history.current.travel(current, steps);
+      if (entry) refresh();
+      return entry;
+    },
+    [refresh],
+  );
   const clear = useCallback(() => {
     history.current.clear();
     refresh();
@@ -39,12 +47,15 @@ export function useGraphHistory<State>(limit = 100) {
       checkpoint,
       undo,
       redo,
+      travel,
       clear,
       canUndo: history.current.canUndo,
       canRedo: history.current.canRedo,
       undoLabel: history.current.undoLabel,
       redoLabel: history.current.redoLabel,
+      undoEntries: history.current.undoEntries,
+      redoEntries: history.current.redoEntries,
     }),
-    [checkpoint, clear, redo, undo, history.current.canUndo, history.current.canRedo],
+    [checkpoint, clear, redo, travel, undo, revision],
   );
 }
