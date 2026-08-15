@@ -261,8 +261,25 @@ function serializeSourceNode(source: SourceNode): Node {
       break;
     }
     case StoryNodeType.CallSubstory: {
-      const chapterId = (data as StoryNodeDataMap[StoryNodeType.CallSubstory]).chapterId;
-      if (chapterId) target.setProperty('chapter', chapterId);
+      const call = data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      if (call.chapterId) target.setProperty('chapter', call.chapterId);
+      for (const [parameterId, value] of Object.entries(call.arguments ?? {}).sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        const argument = Node.create('argument');
+        argument.addArgument(parameterId);
+        argument.addArgument(value.source);
+        appendBindings(argument, 'value', value.bindings);
+        target.appendNode(argument);
+      }
+      for (const [outputId, variableId] of Object.entries(call.resultVariableIds ?? {}).sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        const result = Node.create('result');
+        result.addArgument(outputId);
+        result.addArgument(variableId);
+        target.appendNode(result);
+      }
       break;
     }
     case StoryNodeType.FlowAnchor:
@@ -279,8 +296,19 @@ function serializeSourceNode(source: SourceNode): Node {
       if (targetNodeId) target.setProperty('target', targetNodeId);
       break;
     }
+    case StoryNodeType.Return: {
+      for (const [outputId, value] of Object.entries(
+        (data as StoryNodeDataMap[StoryNodeType.Return]).values ?? {},
+      ).sort(([left], [right]) => left.localeCompare(right))) {
+        const result = Node.create('result');
+        result.addArgument(outputId);
+        result.addArgument(value.source);
+        appendBindings(result, 'value', value.bindings);
+        target.appendNode(result);
+      }
+      break;
+    }
     case StoryNodeType.Reroute:
-    case StoryNodeType.Return:
       break;
   }
   return target;
@@ -435,15 +463,34 @@ function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined
   if (chapters.length === 0) return undefined;
   const container = Node.create('chapters');
   for (const chapter of chapters) {
-    if (chapter.parameters.length > 0 || chapter.localVariables.length > 0 || chapter.returnType) {
-      throw new StoryFormatError(
-        'Chapter parameters, locals, and return values are not supported yet',
-      );
-    }
     const node = Node.create('chapter');
     node.addArgument(chapter.id);
     node.setProperty('name', chapter.name);
     if (chapter.displayName !== chapter.name) node.setProperty('display-name', chapter.displayName);
+    const appendVariable = (
+      kind: 'parameter' | 'output' | 'local',
+      variable: VariableDefinition,
+    ) => {
+      const child = Node.create(kind);
+      child.addArgument(variable.id);
+      child.setProperty('name', variable.name);
+      if (variable.displayName !== variable.name)
+        child.setProperty('display-name', variable.displayName);
+      child.setProperty('type', valueTypeName(variable.valueType));
+      if (
+        variable.defaultValue !== null &&
+        typeof variable.defaultValue !== 'boolean' &&
+        typeof variable.defaultValue !== 'number' &&
+        typeof variable.defaultValue !== 'string'
+      ) {
+        throw new StoryFormatError(`${variable.id}.default must be a scalar`);
+      }
+      child.setProperty('default', variable.defaultValue);
+      node.appendNode(child);
+    };
+    for (const parameter of chapter.parameters) appendVariable('parameter', parameter.variable);
+    for (const output of chapter.outputs) appendVariable('output', output.variable);
+    for (const variable of chapter.localVariables) appendVariable('local', variable);
     node.appendNode(serializeGraph(chapter.graph));
     container.appendNode(node);
   }
@@ -505,6 +552,23 @@ function validateStoryReferences(source: StorySourceDocument): void {
       if (!data.chapterId || !chapterIds.has(data.chapterId)) {
         throw new StoryFormatError(`${node.id} references a missing substory`);
       }
+      const chapter = source.chapters.find((candidate) => candidate.id === data.chapterId)!;
+      const parameterIds = new Set(
+        chapter.parameters.map((parameter) => parameter.variable.id as string),
+      );
+      for (const parameterId of Object.keys(data.arguments ?? {})) {
+        if (!parameterIds.has(parameterId)) {
+          throw new StoryFormatError(
+            `${node.id} references missing substory parameter ${parameterId}`,
+          );
+        }
+      }
+      const outputIds = new Set(chapter.outputs.map((output) => output.variable.id as string));
+      for (const outputId of Object.keys(data.resultVariableIds ?? {})) {
+        if (!outputIds.has(outputId)) {
+          throw new StoryFormatError(`${node.id} references missing substory output ${outputId}`);
+        }
+      }
     }
   }
 }
@@ -535,7 +599,13 @@ export function serializeStorySource(source: StorySourceDocument): string {
   return format(new Document([story]));
 }
 
-function parseSourceNode(node: Node, position: { x: number; y: number }): SourceNode {
+const legacyResultOutputId = 'v_legacy_result' as VariableDefinition['id'];
+
+function parseSourceNode(
+  node: Node,
+  position: { x: number; y: number },
+  legacyOutputId?: VariableDefinition['id'],
+): SourceNode {
   const type = node.getName() as StoryNodeType;
   if (!Object.values(StoryNodeType).includes(type)) {
     throw new StoryFormatError(`Unsupported node type ${type}`);
@@ -551,11 +621,11 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
     [StoryNodeType.SetVariable]: ['variable', 'value'],
     [StoryNodeType.CallEvent]: ['event'],
     [StoryNodeType.WaitSignal]: ['signal'],
-    [StoryNodeType.CallSubstory]: ['chapter'],
+    [StoryNodeType.CallSubstory]: ['chapter', 'result-variable'],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: ['label'],
     [StoryNodeType.FlowJump]: ['target'],
-    [StoryNodeType.Return]: [],
+    [StoryNodeType.Return]: ['value'],
     [StoryNodeType.End]: ['title'],
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
@@ -567,11 +637,11 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
     [StoryNodeType.SetVariable]: ['binding'],
     [StoryNodeType.CallEvent]: ['argument'],
     [StoryNodeType.WaitSignal]: ['match'],
-    [StoryNodeType.CallSubstory]: [],
+    [StoryNodeType.CallSubstory]: ['argument', 'result'],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: [],
     [StoryNodeType.FlowJump]: [],
-    [StoryNodeType.Return]: [],
+    [StoryNodeType.Return]: ['result', 'binding'],
     [StoryNodeType.End]: [],
   };
   assertShape(node, id, {
@@ -732,6 +802,39 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
         chapterId: node.getProperty('chapter')
           ? requiredId(node.getProperty('chapter'), 'chapter', `${id}.chapter`)
           : undefined,
+        resultVariableIds: Object.fromEntries([
+          ...node.findNodesByName('result').map((result, index) => {
+            const path = `${id}.result[${index}]`;
+            assertShape(result, path, { arguments: 2 });
+            return [
+              requiredId(result.getArgument(0), 'variable', `${path}.output`),
+              requiredId(result.getArgument(1), 'variable', `${path}.variable`),
+            ] as const;
+          }),
+          ...(node.getProperty('result-variable')
+            ? [
+                [
+                  legacyResultOutputId,
+                  requiredId(
+                    node.getProperty('result-variable'),
+                    'variable',
+                    `${id}.result-variable`,
+                  ),
+                ] as const,
+              ]
+            : []),
+        ]),
+        arguments: Object.fromEntries(
+          node.findNodesByName('argument').map((argument, index) => {
+            const path = `${id}.argument[${index}]`;
+            assertShape(argument, path, { arguments: 2, children: ['binding'] });
+            assertBindingTargets(argument, ['value'], path);
+            return [
+              requiredId(argument.getArgument(0), 'variable', `${path}.parameter`),
+              expressionSource(argument.getArgument(1), `${path}.value`, argument, 'value'),
+            ];
+          }),
+        ),
       };
       break;
     case StoryNodeType.Reroute:
@@ -747,9 +850,32 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
           : undefined,
       };
       break;
-    case StoryNodeType.Return:
-      data = {};
+    case StoryNodeType.Return: {
+      const legacyValue = optionalString(node.getProperty('value'), `${id}.value`);
+      if (legacyValue) assertBindingTargets(node, ['value'], id);
+      data = {
+        values: Object.fromEntries([
+          ...node.findNodesByName('result').map((result, index) => {
+            const path = `${id}.result[${index}]`;
+            assertShape(result, path, { arguments: 2, children: ['binding'] });
+            assertBindingTargets(result, ['value'], path);
+            return [
+              requiredId(result.getArgument(0), 'variable', `${path}.output`),
+              expressionSource(result.getArgument(1), `${path}.value`, result, 'value'),
+            ] as const;
+          }),
+          ...(legacyValue && legacyOutputId
+            ? [
+                [
+                  legacyOutputId,
+                  expressionSource(legacyValue, `${id}.value`, node, 'value'),
+                ] as const,
+              ]
+            : []),
+        ]),
+      };
       break;
+    }
   }
   const definitionVersionValue = node.getProperty('definition-version');
   const name = optionalString(node.getProperty('name'), `${id}.name`);
@@ -766,7 +892,7 @@ function parseSourceNode(node: Node, position: { x: number; y: number }): Source
   };
 }
 
-function parseGraph(graph: Node): SourceGraph {
+function parseGraph(graph: Node, legacyOutputId?: VariableDefinition['id']): SourceGraph {
   assertShape(graph, 'story.graph', {
     arguments: 0,
     children: [...Object.values(StoryNodeType), 'link', 'layout'],
@@ -798,7 +924,7 @@ function parseGraph(graph: Node): SourceGraph {
     const nodeId = requiredId(node.getArgument(0), 'node', `${node.getName()}.id`);
     const position = positions.get(nodeId);
     if (!position) throw new StoryFormatError(`Missing layout position: ${nodeId}`);
-    const sourceNode = parseSourceNode(node, position);
+    const sourceNode = parseSourceNode(node, position, legacyOutputId);
     if (nodeIds.has(sourceNode.id))
       throw new StoryFormatError(`Duplicate node ID: ${sourceNode.id}`);
     nodeIds.add(sourceNode.id);
@@ -1064,25 +1190,102 @@ function parseChapters(container: Node | undefined): ChapterSource[] {
   return container.findNodesByName('chapter').map((node) => {
     assertShape(node, 'story.chapters.chapter', {
       arguments: 1,
-      properties: ['name', 'display-name'],
-      children: ['graph'],
+      properties: ['name', 'display-name', 'return-type'],
+      children: ['parameter', 'output', 'local', 'graph'],
     });
     if (node.findNodesByName('graph').length !== 1) {
       throw new StoryFormatError('Chapter must contain exactly one graph');
     }
     const id = requiredId(node.getArgument(0), 'chapter', 'chapter.id');
+    const legacyReturnType = node.getProperty('return-type')
+      ? parseValueType(node.getProperty('return-type'), `${id}.return-type`)
+      : undefined;
+    const legacyOutputId = legacyReturnType
+      ? (`v_${id.slice(id.indexOf('_') + 1)}_result` as VariableDefinition['id'])
+      : undefined;
     const name = requiredString(node.getProperty('name'), `${id}.name`);
     if (ids.has(id)) throw new StoryFormatError(`Duplicate chapter ID: ${id}`);
     if (names.has(name)) throw new StoryFormatError(`Duplicate chapter name: ${name}`);
     ids.add(id);
     names.add(name);
+    const interfaceIds = new Set<string>();
+    const interfaceNames = new Set<string>();
+    const parseInterfaceVariable = (
+      variableNode: Node,
+      kind: 'parameter' | 'output' | 'local',
+    ): VariableDefinition => {
+      const path = `${id}.${kind}`;
+      assertShape(variableNode, path, {
+        arguments: 1,
+        properties: ['name', 'display-name', 'type', 'default'],
+      });
+      const variableId = requiredId(variableNode.getArgument(0), 'variable', `${path}.id`);
+      const variableName = requiredString(variableNode.getProperty('name'), `${path}.name`);
+      if (interfaceIds.has(variableId))
+        throw new StoryFormatError(`Duplicate chapter variable ID: ${variableId}`);
+      if (interfaceNames.has(variableName))
+        throw new StoryFormatError(`Duplicate chapter variable name: ${variableName}`);
+      interfaceIds.add(variableId);
+      interfaceNames.add(variableName);
+      const valueType = parseValueType(variableNode.getProperty('type'), `${path}.type`);
+      const defaultValue = variableNode.getProperty('default');
+      if (
+        defaultValue !== null &&
+        typeof defaultValue !== 'boolean' &&
+        typeof defaultValue !== 'number' &&
+        typeof defaultValue !== 'string'
+      ) {
+        throw new StoryFormatError(`${path}.default must be a scalar`);
+      }
+      return {
+        id: variableId,
+        name: variableName,
+        displayName:
+          optionalString(variableNode.getProperty('display-name'), `${path}.display-name`) ??
+          variableName,
+        scope: 'local',
+        valueType,
+        defaultValue: defaultValue as RuntimeValue,
+      };
+    };
     return {
       id,
       name,
       displayName: optionalString(node.getProperty('display-name'), `${id}.display-name`) ?? name,
-      parameters: [],
-      localVariables: [],
-      graph: parseGraph(node.findNodeByName('graph')!),
+      parameters: node.findNodesByName('parameter').map((parameter) => ({
+        direction: 'input' as const,
+        variable: parseInterfaceVariable(parameter, 'parameter'),
+      })),
+      outputs: [
+        ...node.findNodesByName('output').map((output) => ({
+          direction: 'output' as const,
+          variable: parseInterfaceVariable(output, 'output'),
+        })),
+        ...(legacyReturnType && legacyOutputId
+          ? [
+              {
+                direction: 'output' as const,
+                variable: {
+                  id: legacyOutputId,
+                  name: 'result',
+                  displayName: 'Result',
+                  scope: 'local' as const,
+                  valueType: legacyReturnType,
+                  defaultValue:
+                    legacyReturnType.kind === 'boolean'
+                      ? false
+                      : legacyReturnType.kind === 'number'
+                        ? 0
+                        : '',
+                },
+              },
+            ]
+          : []),
+      ],
+      localVariables: node
+        .findNodesByName('local')
+        .map((local) => parseInterfaceVariable(local, 'local')),
+      graph: parseGraph(node.findNodeByName('graph')!, legacyOutputId),
     };
   });
 }
@@ -1113,7 +1316,7 @@ export function parseStorySource(text: string): StorySourceDocument {
   }
   const formatName = requiredString(story.getProperty('format'), 'story.format');
   const version = requiredInteger(story.getProperty('version'), 'story.version');
-  if (formatName !== STORY_SOURCE_FORMAT || version !== STORY_SOURCE_VERSION) {
+  if (formatName !== STORY_SOURCE_FORMAT || ![4, STORY_SOURCE_VERSION].includes(version)) {
     throw new StoryFormatError(
       `Unsupported Story Source format or version: ${formatName}@${version}`,
     );
@@ -1132,6 +1335,21 @@ export function parseStorySource(text: string): StorySourceDocument {
     chapters: parseChapters(story.findNodeByName('chapters')),
     events: [],
   };
+  for (const graph of [source.root, ...source.chapters.map((chapter) => chapter.graph)]) {
+    for (const node of graph.nodes) {
+      if (node.type !== StoryNodeType.CallSubstory) continue;
+      const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      const legacyTarget = data.resultVariableIds?.[legacyResultOutputId];
+      if (!legacyTarget || !data.chapterId) continue;
+      const outputId = source.chapters.find((chapter) => chapter.id === data.chapterId)?.outputs[0]
+        ?.variable.id;
+      if (!outputId) continue;
+      node.data = {
+        ...data,
+        resultVariableIds: { [outputId]: legacyTarget },
+      } as unknown as Readonly<Record<string, unknown>>;
+    }
+  }
   validateStoryReferences(source);
   return source;
 }

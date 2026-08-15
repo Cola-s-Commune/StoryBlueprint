@@ -13,7 +13,7 @@ import type { ExpressionSource } from './expressions';
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_SOURCE_FORMAT = 'story-blueprint' as const;
-export const STORY_SOURCE_VERSION = 4 as const;
+export const STORY_SOURCE_VERSION = 5 as const;
 
 export interface SourcePosition {
   x: number;
@@ -57,13 +57,18 @@ export interface ChapterParameter {
   direction: 'input';
 }
 
+export interface ChapterOutput {
+  variable: VariableDefinition;
+  direction: 'output';
+}
+
 export interface ChapterSource {
   id: ChapterId;
   name: string;
   displayName: string;
   parameters: readonly ChapterParameter[];
+  outputs: readonly ChapterOutput[];
   localVariables: readonly VariableDefinition[];
-  returnType?: ValueType;
   graph: SourceGraph;
 }
 

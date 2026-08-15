@@ -49,7 +49,14 @@ export type SaveStoryResult =
   { canceled: true } | { canceled: false; filePath: string; fileToken: string };
 
 export interface WorkspaceEntry {
-  kind: 'directory' | 'story' | 'project' | 'character' | 'character-template' | 'asset';
+  kind:
+    | 'directory'
+    | 'story'
+    | 'project'
+    | 'character'
+    | 'character-template'
+    | 'asset'
+    | 'localization';
   name: string;
   relativePath: string;
   children?: WorkspaceEntry[];
@@ -72,7 +79,7 @@ export interface ReloadWorkspaceAfterGitChangeResult {
 
 export interface ExternalWorkspaceFileChange {
   relativePath: string;
-  kind: 'story' | 'project' | 'character' | 'character-template' | 'asset';
+  kind: 'story' | 'project' | 'character' | 'character-template' | 'asset' | 'localization';
   change: 'created' | 'modified' | 'deleted';
   previousContent?: string;
   content?: string;
@@ -88,6 +95,7 @@ export interface WorkspaceInfo {
   characterResources: { relativePath: string; character: CharacterSource }[];
   characterTemplates: { relativePath: string; template: CharacterTemplateSource }[];
   assetResources: { relativePath: string; asset: AssetSource }[];
+  localization?: { relativePath: string; document: StoryLocalizationDocument };
   resourceErrors: { relativePath: string; message: string }[];
   git: WorkspaceGitRepository;
   gitConflicts?: { relativePath: string; kind: WorkspaceMergeResourceKind }[];
@@ -316,6 +324,8 @@ export interface ElectronAPI {
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
+  extractProjectLocalization: (sourceLocale: string) => Promise<WorkspaceInfo>;
+  updateProjectLocalization: (document: StoryLocalizationDocument) => Promise<WorkspaceInfo>;
   getAIProviderSettings: () => Promise<AIProviderSettings>;
   updateAIProviderSettings: (
     settings: UpdateAIProviderSettingsRequest,
@@ -371,5 +381,6 @@ import type {
   EventSource,
   SignalSource,
   StoryProjectDocument,
+  StoryLocalizationDocument,
   VariableDefinition,
 } from '@story-blueprint/common';

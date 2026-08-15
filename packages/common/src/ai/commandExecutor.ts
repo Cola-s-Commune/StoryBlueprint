@@ -1069,7 +1069,10 @@ function applyOperation(
       name: operation.node.name,
       definitionVersion: definition.version,
       position: nextPosition(graph),
-      data: structuredClone(operation.node.data),
+      data: {
+        ...definition.defaultData(),
+        ...structuredClone(operation.node.data),
+      },
     } as unknown as SourceNode);
     return undefined;
   }

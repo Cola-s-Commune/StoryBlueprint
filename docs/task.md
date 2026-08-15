@@ -330,7 +330,7 @@
 属性：
 
 - [x] 仅在 Substory 中创建
-- [ ] 可选 Typed Return Value
+- [x] UE Function 风格的多个命名 Typed Output；所有 Return 节点共享接口并分别填写表达式
 
 ---
 
@@ -339,8 +339,9 @@
 属性：
 
 - [x] Substory 稳定引用与下拉选择
-- [ ] Typed Input Parameters
-- [ ] Completed 输出与返回值
+- [x] UE Function 风格的 Typed Input Parameters、默认值与调用参数表达式
+- [x] Substory Inputs / Locals 接入 Story Data，可编辑并拖出 Get / Set Variable
+- [x] Completed 执行输出；多个命名 Output 可分别写入调用方变量
 
 ---
 
@@ -455,7 +456,7 @@
 ## Chapter
 
 - [x] Substory / Chapter List
-- [ ] Parameter / Local Variable / Return Type
+- [x] Parameter / Local Variable / Return Type：Inspector 编辑、Call 参数表达式、Return 结果接收、KDL / Compiler / Runtime 全链路
 
 ---
 
@@ -483,8 +484,8 @@
 ## Localization
 
 - [x] 内联默认文本与稳定 Text ID
-- [ ] 本地化表提取
-- [ ] Locale Fallback
+- [x] 项目级 `.storyloc` 本地化表：提取 Dialogue / Choice、上下文筛选、逐条翻译、源文本刷新与稳定 Text ID 合并
+- [x] Locale Fallback：可配置回退链，编译翻译模板并在 Runtime / Preview 中按语言解析，最终回退源文本
 
 ---
 
@@ -559,7 +560,7 @@
 - [x] 悬空 Node / Port 引用
 - [ ] 悬空 Character / Asset 引用
 - [x] Entry / End / Return 上下文与终结路径
-- [ ] Chapter 参数和返回值类型
+- [x] Chapter 参数默认值、调用表达式与返回值静态类型校验
 - [x] 根蓝图与 Substory 编译、Call / Return 降级
 - [x] 无等待点的紧密死循环
 - [x] Flow Jump 同图 Anchor 引用、虚拟可达性与循环分析
@@ -624,7 +625,7 @@
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
 - [ ] Project / Story / Chapter / Character Variables 状态机集成
-- [ ] Typed Return Value
+- [x] Typed Return Value
 - [x] 无返回值 Substory Call Stack / Return
 - [x] End Story
 - [x] 稳定点 Save / Load（Preview 本地槽验证 RuntimeState 契约）

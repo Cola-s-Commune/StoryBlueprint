@@ -240,3 +240,9 @@ npm run dev
 | 2026-07-23 | 从 pnpm 切换到 npm（pnpm 的嵌套 node_modules 导致 Electron 模块遮蔽问题）                                          |
 | 2026-07-23 | M1 布局框架完成，Electron 可在外部终端正常启动                                                                     |
 | 2026-07-23 | M0 项目初始化完成：workspace、TS、ESLint、Prettier、Electron + React 骨架                                          |
+
+- Substory 接口现已贯通编辑器、`.story` KDL、AI 语义快照、编译产物和 Runtime：可声明带默认值的输入参数与调用帧局部变量，Call Substory 按稳定参数 ID 传入表达式并可将类型化结果写入变量，Return 返回表达式；接口变更会清理失效调用数据并纳入 Undo。
+- 当前 Substory 的 Input Parameters 与 Local Variables 已接入 Story Data：可从左侧创建和拖出 Get / Set Variable，点击后在右侧统一编辑名称、类型和默认值；重命名、删除和类型修改沿用引用检查及统一 Undo。
+- Substory 接口进一步对齐 UE Function：Entry 展示并编辑多个命名 Input，Return 共享并编辑多个命名 Output，Call Substory 为每个 Output 独立选择调用方变量；`.story` KDL、AI 语义快照、编译产物、可序列化 Call Frame 和 Runtime 均改为稳定 Output ID 到值/目标变量的映射。
+- Story Source 升级为 v5、Runtime Program 升级为 v3；读取 v4 的单 `return-type` / `result-variable` / `value` 时会迁移为一个稳定命名的 `Result` Output，后续保存写成新的多 Output KDL。
+- 新增项目级 Localization 工作流：从所有 Story / Substory 提取 Dialogue Line、Choice Prompt 与 Option 到独立 `.storyloc` KDL 资源，Localization Dock 支持搜索上下文、添加/删除 Locale、逐条翻译、刷新源文和配置 Fallback。翻译保持原表达式绑定能力，项目编译将语言变体写入无节点 Runtime Program，Preview 可即时切换语言并按回退链解析。

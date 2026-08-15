@@ -97,7 +97,7 @@ function sourceDocument(): StorySourceDocument {
   };
 }
 
-describe('story KDL v4', () => {
+describe('story KDL v5', () => {
   it('has a stable serialize-parse-serialize round trip', () => {
     const serialized = serializeStorySource(sourceDocument());
     expect(serializeStorySource(parseStorySource(serialized))).toBe(serialized);
@@ -261,7 +261,7 @@ describe('story KDL v4', () => {
   });
 
   it('rejects the discarded v1 format without migration', () => {
-    const serialized = serializeStorySource(sourceDocument()).replace('version=4', 'version=3');
+    const serialized = serializeStorySource(sourceDocument()).replace('version=5', 'version=3');
     expect(() => parseStorySource(serialized)).toThrow(StoryFormatError);
   });
 });

@@ -1,0 +1,156 @@
+.toolbar,
+.localeBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid #343a43;
+  background: #20242a;
+}
+.toolbar button,
+.localeBar button,
+.toolbar input,
+.localeBar input,
+.localeBar select {
+  border: 1px solid #46515e;
+  border-radius: 3px;
+  background: #28303a;
+  color: #d8e0e9;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 11px;
+}
+.sourceLocale,
+.localeBar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #8e9aaa;
+  font-size: 10px;
+}
+.sourceLocale input {
+  width: 68px;
+}
+.addLocale {
+  display: flex;
+  margin-left: auto;
+  gap: 4px;
+}
+.addLocale input {
+  width: 78px;
+}
+.toolbar button:disabled {
+  opacity: 0.4;
+}
+.error {
+  padding: 6px 10px;
+  background: #4a2528;
+  color: #f0a4aa;
+  font-size: 11px;
+}
+.localeBar > span {
+  color: #9aa7b5;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.search {
+  min-width: 160px;
+  flex: 1;
+}
+.remove {
+  color: #e89a9a !important;
+}
+.tableHeader,
+.row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) minmax(240px, 1fr);
+  gap: 8px;
+}
+.tableHeader {
+  padding: 6px 10px;
+  border-bottom: 1px solid #343a43;
+  color: #778493;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.rows {
+  flex: 1;
+  overflow: auto;
+}
+.row {
+  padding: 9px 10px;
+  border-bottom: 1px solid #2c3239;
+}
+.row:hover {
+  background: #222830;
+}
+.context {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+}
+.context strong,
+.context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context strong {
+  color: #b8c6d6;
+  font-size: 11px;
+}
+.context span,
+.context code {
+  color: #758292;
+  font-size: 9px;
+}
+.source {
+  color: #d1d7de;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.row textarea {
+  min-height: 56px;
+  resize: vertical;
+  border: 1px solid #414b56;
+  border-radius: 3px;
+  outline: none;
+  background: #252b33;
+  color: #e4e9ef;
+  padding: 7px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.row textarea:focus {
+  border-color: #4f87bb;
+}
+.setup {
+  max-width: 460px;
+  margin: 28px auto;
+  color: #aeb8c4;
+}
+.setup h3 {
+  color: #e0e6ed;
+}
+.setup label {
+  display: grid;
+  gap: 5px;
+  margin: 18px 0;
+}
+.setup input {
+  border: 1px solid #46515e;
+  border-radius: 3px;
+  background: #252b33;
+  color: #e4e9ef;
+  padding: 7px;
+}
+.setup button {
+  border: 1px solid #4d79a2;
+  border-radius: 3px;
+  background: #2d5273;
+  color: white;
+  padding: 7px 10px;
+}

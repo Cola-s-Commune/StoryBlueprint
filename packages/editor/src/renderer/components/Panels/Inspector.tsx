@@ -3,6 +3,7 @@ import {
   StoryNodeType,
   type BranchNodeData,
   type CallSubstoryNodeData,
+  type ChapterParameter,
   type CallEventNodeData,
   type WaitSignalNodeData,
   type ChoiceNodeData,
@@ -11,6 +12,7 @@ import {
   type DialogueLine,
   type DialogueLineId,
   type EndNodeData,
+  type ExpressionSource,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
   type GetVariableNodeData,
@@ -18,6 +20,10 @@ import {
   type StartNodeData,
   type NodeId,
   type OptionId,
+  type ReturnNodeData,
+  type RuntimeValue,
+  type ValueType,
+  type VariableDefinition,
   type VariableId,
 } from '@story-blueprint/common';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
@@ -51,8 +57,8 @@ function PropertyField({
   onBeginEdit,
   onChange,
 }: PropertyFieldProps) {
-  const { variables, projectVariables } = useStoryGraphStore();
-  const availableVariables = [...variables, ...projectVariables];
+  const { availableVariables: graphVariables, projectVariables } = useStoryGraphStore();
+  const availableVariables = [...graphVariables, ...projectVariables];
   const editing = useRef(false);
   const handleChange = (nextValue: string) => {
     if (!editing.current) {
@@ -102,15 +108,22 @@ function PropertyField({
 function VariableSelect({
   label,
   value,
+  valueType,
   onBeginEdit,
   onChange,
 }: {
   label: string;
   value?: VariableId;
+  valueType?: ValueType;
   onBeginEdit: () => void;
   onChange: (value: VariableId | undefined) => void;
 }) {
-  const { variables, projectVariables, characters } = useStoryGraphStore();
+  const { availableVariables, projectVariables, characters } = useStoryGraphStore();
+  const accepts = (variable: VariableDefinition) =>
+    !valueType ||
+    valueType.kind === 'any' ||
+    variable.valueType.kind === 'any' ||
+    variable.valueType.kind === valueType.kind;
   return (
     <label className={styles.field}>
       <span>{label}</span>
@@ -122,14 +135,14 @@ function VariableSelect({
         }}
       >
         <option value="">Select variable…</option>
-        {variables.map((variable) => (
+        {availableVariables.filter(accepts).map((variable) => (
           <option key={variable.id} value={variable.id}>
             {variable.name} · {variable.valueType.kind}
           </option>
         ))}
         {projectVariables.length > 0 && (
           <optgroup label="Project">
-            {projectVariables.map((variable) => (
+            {projectVariables.filter(accepts).map((variable) => (
               <option key={variable.id} value={variable.id}>
                 {variable.name} · {variable.valueType.kind}
               </option>
@@ -139,7 +152,7 @@ function VariableSelect({
         {characters.map((character) =>
           (character.fields?.length ?? 0) > 0 ? (
             <optgroup key={character.id} label={character.displayName}>
-              {character.fields!.map((field) => (
+              {character.fields!.filter(accepts).map((field) => (
                 <option key={field.id} value={field.id}>
                   {character.name}.{field.name} · {field.valueType.kind}
                 </option>
@@ -210,10 +223,10 @@ function decodeStringLiteral(source: string): string | undefined {
 }
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
-  const { variables, projectVariables, characters, checkpoint, updateNodeData } =
+  const { availableVariables, projectVariables, characters, checkpoint, updateNodeData } =
     useStoryGraphStore();
   const allVariables = [
-    ...variables,
+    ...availableVariables,
     ...projectVariables,
     ...characters.flatMap((character) => character.fields ?? []),
   ];
@@ -1267,11 +1280,297 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
   );
 }
 
+type ScalarKind = 'boolean' | 'number' | 'string';
+
+function defaultValueFor(kind: ScalarKind): RuntimeValue {
+  if (kind === 'boolean') return false;
+  if (kind === 'number') return 0;
+  return '';
+}
+
+function expressionForDefault(value: RuntimeValue): ExpressionSource {
+  return { source: JSON.stringify(value), bindings: {} };
+}
+
+function InterfaceVariableRow({
+  variable,
+  label,
+  showDefault = true,
+  onChange,
+  onRemove,
+}: {
+  variable: VariableDefinition;
+  label: string;
+  showDefault?: boolean;
+  onChange: (variable: VariableDefinition) => void;
+  onRemove: () => void;
+}) {
+  const [name, setName] = useState(variable.name);
+  const [displayName, setDisplayName] = useState(variable.displayName);
+  const [defaultValue, setDefaultValue] = useState(String(variable.defaultValue));
+  useEffect(() => setName(variable.name), [variable.name]);
+  useEffect(() => setDisplayName(variable.displayName), [variable.displayName]);
+  useEffect(() => setDefaultValue(String(variable.defaultValue)), [variable.defaultValue]);
+  const kind = variable.valueType.kind as ScalarKind;
+  const commitDefault = () => {
+    const next =
+      kind === 'boolean'
+        ? defaultValue === 'true'
+        : kind === 'number'
+          ? Number(defaultValue)
+          : defaultValue;
+    if (kind === 'number' && !Number.isFinite(next)) {
+      setDefaultValue(String(variable.defaultValue));
+      return;
+    }
+    onChange({ ...variable, defaultValue: next });
+  };
+  return (
+    <div className={styles.optionGroup}>
+      <div className={styles.groupHeader}>
+        <div className={styles.groupLabel}>{label}</div>
+        <button type="button" onClick={onRemove}>
+          Remove
+        </button>
+      </div>
+      {showDefault && (
+        <label className={styles.field}>
+          <span>Name</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => {
+              const next = name.trim();
+              if (next) onChange({ ...variable, name: next });
+              else setName(variable.name);
+            }}
+          />
+        </label>
+      )}
+      <label className={styles.field}>
+        <span>Display Name</span>
+        <input
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          onBlur={() => {
+            const next = displayName.trim();
+            if (next) onChange({ ...variable, displayName: next });
+            else setDisplayName(variable.displayName);
+          }}
+        />
+      </label>
+      <label className={styles.field}>
+        <span>Type</span>
+        <select
+          value={kind}
+          onChange={(event) => {
+            const nextKind = event.target.value as ScalarKind;
+            onChange({
+              ...variable,
+              valueType: { kind: nextKind },
+              defaultValue: defaultValueFor(nextKind),
+            });
+          }}
+        >
+          <option value="boolean">Boolean</option>
+          <option value="number">Number</option>
+          <option value="string">String</option>
+        </select>
+      </label>
+      <label className={styles.field}>
+        <span>Default Value</span>
+        {kind === 'boolean' ? (
+          <select
+            value={defaultValue}
+            onChange={(event) => {
+              setDefaultValue(event.target.value);
+              onChange({ ...variable, defaultValue: event.target.value === 'true' });
+            }}
+          >
+            <option value="false">False</option>
+            <option value="true">True</option>
+          </select>
+        ) : (
+          <input
+            type={kind === 'number' ? 'number' : 'text'}
+            value={defaultValue}
+            onChange={(event) => setDefaultValue(event.target.value)}
+            onBlur={commitDefault}
+          />
+        )}
+      </label>
+      <div className={styles.stableIds}>
+        <code>{variable.id}</code>
+      </div>
+    </div>
+  );
+}
+
+function SubstoryInterfaceEditor() {
+  const { activeGraphId, chapters, updateSubstory } = useStoryGraphStore();
+  const chapter = chapters.find((candidate) => candidate.id === activeGraphId);
+  if (!chapter) return null;
+  const usedNames = new Set([
+    ...chapter.parameters.map((parameter) => parameter.variable.name),
+    ...chapter.outputs.map((output) => output.variable.name),
+    ...chapter.localVariables.map((variable) => variable.name),
+  ]);
+  const nextName = (base: string) => {
+    let index = 1;
+    while (usedNames.has(`${base}${index}`)) index += 1;
+    return `${base}${index}`;
+  };
+  const replaceParameter = (id: VariableId, variable: VariableDefinition) =>
+    updateSubstory(chapter.id, {
+      parameters: chapter.parameters.map((parameter) =>
+        parameter.variable.id === id ? { ...parameter, variable } : parameter,
+      ),
+    });
+  const replaceLocal = (id: VariableId, variable: VariableDefinition) =>
+    updateSubstory(chapter.id, {
+      localVariables: chapter.localVariables.map((candidate) =>
+        candidate.id === id ? variable : candidate,
+      ),
+    });
+  const replaceOutput = (id: VariableId, variable: VariableDefinition) =>
+    updateSubstory(chapter.id, {
+      outputs: chapter.outputs.map((output) =>
+        output.variable.id === id ? { ...output, variable } : output,
+      ),
+    });
+  return (
+    <div className={panelStyles.panel}>
+      <div className={`${panelStyles.body} ${styles.body}`}>
+        <section className={styles.section}>
+          <div className={styles.sectionTitle}>Substory Interface</div>
+          <div className={styles.info}>
+            Parameters come from the caller. Local variables exist only during this call.
+          </div>
+          <div className={styles.groupHeader}>
+            <div className={styles.groupLabel}>Input Parameters</div>
+            <button
+              type="button"
+              onClick={() => {
+                const name = nextName('input');
+                const variable: VariableDefinition = {
+                  id: createStableId('variable'),
+                  name,
+                  displayName: name,
+                  scope: 'local',
+                  valueType: { kind: 'string' },
+                  defaultValue: '',
+                };
+                const parameter: ChapterParameter = { direction: 'input', variable };
+                updateSubstory(chapter.id, { parameters: [...chapter.parameters, parameter] });
+              }}
+            >
+              Add Parameter
+            </button>
+          </div>
+          {chapter.parameters.length === 0 && <div className={styles.info}>No inputs.</div>}
+          {chapter.parameters.map((parameter, index) => (
+            <InterfaceVariableRow
+              key={parameter.variable.id}
+              variable={parameter.variable}
+              label={`Parameter ${index + 1}`}
+              onChange={(variable) => replaceParameter(parameter.variable.id, variable)}
+              onRemove={() =>
+                updateSubstory(chapter.id, {
+                  parameters: chapter.parameters.filter(
+                    (item) => item.variable.id !== parameter.variable.id,
+                  ),
+                })
+              }
+            />
+          ))}
+          <div className={styles.groupHeader}>
+            <div className={styles.groupLabel}>Output Parameters</div>
+            <button
+              type="button"
+              onClick={() => {
+                const name = nextName('output');
+                const variable: VariableDefinition = {
+                  id: createStableId('variable'),
+                  name,
+                  displayName: name,
+                  scope: 'local',
+                  valueType: { kind: 'string' },
+                  defaultValue: '',
+                };
+                updateSubstory(chapter.id, {
+                  outputs: [...chapter.outputs, { direction: 'output', variable }],
+                });
+              }}
+            >
+              Add Output
+            </button>
+          </div>
+          {chapter.outputs.length === 0 && <div className={styles.info}>No outputs.</div>}
+          {chapter.outputs.map((output, index) => (
+            <InterfaceVariableRow
+              key={output.variable.id}
+              variable={output.variable}
+              label={`Output ${index + 1}`}
+              showDefault={false}
+              onChange={(variable) => replaceOutput(output.variable.id, variable)}
+              onRemove={() =>
+                updateSubstory(chapter.id, {
+                  outputs: chapter.outputs.filter(
+                    (item) => item.variable.id !== output.variable.id,
+                  ),
+                })
+              }
+            />
+          ))}
+          <div className={styles.groupHeader}>
+            <div className={styles.groupLabel}>Local Variables</div>
+            <button
+              type="button"
+              onClick={() => {
+                const name = nextName('local');
+                updateSubstory(chapter.id, {
+                  localVariables: [
+                    ...chapter.localVariables,
+                    {
+                      id: createStableId('variable'),
+                      name,
+                      displayName: name,
+                      scope: 'local',
+                      valueType: { kind: 'string' },
+                      defaultValue: '',
+                    },
+                  ],
+                });
+              }}
+            >
+              Add Local
+            </button>
+          </div>
+          {chapter.localVariables.length === 0 && <div className={styles.info}>No locals.</div>}
+          {chapter.localVariables.map((variable, index) => (
+            <InterfaceVariableRow
+              key={variable.id}
+              variable={variable}
+              label={`Local ${index + 1}`}
+              onChange={(next) => replaceLocal(variable.id, next)}
+              onRemove={() =>
+                updateSubstory(chapter.id, {
+                  localVariables: chapter.localVariables.filter((item) => item.id !== variable.id),
+                })
+              }
+            />
+          ))}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export function Inspector() {
   const {
     hasActiveStory,
     nodes,
-    variables,
+    availableVariables,
     events,
     signals,
     chapters,
@@ -1279,6 +1578,7 @@ export function Inspector() {
     checkpoint,
     updateNode,
     updateNodeData,
+    updateSubstory,
     mergeSelectedDialogues,
     storyDataSelection,
   } = useStoryGraphStore();
@@ -1332,6 +1632,9 @@ export function Inspector() {
         </div>
       );
     }
+    if (selected.length === 0 && activeGraphId !== 'root') {
+      return <SubstoryInterfaceEditor />;
+    }
     return (
       <div className={panelStyles.panel}>
         <div className={panelStyles.body}>
@@ -1348,6 +1651,9 @@ export function Inspector() {
   }
 
   const node = selected[0];
+  if (node.type === StoryNodeType.Start && activeGraphId !== 'root') {
+    return <SubstoryInterfaceEditor />;
+  }
   const duplicateName = Boolean(
     node.name &&
     nodes.some((candidate) => candidate.id !== node.id && candidate.name === node.name),
@@ -1511,28 +1817,84 @@ export function Inspector() {
       }
       case StoryNodeType.CallSubstory: {
         const data = node.data as CallSubstoryNodeData;
+        const selectedChapter = chapters.find((candidate) => candidate.id === data.chapterId);
         return (
-          <label className={styles.field}>
-            <span>Substory</span>
-            <select
-              value={data.chapterId ?? ''}
-              onChange={(event) => {
-                checkpoint();
-                updateNodeData(node.id, StoryNodeType.CallSubstory, {
-                  chapterId: (event.target.value || undefined) as CallSubstoryNodeData['chapterId'],
-                });
-              }}
-            >
-              <option value="">Select substory…</option>
-              {chapters
-                .filter((chapter) => chapter.id !== activeGraphId)
-                .map((chapter) => (
-                  <option key={chapter.id} value={chapter.id}>
-                    {chapter.displayName}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <>
+            <label className={styles.field}>
+              <span>Substory</span>
+              <select
+                value={data.chapterId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                    chapterId: (event.target.value ||
+                      undefined) as CallSubstoryNodeData['chapterId'],
+                    arguments: {},
+                    resultVariableIds: {},
+                  });
+                }}
+              >
+                <option value="">Select substory…</option>
+                {chapters
+                  .filter((chapter) => chapter.id !== activeGraphId)
+                  .map((chapter) => (
+                    <option key={chapter.id} value={chapter.id}>
+                      {chapter.displayName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {selectedChapter?.parameters.map((parameter) => {
+              const current = (data.arguments ?? {})[parameter.variable.id];
+              return (
+                <PropertyField
+                  key={parameter.variable.id}
+                  label={`${parameter.variable.displayName} · ${parameter.variable.valueType.kind}`}
+                  value={
+                    current?.source ?? expressionForDefault(parameter.variable.defaultValue).source
+                  }
+                  variableMode="expression"
+                  onBeginEdit={checkpoint}
+                  onChange={(source) =>
+                    updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                      arguments: {
+                        ...(data.arguments ?? {}),
+                        [parameter.variable.id]: { source, bindings: {} },
+                      },
+                    })
+                  }
+                />
+              );
+            })}
+            {selectedChapter?.outputs.map((output) => (
+              <VariableSelect
+                key={output.variable.id}
+                label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
+                value={(data.resultVariableIds ?? {})[output.variable.id]}
+                valueType={output.variable.valueType}
+                onBeginEdit={checkpoint}
+                onChange={(resultVariableId) =>
+                  updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                    resultVariableIds: resultVariableId
+                      ? {
+                          ...(data.resultVariableIds ?? {}),
+                          [output.variable.id]: resultVariableId,
+                        }
+                      : Object.fromEntries(
+                          Object.entries(data.resultVariableIds ?? {}).filter(
+                            ([id]) => id !== output.variable.id,
+                          ),
+                        ),
+                  })
+                }
+              />
+            ))}
+            {selectedChapter && (
+              <div className={styles.info}>
+                Unchanged inputs use their defaults. The result target is optional.
+              </div>
+            )}
+          </>
         );
       }
       case StoryNodeType.Reroute:
@@ -1575,8 +1937,99 @@ export function Inspector() {
           </label>
         );
       }
-      case StoryNodeType.Return:
-        return <div className={styles.info}>Returns execution to the calling blueprint.</div>;
+      case StoryNodeType.Return: {
+        const data = node.data as ReturnNodeData;
+        const chapter = chapters.find((candidate) => candidate.id === activeGraphId);
+        if (!chapter) return <div className={styles.info}>Return requires a substory.</div>;
+        return (
+          <>
+            <div className={styles.groupHeader}>
+              <div className={styles.groupLabel}>Function Outputs</div>
+              <button
+                type="button"
+                onClick={() => {
+                  const used = new Set([
+                    ...chapter.parameters.map((parameter) => parameter.variable.name),
+                    ...chapter.outputs.map((output) => output.variable.name),
+                    ...chapter.localVariables.map((variable) => variable.name),
+                  ]);
+                  let index = chapter.outputs.length + 1;
+                  let name = `output${index}`;
+                  while (used.has(name)) name = `output${++index}`;
+                  updateSubstory(chapter.id, {
+                    outputs: [
+                      ...chapter.outputs,
+                      {
+                        direction: 'output',
+                        variable: {
+                          id: createStableId('variable'),
+                          name,
+                          displayName: name,
+                          scope: 'local',
+                          valueType: { kind: 'string' },
+                          defaultValue: '',
+                        },
+                      },
+                    ],
+                  });
+                }}
+              >
+                Add Output
+              </button>
+            </div>
+            {chapter.outputs.length === 0 && (
+              <div className={styles.info}>No outputs. This returns execution only.</div>
+            )}
+            {chapter.outputs.map((output, index) => (
+              <InterfaceVariableRow
+                key={output.variable.id}
+                variable={output.variable}
+                label={`Output ${index + 1}`}
+                showDefault={false}
+                onChange={(variable) =>
+                  updateSubstory(chapter.id, {
+                    outputs: chapter.outputs.map((candidate) =>
+                      candidate.variable.id === output.variable.id
+                        ? { ...candidate, variable }
+                        : candidate,
+                    ),
+                  })
+                }
+                onRemove={() =>
+                  updateSubstory(chapter.id, {
+                    outputs: chapter.outputs.filter(
+                      (candidate) => candidate.variable.id !== output.variable.id,
+                    ),
+                  })
+                }
+              />
+            ))}
+            {chapter.outputs.map((output) => (
+              <PropertyField
+                key={output.variable.id}
+                label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
+                value={
+                  data.values?.[output.variable.id]?.source ??
+                  expressionForDefault(
+                    defaultValueFor(output.variable.valueType.kind as ScalarKind),
+                  ).source
+                }
+                variableMode="expression"
+                onBeginEdit={checkpoint}
+                onChange={(source) =>
+                  updateNodeData(node.id, StoryNodeType.Return, {
+                    values: {
+                      ...(data.values ?? {}),
+                      [output.variable.id]: { source, bindings: {} },
+                    },
+                  })
+                }
+              />
+            ))}
+            <div className={styles.info}>Returns these outputs to the Call Substory node.</div>
+          </>
+        );
+      }
       case StoryNodeType.End: {
         const data = node.data as EndNodeData;
         return (
@@ -1621,7 +2074,7 @@ export function Inspector() {
         </section>
         <section className={styles.section}>
           <div className={styles.sectionTitle}>Properties</div>
-          {variables.length === 0 &&
+          {availableVariables.length === 0 &&
             (node.type === StoryNodeType.Branch || node.type === StoryNodeType.Choice) && (
               <div className={styles.info}>
                 Create variables in Story Data, then drag them here.

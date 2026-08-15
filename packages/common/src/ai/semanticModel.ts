@@ -39,6 +39,9 @@ export interface SemanticGraph {
   chapterId?: string;
   name: string;
   displayName: string;
+  parameters?: readonly VariableDefinition[];
+  outputs?: readonly VariableDefinition[];
+  localVariables?: readonly VariableDefinition[];
   nodes: readonly SemanticNode[];
   connections: readonly SemanticConnection[];
 }
@@ -67,7 +70,10 @@ function clone<T>(value: T): T {
 
 function semanticGraph(
   graph: SourceGraph,
-  metadata: Pick<SemanticGraph, 'kind' | 'chapterId' | 'name' | 'displayName'>,
+  metadata: Pick<
+    SemanticGraph,
+    'kind' | 'chapterId' | 'name' | 'displayName' | 'parameters' | 'outputs' | 'localVariables'
+  >,
 ): SemanticGraph {
   return {
     ...metadata,
@@ -130,6 +136,9 @@ export function createStorySemanticSnapshot(
           chapterId: chapter.id,
           name: chapter.name,
           displayName: chapter.displayName,
+          parameters: clone(chapter.parameters.map((parameter) => parameter.variable)),
+          outputs: clone(chapter.outputs.map((output) => output.variable)),
+          localVariables: clone(chapter.localVariables),
         }),
       ),
     ],

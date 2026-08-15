@@ -9,6 +9,7 @@ import type {
   UnaryOperator,
   ValueType,
   VariableDefinition,
+  VariableId,
   CharacterSource,
 } from '@story-blueprint/common';
 
@@ -322,41 +323,61 @@ export function compileTextTemplate(
   id: TextId,
   variables: readonly VariableDefinition[],
   characters: readonly CharacterSource[] = [],
+  translations: Readonly<Record<string, string>> = {},
 ): RuntimeTextTemplate {
+  const compileParts = (source: string, bindings: Readonly<Record<string, VariableId>>) => {
+    const parts: RuntimeTextPart[] = [];
+    let text = '';
+    let index = 0;
+    const flushText = () => {
+      if (text) parts.push({ kind: 'text', value: text });
+      text = '';
+    };
+    while (index < source.length) {
+      if (source.startsWith('{{', index)) {
+        text += '{';
+        index += 2;
+        continue;
+      }
+      if (source.startsWith('}}', index)) {
+        text += '}';
+        index += 2;
+        continue;
+      }
+      if (source[index] !== '{') {
+        text += source[index++];
+        continue;
+      }
+      const end = source.indexOf('}', index + 1);
+      if (end < 0) throw new ExpressionCompileError('Unclosed template expression', index);
+      flushText();
+      const expressionSource = source.slice(index + 1, end).trim();
+      parts.push({
+        kind: 'expression',
+        expression: compileExpression(
+          { source: expressionSource, bindings },
+          variables,
+          characters,
+        ),
+      });
+      index = end + 1;
+    }
+    flushText();
+    return parts;
+  };
   const source = typeof template === 'string' ? template : template.source;
   const bindings = typeof template === 'string' ? {} : (template.bindings ?? {});
-  const parts: RuntimeTextPart[] = [];
-  let text = '';
-  let index = 0;
-  const flushText = () => {
-    if (text) parts.push({ kind: 'text', value: text });
-    text = '';
+  return {
+    id,
+    parts: compileParts(source, bindings),
+    locales:
+      Object.keys(translations).length > 0
+        ? Object.fromEntries(
+            Object.entries(translations).map(([locale, translated]) => [
+              locale,
+              { parts: compileParts(translated, bindings) },
+            ]),
+          )
+        : undefined,
   };
-  while (index < source.length) {
-    if (source.startsWith('{{', index)) {
-      text += '{';
-      index += 2;
-      continue;
-    }
-    if (source.startsWith('}}', index)) {
-      text += '}';
-      index += 2;
-      continue;
-    }
-    if (source[index] !== '{') {
-      text += source[index++];
-      continue;
-    }
-    const end = source.indexOf('}', index + 1);
-    if (end < 0) throw new ExpressionCompileError('Unclosed template expression', index);
-    flushText();
-    const expressionSource = source.slice(index + 1, end).trim();
-    parts.push({
-      kind: 'expression',
-      expression: compileExpression({ source: expressionSource, bindings }, variables, characters),
-    });
-    index = end + 1;
-  }
-  flushText();
-  return { id, parts };
 }

@@ -22,11 +22,14 @@ import {
   parseCharacterResource,
   parseCharacterTemplate,
   parseAssetResource,
+  parseStoryLocalization,
   serializeStoryProject,
   serializeStorySource,
   serializeCharacterResource,
   serializeCharacterTemplate,
   serializeAssetResource,
+  serializeStoryLocalization,
+  mergeLocalizationSources,
   STORY_PROJECT_FORMAT,
   STORY_PROJECT_VERSION,
   STORY_SOURCE_FORMAT,
@@ -42,6 +45,7 @@ import {
   type ProjectCharacterReference,
   type StoryProjectDocument,
   type StorySourceDocument,
+  type StoryLocalizationDocument,
 } from '@story-blueprint/common';
 import { compileStory } from '@story-blueprint/compiler';
 import type {
@@ -138,6 +142,7 @@ function workspaceFileKind(filePath: string): WorkspaceFileKind | undefined {
   if (lower.endsWith('.character-template')) return 'character-template';
   if (lower.endsWith('.character')) return 'character';
   if (lower.endsWith('.asset')) return 'asset';
+  if (lower.endsWith('.storyloc')) return 'localization';
   return undefined;
 }
 
@@ -153,6 +158,7 @@ async function scanWorkspaceFileFingerprints(
     ...collectEntries(entries, 'character'),
     ...collectEntries(entries, 'character-template'),
     ...collectEntries(entries, 'asset'),
+    ...collectEntries(entries, 'localization'),
   ];
   await Promise.all(
     files.map(async (entry) => {
@@ -726,6 +732,14 @@ async function scanWorkspaceDirectory(
         name: entry.name,
         relativePath: toWorkspaceRelative(entryPath),
       });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.storyloc')) {
+      if (++budget.count > MAX_WORKSPACE_ENTRIES)
+        throw new Error('Workspace contains too many entries');
+      result.push({
+        kind: 'localization',
+        name: entry.name,
+        relativePath: toWorkspaceRelative(entryPath),
+      });
     }
   }
   return result;
@@ -763,6 +777,22 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
   const characterTemplates: WorkspaceInfo['characterTemplates'] = [];
   const assetResources: WorkspaceInfo['assetResources'] = [];
   const resourceErrors: WorkspaceInfo['resourceErrors'] = [];
+  let localization: WorkspaceInfo['localization'];
+  if (project?.localizationPath) {
+    try {
+      localization = {
+        relativePath: project.localizationPath,
+        document: parseStoryLocalization(
+          await readFile(resolveWorkspacePath(project.localizationPath), 'utf8'),
+        ),
+      };
+    } catch (error) {
+      resourceErrors.push({
+        relativePath: project.localizationPath,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   for (const entry of collectEntries(entries, 'character')) {
     try {
       const diskContent = await readFile(resolveWorkspacePath(entry.relativePath), 'utf8');
@@ -834,6 +864,7 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
     characterResources,
     characterTemplates,
     assetResources,
+    localization,
     resourceErrors,
     git,
     gitConflicts: gitConflicts.map(({ relativePath, kind }) => ({ relativePath, kind })),
@@ -2342,6 +2373,59 @@ function registerStoryFileHandlers(): void {
     await writeFile(workspaceProjectFile, serializeStoryProject(next), 'utf8');
     return (await readWorkspace())!;
   });
+
+  ipcMain.handle(
+    'workspace:extract-localization',
+    async (event, sourceLocale: unknown): Promise<WorkspaceInfo> => {
+      if (
+        !isTrustedSender(event) ||
+        !workspaceProjectFile ||
+        typeof sourceLocale !== 'string' ||
+        !/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(sourceLocale)
+      ) {
+        throw new Error('Invalid localization extraction request');
+      }
+      const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+      const stories = await Promise.all(
+        project.stories.map(async (reference) =>
+          parseStorySource(await readFile(resolveWorkspacePath(reference.path), 'utf8')),
+        ),
+      );
+      const relativePath = project.localizationPath ?? `Localization/${project.name}.storyloc`;
+      const filePath = resolveWorkspacePath(relativePath);
+      let existing: StoryLocalizationDocument | undefined;
+      try {
+        existing = parseStoryLocalization(await readFile(filePath, 'utf8'));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      const document = mergeLocalizationSources(existing, stories, sourceLocale);
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, serializeStoryLocalization(document), 'utf8');
+      if (!project.localizationPath) {
+        await writeFile(
+          workspaceProjectFile,
+          serializeStoryProject({ ...project, localizationPath: relativePath }),
+          'utf8',
+        );
+      }
+      return (await readWorkspace())!;
+    },
+  );
+
+  ipcMain.handle(
+    'workspace:update-localization',
+    async (event, value: unknown): Promise<WorkspaceInfo> => {
+      if (!isTrustedSender(event) || !workspaceProjectFile) {
+        throw new Error('Open a Story project first');
+      }
+      const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+      if (!project.localizationPath) throw new Error('Extract project text first');
+      const content = serializeStoryLocalization(value as StoryLocalizationDocument);
+      await writeFile(resolveWorkspacePath(project.localizationPath), content, 'utf8');
+      return (await readWorkspace())!;
+    },
+  );
 
   ipcMain.handle('workspace:create-character', async (event, value: unknown) => {
     if (!isTrustedSender(event) || !workspaceProjectFile) throw new Error('Open a project first');

@@ -589,7 +589,7 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 ### 9.1 完整示例
 
 ```kdl
-story s_intro format=story-blueprint version=4 name=intro display-name=序章 {
+story s_intro format=story-blueprint version=5 name=intro display-name=序章 {
   variables {
     variable v_favor name=favor display-name=好感度 type=number default=0
     variable v_name name=playerName display-name=玩家姓名 type=string default=Player

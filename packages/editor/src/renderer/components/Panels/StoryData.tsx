@@ -185,6 +185,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
   const {
     variables,
     projectVariables,
+    chapters,
     findVariableReferences,
     variableReferencesLoading,
     variableReferencesError,
@@ -193,13 +194,33 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     updateVariable,
     removeVariable,
   } = useStoryGraphStore();
+  const substory = chapters.find((chapter) =>
+    [
+      ...chapter.parameters.map((parameter) => parameter.variable),
+      ...chapter.outputs.map((output) => output.variable),
+      ...chapter.localVariables,
+    ].some((candidate) => candidate.id === variable.id),
+  );
+  const substoryVariableKind = substory?.parameters.some(
+    (parameter) => parameter.variable.id === variable.id,
+  )
+    ? 'Input Parameter'
+    : substory?.outputs.some((output) => output.variable.id === variable.id)
+      ? 'Output Parameter'
+      : substory
+        ? 'Local Variable'
+        : undefined;
   const [showAllReferences, setShowAllReferences] = useState(false);
   const references = findVariableReferences(variable.id);
   const visibleReferences = showAllReferences ? references : references.slice(0, 30);
   useEffect(() => setShowAllReferences(false), [variable.id]);
-  const duplicate = [...variables, ...projectVariables].some(
-    (candidate) => candidate.id !== variable.id && candidate.name === variable.name,
-  );
+  const duplicate = [
+    ...variables,
+    ...projectVariables,
+    ...(substory?.parameters.map((parameter) => parameter.variable) ?? []),
+    ...(substory?.outputs.map((output) => output.variable) ?? []),
+    ...(substory?.localVariables ?? []),
+  ].some((candidate) => candidate.id !== variable.id && candidate.name === variable.name);
   const kind = variable.valueType.kind as ScalarKind;
   const projectIndexUnavailable =
     variable.scope === 'project' &&
@@ -250,7 +271,9 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       </label>
       <label>
         <span>Scope</span>
-        {variable.scope === 'project' ? (
+        {substoryVariableKind ? (
+          <input value={`${substory!.displayName} · ${substoryVariableKind}`} readOnly />
+        ) : variable.scope === 'project' ? (
           <input value="Project" readOnly />
         ) : (
           <select
@@ -354,7 +377,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           if (window.confirm(`Delete variable ${variable.name}?`)) removeVariable(variable.id);
         }}
       >
-        Delete Variable
+        Delete {substoryVariableKind ?? 'Variable'}
       </button>
     </div>
   );
@@ -1379,15 +1402,29 @@ function EventTable({
 }
 
 export function StoryDataInspector() {
-  const { storyDataSelection, variables, projectVariables, characters, assets, events, signals } =
-    useStoryGraphStore();
+  const {
+    storyDataSelection,
+    variables,
+    projectVariables,
+    chapters,
+    characters,
+    assets,
+    events,
+    signals,
+  } = useStoryGraphStore();
   if (!storyDataSelection) return null;
   if (storyDataSelection.kind === 'event-table')
     return <EventTable events={events} signals={signals} />;
   if (storyDataSelection.kind === 'variable') {
-    const variable = [...variables, ...projectVariables].find(
-      (item) => item.id === storyDataSelection.id,
-    );
+    const variable = [
+      ...variables,
+      ...projectVariables,
+      ...chapters.flatMap((chapter) => [
+        ...chapter.parameters.map((parameter) => parameter.variable),
+        ...chapter.outputs.map((output) => output.variable),
+        ...chapter.localVariables,
+      ]),
+    ].find((item) => item.id === storyDataSelection.id);
     return variable ? <VariableEditor variable={variable} /> : null;
   }
   if (storyDataSelection.kind === 'character') {
@@ -1412,12 +1449,15 @@ export function StoryData() {
     workspace,
     variables,
     projectVariables,
+    chapters,
+    activeGraphId,
     characters,
     assets,
     events,
     signals,
     addVariable,
     addProjectVariable,
+    updateSubstory,
     addCharacter,
     duplicateCharacter,
     addCharacterFromTemplate,
@@ -1430,6 +1470,39 @@ export function StoryData() {
     storyDataSelection,
     selectStoryData,
   } = useStoryGraphStore();
+  const activeChapter = chapters.find((chapter) => chapter.id === activeGraphId);
+  const addSubstoryVariable = (kind: 'parameter' | 'local') => {
+    if (!activeChapter) return;
+    const used = new Set(
+      [
+        ...variables,
+        ...projectVariables,
+        ...activeChapter.parameters.map((parameter) => parameter.variable),
+        ...activeChapter.outputs.map((output) => output.variable),
+        ...activeChapter.localVariables,
+      ].map((variable) => variable.name),
+    );
+    const base = kind === 'parameter' ? 'input' : 'local';
+    let index = 1;
+    let name = `${base}${index}`;
+    while (used.has(name)) name = `${base}${++index}`;
+    const variable: VariableDefinition = {
+      id: createStableId('variable'),
+      name,
+      displayName: name,
+      scope: 'local',
+      valueType: { kind: 'string' },
+      defaultValue: '',
+    };
+    updateSubstory(activeChapter.id, {
+      ...(kind === 'parameter'
+        ? {
+            parameters: [...activeChapter.parameters, { direction: 'input' as const, variable }],
+          }
+        : { localVariables: [...activeChapter.localVariables, variable] }),
+    });
+    selectStoryData({ kind: 'variable', id: variable.id });
+  };
   const [resourceSearch, setResourceSearch] = useState('');
   const [characterTagFilter, setCharacterTagFilter] = useState<string>();
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<CharacterId>>(new Set());
@@ -1538,6 +1611,102 @@ export function StoryData() {
               onChange={(event) => setResourceSearch(event.target.value)}
             />
           </div>
+        )}
+        {hasActiveStory && activeChapter && (
+          <>
+            <section className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <span>Substory Inputs</span>
+                <button
+                  type="button"
+                  title="Add input parameter"
+                  onClick={() => addSubstoryVariable('parameter')}
+                >
+                  +
+                </button>
+              </div>
+              {activeChapter.parameters.length === 0 && (
+                <div className={styles.empty}>No input parameters</div>
+              )}
+              {activeChapter.parameters.map(({ variable }) => (
+                <div
+                  key={variable.id}
+                  className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
+                  draggable
+                  onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
+                  onDragStart={(event) =>
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                  }
+                >
+                  <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
+                  <span className={styles.itemName}>{variable.name}</span>
+                  <span className={styles.itemType}>{variable.valueType.kind}</span>
+                  <span
+                    className={styles.setDrag}
+                    draggable
+                    title="Drag to create Set Variable"
+                    onClick={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                      event.stopPropagation();
+                      writeStoryDataDrag(event, {
+                        kind: 'variable',
+                        id: variable.id,
+                        action: 'set',
+                      });
+                    }}
+                  >
+                    S
+                  </span>
+                </div>
+              ))}
+            </section>
+            <section className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <span>Substory Locals</span>
+                <button
+                  type="button"
+                  title="Add local variable"
+                  onClick={() => addSubstoryVariable('local')}
+                >
+                  +
+                </button>
+              </div>
+              {activeChapter.localVariables.length === 0 && (
+                <div className={styles.empty}>No local variables</div>
+              )}
+              {activeChapter.localVariables.map((variable) => (
+                <div
+                  key={variable.id}
+                  className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
+                  draggable
+                  onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
+                  onDragStart={(event) =>
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                  }
+                >
+                  <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
+                  <span className={styles.itemName}>{variable.name}</span>
+                  <span className={styles.itemType}>{variable.valueType.kind}</span>
+                  <span
+                    className={styles.setDrag}
+                    draggable
+                    title="Drag to create Set Variable"
+                    onClick={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                      event.stopPropagation();
+                      writeStoryDataDrag(event, {
+                        kind: 'variable',
+                        id: variable.id,
+                        action: 'set',
+                      });
+                    }}
+                  >
+                    S
+                  </span>
+                </div>
+              ))}
+            </section>
+          </>
         )}
         {hasActiveStory && (
           <section className={styles.section}>

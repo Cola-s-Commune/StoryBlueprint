@@ -44,7 +44,8 @@ type SubMenuItem =
         | 'problems'
         | 'aiCommands'
         | 'storyMerge'
-        | 'history';
+        | 'history'
+        | 'localization';
     }
   | { type: 'separator' };
 
@@ -100,6 +101,7 @@ const menuItems: MenuItem[] = [
       { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
       { type: 'item', label: 'Problems', panelId: 'problems' },
       { type: 'item', label: 'History', panelId: 'history' },
+      { type: 'item', label: 'Localization', panelId: 'localization' },
       { type: 'separator' },
       { type: 'item', label: 'Reset Layout', action: 'reset-layout' },
       { type: 'separator' },
@@ -126,7 +128,8 @@ interface MenuBarProps {
       | 'problems'
       | 'aiCommands'
       | 'storyMerge'
-      | 'history',
+      | 'history'
+      | 'localization',
   ) => void;
 }
 

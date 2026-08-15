@@ -16,6 +16,7 @@ function projectDocument(): StoryProjectDocument {
     displayName: 'Raft Survival',
     entryStoryId: 's_intro',
     outputDirectory: 'Build/Stories',
+    localizationPath: 'Localization/raft-survival.storyloc',
     stories: [
       { id: 's_intro', path: 'main/intro.story', name: 'intro', displayName: 'Intro' },
       { id: 's_quest', path: 'quests/trader.story', name: 'trader', displayName: 'Trader Quest' },
@@ -84,6 +85,7 @@ describe('story project KDL', () => {
     expect(serialized).toContain('used-by s_quest');
     expect(serialized).toContain('entry-story=s_intro');
     expect(serialized).toContain('output-directory="Build/Stories"');
+    expect(serialized).toContain('localization="Localization/raft-survival.storyloc"');
     expect(serialized).toContain('path="Characters/trader.character"');
     expect(serialized).toContain('variable v_reputation name=reputation');
     expect(serialized).toContain('type=number default=0');

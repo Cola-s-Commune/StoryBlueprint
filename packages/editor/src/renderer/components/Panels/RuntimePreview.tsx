@@ -8,14 +8,15 @@ import {
   type RuntimeRunResult,
   type RuntimeState,
 } from '@story-blueprint/runtime';
-import type {
-  CharacterSource,
-  EventSource,
-  SignalSource,
-  OptionId,
-  RuntimeValue,
-  RuntimeProgram,
-  VariableDefinition,
+import {
+  localizationTranslationsForStory,
+  type CharacterSource,
+  type EventSource,
+  type SignalSource,
+  type OptionId,
+  type RuntimeValue,
+  type RuntimeProgram,
+  type VariableDefinition,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { CopyButton } from './CopyButton';
@@ -61,7 +62,7 @@ function valueLabel(value: RuntimeValue): string {
 }
 
 export function RuntimePreview() {
-  const { hasActiveStory, source, characters, assets, variables, events, signals } =
+  const { hasActiveStory, source, characters, assets, variables, events, signals, workspace } =
     useStoryGraphStore();
   const [session, setSession] = useState<PreviewSession>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -69,6 +70,7 @@ export function RuntimePreview() {
   const [signalPayload, setSignalPayload] = useState<Record<string, RuntimeValue>>({});
   const [savedStateJson, setSavedStateJson] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'loaded' | 'failed'>('idle');
+  const [previewLocale, setPreviewLocale] = useState('');
   const dispatchedEventResult = useRef<RuntimeRunResult>();
 
   useEffect(() => {
@@ -119,6 +121,16 @@ export function RuntimePreview() {
       { ...source, characters, assets, events, signals },
       {
         contentVersion: previewContentVersion({ source, characters, assets, events, signals }),
+        translations: localizationTranslationsForStory(
+          workspace?.localization?.document,
+          source.id,
+        ),
+        sourceLocale: workspace?.localization?.document.sourceLocale,
+        localeFallbacks: Object.fromEntries(
+          (workspace?.localization?.document.locales ?? []).flatMap((locale) =>
+            locale.fallback ? [[locale.locale, locale.fallback]] : [],
+          ),
+        ),
       },
     );
     setHistory([]);
@@ -128,6 +140,7 @@ export function RuntimePreview() {
       return;
     }
     const runtime = new StoryRuntime(compiled.program);
+    setPreviewLocale(compiled.program.sourceLocale ?? '');
     const stored = window.localStorage.getItem(previewSaveKey(compiled.program)) ?? '';
     setSavedStateJson(stored);
     setSaveStatus('idle');
@@ -140,7 +153,7 @@ export function RuntimePreview() {
       events,
       signals,
     });
-  }, [assets, characters, events, signals, source, variables]);
+  }, [assets, characters, events, signals, source, variables, workspace?.localization]);
 
   const openCompiled = useCallback(async () => {
     if (!window.electronAPI) return;
@@ -150,6 +163,7 @@ export function RuntimePreview() {
       const project = parseCompiledStoryProject(opened.content);
       const entry = project.stories[project.entryStoryId];
       const runtime = createRuntimeFromCompiledProject(project);
+      setPreviewLocale(entry.program.sourceLocale ?? '');
       const stored = window.localStorage.getItem(previewSaveKey(entry.program)) ?? '';
       setSavedStateJson(stored);
       setSaveStatus('idle');
@@ -321,6 +335,28 @@ export function RuntimePreview() {
         </button>
         {session && (
           <>
+            {(session.program.sourceLocale || (session.program.locales?.length ?? 0) > 0) && (
+              <select
+                value={previewLocale}
+                onChange={(event) => {
+                  const locale = event.target.value;
+                  setPreviewLocale(locale);
+                  session.runtime.setLocale(locale);
+                  acceptResult(session.runtime, session.runtime.runUntilPause());
+                }}
+              >
+                {[
+                  session.program.sourceLocale,
+                  ...(session.program.locales ?? []),
+                ]
+                  .filter((locale): locale is string => Boolean(locale))
+                  .map((locale) => (
+                    <option key={locale} value={locale}>
+                      {locale}
+                    </option>
+                  ))}
+              </select>
+            )}
             <button type="button" className={styles.secondaryButton} onClick={saveState}>
               {saveStatus === 'saved' ? 'Saved' : 'Save State'}
             </button>

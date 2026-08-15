@@ -36,7 +36,11 @@ export type RuntimeRunResult =
 function cloneState(state: RuntimeState): RuntimeState {
   return {
     ...state,
-    callStack: state.callStack.map((frame) => ({ ...frame, locals: { ...frame.locals } })),
+    callStack: state.callStack.map((frame) => ({
+      ...frame,
+      resultVariableIds: { ...frame.resultVariableIds },
+      locals: { ...frame.locals },
+    })),
     storyVariables: { ...state.storyVariables },
     signalInbox: Object.fromEntries(
       Object.entries(state.signalInbox).map(([signalId, payloads]) => [
@@ -80,8 +84,9 @@ export class StoryRuntime {
   private lastDiagnostic?: RuntimeDiagnostic;
   private readonly pendingExternalWrites = new Map<VariableId, RuntimeValue>();
   private readonly externalVariableIdSet: ReadonlySet<VariableId>;
+  private locale?: string;
 
-  constructor(program: RuntimeProgram, restoredState?: RuntimeState) {
+  constructor(program: RuntimeProgram, restoredState?: RuntimeState, locale?: string) {
     if (program.format !== STORY_RUNTIME_FORMAT || program.version !== STORY_RUNTIME_VERSION) {
       throw new Error(`Unsupported runtime program ${program.format}@${program.version}`);
     }
@@ -99,6 +104,7 @@ export class StoryRuntime {
         .map((variable) => variable.id),
     );
     this.currentState = cloneState(restoredState ?? createRuntimeState(program));
+    this.locale = locale ?? program.sourceLocale;
   }
 
   get state(): RuntimeState {
@@ -107,6 +113,14 @@ export class StoryRuntime {
 
   get externalVariableIds(): readonly VariableId[] {
     return [...this.externalVariableIdSet];
+  }
+
+  get currentLocale(): string | undefined {
+    return this.locale;
+  }
+
+  setLocale(locale: string): void {
+    this.locale = locale;
   }
 
   /** Supplies the engine-owned value before story execution begins. */
@@ -286,7 +300,13 @@ export class StoryRuntime {
             requestId: instruction.id,
             speakerId: instruction.speakerId,
             textId: instruction.text.id,
-            defaultText: renderTextTemplate(instruction.text, this.readVariable),
+            defaultText: renderTextTemplate(
+              instruction.text,
+              this.readVariable,
+              this.locale,
+              this.program.localeFallbacks,
+              this.program.sourceLocale,
+            ),
             voice: instruction.voice,
             emotion: instruction.emotion,
             portraitId: instruction.portraitId,
@@ -379,25 +399,29 @@ export class StoryRuntime {
             instructionId: instruction.id,
           });
         }
-        const locals: Record<string, RuntimeValue> = Object.fromEntries(
-          chapter.localVariables.map((variable) => [variable.id, variable.defaultValue]),
-        );
+        const locals: Record<string, RuntimeValue> = Object.fromEntries([
+          ...chapter.parameters.map((parameter) => [parameter.variableId, parameter.defaultValue]),
+          ...chapter.localVariables.map((variable) => [variable.id, variable.defaultValue]),
+        ]);
         for (const [variableId, expression] of Object.entries(instruction.arguments)) {
           locals[variableId] = evaluateExpression(expression, this.readVariable);
         }
         this.currentState.callStack.push({
           chapterId: instruction.chapterId,
           returnTo: instruction.returnTo,
-          resultVariableId: instruction.resultVariableId,
+          resultVariableIds: { ...instruction.resultVariableIds },
           locals,
         });
         this.jump(instruction.target);
         return undefined;
       }
       case 'return': {
-        const value = instruction.value
-          ? evaluateExpression(instruction.value, this.readVariable)
-          : undefined;
+        const values = Object.fromEntries(
+          Object.entries(instruction.values).map(([outputId, expression]) => [
+            outputId,
+            evaluateExpression(expression, this.readVariable),
+          ]),
+        );
         const frame = this.currentState.callStack.pop();
         if (!frame) {
           return this.fail({
@@ -411,8 +435,8 @@ export class StoryRuntime {
         this.currentState.blockId = frame.returnTo.blockId;
         this.currentState.instructionIndex = frame.returnTo.instructionIndex;
         this.currentState.status = 'running';
-        if (frame.resultVariableId && value !== undefined) {
-          this.writeVariable(frame.resultVariableId, value);
+        for (const [outputId, resultVariableId] of Object.entries(frame.resultVariableIds)) {
+          if (outputId in values) this.writeVariable(resultVariableId, values[outputId]);
         }
         return undefined;
       }
@@ -440,7 +464,13 @@ export class StoryRuntime {
           requestId: instruction.id,
           speakerId: instruction.speakerId,
           textId: instruction.text.id,
-          defaultText: renderTextTemplate(instruction.text, this.readVariable),
+          defaultText: renderTextTemplate(
+            instruction.text,
+            this.readVariable,
+            this.locale,
+            this.program.localeFallbacks,
+            this.program.sourceLocale,
+          ),
           voice: instruction.voice,
           emotion: instruction.emotion,
           portraitId: instruction.portraitId,
@@ -491,7 +521,13 @@ export class StoryRuntime {
         requestId: instruction.id,
         promptTextId: instruction.prompt?.id,
         defaultPrompt: instruction.prompt
-          ? renderTextTemplate(instruction.prompt, this.readVariable)
+          ? renderTextTemplate(
+              instruction.prompt,
+              this.readVariable,
+              this.locale,
+              this.program.localeFallbacks,
+              this.program.sourceLocale,
+            )
           : undefined,
         options: options.map((option) => ({
           id: option.id,
@@ -504,7 +540,13 @@ export class StoryRuntime {
   }
 
   private resolvedOptions(instruction: ChoiceInstruction) {
-    return resolveChoiceOptions(instruction, this.readVariable);
+    return resolveChoiceOptions(
+      instruction,
+      this.readVariable,
+      this.locale,
+      this.program.localeFallbacks,
+      this.program.sourceLocale,
+    );
   }
 
   private readonly readVariable = (id: VariableId): RuntimeValue => {

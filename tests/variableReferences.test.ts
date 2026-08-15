@@ -83,6 +83,12 @@ describe('variable reference index', () => {
             label: { source: '"score"', bindings: {} },
           },
         }),
+        node('n_substoryref', StoryNodeType.CallSubstory, {
+          arguments: {
+            v_parameter: { source: 'score', bindings: { score: score.id } },
+          },
+          resultVariableIds: { v_output: score.id },
+        }),
       ],
       edges: [],
     };
@@ -90,6 +96,9 @@ describe('variable reference index', () => {
       nodes: [
         node('n_signalref', StoryNodeType.WaitSignal, {
           matches: { amount: { source: 'current', bindings: { current: score.id } } },
+        }),
+        node('n_returnref', StoryNodeType.Return, {
+          values: { v_output: { source: 'score', bindings: { score: score.id } } },
         }),
       ],
       edges: [],
@@ -106,7 +115,10 @@ describe('variable reference index', () => {
       'n_setscore:Value',
       'n_dialogue:Line 1',
       'n_eventref:Argument amount',
+      'n_substoryref:Result Variable',
+      'n_substoryref:Substory Argument v_parameter',
       'n_signalref:Match amount',
+      'n_returnref:Return Output v_output',
     ]);
     expect(references.at(-1)?.graphLabel).toBe('Score Chapter');
     expect(references.every((reference) => reference.storyId === 's_scorestory')).toBe(true);
@@ -176,6 +188,31 @@ describe('variable reference index', () => {
     expect((signal.data as { matches: { amount: { source: string } } }).matches.amount.source).toBe(
       'points',
     );
+  });
+
+  it('binds and renames Call Substory arguments and Return expressions', () => {
+    const call = bindVariableReferencesInNode(
+      node('n_callbind', StoryNodeType.CallSubstory, {
+        arguments: { v_parameter: { source: 'score + 1', bindings: {} } },
+        resultVariableIds: {},
+      }),
+      [score],
+    );
+    const returned = renameVariableReferencesInNode(
+      node('n_returnrename', StoryNodeType.Return, {
+        values: { v_output: { source: 'score', bindings: { score: score.id } } },
+      }),
+      score.id,
+      'score',
+      'points',
+    );
+    expect(
+      (call.data as { arguments: { v_parameter: { bindings: Record<string, string> } } }).arguments
+        .v_parameter.bindings,
+    ).toEqual({ score: score.id });
+    expect(
+      (returned.data as { values: { v_output: { source: string } } }).values.v_output.source,
+    ).toBe('points');
   });
 
   it('binds Story and Project variables in expressions and text templates', () => {

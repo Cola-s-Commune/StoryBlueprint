@@ -186,7 +186,7 @@ export class NodeRegistry {
       color: '#5f88d1',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Completed', kind: 'execution', direction: 'output' }],
-      defaultData: () => ({}),
+      defaultData: () => ({ arguments: {}, resultVariableIds: {} }),
     });
 
     this.register<StoryNodeType.Reroute>({
@@ -230,7 +230,7 @@ export class NodeRegistry {
       color: '#b67ad1',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [],
-      defaultData: () => ({}),
+      defaultData: () => ({ values: {} }),
     });
 
     // End

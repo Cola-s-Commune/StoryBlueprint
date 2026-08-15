@@ -4,6 +4,7 @@ import type {
   NodeId,
   RuntimeProgram,
   StoryId,
+  StoryLocalizationDocument,
   StoryProjectDocument,
   StorySourceDocument,
 } from '@story-blueprint/common';
@@ -43,6 +44,9 @@ export interface CompilerDiagnostic {
 export interface CompileOptions {
   emitSourceMap?: boolean;
   contentVersion?: string;
+  translations?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  sourceLocale?: string;
+  localeFallbacks?: Readonly<Record<string, string>>;
 }
 
 export type CompileResult =
@@ -67,6 +71,7 @@ export interface ProjectCompilerDiagnostic extends CompilerDiagnostic {
 
 export interface CompileProjectOptions extends CompileOptions {
   entryStoryId?: StoryId;
+  localization?: StoryLocalizationDocument;
 }
 
 export type CompileProjectResult =

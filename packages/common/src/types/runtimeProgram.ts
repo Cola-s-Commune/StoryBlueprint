@@ -15,7 +15,7 @@ import type {
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_RUNTIME_FORMAT = 'story-runtime' as const;
-export const STORY_RUNTIME_VERSION = 1 as const;
+export const STORY_RUNTIME_VERSION = 3 as const;
 
 export interface ProgramLocation {
   blockId: BlockId;
@@ -30,9 +30,14 @@ export interface LocalizedVoiceRef {
 export type RuntimeTextPart =
   { kind: 'text'; value: string } | { kind: 'expression'; expression: TypedExpression };
 
+export interface RuntimeTextVariant {
+  parts: readonly RuntimeTextPart[];
+}
+
 export interface RuntimeTextTemplate {
   id: TextId;
   parts: readonly RuntimeTextPart[];
+  locales?: Readonly<Record<string, RuntimeTextVariant>>;
 }
 
 interface RuntimeInstructionBase {
@@ -108,12 +113,12 @@ export interface CallChapterInstruction extends RuntimeInstructionBase {
   target: BlockId;
   arguments: Readonly<Record<VariableId, TypedExpression>>;
   returnTo: ProgramLocation;
-  resultVariableId?: VariableId;
+  resultVariableIds: Readonly<Record<VariableId, VariableId>>;
 }
 
 export interface ReturnInstruction extends RuntimeInstructionBase {
   op: 'return';
-  value?: TypedExpression;
+  values: Readonly<Record<VariableId, TypedExpression>>;
 }
 
 export interface EndStoryInstruction extends RuntimeInstructionBase {
@@ -149,9 +154,16 @@ export interface RuntimeBlock {
 export interface RuntimeChapterDefinition {
   id: ChapterId;
   entryBlockId: BlockId;
-  parameters: readonly { variableId: VariableId; valueType: ValueType }[];
+  parameters: readonly {
+    variableId: VariableId;
+    valueType: ValueType;
+    defaultValue: RuntimeValue;
+  }[];
+  outputs: readonly {
+    variableId: VariableId;
+    valueType: ValueType;
+  }[];
   localVariables: readonly VariableDefinition[];
-  returnType?: ValueType;
 }
 
 export interface RuntimeProgram {
@@ -164,6 +176,9 @@ export interface RuntimeProgram {
   blocks: Readonly<Record<string, RuntimeBlock>>;
   chapters: Readonly<Record<string, RuntimeChapterDefinition>>;
   variables: readonly VariableDefinition[];
+  sourceLocale?: string;
+  locales?: readonly string[];
+  localeFallbacks?: Readonly<Record<string, string>>;
   constants?: Readonly<Record<string, RuntimeValue>>;
 }
 

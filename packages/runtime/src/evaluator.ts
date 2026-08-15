@@ -95,7 +95,26 @@ export function evaluateExpression(
 export function renderTextTemplate(
   template: RuntimeTextTemplate,
   readVariable: VariableReader,
+  locale?: string,
+  fallbacks: Readonly<Record<string, string>> = {},
+  sourceLocale?: string,
 ): string {
+  let selected = locale;
+  const visited = new Set<string>();
+  while (selected && selected !== sourceLocale && !visited.has(selected)) {
+    visited.add(selected);
+    const variant = template.locales?.[selected];
+    if (variant) {
+      return variant.parts
+        .map((part) =>
+          part.kind === 'text'
+            ? part.value
+            : String(evaluateExpression(part.expression, readVariable) ?? ''),
+        )
+        .join('');
+    }
+    selected = fallbacks[selected];
+  }
   return template.parts
     .map((part) =>
       part.kind === 'text'
@@ -115,6 +134,9 @@ export interface ResolvedChoiceOption {
 export function resolveChoiceOptions(
   choice: ChoiceInstruction,
   readVariable: VariableReader,
+  locale?: string,
+  fallbacks: Readonly<Record<string, string>> = {},
+  sourceLocale?: string,
 ): readonly ResolvedChoiceOption[] {
   return choice.options.flatMap((option) => {
     const visible = option.visibleIf
@@ -124,7 +146,7 @@ export function resolveChoiceOptions(
     return [
       {
         id: option.id,
-        text: renderTextTemplate(option.text, readVariable),
+        text: renderTextTemplate(option.text, readVariable, locale, fallbacks, sourceLocale),
         enabled: option.enabledIf
           ? asBoolean(evaluateExpression(option.enabledIf, readVariable))
           : true,

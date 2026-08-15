@@ -518,7 +518,11 @@ export const BLUEPRINT_NODE_CATALOG = [
   },
   {
     type: StoryNodeType.CallSubstory,
-    data: { chapterId: 'ch_existing' },
+    data: {
+      chapterId: 'ch_existing',
+      arguments: { v_parameter: { source: 'value', bindings: { value: 'v_existing' } } },
+      resultVariableIds: { v_output: 'v_existing_result' },
+    },
     inputPorts: ['in'],
     outputPorts: ['out'],
   },
@@ -535,7 +539,12 @@ export const BLUEPRINT_NODE_CATALOG = [
     inputPorts: ['in'],
     outputPorts: [],
   },
-  { type: StoryNodeType.Return, data: {}, inputPorts: ['in'], outputPorts: [] },
+  {
+    type: StoryNodeType.Return,
+    data: { values: { v_output: { source: 'result', bindings: { result: 'v_local' } } } },
+    inputPorts: ['in'],
+    outputPorts: [],
+  },
   { type: StoryNodeType.End, data: { title: 'The End' }, inputPorts: ['in'], outputPorts: [] },
 ] as const;
 

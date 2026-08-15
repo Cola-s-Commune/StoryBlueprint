@@ -4,6 +4,8 @@ import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
   StoryNodeType,
+  choiceOptionTextId,
+  choicePromptTextId,
   type BlockId,
   type BranchNodeData,
   type CallSubstoryNodeData,
@@ -19,11 +21,13 @@ import {
   type RuntimeBlock,
   type RuntimeChapterDefinition,
   type RuntimeInstruction,
+  type ReturnNodeData,
   type SetVariableNodeData,
   type SourceGraph,
   type SourceNode,
   type StorySourceDocument,
   type TextId,
+  type VariableId,
   type WaitSignalNodeData,
 } from '@story-blueprint/common';
 import {
@@ -46,10 +50,6 @@ function instructionId(sourceId: string, tag = 'main'): InstructionId {
   return `i_${suffix(sourceId)}_${tag}` as InstructionId;
 }
 
-function textId(id: string): TextId {
-  return `t_${suffix(id)}` as TextId;
-}
-
 function programId(id: string): ProgramId {
   return `p_${suffix(id)}` as ProgramId;
 }
@@ -61,6 +61,12 @@ function jump(node: SourceNode, target: BlockId): RuntimeInstruction {
 export class DefaultStoryCompiler implements StoryCompiler {
   compile(source: StorySourceDocument, options: CompileOptions = {}): CompileResult {
     const diagnostics: CompilerDiagnostic[] = [];
+    const translationsFor = (id: TextId): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(options.translations ?? {}).flatMap(([locale, entries]) =>
+          entries[id] === undefined ? [] : [[locale, entries[id]!]],
+        ),
+      );
     if (source.format !== STORY_SOURCE_FORMAT || source.version !== STORY_SOURCE_VERSION) {
       return {
         ok: false,
@@ -152,6 +158,29 @@ export class DefaultStoryCompiler implements StoryCompiler {
           message: `Substory ${chapter.displayName} has no entry node`,
         });
       }
+      const chapterVariables = [
+        ...chapter.parameters.map((parameter) => parameter.variable),
+        ...chapter.localVariables,
+      ];
+      const chapterNames = new Set(variableNames);
+      for (const variable of chapterVariables) {
+        if (variableIds.has(variable.id)) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Duplicate variable ID ${variable.id} in substory ${chapter.displayName}`,
+          });
+        }
+        variableIds.add(variable.id);
+        if (chapterNames.has(variable.name)) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Duplicate visible variable name ${variable.name} in substory ${chapter.displayName}`,
+          });
+        }
+        chapterNames.add(variable.name);
+      }
     }
     for (const character of source.characters) {
       const portraitIds = [
@@ -171,6 +200,14 @@ export class DefaultStoryCompiler implements StoryCompiler {
 
     const blocks: Record<string, RuntimeBlock> = {};
     const compileGraph = (graph: SourceGraph, chapterId?: ChapterId) => {
+      const chapter = chapterId
+        ? source.chapters.find((candidate) => candidate.id === chapterId)
+        : undefined;
+      const visibleVariables = [
+        ...allVariables,
+        ...(chapter?.parameters.map((parameter) => parameter.variable) ?? []),
+        ...(chapter?.localVariables ?? []),
+      ];
       const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
       const outgoingByPort = new Map<string, SourceGraph['edges'][number]>();
       for (const edge of graph.edges) {
@@ -283,7 +320,13 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 });
               }
               const text = compileSafe(node, () =>
-                compileTextTemplate(line.text, line.textId, allVariables, source.characters),
+                compileTextTemplate(
+                  line.text,
+                  line.textId,
+                  visibleVariables,
+                  source.characters,
+                  translationsFor(line.textId),
+                ),
               );
               if (text) {
                 instructions.push({
@@ -304,7 +347,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.SetVariable: {
             const data = node.data as unknown as SetVariableNodeData;
-            if (!data.variableId || !allVariables.some((item) => item.id === data.variableId)) {
+            if (!data.variableId || !visibleVariables.some((item) => item.id === data.variableId)) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
@@ -313,7 +356,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
               });
             } else {
               const value = compileSafe(node, () =>
-                compileExpression(data.value, allVariables, source.characters),
+                compileExpression(data.value, visibleVariables, source.characters),
               );
               if (value) {
                 instructions.push({
@@ -355,7 +398,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const compiled = compileSafe(node, () =>
-                  compileExpression(argument, allVariables, source.characters),
+                  compileExpression(argument, visibleVariables, source.characters),
                 );
                 if (
                   compiled &&
@@ -412,7 +455,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const compiled = compileSafe(node, () =>
-                  compileExpression(expression, allVariables, source.characters),
+                  compileExpression(expression, visibleVariables, source.characters),
                 );
                 if (
                   compiled &&
@@ -452,20 +495,21 @@ export class DefaultStoryCompiler implements StoryCompiler {
               const text = compileSafe(node, () =>
                 compileTextTemplate(
                   option.text,
-                  textId(option.id),
-                  allVariables,
+                  choiceOptionTextId(option.id),
+                  visibleVariables,
                   source.characters,
+                  translationsFor(choiceOptionTextId(option.id)),
                 ),
               );
               if (!text) return [];
               const visibleIf = option.visibleIf
                 ? compileSafe(node, () =>
-                    compileExpression(option.visibleIf!, allVariables, source.characters),
+                    compileExpression(option.visibleIf!, visibleVariables, source.characters),
                   )
                 : undefined;
               const enabledIf = option.enabledIf
                 ? compileSafe(node, () =>
-                    compileExpression(option.enabledIf!, allVariables, source.characters),
+                    compileExpression(option.enabledIf!, visibleVariables, source.characters),
                   )
                 : undefined;
               return [{ id: option.id, text, visibleIf, enabledIf, target }];
@@ -474,9 +518,10 @@ export class DefaultStoryCompiler implements StoryCompiler {
               ? compileSafe(node, () =>
                   compileTextTemplate(
                     data.prompt,
-                    textId(`${node.id}_prompt`),
-                    allVariables,
+                    choicePromptTextId(node.id),
+                    visibleVariables,
                     source.characters,
+                    translationsFor(choicePromptTextId(node.id)),
                   ),
                 )
               : undefined;
@@ -488,7 +533,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
             const whenTrue = requireTarget(node, 'true');
             const whenFalse = requireTarget(node, 'false');
             const condition = compileSafe(node, () =>
-              compileExpression(data.condition, allVariables, source.characters),
+              compileExpression(data.condition, visibleVariables, source.characters),
             );
             if (whenTrue && whenFalse && condition) {
               if (condition.valueType.kind !== 'boolean' && condition.valueType.kind !== 'any') {
@@ -512,12 +557,12 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.CallSubstory: {
             const data = node.data as unknown as CallSubstoryNodeData;
-            const chapter = data.chapterId
+            const calledChapter = data.chapterId
               ? source.chapters.find((item) => item.id === data.chapterId)
               : undefined;
             const entry = data.chapterId ? chapterEntries.get(data.chapterId) : undefined;
             const returnBlock = requireTarget(node, 'out');
-            if (!chapter || !entry) {
+            if (!calledChapter || !entry) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
@@ -525,13 +570,84 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 sourceNodeId: node.id,
               });
             } else if (returnBlock) {
+              const compiledArguments: Record<string, ReturnType<typeof compileExpression>> = {};
+              for (const parameter of calledChapter.parameters) {
+                const argument = (data.arguments ?? {})[parameter.variable.id];
+                if (!argument) continue;
+                const compiled = compileSafe(node, () =>
+                  compileExpression(argument, visibleVariables, source.characters),
+                );
+                if (!compiled) continue;
+                if (
+                  compiled.valueType.kind !== 'any' &&
+                  compiled.valueType.kind !== parameter.variable.valueType.kind
+                ) {
+                  diagnostics.push({
+                    code: 'EXPRESSION_ERROR',
+                    severity: 'error',
+                    message: `Substory argument ${parameter.variable.name} must be ${parameter.variable.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                  continue;
+                }
+                compiledArguments[parameter.variable.id] = compiled;
+              }
+              const unknownArgument = Object.keys(data.arguments ?? {}).find(
+                (parameterId) =>
+                  !calledChapter.parameters.some(
+                    (parameter) => parameter.variable.id === parameterId,
+                  ),
+              );
+              if (unknownArgument) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Call Substory contains missing parameter ${unknownArgument}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              const resultVariableIds: Record<VariableId, VariableId> = {};
+              for (const [outputId, variableId] of Object.entries(data.resultVariableIds ?? {})) {
+                const output = calledChapter.outputs.find(
+                  (candidate) => candidate.variable.id === outputId,
+                );
+                const resultVariable = visibleVariables.find(
+                  (variable) => variable.id === variableId,
+                );
+                if (!output) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Call Substory references missing output ${outputId}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (!resultVariable) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Substory output ${output.variable.name} references a missing variable`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (
+                  resultVariable.valueType.kind !== output.variable.valueType.kind &&
+                  resultVariable.valueType.kind !== 'any'
+                ) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Substory output ${output.variable.name} must be assigned to ${output.variable.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                } else resultVariableIds[output.variable.id] = resultVariable.id;
+              }
               instructions.push({
                 id: instructionId(node.id),
                 op: 'call-chapter',
-                chapterId: chapter.id,
+                chapterId: calledChapter.id,
                 target: blockId(entry.id),
-                arguments: {},
+                arguments: compiledArguments,
                 returnTo: { blockId: returnBlock, instructionIndex: 0 },
+                resultVariableIds,
               });
             }
             break;
@@ -552,7 +668,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
             }
             break;
           }
-          case StoryNodeType.Return:
+          case StoryNodeType.Return: {
             if (!chapterId) {
               diagnostics.push({
                 code: 'INVALID_NODE',
@@ -560,14 +676,58 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 message: 'Return can only be used inside a substory',
                 sourceNodeId: node.id,
               });
-            } else instructions.push({ id: instructionId(node.id), op: 'return' });
+            } else {
+              const data = node.data as unknown as ReturnNodeData;
+              const values: Record<VariableId, ReturnType<typeof compileExpression>> = {};
+              for (const output of chapter!.outputs) {
+                const sourceValue = (data.values ?? {})[output.variable.id];
+                if (!sourceValue) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Return requires output ${output.variable.name}`,
+                    sourceNodeId: node.id,
+                  });
+                  continue;
+                }
+                const value = compileSafe(node, () =>
+                  compileExpression(sourceValue, visibleVariables, source.characters),
+                );
+                if (!value) continue;
+                if (
+                  value.valueType.kind !== 'any' &&
+                  value.valueType.kind !== output.variable.valueType.kind
+                ) {
+                  diagnostics.push({
+                    code: 'EXPRESSION_ERROR',
+                    severity: 'error',
+                    message: `Return output ${output.variable.name} must be ${output.variable.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                } else values[output.variable.id] = value;
+              }
+              const knownOutputs = new Set(chapter!.outputs.map((output) => output.variable.id));
+              const unknownOutput = Object.keys(data.values ?? {}).find(
+                (outputId) => !knownOutputs.has(outputId as VariableId),
+              );
+              if (unknownOutput) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Return references missing output ${unknownOutput}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              instructions.push({ id: instructionId(node.id), op: 'return', values });
+            }
             break;
+          }
           case StoryNodeType.End:
             instructions.push({ id: instructionId(node.id), op: 'end-story' });
             break;
           case StoryNodeType.GetVariable: {
             const data = node.data as unknown as GetVariableNodeData;
-            if (data.variableId && !allVariables.some((item) => item.id === data.variableId)) {
+            if (data.variableId && !visibleVariables.some((item) => item.id === data.variableId)) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
@@ -610,9 +770,13 @@ export class DefaultStoryCompiler implements StoryCompiler {
           parameters: chapter.parameters.map((parameter) => ({
             variableId: parameter.variable.id,
             valueType: parameter.variable.valueType,
+            defaultValue: parameter.variable.defaultValue,
+          })),
+          outputs: chapter.outputs.map((output) => ({
+            variableId: output.variable.id,
+            valueType: output.variable.valueType,
           })),
           localVariables: [...chapter.localVariables],
-          returnType: chapter.returnType,
         },
       ]),
     );
@@ -625,6 +789,12 @@ export class DefaultStoryCompiler implements StoryCompiler {
       blocks,
       chapters,
       variables: allVariables,
+      sourceLocale: options.sourceLocale,
+      locales:
+        Object.keys(options.translations ?? {}).length > 0
+          ? Object.keys(options.translations ?? {}).sort()
+          : undefined,
+      localeFallbacks: options.localeFallbacks,
     } as const;
     const validationDiagnostics = validateRuntimeProgram(program);
     if (validationDiagnostics.some((diagnostic) => diagnostic.severity === 'error')) {

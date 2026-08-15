@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { CSSProperties } from 'react';
-import type { CallSubstoryNodeData } from '@story-blueprint/common';
+import type { CallSubstoryNodeData, ReturnNodeData } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import styles from './Node.module.css';
 
@@ -23,7 +23,28 @@ export function CallSubstoryNode({ data }: NodeProps) {
         <span className={styles.typeIcon}>↗</span>
       </div>
       <div className={styles.terminalBody}>
-        {chapter?.displayName ?? (d.chapterId ? 'Missing Substory' : 'Select Substory')}
+        <strong>
+          {chapter?.displayName ?? (d.chapterId ? 'Missing Substory' : 'Select Substory')}
+        </strong>
+        {chapter && (
+          <div className={styles.interfaceRows}>
+            {chapter.parameters.map((parameter) => (
+              <span key={parameter.variable.id}>
+                <b>IN</b> {parameter.variable.displayName}
+                <em>{parameter.variable.valueType.kind}</em>
+              </span>
+            ))}
+            {chapter.outputs.map((output) => (
+              <span key={output.variable.id}>
+                <b>OUT</b> {output.variable.displayName}
+                <em>{output.variable.valueType.kind}</em>
+              </span>
+            ))}
+            {chapter.parameters.length === 0 && chapter.outputs.length === 0 && (
+              <span className={styles.expression}>No parameters</span>
+            )}
+          </div>
+        )}
       </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}
@@ -41,7 +62,10 @@ export function CallSubstoryNode({ data }: NodeProps) {
   );
 }
 
-export function ReturnNode() {
+export function ReturnNode({ data }: NodeProps) {
+  const d = data as unknown as ReturnNodeData;
+  const { chapters, activeGraphId } = useStoryGraphStore();
+  const chapter = chapters.find((candidate) => candidate.id === activeGraphId);
   return (
     <div
       className={styles.node}
@@ -56,7 +80,23 @@ export function ReturnNode() {
         <span className={styles.title}>Return</span>
         <span className={styles.typeIcon}>↩</span>
       </div>
-      <div className={styles.terminalBody}>Return to caller</div>
+      <div className={styles.terminalBody}>
+        <strong>Return to caller</strong>
+        {chapter && (
+          <div className={styles.interfaceRows}>
+            {chapter.outputs.map((output) => (
+              <span key={output.variable.id}>
+                <b>OUT</b> {output.variable.displayName}
+                <em>
+                  {output.variable.valueType.kind} ·
+                  {d.values?.[output.variable.id]?.source || ' value'}
+                </em>
+              </span>
+            ))}
+            {chapter.outputs.length === 0 && <span className={styles.expression}>No outputs</span>}
+          </div>
+        )}
+      </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}
         type="target"

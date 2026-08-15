@@ -94,15 +94,16 @@ function WorkspaceTree({
       );
     }
 
-    if (entry.kind === 'project') {
+    if (entry.kind === 'project' || entry.kind === 'localization') {
+      const isLocalization = entry.kind === 'localization';
       return (
         <div
           key={entry.relativePath}
           className={styles.fileRow}
           style={{ paddingLeft: 26 + depth * 13 }}
-          title="Story Blueprint project index"
+          title={isLocalization ? 'Project localization table' : 'Story Blueprint project index'}
         >
-          <span className={styles.projectFileIcon}>P</span>
+          <span className={styles.projectFileIcon}>{isLocalization ? 'L' : 'P'}</span>
           <span className={styles.fileName}>{entry.name}</span>
           <span className={styles.fileActions}>
             <button
@@ -112,9 +113,11 @@ function WorkspaceTree({
             >
               ◎
             </button>
-            <button type="button" title="Delete Project File" onClick={() => onDelete(entry)}>
-              ×
-            </button>
+            {!isLocalization && (
+              <button type="button" title="Delete Project File" onClick={() => onDelete(entry)}>
+                ×
+              </button>
+            )}
           </span>
         </div>
       );

@@ -90,6 +90,15 @@ function validateProject(project: StoryProjectDocument): void {
   ) {
     throw new StoryFormatError(`Invalid project output directory ${project.outputDirectory}`);
   }
+  if (
+    project.localizationPath !== undefined &&
+    (!project.localizationPath.toLowerCase().endsWith('.storyloc') ||
+      project.localizationPath.startsWith('/') ||
+      /^[a-z]:[\\/]/i.test(project.localizationPath) ||
+      project.localizationPath.split(/[\\/]/).includes('..'))
+  ) {
+    throw new StoryFormatError(`Invalid project localization path ${project.localizationPath}`);
+  }
   const characterIds = new Set<string>();
   const characterNames = new Set<string>();
   const resourcePaths = new Set<string>();
@@ -245,6 +254,7 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
   if (project.displayName !== project.name) root.setProperty('display-name', project.displayName);
   if (project.entryStoryId) root.setProperty('entry-story', project.entryStoryId);
   if (project.outputDirectory) root.setProperty('output-directory', project.outputDirectory);
+  if (project.localizationPath) root.setProperty('localization', project.localizationPath);
 
   const stories = Node.create('stories');
   for (const story of [...project.stories].sort((left, right) =>
@@ -391,6 +401,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     'display-name',
     'entry-story',
     'output-directory',
+    'localization',
   ]);
   assertChildren(root, 'project', [
     'stories',
@@ -648,6 +659,10 @@ export function parseStoryProject(text: string): StoryProjectDocument {
       root.getProperty('output-directory') === undefined
         ? undefined
         : requiredString(root.getProperty('output-directory'), 'project.output-directory'),
+    localizationPath:
+      root.getProperty('localization') === undefined
+        ? undefined
+        : requiredString(root.getProperty('localization'), 'project.localization'),
     stories,
     characters,
     assets,

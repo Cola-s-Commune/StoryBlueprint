@@ -944,7 +944,7 @@ export function extractSelectionToSubstory(
     type: StoryNodeType.Return,
     definitionVersion: 1,
     position: { x: Math.round(maxX + 280), y: Math.round(outgoingSource.position.y) },
-    data: {} as EditorNodeData,
+    data: { values: {} } as EditorNodeData,
     selected: false,
   };
   const call: EditorGraphNode = {
@@ -952,7 +952,7 @@ export function extractSelectionToSubstory(
     type: StoryNodeType.CallSubstory,
     definitionVersion: 1,
     position: { x: centerX, y: centerY },
-    data: { chapterId } as EditorNodeData,
+    data: { chapterId, arguments: {}, resultVariableIds: {} } as EditorNodeData,
     selected: true,
   };
 

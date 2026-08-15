@@ -21,7 +21,7 @@ export type RuntimeStatus = 'running' | 'waiting' | 'completed' | 'failed';
 export interface CallFrame {
   chapterId: ChapterId;
   returnTo: ProgramLocation;
-  resultVariableId?: VariableId;
+  resultVariableIds: Record<string, VariableId>;
   locals: Record<string, RuntimeValue>;
 }
 

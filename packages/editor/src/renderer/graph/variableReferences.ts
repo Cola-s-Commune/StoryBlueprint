@@ -376,6 +376,15 @@ export function expressionEntries(
       return Object.entries((node.data as StoryNodeDataMap[StoryNodeType.WaitSignal]).matches).map(
         ([name, value]) => [`Match ${name}`, value],
       );
+    case StoryNodeType.CallSubstory:
+      return Object.entries(
+        (node.data as StoryNodeDataMap[StoryNodeType.CallSubstory]).arguments ?? {},
+      ).map(([parameterId, value]) => [`Substory Argument ${parameterId}`, value]);
+    case StoryNodeType.Return: {
+      return Object.entries((node.data as StoryNodeDataMap[StoryNodeType.Return]).values ?? {}).map(
+        ([outputId, value]) => [`Return Output ${outputId}`, value],
+      );
+    }
     default:
       return [];
   }
@@ -432,6 +441,12 @@ export function findVariableReferences(
         node.data.variableId === variable.id
       ) {
         add(owner, node, 'Variable', 'target');
+      }
+      if (
+        node.type === StoryNodeType.CallSubstory &&
+        Object.values(node.data.resultVariableIds ?? {}).includes(variable.id)
+      ) {
+        add(owner, node, 'Result Variable', 'target');
       }
       for (const [field, expression] of expressionEntries(node)) {
         if (expressionReferencesVariable(expression, variable)) {
@@ -595,6 +610,36 @@ export function renameVariableReferencesInNode(
         },
       };
     }
+    case StoryNodeType.CallSubstory: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          arguments: Object.fromEntries(
+            Object.entries(data.arguments ?? {}).map(([id, value]) => [
+              id,
+              renameExpressionVariable(value, variableId, oldName, newName),
+            ]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.Return: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Return];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          values: Object.fromEntries(
+            Object.entries(data.values ?? {}).map(([id, value]) => [
+              id,
+              renameExpressionVariable(value, variableId, oldName, newName),
+            ]),
+          ),
+        },
+      };
+    }
     default:
       return node;
   }
@@ -662,6 +707,30 @@ export function bindVariableReferencesInNode(
           ...node.data,
           matches: Object.fromEntries(
             Object.entries(data.matches).map(([name, value]) => [name, bindExpression(value)]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.CallSubstory: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          arguments: Object.fromEntries(
+            Object.entries(data.arguments ?? {}).map(([id, value]) => [id, bindExpression(value)]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.Return: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Return];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          values: Object.fromEntries(
+            Object.entries(data.values ?? {}).map(([id, value]) => [id, bindExpression(value)]),
           ),
         },
       };
@@ -740,6 +809,33 @@ export function renameCharacterFieldReferencesInNode(
         },
       };
     }
+    case StoryNodeType.CallSubstory: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          arguments: Object.fromEntries(
+            Object.entries(data.arguments ?? {}).map(([id, value]) => [
+              id,
+              renameExpression(value),
+            ]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.Return: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Return];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          values: Object.fromEntries(
+            Object.entries(data.values ?? {}).map(([id, value]) => [id, renameExpression(value)]),
+          ),
+        },
+      };
+    }
     default:
       return node;
   }
@@ -808,6 +904,30 @@ export function bindCharacterFieldReferencesInNode(
           ...node.data,
           matches: Object.fromEntries(
             Object.entries(data.matches).map(([name, value]) => [name, bindExpression(value)]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.CallSubstory: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          arguments: Object.fromEntries(
+            Object.entries(data.arguments ?? {}).map(([id, value]) => [id, bindExpression(value)]),
+          ),
+        },
+      };
+    }
+    case StoryNodeType.Return: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Return];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          values: Object.fromEntries(
+            Object.entries(data.values ?? {}).map(([id, value]) => [id, bindExpression(value)]),
           ),
         },
       };

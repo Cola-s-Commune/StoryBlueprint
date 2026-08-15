@@ -10,8 +10,8 @@ const variableStyle = {
 } as CSSProperties;
 
 function VariableName({ variableId }: { variableId?: string }) {
-  const { variables, projectVariables } = useStoryGraphStore();
-  const variable = [...variables, ...projectVariables].find(
+  const { availableVariables, projectVariables } = useStoryGraphStore();
+  const variable = [...availableVariables, ...projectVariables].find(
     (candidate) => candidate.id === variableId,
   );
   return (

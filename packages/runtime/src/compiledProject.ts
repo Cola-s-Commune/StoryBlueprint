@@ -29,7 +29,10 @@ export function parseCompiledStoryProject(content: string): CompiledStoryProject
   ) {
     throw new Error('Compiled Story project has no valid entry Story');
   }
-  for (const [storyId, story] of Object.entries(project.stories)) {
+  for (const [storyId, story] of Object.entries(project.stories) as [
+    string,
+    CompiledStoryProject['stories'][string],
+  ][]) {
     if (!story || story.storyId !== storyId || !story.program) {
       throw new Error(`Invalid compiled Story entry ${storyId}`);
     }
@@ -44,8 +47,9 @@ export function createRuntimeFromCompiledProject(
   project: CompiledStoryProject,
   storyId: StoryId = project.entryStoryId,
   restoredState?: RuntimeState,
+  locale?: string,
 ): StoryRuntime {
   const story = project.stories[storyId];
   if (!story) throw new Error(`Compiled Story does not exist: ${storyId}`);
-  return new StoryRuntime(story.program, restoredState);
+  return new StoryRuntime(story.program, restoredState, locale);
 }

@@ -98,6 +98,7 @@ describe('substories', () => {
           name: 'intro',
           displayName: 'Intro',
           parameters: [],
+          outputs: [],
           localVariables: [],
           graph: toSourceGraph(extracted.chapterGraph),
         },
@@ -137,5 +138,190 @@ describe('substories', () => {
     });
     const extracted = extractSelectionToSubstory(candidate, 'ch_multi');
     expect(extracted).toMatchObject({ ok: false });
+  });
+
+  it('round-trips parameters, locals, and a return value through the runtime', () => {
+    const source: StorySourceDocument = {
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: 's_interface',
+      name: 'interface',
+      displayName: 'Substory Interface',
+      root: {
+        nodes: [
+          {
+            id: 'n_root_start',
+            type: StoryNodeType.Start,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: { title: 'Start' },
+          },
+          {
+            id: 'n_root_call',
+            type: StoryNodeType.CallSubstory,
+            definitionVersion: 1,
+            position: { x: 300, y: 0 },
+            data: {
+              chapterId: 'ch_math',
+              arguments: { v_input: { source: '7', bindings: {} } },
+              resultVariableIds: { v_math_result: 'v_result', v_math_label: 'v_label' },
+            },
+          },
+          {
+            id: 'n_root_endx',
+            type: StoryNodeType.End,
+            definitionVersion: 1,
+            position: { x: 600, y: 0 },
+            data: { title: 'End' },
+          },
+        ],
+        edges: [
+          {
+            from: { nodeId: 'n_root_start', portId: 'out' },
+            to: { nodeId: 'n_root_call', portId: 'in' },
+          },
+          {
+            from: { nodeId: 'n_root_call', portId: 'out' },
+            to: { nodeId: 'n_root_endx', portId: 'in' },
+          },
+        ],
+      },
+      chapters: [
+        {
+          id: 'ch_math',
+          name: 'math',
+          displayName: 'Math',
+          parameters: [
+            {
+              direction: 'input',
+              variable: {
+                id: 'v_input',
+                name: 'input',
+                displayName: 'Input',
+                scope: 'local',
+                valueType: { kind: 'number' },
+                defaultValue: 1,
+              },
+            },
+          ],
+          outputs: [
+            {
+              direction: 'output',
+              variable: {
+                id: 'v_math_result',
+                name: 'result',
+                displayName: 'Result',
+                scope: 'local',
+                valueType: { kind: 'number' },
+                defaultValue: 0,
+              },
+            },
+            {
+              direction: 'output',
+              variable: {
+                id: 'v_math_label',
+                name: 'label',
+                displayName: 'Label',
+                scope: 'local',
+                valueType: { kind: 'string' },
+                defaultValue: '',
+              },
+            },
+          ],
+          localVariables: [
+            {
+              id: 'v_local',
+              name: 'local',
+              displayName: 'Local',
+              scope: 'local',
+              valueType: { kind: 'number' },
+              defaultValue: 0,
+            },
+          ],
+          graph: {
+            nodes: [
+              {
+                id: 'n_math_start',
+                type: StoryNodeType.Start,
+                definitionVersion: 1,
+                position: { x: 0, y: 0 },
+                data: { title: 'Start' },
+              },
+              {
+                id: 'n_math_setx',
+                type: StoryNodeType.SetVariable,
+                definitionVersion: 1,
+                position: { x: 300, y: 0 },
+                data: {
+                  variableId: 'v_local',
+                  value: { source: 'input + 2', bindings: { input: 'v_input' } },
+                },
+              },
+              {
+                id: 'n_math_return',
+                type: StoryNodeType.Return,
+                definitionVersion: 1,
+                position: { x: 600, y: 0 },
+                data: {
+                  values: {
+                    v_math_result: { source: 'local', bindings: { local: 'v_local' } },
+                    v_math_label: { source: '"done"', bindings: {} },
+                  },
+                },
+              },
+            ],
+            edges: [
+              {
+                from: { nodeId: 'n_math_start', portId: 'out' },
+                to: { nodeId: 'n_math_setx', portId: 'in' },
+              },
+              {
+                from: { nodeId: 'n_math_setx', portId: 'out' },
+                to: { nodeId: 'n_math_return', portId: 'in' },
+              },
+            ],
+          },
+        },
+      ],
+      variables: [
+        {
+          id: 'v_result',
+          name: 'result',
+          displayName: 'Result',
+          scope: 'story',
+          valueType: { kind: 'number' },
+          defaultValue: 0,
+        },
+        {
+          id: 'v_label',
+          name: 'label',
+          displayName: 'Label',
+          scope: 'story',
+          valueType: { kind: 'string' },
+          defaultValue: '',
+        },
+      ],
+      characters: [],
+      assets: [],
+      events: [],
+    };
+
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('parameter v_input');
+    expect(serialized).toContain('output v_math_result');
+    expect(serialized).toContain('output v_math_label');
+    const parsed = parseStorySource(serialized);
+    expect(parsed.chapters[0]?.parameters[0]?.variable.defaultValue).toBe(1);
+    expect(parsed.chapters[0]?.localVariables[0]?.name).toBe('local');
+    expect(serializeStorySource(parsed)).toBe(serialized);
+
+    const compiled = compileStory(parsed, { contentVersion: 'interface-test' });
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true);
+    if (!compiled.ok) return;
+    const completed = new StoryRuntime(compiled.program).runUntilPause();
+    expect(completed.kind).toBe('completed');
+    expect(completed.state.storyVariables.v_result).toBe(9);
+    expect(completed.state.storyVariables.v_label).toBe('done');
+    expect(completed.state.callStack).toHaveLength(0);
   });
 });

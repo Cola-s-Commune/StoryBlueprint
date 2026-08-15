@@ -38,6 +38,7 @@ export interface StoryProjectDocument {
   displayName: string;
   entryStoryId?: StoryId;
   outputDirectory?: string;
+  localizationPath?: string;
   stories: readonly ProjectStoryReference[];
   characters: readonly ProjectCharacterReference[];
   assets: readonly ProjectAssetReference[];

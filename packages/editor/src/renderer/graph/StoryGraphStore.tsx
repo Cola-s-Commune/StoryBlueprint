@@ -27,6 +27,7 @@ import {
   serializeStoryProject,
   serializeCharacterResource,
   serializeAssetResource,
+  serializeStoryLocalization,
   STORY_PROJECT_FORMAT,
   STORY_PROJECT_VERSION,
   STORY_SOURCE_FORMAT,
@@ -56,6 +57,7 @@ import {
   type StoryNodeDataMap,
   type StoryId,
   type StorySourceDocument,
+  type StoryLocalizationDocument,
 } from '@story-blueprint/common';
 import type { ExternalWorkspaceFileChange, RecoveryCandidate } from '../../shared/electronApi';
 import {
@@ -278,6 +280,7 @@ interface EditorHistoryState {
   events: readonly EventSource[];
   signals: readonly SignalSource[];
   projectSettings?: { entryStoryId?: StoryId; outputDirectory?: string };
+  localization?: StoryLocalizationDocument;
   storyFiles: { relativePath: string; content: string }[];
 }
 
@@ -378,6 +381,7 @@ interface StoryGraphStoreValue {
   chooseStoryMergePreviewConflict: (id: string, choice: StoryMergeChoice) => void;
   focusStoryMergePreviewNode: (graphId: ActiveGraphId, nodeId: NodeId) => boolean;
   variables: VariableDefinition[];
+  availableVariables: readonly VariableDefinition[];
   projectVariables: readonly VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
@@ -395,7 +399,12 @@ interface StoryGraphStoreValue {
   switchGraph: (id: ActiveGraphId) => void;
   focusGraphNode: (graphId: ActiveGraphId, nodeId: NodeId) => boolean;
   addSubstory: () => ChapterId;
-  updateSubstory: (id: ChapterId, update: { name?: string; displayName?: string }) => void;
+  updateSubstory: (
+    id: ChapterId,
+    update: Partial<
+      Pick<EditorChapter, 'name' | 'displayName' | 'parameters' | 'outputs' | 'localVariables'>
+    >,
+  ) => void;
   removeSubstory: (id: ChapterId) => string | undefined;
   extractSelectionToSubstory: () =>
     { ok: true; chapterId: ChapterId } | { ok: false; message: string };
@@ -485,6 +494,8 @@ interface StoryGraphStoreValue {
     entryStoryId?: StoryId;
     outputDirectory?: string;
   }) => Promise<void>;
+  extractProjectLocalization: (sourceLocale: string) => Promise<void>;
+  updateProjectLocalization: (document: StoryLocalizationDocument) => void;
 }
 
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
@@ -510,6 +521,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const rootGraphRef = useRef<EditorGraphState>(structuredClone(initialGraph));
   const [chapters, setChapters] = useState<EditorChapter[]>([]);
   const [activeGraphId, setActiveGraphId] = useState<ActiveGraphId>('root');
+  const activeChapter = chapters.find((chapter) => chapter.id === activeGraphId);
+  const availableVariables = useMemo(
+    () => [
+      ...variables,
+      ...(activeChapter?.parameters.map((parameter) => parameter.variable) ?? []),
+      ...(activeChapter?.localVariables ?? []),
+    ],
+    [activeChapter?.localVariables, activeChapter?.parameters, variables],
+  );
   const revisionRef = useRef(0);
   const [document, setDocument] = useState<StoryDocumentInfo>(initialDocument);
   const [hasActiveStory, setHasActiveStory] = useState(false);
@@ -847,7 +867,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (
       state: Pick<
         EditorHistoryState,
-        'projectVariables' | 'events' | 'signals' | 'projectSettings'
+        'projectVariables' | 'events' | 'signals' | 'projectSettings' | 'localization'
       >,
     ) => {
       if (!workspace?.project || !window.electronAPI) return;
@@ -877,6 +897,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           ...projectSettings,
         }),
       );
+      if (state.localization && workspace.project.localizationPath) {
+        queueProjectResourceWrite(() =>
+          window.electronAPI!.updateProjectLocalization(structuredClone(state.localization!)),
+        );
+      }
     },
     [queueProjectResourceWrite, workspace?.project],
   );
@@ -924,6 +949,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 outputDirectory: workspace.project.outputDirectory,
               }
             : undefined,
+          localization: workspace?.localization
+            ? structuredClone(workspace.localization.document)
+            : undefined,
           storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
             relativePath,
             content,
@@ -946,6 +974,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedCharacters,
       signals,
       variables,
+      workspace?.localization,
       workspace?.project,
       workspaceStories,
     ],
@@ -1128,6 +1157,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             outputDirectory: workspace.project.outputDirectory,
           }
         : undefined,
+      localization: workspace?.localization
+        ? structuredClone(workspace.localization.document)
+        : undefined,
       storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
         relativePath,
         content,
@@ -1146,6 +1178,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedCharacters,
       signals,
       variables,
+      workspace?.localization,
       workspace?.project,
       workspaceStories,
     ],
@@ -1500,6 +1533,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       id,
       ...identity,
       parameters: [],
+      outputs: [],
       localVariables: [],
       graph: createNewSubstoryGraph(),
     };
@@ -1518,14 +1552,132 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, [activeGraphId, checkpoint, graph, markDirty, nextSubstoryIdentity, restoreGraph]);
 
   const updateSubstory = useCallback(
-    (id: ChapterId, update: { name?: string; displayName?: string }) => {
-      checkpoint(undefined, 'Rename Substory');
-      setChapters((current) =>
-        current.map((chapter) => (chapter.id === id ? { ...chapter, ...update, id } : chapter)),
+    (
+      id: ChapterId,
+      update: Partial<
+        Pick<EditorChapter, 'name' | 'displayName' | 'parameters' | 'outputs' | 'localVariables'>
+      >,
+    ) => {
+      const previous = chapters.find((chapter) => chapter.id === id);
+      if (!previous) return;
+      const next = { ...previous, ...update, id };
+      if (JSON.stringify(next) === JSON.stringify(previous)) return;
+      const editsInterface =
+        update.parameters !== undefined ||
+        update.outputs !== undefined ||
+        update.localVariables !== undefined;
+      checkpoint(undefined, editsInterface ? 'Edit Substory Interface' : 'Rename Substory');
+      const rewriteReturns = (candidate: EditorGraphState): EditorGraphState => ({
+        ...candidate,
+        nodes: candidate.nodes.map((node) => {
+          if (node.type !== StoryNodeType.Return) return node;
+          const data = node.data as StoryNodeDataMap[StoryNodeType.Return];
+          return {
+            ...node,
+            data: {
+              ...data,
+              values: Object.fromEntries(
+                next.outputs.map((output) => {
+                  const previousOutput = previous.outputs.find(
+                    (candidate) => candidate.variable.id === output.variable.id,
+                  );
+                  const fallback =
+                    output.variable.valueType.kind === 'boolean'
+                      ? 'false'
+                      : output.variable.valueType.kind === 'number'
+                        ? '0'
+                        : '""';
+                  return [
+                    output.variable.id,
+                    previousOutput?.variable.valueType.kind === output.variable.valueType.kind &&
+                    data.values?.[output.variable.id]
+                      ? data.values[output.variable.id]
+                      : { source: fallback, bindings: {} },
+                  ];
+                }),
+              ),
+            },
+          };
+        }),
+      });
+      const previousInterfaceVariables = new Map(
+        [
+          ...previous.parameters.map((parameter) => parameter.variable),
+          ...previous.outputs.map((output) => output.variable),
+          ...previous.localVariables,
+        ].map((variable) => [variable.id, variable]),
       );
+      const renamedInterfaceVariables = [
+        ...next.parameters.map((parameter) => parameter.variable),
+        ...next.outputs.map((output) => output.variable),
+        ...next.localVariables,
+      ].flatMap((variable) => {
+        const oldVariable = previousInterfaceVariables.get(variable.id);
+        return oldVariable && oldVariable.name !== variable.name
+          ? [{ id: variable.id, oldName: oldVariable.name, newName: variable.name }]
+          : [];
+      });
+      const rewriteInterfaceGraph = (candidate: EditorGraphState): EditorGraphState =>
+        rewriteReturns({
+          ...candidate,
+          nodes: candidate.nodes.map((node) =>
+            renamedInterfaceVariables.reduce(
+              (current, rename) =>
+                renameVariableReferencesInNode(current, rename.id, rename.oldName, rename.newName),
+              node,
+            ),
+          ),
+        });
+      setChapters((current) =>
+        current.map((chapter) =>
+          chapter.id === id
+            ? {
+                ...chapter,
+                ...update,
+                id,
+                graph:
+                  editsInterface && activeGraphId !== id
+                    ? rewriteInterfaceGraph(chapter.graph)
+                    : chapter.graph,
+              }
+            : chapter,
+        ),
+      );
+      if (editsInterface) {
+        if (activeGraphId === id) {
+          setNodes((current) => rewriteInterfaceGraph({ nodes: current, edges }).nodes);
+        }
+        const parameterIds = new Set(next.parameters.map((parameter) => parameter.variable.id));
+        const outputIds = new Set(next.outputs.map((output) => output.variable.id));
+        const rewriteCalls = (candidate: EditorGraphState): EditorGraphState => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) => {
+            if (node.type !== StoryNodeType.CallSubstory || node.data.chapterId !== id) return node;
+            const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+            return {
+              ...node,
+              data: {
+                ...data,
+                arguments: Object.fromEntries(
+                  Object.entries(data.arguments ?? {}).filter(([parameterId]) =>
+                    parameterIds.has(parameterId as VariableId),
+                  ),
+                ),
+                resultVariableIds: Object.fromEntries(
+                  Object.entries(data.resultVariableIds ?? {}).filter(([outputId]) =>
+                    outputIds.has(outputId as VariableId),
+                  ),
+                ),
+              },
+            };
+          }),
+        });
+        setNodes((current) => rewriteCalls({ nodes: current, edges }).nodes);
+        updateInactiveGraphs(rewriteCalls);
+      }
       markDirty();
     },
-    [checkpoint, markDirty],
+    [activeGraphId, chapters, checkpoint, edges, markDirty, setNodes, updateInactiveGraphs],
   );
 
   const removeSubstory = useCallback(
@@ -1572,6 +1724,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         id,
         ...identity,
         parameters: [],
+        outputs: [],
         localVariables: [],
         graph: extracted.chapterGraph,
       },
@@ -1791,6 +1944,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const variable =
         variables.find((candidate) => candidate.id === id) ??
         projectVariables.find((candidate) => candidate.id === id) ??
+        chapters
+          .flatMap((chapter) => [
+            ...chapter.parameters.map((parameter) => parameter.variable),
+            ...chapter.outputs.map((output) => output.variable),
+            ...chapter.localVariables,
+          ])
+          .find((candidate) => candidate.id === id) ??
         resolvedCharacters
           .flatMap((character) => character.fields ?? [])
           .find((candidate) => candidate.id === id);
@@ -1834,6 +1994,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       projectVariableReferenceScan.references,
       projectVariableReferenceScan.variableId,
       projectVariables,
+      chapters,
       resolvedCharacters,
       variableReferenceGraphs,
       variables,
@@ -1844,7 +2005,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const updateVariable = useCallback(
     (id: VariableId, update: Partial<VariableDefinition>): boolean => {
       const projectVariable = projectVariables.find((variable) => variable.id === id);
-      const allNamedVariables = [...variables, ...projectVariables];
+      const substory = chapters.find((chapter) =>
+        [
+          ...chapter.parameters.map((parameter) => parameter.variable),
+          ...chapter.outputs.map((output) => output.variable),
+          ...chapter.localVariables,
+        ].some((variable) => variable.id === id),
+      );
+      const substoryVariables = substory
+        ? [
+            ...substory.parameters.map((parameter) => parameter.variable),
+            ...substory.outputs.map((output) => output.variable),
+            ...substory.localVariables,
+          ]
+        : [];
+      const allNamedVariables = [...variables, ...projectVariables, ...substoryVariables];
       if (
         update.name !== undefined &&
         (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(update.name) ||
@@ -1856,8 +2031,30 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         update.name !== undefined && update.displayName === undefined
           ? { ...update, displayName: update.name }
           : update;
-      const previous = projectVariable ?? variables.find((variable) => variable.id === id);
+      const previous =
+        projectVariable ??
+        variables.find((variable) => variable.id === id) ??
+        substoryVariables.find((variable) => variable.id === id);
       if (!previous) return false;
+      if (substory) {
+        const normalized = { ...nextUpdate, scope: 'local' as const };
+        updateSubstory(substory.id, {
+          parameters: substory.parameters.map((parameter) =>
+            parameter.variable.id === id
+              ? { ...parameter, variable: { ...parameter.variable, ...normalized, id } }
+              : parameter,
+          ),
+          outputs: substory.outputs.map((output) =>
+            output.variable.id === id
+              ? { ...output, variable: { ...output.variable, ...normalized, id } }
+              : output,
+          ),
+          localVariables: substory.localVariables.map((variable) =>
+            variable.id === id ? { ...variable, ...normalized, id } : variable,
+          ),
+        });
+        return true;
+      }
       if (projectVariable) {
         const requiresCompleteIndex = update.name !== undefined || update.valueType !== undefined;
         if (
@@ -1989,6 +2186,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     },
     [
       checkpoint,
+      chapters,
       document.id,
       edges,
       findVariableReferencesById,
@@ -2002,6 +2200,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       rewriteProjectVariableReferences,
       setNodes,
       updateInactiveGraphs,
+      updateSubstory,
       variables,
       writeProjectVariables,
     ],
@@ -2031,6 +2230,24 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         writeProjectVariables(projectVariables.filter((variable) => variable.id !== id));
         return { ok: true };
       }
+      const substory = chapters.find((chapter) =>
+        [
+          ...chapter.parameters.map((parameter) => parameter.variable),
+          ...chapter.outputs.map((output) => output.variable),
+          ...chapter.localVariables,
+        ].some((variable) => variable.id === id),
+      );
+      if (substory) {
+        setStoryDataSelection((current) =>
+          current?.kind === 'variable' && current.id === id ? undefined : current,
+        );
+        updateSubstory(substory.id, {
+          parameters: substory.parameters.filter((parameter) => parameter.variable.id !== id),
+          outputs: substory.outputs.filter((output) => output.variable.id !== id),
+          localVariables: substory.localVariables.filter((variable) => variable.id !== id),
+        });
+        return { ok: true };
+      }
       checkpoint(undefined, 'Delete Variable');
       setStoryDataSelection((current) =>
         current?.kind === 'variable' && current.id === id ? undefined : current,
@@ -2041,12 +2258,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     },
     [
       checkpoint,
+      chapters,
       findVariableReferencesById,
       markDirty,
       projectVariableReferenceScan.error,
       projectVariableReferenceScan.loading,
       projectVariableReferenceScan.variableId,
       projectVariables,
+      updateSubstory,
       writeProjectVariables,
     ],
   );
@@ -2884,7 +3103,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           node.id === id && node.type === type
             ? bindCharacterFieldReferencesInNode(
                 bindVariableReferencesInNode({ ...node, data: { ...node.data, ...update } }, [
-                  ...variables,
+                  ...availableVariables,
                   ...projectVariables,
                 ]),
                 resolvedCharacters,
@@ -2894,7 +3113,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       markDirty();
     },
-    [markDirty, projectVariables, resolvedCharacters, setNodes, variables],
+    [availableVariables, markDirty, projectVariables, resolvedCharacters, setNodes],
   );
 
   const captureActiveStory = useCallback(
@@ -3630,7 +3849,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                           );
                           return resource ? serializeAssetResource(resource.asset) : undefined;
                         })()
-                      : undefined;
+                      : change.kind === 'localization'
+                        ? workspace?.localization
+                          ? serializeStoryLocalization(workspace.localization.document)
+                          : undefined
+                        : undefined;
               if (change.kind === 'character-template') {
                 refreshResources = true;
                 continue;
@@ -4097,6 +4320,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [checkpoint, queueProjectResourceWrite, workspace?.project],
   );
 
+  const extractProjectLocalization = useCallback(
+    async (sourceLocale: string) => {
+      if (!window.electronAPI || !workspace?.project) return;
+      if (!(await saveAllDirtyStories())) return;
+      try {
+        setWorkspace(await window.electronAPI.extractProjectLocalization(sourceLocale));
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [saveAllDirtyStories, workspace?.project],
+  );
+
+  const updateProjectLocalization = useCallback(
+    (localization: StoryLocalizationDocument) => {
+      if (!window.electronAPI || !workspace?.localization) return;
+      if (JSON.stringify(localization) === JSON.stringify(workspace.localization.document)) return;
+      checkpoint(undefined, 'Edit Localization');
+      setWorkspace((current) =>
+        current?.localization
+          ? {
+              ...current,
+              localization: { ...current.localization, document: structuredClone(localization) },
+            }
+          : current,
+      );
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.updateProjectLocalization(structuredClone(localization)),
+      );
+    },
+    [checkpoint, queueProjectResourceWrite, workspace?.localization],
+  );
+
   const buildProject = useCallback(async () => {
     if (!window.electronAPI || !workspace?.project) {
       setWorkspaceError('Open or create a Story project before building.');
@@ -4136,7 +4393,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           },
         };
       });
-      const result = compileProject(nextWorkspace.project, projectSources);
+      const result = compileProject(nextWorkspace.project, projectSources, {
+        localization: nextWorkspace.localization?.document,
+      });
       setProblems(result.diagnostics);
       if (!result.ok) return;
       const exported = await window.electronAPI.exportCompiledProject(
@@ -4460,6 +4719,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateNode,
       updateNodeData,
       variables,
+      availableVariables,
       projectVariables,
       characters: resolvedCharacters,
       assets: resolvedAssets,
@@ -4578,6 +4838,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       buildProject,
       focusProblem,
       updateProjectSettings,
+      extractProjectLocalization,
+      updateProjectLocalization,
     }),
     [
       addNode,
@@ -4696,6 +4958,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       buildProject,
       focusProblem,
       updateProjectSettings,
+      extractProjectLocalization,
+      updateProjectLocalization,
       source,
       switchGraph,
       focusGraphNode,
@@ -4710,6 +4974,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateSubstory,
       updateVariable,
       variables,
+      availableVariables,
       projectVariables,
       assets,
       events,

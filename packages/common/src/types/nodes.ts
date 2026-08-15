@@ -130,6 +130,10 @@ export interface WaitSignalNodeData {
 /** Calls another blueprint contained by the current Story asset. */
 export interface CallSubstoryNodeData {
   chapterId?: ChapterId;
+  /** Expressions keyed by stable chapter parameter variable ID. */
+  arguments: Record<VariableId, ExpressionSource>;
+  /** Caller variables keyed by stable chapter output variable ID. */
+  resultVariableIds: Record<VariableId, VariableId>;
 }
 
 /** Pure editor routing point. The compiler removes it from executable logic. */
@@ -146,7 +150,10 @@ export interface FlowJumpNodeData {
 }
 
 /** Returns from the current substory to its caller. */
-export interface ReturnNodeData {}
+export interface ReturnNodeData {
+  /** Expressions keyed by stable chapter output variable ID. */
+  values: Record<VariableId, ExpressionSource>;
+}
 
 /** Data for End node — story endpoint */
 export interface EndNodeData {

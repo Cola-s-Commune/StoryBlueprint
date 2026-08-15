@@ -18,6 +18,7 @@ import { Problems } from '../Panels/Problems';
 import { AICommands } from '../Panels/AICommands';
 import { StoryMerge } from '../Panels/StoryMerge';
 import { History } from '../Panels/History';
+import { Localization } from '../Panels/Localization';
 import { RecoveryCenter } from './RecoveryCenter';
 import { ExternalChangesCenter } from './ExternalChangesCenter';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
@@ -35,6 +36,7 @@ const dockComponents = {
   aiCommands: (_props: IDockviewPanelProps) => <AICommands />,
   storyMerge: (_props: IDockviewPanelProps) => <StoryMerge />,
   history: (_props: IDockviewPanelProps) => <History />,
+  localization: (_props: IDockviewPanelProps) => <Localization />,
 };
 
 function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
@@ -44,7 +46,8 @@ function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
     panelId === 'problems' ||
     panelId === 'aiCommands' ||
     panelId === 'storyMerge' ||
-    panelId === 'history'
+    panelId === 'history' ||
+    panelId === 'localization'
   )
     return 'bottom';
   return 'right';
@@ -248,6 +251,22 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
         }),
         initialHeight: 260,
         minimumHeight: 140,
+      });
+      break;
+    }
+    case 'localization': {
+      const bottomPanel = api.getPanel('preview') ?? api.getPanel('problems');
+      api.addPanel({
+        ...common,
+        title: 'Localization',
+        ...((bottomPanel ?? graph) && {
+          position: {
+            referencePanel: bottomPanel ?? graph!,
+            ...(bottomPanel ? {} : { direction: 'below' as const }),
+          },
+        }),
+        initialHeight: 360,
+        minimumHeight: 220,
       });
       break;
     }

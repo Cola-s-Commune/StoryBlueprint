@@ -4,6 +4,7 @@ import {
   StoryNodeType,
   createGraphConnectionValidator,
   nodeRegistry,
+  localizationTranslationsForStory,
   resolveNodePorts,
   type ChapterId,
   type CompiledStoryProgram,
@@ -13,6 +14,7 @@ import {
   type SourceGraph,
   type SourceNode,
   type StoryProjectDocument,
+  type StoryId,
 } from '@story-blueprint/common';
 import { compileStory } from './storyCompiler';
 import type {
@@ -215,10 +217,15 @@ export class DefaultProjectCompiler implements ProjectCompiler {
     options: CompileProjectOptions = {},
   ): CompileProjectResult {
     const diagnostics: ProjectCompilerDiagnostic[] = [];
-    const sourcesById = new Map(stories.map((story) => [story.source.id, story]));
+    const sourcesById = new Map<StoryId, ProjectStorySource>(
+      stories.map((story: ProjectStorySource) => [story.source.id, story]),
+    );
     const programs: Record<string, CompiledStoryProgram> = {};
     const entryStoryId = options.entryStoryId ?? project.entryStoryId ?? project.stories[0]?.id;
-    if (!entryStoryId || !project.stories.some((story) => story.id === entryStoryId)) {
+    if (
+      !entryStoryId ||
+      !project.stories.some((story: { id: StoryId }) => story.id === entryStoryId)
+    ) {
       diagnostics.push({
         code: 'PROJECT_ERROR',
         severity: 'error',
@@ -253,6 +260,15 @@ export class DefaultProjectCompiler implements ProjectCompiler {
         {
           ...options,
           contentVersion: options.contentVersion ?? 'project-build',
+          translations: localizationTranslationsForStory(options.localization, story.source.id),
+          sourceLocale: options.localization?.sourceLocale ?? options.sourceLocale,
+          localeFallbacks: options.localization
+            ? Object.fromEntries(
+                options.localization.locales.flatMap((locale) =>
+                  locale.fallback ? [[locale.locale, locale.fallback]] : [],
+                ),
+              )
+            : options.localeFallbacks,
         },
       );
       diagnostics.push(
@@ -292,6 +308,7 @@ export class DefaultProjectCompiler implements ProjectCompiler {
           project.events,
           project.signals,
           project.variables ?? [],
+          options.localization ?? null,
           stories.map((story) => [story.path, story.source]),
         ]),
       );

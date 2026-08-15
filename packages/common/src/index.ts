@@ -160,6 +160,7 @@ export {
   type SourceNode,
   type SourceGraph,
   type ChapterParameter,
+  type ChapterOutput,
   type ChapterSource,
   type CharacterSource,
   type AssetSource,
@@ -170,6 +171,25 @@ export {
   type BoundExpressionSource,
 } from './types/source';
 export type { CharacterTemplateField, CharacterTemplateSource } from './types/characterTemplate';
+export {
+  STORY_LOCALIZATION_FORMAT,
+  STORY_LOCALIZATION_VERSION,
+  type LocalizationSourceEntry,
+  type LocalizationTranslationEntry,
+  type LocalizationLocale,
+  type StoryLocalizationDocument,
+} from './types/localization';
+export {
+  choicePromptTextId,
+  choiceOptionTextId,
+  extractLocalizationSources,
+  mergeLocalizationSources,
+  localizationTranslationsForStory,
+} from './localization/storyLocalization';
+export {
+  parseStoryLocalization,
+  serializeStoryLocalization,
+} from './serialization/localizationKdl';
 export {
   STORY_CHARACTER_TEMPLATE_FORMAT,
   STORY_CHARACTER_TEMPLATE_VERSION,
@@ -194,6 +214,7 @@ export {
   type ProgramLocation,
   type LocalizedVoiceRef,
   type RuntimeTextPart,
+  type RuntimeTextVariant,
   type RuntimeTextTemplate,
   type DialogueInstruction,
   type NarrationInstruction,

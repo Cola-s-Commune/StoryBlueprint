@@ -48,6 +48,10 @@ const electronAPI = {
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
   updateProjectSettings: (settings) =>
     ipcRenderer.invoke('workspace:update-project-settings', settings),
+  extractProjectLocalization: (sourceLocale) =>
+    ipcRenderer.invoke('workspace:extract-localization', sourceLocale),
+  updateProjectLocalization: (document) =>
+    ipcRenderer.invoke('workspace:update-localization', document),
   getAIProviderSettings: () => ipcRenderer.invoke('ai:get-provider-settings'),
   updateAIProviderSettings: (settings) =>
     ipcRenderer.invoke('ai:update-provider-settings', settings),
