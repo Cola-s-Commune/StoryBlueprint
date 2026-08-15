@@ -277,6 +277,7 @@ interface EditorHistoryState {
   projectVariables: readonly VariableDefinition[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  projectSettings?: { entryStoryId?: StoryId; outputDirectory?: string };
   storyFiles: { relativePath: string; content: string }[];
 }
 
@@ -436,7 +437,11 @@ interface StoryGraphStoreValue {
   findCharacterFieldReferences: (id: VariableId) => readonly StoryResourceReference[];
   findAssetReferences: (id: AssetId) => readonly StoryResourceReference[];
   focusStoryResourceReference: (reference: StoryResourceReference) => boolean;
-  updateCharacter: (id: CharacterId, update: Partial<CharacterSource>) => void;
+  updateCharacter: (
+    id: CharacterId,
+    update: Partial<CharacterSource>,
+    options?: { recordHistory?: boolean },
+  ) => void;
   renameCharacterEmotion: (id: CharacterId, fromEmotion: string, toEmotion: string) => void;
   removeCharacterEmotion: (id: CharacterId, emotion: string) => void;
   removeCharacter: (id: CharacterId) => void;
@@ -839,21 +844,38 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const restoreProjectSettingsFromHistory = useCallback(
-    (state: Pick<EditorHistoryState, 'projectVariables' | 'events' | 'signals'>) => {
+    (
+      state: Pick<
+        EditorHistoryState,
+        'projectVariables' | 'events' | 'signals' | 'projectSettings'
+      >,
+    ) => {
       if (!workspace?.project || !window.electronAPI) return;
       const projectVariables = [...structuredClone(state.projectVariables)];
       const events = [...structuredClone(state.events)];
       const signals = [...structuredClone(state.signals)];
+      const projectSettings = structuredClone(state.projectSettings);
       setWorkspace((current) =>
         current?.project
           ? {
               ...current,
-              project: { ...current.project, variables: projectVariables, events, signals },
+              project: {
+                ...current.project,
+                variables: projectVariables,
+                events,
+                signals,
+                ...(projectSettings ?? {}),
+              },
             }
           : current,
       );
       queueProjectResourceWrite(() =>
-        window.electronAPI!.updateProjectSettings({ variables: projectVariables, events, signals }),
+        window.electronAPI!.updateProjectSettings({
+          variables: projectVariables,
+          events,
+          signals,
+          ...projectSettings,
+        }),
       );
     },
     [queueProjectResourceWrite, workspace?.project],
@@ -877,7 +899,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }, []);
 
   const checkpoint = useCallback(
-    (snapshot?: EditorGraphState, label = 'Edit') => {
+    (snapshot?: EditorGraphState, label = 'Edit Node') => {
       setAIChanges(undefined);
       setAIProposal(undefined);
       history.checkpoint(
@@ -896,6 +918,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           projectVariables,
           events,
           signals,
+          projectSettings: workspace?.project
+            ? {
+                entryStoryId: workspace.project.entryStoryId,
+                outputDirectory: workspace.project.outputDirectory,
+              }
+            : undefined,
           storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
             relativePath,
             content,
@@ -918,6 +946,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedCharacters,
       signals,
       variables,
+      workspace?.project,
       workspaceStories,
     ],
   );
@@ -1093,6 +1122,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       projectVariables,
       events,
       signals,
+      projectSettings: workspace?.project
+        ? {
+            entryStoryId: workspace.project.entryStoryId,
+            outputDirectory: workspace.project.outputDirectory,
+          }
+        : undefined,
       storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
         relativePath,
         content,
@@ -1111,6 +1146,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedCharacters,
       signals,
       variables,
+      workspace?.project,
       workspaceStories,
     ],
   );
@@ -2439,6 +2475,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const resource = workspace?.assetResources.find((candidate) => candidate.asset.id === id);
       if (resource && window.electronAPI) {
         const asset = { ...resource.asset, ...update, id };
+        if (JSON.stringify(asset) === JSON.stringify(resource.asset)) return;
+        checkpoint(undefined, 'Edit Asset');
         setWorkspace((current) =>
           current
             ? {
@@ -2454,12 +2492,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         );
         return;
       }
-      setAssets((current) =>
-        current.map((asset) => (asset.id === id ? { ...asset, ...update, id } : asset)),
-      );
+      const previous = assets.find((asset) => asset.id === id);
+      if (!previous) return;
+      const next = { ...previous, ...update, id };
+      if (JSON.stringify(next) === JSON.stringify(previous)) return;
+      checkpoint(undefined, 'Edit Asset');
+      setAssets((current) => current.map((asset) => (asset.id === id ? next : asset)));
       markDirty();
     },
-    [markDirty, queueProjectResourceWrite, workspace?.assetResources],
+    [assets, checkpoint, markDirty, queueProjectResourceWrite, workspace?.assetResources],
   );
 
   const removeAsset = useCallback(
@@ -4033,22 +4074,27 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const updateProjectSettings = useCallback(
     async (settings: { entryStoryId?: StoryId; outputDirectory?: string }) => {
       if (!window.electronAPI || !workspace?.project) return;
-      try {
-        setWorkspace(
-          await window.electronAPI.updateProjectSettings({
-            entryStoryId: settings.entryStoryId ?? workspace.project.entryStoryId,
-            outputDirectory:
-              settings.outputDirectory === undefined
-                ? workspace.project.outputDirectory
-                : settings.outputDirectory,
-          }),
-        );
-        setWorkspaceError(undefined);
-      } catch (error) {
-        setWorkspaceError(error instanceof Error ? error.message : String(error));
-      }
+      const nextSettings = {
+        entryStoryId: settings.entryStoryId ?? workspace.project.entryStoryId,
+        outputDirectory:
+          settings.outputDirectory === undefined
+            ? workspace.project.outputDirectory
+            : settings.outputDirectory,
+      };
+      if (
+        nextSettings.entryStoryId === workspace.project.entryStoryId &&
+        nextSettings.outputDirectory === workspace.project.outputDirectory
+      )
+        return;
+      checkpoint(undefined, 'Edit Project Settings');
+      setWorkspace((current) =>
+        current?.project
+          ? { ...current, project: { ...current.project, ...nextSettings } }
+          : current,
+      );
+      queueProjectResourceWrite(() => window.electronAPI!.updateProjectSettings(nextSettings));
     },
-    [workspace?.project],
+    [checkpoint, queueProjectResourceWrite, workspace?.project],
   );
 
   const buildProject = useCallback(async () => {
@@ -4248,10 +4294,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const updateStory = useCallback(
     (update: { name?: string; displayName?: string }) => {
       if (!hasActiveStory) return;
+      const changed = Object.entries(update).some(
+        ([key, value]) => document[key as 'name' | 'displayName'] !== value,
+      );
+      if (!changed) return;
+      checkpoint(undefined, 'Rename Story');
       setDocument((current) => ({ ...current, ...update, id: current.id }));
       markDirty();
     },
-    [hasActiveStory, markDirty],
+    [checkpoint, document, hasActiveStory, markDirty],
   );
 
   const saveStory = useCallback(

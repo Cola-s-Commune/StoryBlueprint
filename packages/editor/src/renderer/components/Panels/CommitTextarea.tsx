@@ -18,7 +18,7 @@ export function CommitTextarea({
   rows,
   placeholder,
   saveError,
-  delayMs = 600,
+  delayMs,
   onCommit,
 }: CommitTextareaProps) {
   const [draft, setDraft] = useState(value);
@@ -47,6 +47,7 @@ export function CommitTextarea({
   }, [saveError, value]);
 
   useEffect(() => {
+    if (delayMs === undefined) return;
     if (draft === value || lastAttemptedRef.current === draft) return;
     const timeout = window.setTimeout(() => commit(draft), delayMs);
     return () => window.clearTimeout(timeout);

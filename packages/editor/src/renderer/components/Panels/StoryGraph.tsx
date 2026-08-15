@@ -267,7 +267,7 @@ export function StoryGraph() {
         return;
       }
 
-      checkpoint();
+      checkpoint(undefined, 'Connect Nodes');
       setConnectionError(null);
       setEdges((currentEdges) => {
         const availableEdges = replacesExisting
@@ -332,7 +332,7 @@ export function StoryGraph() {
       if (!edges.some((candidate) => candidate.id === edge.id)) return;
       event.preventDefault();
       event.stopPropagation();
-      checkpoint();
+      checkpoint(undefined, 'Disconnect Edge');
       setEdges((current) => current.filter((candidate) => candidate.id !== edge.id));
       setConnectionError(null);
       markDirty();
@@ -365,7 +365,7 @@ export function StoryGraph() {
     const hasSelectedEdge = edges.some((edge) => edge.selected);
     if (selectedNodeIds.size === 0 && !hasSelectedEdge) return;
 
-    checkpoint();
+    checkpoint(undefined, 'Delete Selection');
     setNodes((current) =>
       current
         .filter((node) => !selectedNodeIds.has(node.id))
@@ -392,7 +392,7 @@ export function StoryGraph() {
 
   const paste = useCallback(() => {
     if (!clipboard.current) return;
-    checkpoint();
+    checkpoint(undefined, 'Paste Nodes');
     restoreGraph(pasteGraphClipboard(graph, clipboard.current));
     markDirty();
   }, [checkpoint, graph, markDirty, restoreGraph]);
@@ -400,7 +400,7 @@ export function StoryGraph() {
   const duplicateSelection = useCallback(() => {
     const selected = createGraphClipboard(graph);
     if (!selected) return;
-    checkpoint();
+    checkpoint(undefined, 'Duplicate Nodes');
     restoreGraph(pasteGraphClipboard(graph, selected));
     markDirty();
   }, [checkpoint, graph, markDirty, restoreGraph]);
@@ -460,7 +460,7 @@ export function StoryGraph() {
         setConnectionError(result.message);
         return;
       }
-      checkpoint();
+      checkpoint(undefined, 'Move Connections');
       setEdges(result.graph.edges);
       setConnectionError(null);
       markDirty();
@@ -530,7 +530,7 @@ export function StoryGraph() {
         event.stopPropagation();
         const result = disconnectGraphPinConnections(graphRef.current, pin);
         if (result.removedEdgeIds.length === 0) return;
-        checkpoint();
+        checkpoint(undefined, 'Disconnect Pin');
         setEdges(result.graph.edges);
         setConnectionError(null);
         markDirty();
@@ -641,7 +641,7 @@ export function StoryGraph() {
       );
       if (!instance) return;
       const reroute = { ...toEditorGraphNode(instance), selected: true };
-      checkpoint();
+      checkpoint(undefined, 'Insert Reroute');
       setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), reroute]);
       setEdges((current) => [
         ...current.filter((candidate) => candidate.id !== edge.id),
@@ -707,7 +707,7 @@ export function StoryGraph() {
         data: { targetNodeId: anchor.id },
         selected: true,
       };
-      checkpoint();
+      checkpoint(undefined, 'Convert Edge to Portal');
       setNodes((current) => [
         ...current.map((node) => ({ ...node, selected: false })),
         jump,
@@ -965,7 +965,7 @@ export function StoryGraph() {
       ) {
         return;
       }
-      checkpoint(snapshot);
+      checkpoint(snapshot, 'Move Nodes');
       markDirty();
     },
     [aiProposal, checkpoint, markDirty, setNodes, updateAIProposalNodes],
@@ -1008,7 +1008,7 @@ export function StoryGraph() {
           })),
         );
       } else {
-        checkpoint();
+        checkpoint(undefined, scope === 'selected' ? 'Layout Selection' : 'Layout Graph');
         restoreGraph(arranged);
         markDirty();
       }

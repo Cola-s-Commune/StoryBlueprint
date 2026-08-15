@@ -551,7 +551,7 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
     }
     if (!parsedInk.data) return false;
     const next = parsedInk.data;
-    checkpoint(inkUndoSnapshotRef.current ?? { nodes, edges });
+    checkpoint(inkUndoSnapshotRef.current ?? { nodes, edges }, 'Edit Choice Ink');
     updateChoice(next);
     inkUndoSnapshotRef.current = structuredClone(graphWithChoice(next));
     if (!leaving) {
@@ -911,7 +911,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
     }
     if (!parsedInk.lines) return false;
     const lines = parsedInk.lines;
-    checkpoint(inkUndoSnapshotRef.current ?? { nodes, edges });
+    checkpoint(inkUndoSnapshotRef.current ?? { nodes, edges }, 'Edit Dialogue Ink');
     updateLines(lines);
     inkUndoSnapshotRef.current = structuredClone(graphWithDialogueLines(lines));
     if (!leaving) {

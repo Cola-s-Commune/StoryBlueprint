@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StoryNodeType, type ChapterId, type StoryId } from '@story-blueprint/common';
 import type { WorkspaceEntry } from '../../../shared/electronApi';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
@@ -255,7 +255,11 @@ export function ResourceBrowser() {
   const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(new Set());
   const [selectedDirectory, setSelectedDirectory] = useState('');
   const [editingStoryId, setEditingStoryId] = useState<StoryId>();
+  const [storyNameDraft, setStoryNameDraft] = useState('');
+  const cancelStoryRenameRef = useRef(false);
   const [editingChapterId, setEditingChapterId] = useState<ChapterId>();
+  const [chapterNameDraft, setChapterNameDraft] = useState('');
+  const cancelChapterRenameRef = useRef(false);
   const [creation, setCreation] = useState<{
     kind: 'story' | 'directory' | 'project';
     name: string;
@@ -570,13 +574,22 @@ export function ResourceBrowser() {
                     {editingStoryId === storyId && isActiveStory ? (
                       <input
                         autoFocus
-                        value={story.document.displayName}
+                        value={storyNameDraft}
                         onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => updateStory({ displayName: event.target.value })}
-                        onBlur={() => setEditingStoryId(undefined)}
+                        onChange={(event) => setStoryNameDraft(event.target.value)}
+                        onBlur={() => {
+                          if (!cancelStoryRenameRef.current) {
+                            const displayName = storyNameDraft.trim();
+                            if (displayName) updateStory({ displayName });
+                          }
+                          cancelStoryRenameRef.current = false;
+                          setEditingStoryId(undefined);
+                        }}
                         onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === 'Escape') {
-                            setEditingStoryId(undefined);
+                          if (event.key === 'Enter') event.currentTarget.blur();
+                          if (event.key === 'Escape') {
+                            cancelStoryRenameRef.current = true;
+                            event.currentTarget.blur();
                           }
                         }}
                       />
@@ -600,6 +613,8 @@ export function ResourceBrowser() {
                       title="Rename Display Name"
                       onClick={() => {
                         switchStory(storyId);
+                        cancelStoryRenameRef.current = false;
+                        setStoryNameDraft(story.document.displayName);
                         setEditingStoryId(storyId);
                       }}
                     >
@@ -662,15 +677,22 @@ export function ResourceBrowser() {
                         {editingChapterId === chapter.id && isActiveStory ? (
                           <input
                             autoFocus
-                            value={chapter.displayName}
+                            value={chapterNameDraft}
                             onClick={(event) => event.stopPropagation()}
-                            onChange={(event) =>
-                              updateSubstory(chapter.id, { displayName: event.target.value })
-                            }
-                            onBlur={() => setEditingChapterId(undefined)}
+                            onChange={(event) => setChapterNameDraft(event.target.value)}
+                            onBlur={() => {
+                              if (!cancelChapterRenameRef.current) {
+                                const displayName = chapterNameDraft.trim();
+                                if (displayName) updateSubstory(chapter.id, { displayName });
+                              }
+                              cancelChapterRenameRef.current = false;
+                              setEditingChapterId(undefined);
+                            }}
                             onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === 'Escape') {
-                                setEditingChapterId(undefined);
+                              if (event.key === 'Enter') event.currentTarget.blur();
+                              if (event.key === 'Escape') {
+                                cancelChapterRenameRef.current = true;
+                                event.currentTarget.blur();
                               }
                             }}
                           />
@@ -687,6 +709,8 @@ export function ResourceBrowser() {
                               title="Rename"
                               onClick={(event) => {
                                 event.stopPropagation();
+                                cancelChapterRenameRef.current = false;
+                                setChapterNameDraft(chapter.displayName);
                                 setEditingChapterId(chapter.id);
                               }}
                             >

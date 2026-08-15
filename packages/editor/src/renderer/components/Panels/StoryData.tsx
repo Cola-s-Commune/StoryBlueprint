@@ -93,6 +93,7 @@ function CommitInput({
 }) {
   const [draft, setDraft] = useState(value);
   const editing = useRef(false);
+  const canceling = useRef(false);
 
   useEffect(() => {
     if (!editing.current) setDraft(value);
@@ -111,11 +112,19 @@ function CommitInput({
         editing.current = true;
       }}
       onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
+      onBlur={() => {
+        if (canceling.current) {
+          canceling.current = false;
+          editing.current = false;
+          return;
+        }
+        commit();
+      }}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === 'Enter') event.currentTarget.blur();
         if (event.key === 'Escape') {
+          canceling.current = true;
           setDraft(value);
           event.currentTarget.blur();
         }
@@ -216,9 +225,9 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
       <label>
         <span>Display Name</span>
-        <input
+        <CommitInput
           value={variable.displayName}
-          onChange={(event) => updateVariable(variable.id, { displayName: event.target.value })}
+          onCommit={(displayName) => updateVariable(variable.id, { displayName })}
         />
       </label>
       <label>
@@ -271,12 +280,12 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
             <option value="true">True</option>
           </select>
         ) : (
-          <input
+          <CommitInput
             type={kind === 'number' ? 'number' : 'text'}
             value={String(variable.defaultValue ?? '')}
-            onChange={(event) =>
+            onCommit={(value) =>
               updateVariable(variable.id, {
-                defaultValue: kind === 'number' ? Number(event.target.value) : event.target.value,
+                defaultValue: kind === 'number' ? Number(value) : value,
               })
             }
           />
@@ -974,9 +983,9 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
       <label>
         <span>Display Name</span>
-        <input
+        <CommitInput
           value={asset.displayName}
-          onChange={(event) => updateAsset(asset.id, { displayName: event.target.value })}
+          onCommit={(displayName) => updateAsset(asset.id, { displayName })}
         />
       </label>
       <label>
@@ -992,26 +1001,24 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
           <option value="other">Other</option>
         </select>
       </label>
-      <label>
-        <span>Locale Paths</span>
-        <textarea
-          rows={4}
-          value={Object.entries(asset.locales ?? {})
-            .map(([locale, path]) => `${locale}=${path}`)
-            .join('\n')}
-          placeholder={'default=Audio/voice.wav\nzh-CN=Audio/voice.zh-CN.wav'}
-          onChange={(event) => {
-            const locales = Object.fromEntries(
-              event.target.value
-                .split('\n')
-                .map((line) => line.split('='))
-                .filter((parts) => parts.length >= 2 && parts[0].trim())
-                .map(([locale, ...path]) => [locale.trim(), path.join('=').trim()]),
-            );
-            updateAsset(asset.id, { locales });
-          }}
-        />
-      </label>
+      <CommitTextarea
+        label="Locale Paths"
+        rows={4}
+        value={Object.entries(asset.locales ?? {})
+          .map(([locale, path]) => `${locale}=${path}`)
+          .join('\n')}
+        placeholder={'default=Audio/voice.wav\nzh-CN=Audio/voice.zh-CN.wav'}
+        onCommit={(value) => {
+          const locales = Object.fromEntries(
+            value
+              .split('\n')
+              .map((line) => line.split('='))
+              .filter((parts) => parts.length >= 2 && parts[0].trim())
+              .map(([locale, ...path]) => [locale.trim(), path.join('=').trim()]),
+          );
+          updateAsset(asset.id, { locales });
+        }}
+      />
       <ResourceReferenceSection
         references={references}
         emptyMessage="This asset is not used by any Story or Character."
@@ -1065,9 +1072,9 @@ function EventEditor({ event }: { event: EventSource }) {
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
       <label>
         <span>Display Name</span>
-        <input
+        <CommitInput
           value={event.displayName}
-          onChange={(change) => updateEvent(event.id, { displayName: change.target.value })}
+          onCommit={(displayName) => updateEvent(event.id, { displayName })}
         />
       </label>
       <CommitTextarea
@@ -1167,9 +1174,9 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
       {duplicate && <div className={styles.warning}>Name must be unique.</div>}
       <label>
         <span>Display Name</span>
-        <input
+        <CommitInput
           value={signal.displayName}
-          onChange={(change) => updateSignal(signal.id, { displayName: change.target.value })}
+          onCommit={(displayName) => updateSignal(signal.id, { displayName })}
         />
       </label>
       <CommitTextarea
@@ -1419,6 +1426,7 @@ export function StoryData() {
     addAsset,
     addEvent,
     addSignal,
+    checkpoint,
     storyDataSelection,
     selectStoryData,
   } = useStoryGraphStore();
@@ -1459,11 +1467,22 @@ export function StoryData() {
   const applyBatchTag = (mode: 'add' | 'remove') => {
     const tag = batchTag.trim();
     if (!tag || selectedCharacterIds.size === 0) return;
-    for (const character of characters) {
-      if (!selectedCharacterIds.has(character.id)) continue;
-      updateCharacter(character.id, {
-        tags: updateCharacterTags(character.tags, tag, mode),
-      });
+    const changes = characters.flatMap((character) => {
+      if (!selectedCharacterIds.has(character.id)) return [];
+      const tags = updateCharacterTags(character.tags, tag, mode);
+      if (JSON.stringify(tags) === JSON.stringify(character.tags)) return [];
+      return [{ character, tags }];
+    });
+    if (changes.length === 0) return;
+    checkpoint(undefined, mode === 'add' ? 'Add Character Tags' : 'Remove Character Tags');
+    for (const { character, tags } of changes) {
+      updateCharacter(
+        character.id,
+        {
+          tags,
+        },
+        { recordHistory: false },
+      );
     }
   };
   const filteredAssets = useMemo(() => {

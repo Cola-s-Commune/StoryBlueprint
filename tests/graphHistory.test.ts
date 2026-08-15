@@ -48,4 +48,22 @@ describe('named graph history', () => {
     expect(history.travel(1, 2)?.state).toBe(3);
     expect(history.canRedo).toBe(false);
   });
+
+  it('isolates nested project resource snapshots while traveling', () => {
+    const history = new GraphHistory<{
+      asset: { name: string; locales: Record<string, string> };
+    }>();
+    const before = { asset: { name: 'voice', locales: { default: 'old.wav' } } };
+    history.checkpoint(before, 'Edit Asset');
+    before.asset.locales.default = 'mutated-after-checkpoint.wav';
+
+    const undone = history.travel(
+      { asset: { name: 'voice', locales: { default: 'new.wav' } } },
+      -1,
+    );
+    expect(undone?.state.asset.locales.default).toBe('old.wav');
+
+    undone!.state.asset.locales.default = 'mutated-after-undo.wav';
+    expect(history.travel(undone!.state, 1)?.state.asset.locales.default).toBe('new.wav');
+  });
 });
