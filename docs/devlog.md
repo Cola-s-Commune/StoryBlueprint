@@ -1,6 +1,6 @@
 # Dev Log
 
-- Inspector 表达式输入升级为轻量 Scratch 风格辅助编辑：保留可读文本，支持变量/角色字段按需补全、Ctrl+Space 与键盘选择、常用运算符按钮及延迟即时类型诊断；覆盖 Branch、Choice、Set Variable、Event、Signal、Substory Input 与 Return Output。变量目标选择器同步改为按作用域搜索并只在展开时最多渲染 60 项，避免多 Output 和大量变量产生重复长列表。
+- Inspector 表达式输入升级为轻量 Scratch 风格辅助编辑：保留可读文本，支持变量/角色字段按需补全、Ctrl+Space 与键盘选择、常用运算符按钮及延迟即时类型诊断；覆盖 Branch、Choice、Set Variable、Event、Signal、Substory Input 与 Return Output。String 参数的 Text 改为与 Dialogue / Ink 一致的 `{expression}` 模板，例如 `Plan {Plan}`；字符串拼接 Expression 可无损显示回模板，模板在内部降级为 Typed Expression，数值和布尔插值会显式转换为字符串。模式切换本身不改写数据，也不制造无意义的 Undo。变量目标选择器同步改为按作用域搜索并只在展开时最多渲染 60 项，避免多 Output 和大量变量产生重复长列表。
 - 新增项目级《编辑器撤销与重做规范》：所有内容新增、删除与修改默认必须可原子恢复；统一定义事务边界、文本草稿、跨文件写回、快捷键、例外和新功能验收清单，并登记全项目资源操作审计任务。
 - 撤销规范首轮审计将 Project Variable、Event 与 Signal 纳入统一 Editor History；新增、删除、属性及参数改写可 Undo / Redo，事务同时快照受影响的已打开 Story，并按顺序写回 `.storyproject`。Event / Signal 删除不再错误提示“不可撤销”。
 - Character / Asset 的外部资源新增和删除接入资源快照历史：Undo / Redo 保留稳定 ID、内容与原相对路径，由主进程校验引用后原子调和文件并同步项目索引，失败时回滚本轮文件变化；快速连续撤销也严格服从项目写入队列。

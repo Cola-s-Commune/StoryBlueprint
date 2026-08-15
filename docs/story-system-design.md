@@ -273,6 +273,7 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 - 常用布尔、比较和算术运算符以紧凑按钮插入当前光标或包裹选区。
 - Branch、Choice、Set Variable、Event、Signal 和 Substory 接口按各自期望类型即时解析；诊断使用延迟值计算，避免阻塞连续输入。
 - 候选面板只在编辑时构建，并限制渲染数量；变量规模增大时通过继续输入缩小结果。
+- String 类型的 Set Variable、Event Argument 与 Signal Match 默认使用和 Dialogue / Ink 相同的 Text Template 写法，如 `Hello {playerName}`。编辑器将模板降级为字符串 Typed Expression；简单字符串拼接 Expression 可反向显示为模板，Text / Expression 切换只改变编辑视图，不改变运行语义。
 
 ---
 

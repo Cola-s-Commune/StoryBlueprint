@@ -1,7 +1,8 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { CSSProperties } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import type { GetVariableNodeData, SetVariableNodeData } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { expressionToTextTemplate } from '../Panels/expressionAuthoring';
 import styles from './Node.module.css';
 
 const variableStyle = {
@@ -45,6 +46,23 @@ export function GetVariableNode({ data }: NodeProps) {
 
 export function SetVariableNode({ data }: NodeProps) {
   const d = data as unknown as SetVariableNodeData;
+  const { availableVariables, projectVariables, characters } = useStoryGraphStore();
+  const displayValue = useMemo(() => {
+    const variable =
+      availableVariables.find((candidate) => candidate.id === d.variableId) ??
+      projectVariables.find((candidate) => candidate.id === d.variableId) ??
+      characters
+        .flatMap((character) => character.fields ?? [])
+        .find((candidate) => candidate.id === d.variableId);
+    return variable?.valueType.kind === 'string'
+      ? (expressionToTextTemplate(
+          d.value.source,
+          availableVariables,
+          projectVariables,
+          characters,
+        ) ?? d.value.source)
+      : d.value.source;
+  }, [availableVariables, characters, d.value.source, d.variableId, projectVariables]);
   return (
     <div className={styles.node} style={variableStyle}>
       <div className={styles.header}>
@@ -53,7 +71,7 @@ export function SetVariableNode({ data }: NodeProps) {
       </div>
       <div className={styles.variableBody}>
         <VariableName variableId={d.variableId} />
-        <span className={styles.expression}>{d.value.source || 'value'}</span>
+        <span className={styles.expression}>{displayValue || 'value'}</span>
       </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}

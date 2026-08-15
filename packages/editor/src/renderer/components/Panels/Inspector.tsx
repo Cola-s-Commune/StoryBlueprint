@@ -33,6 +33,14 @@ import { readStoryDataDrag } from '../../graph/storyDataDrag';
 import { formatDialogueInk, parseDialogueInk } from '../../dialogue/dialogueInk';
 import { formatChoiceInk, parseChoiceInk } from '../../dialogue/choiceInk';
 import { ExpressionField } from './ExpressionField';
+import {
+  createStringValueModeState,
+  decodeStringLiteral,
+  editStringValueText,
+  expressionToTextTemplate,
+  stringValueModeText,
+  switchStringValueMode,
+} from './expressionAuthoring';
 import { StoryDataInspector } from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
@@ -399,13 +407,72 @@ function TagsField({
   );
 }
 
-function decodeStringLiteral(source: string): string | undefined {
-  try {
-    const value: unknown = JSON.parse(source);
-    return typeof value === 'string' ? value : undefined;
-  } catch {
-    return undefined;
-  }
+function useStringExpressionMode({
+  source,
+  identity,
+  checkpoint,
+  updateSource,
+}: {
+  source: string;
+  identity: string;
+  checkpoint: () => void;
+  updateSource: (source: string) => void;
+}) {
+  const { availableVariables, projectVariables, characters } = useStoryGraphStore();
+  const textTemplate = expressionToTextTemplate(
+    source,
+    availableVariables,
+    projectVariables,
+    characters,
+  );
+  const drafts = useRef(createStringValueModeState(source, textTemplate));
+  const [mode, setMode] = useState<'literal' | 'expression'>(() => drafts.current.mode);
+  const expectedSource = useRef<string>();
+
+  useEffect(() => {
+    if (expectedSource.current === source) {
+      expectedSource.current = undefined;
+      return;
+    }
+    drafts.current = createStringValueModeState(
+      source,
+      expressionToTextTemplate(source, availableVariables, projectVariables, characters),
+    );
+    setMode(drafts.current.mode);
+  }, [availableVariables, characters, identity, projectVariables, source]);
+
+  const writeSource = (nextSource: string) => {
+    expectedSource.current = nextSource;
+    updateSource(nextSource);
+  };
+
+  const switchMode = (nextMode: 'literal' | 'expression') => {
+    if (nextMode === mode) return;
+    const transition = switchStringValueMode(drafts.current, source, nextMode, textTemplate);
+    if (!transition.converted) return;
+    drafts.current = transition.state;
+    setMode(transition.state.mode);
+    if (transition.source !== source) {
+      checkpoint();
+      writeSource(transition.source);
+    }
+  };
+
+  return {
+    mode,
+    canConvertToText: textTemplate !== undefined,
+    textValue: stringValueModeText(source, drafts.current),
+    switchMode,
+    updateText: (text: string) => {
+      const transition = editStringValueText(drafts.current, text);
+      drafts.current = transition.state;
+      writeSource(transition.source);
+    },
+    updateExpression: (expression: string) => {
+      drafts.current = { ...drafts.current, expressionDraft: expression };
+      writeSource(expression);
+    },
+  };
 }
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
@@ -419,18 +486,17 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
   const variable = allVariables.find((candidate) => candidate.id === data.variableId);
   const isString = variable?.valueType.kind === 'string';
   const decodedLiteral = decodeStringLiteral(data.value.source);
-  const [mode, setMode] = useState<'literal' | 'expression'>(() =>
-    decodedLiteral === undefined ? 'expression' : 'literal',
-  );
-
-  useEffect(() => {
-    setMode(decodeStringLiteral(data.value.source) === undefined ? 'expression' : 'literal');
-  }, [data.variableId, nodeId]);
 
   const updateValue = (source: string) =>
     updateNodeData(nodeId, StoryNodeType.SetVariable, {
       value: { source, bindings: {} },
     });
+  const stringMode = useStringExpressionMode({
+    source: data.value.source,
+    identity: `${nodeId}:${data.variableId ?? ''}`,
+    checkpoint,
+    updateSource: updateValue,
+  });
 
   return (
     <>
@@ -441,7 +507,6 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
         onChange={(variableId) => {
           const nextVariable = allVariables.find((candidate) => candidate.id === variableId);
           const nextIsString = nextVariable?.valueType.kind === 'string';
-          setMode(nextIsString ? 'literal' : 'expression');
           updateNodeData(nodeId, StoryNodeType.SetVariable, {
             variableId,
             ...(nextIsString
@@ -459,27 +524,25 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
         <label className={styles.field}>
           <span>Value Mode</span>
           <select
-            value={mode}
-            onChange={(event) => {
-              checkpoint();
-              const nextMode = event.target.value as 'literal' | 'expression';
-              setMode(nextMode);
-              if (nextMode === 'literal' && decodedLiteral === undefined) {
-                updateValue(JSON.stringify(data.value.source));
-              }
-            }}
+            value={stringMode.mode}
+            onChange={(event) =>
+              stringMode.switchMode(event.target.value as 'literal' | 'expression')
+            }
           >
-            <option value="literal">Text</option>
+            <option value="literal" disabled={!stringMode.canConvertToText}>
+              {stringMode.canConvertToText ? 'Text' : 'Text (literal only)'}
+            </option>
             <option value="expression">Expression</option>
           </select>
         </label>
       )}
-      {isString && mode === 'literal' ? (
+      {isString && stringMode.mode === 'literal' ? (
         <PropertyField
           label="Text Value"
-          value={decodedLiteral ?? data.value.source}
+          value={stringMode.textValue}
+          variableMode="template"
           onBeginEdit={checkpoint}
-          onChange={(value) => updateValue(JSON.stringify(value))}
+          onChange={stringMode.updateText}
         />
       ) : (
         <PropertyField
@@ -488,7 +551,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           variableMode="expression"
           expectedType={variable?.valueType}
           onBeginEdit={checkpoint}
-          onChange={updateValue}
+          onChange={stringMode.updateExpression}
         />
       )}
     </>
@@ -510,16 +573,6 @@ function EventArgumentEditor({
 }) {
   const { checkpoint, updateNodeData } = useStoryGraphStore();
   const source = value?.source ?? (kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
-  const decodedLiteral = decodeStringLiteral(source);
-  const [mode, setMode] = useState<'literal' | 'expression'>(() =>
-    kind === 'string' && decodedLiteral !== undefined ? 'literal' : 'expression',
-  );
-
-  useEffect(() => {
-    setMode(
-      kind === 'string' && decodeStringLiteral(source) !== undefined ? 'literal' : 'expression',
-    );
-  }, [kind, name, nodeId]);
 
   const updateSource = (nextSource: string) =>
     updateNodeData(nodeId, StoryNodeType.CallEvent, {
@@ -528,6 +581,12 @@ function EventArgumentEditor({
         [name]: { source: nextSource, bindings: {} },
       },
     });
+  const stringMode = useStringExpressionMode({
+    source,
+    identity: `${nodeId}:${name}:${kind}`,
+    checkpoint,
+    updateSource,
+  });
 
   return (
     <>
@@ -535,27 +594,25 @@ function EventArgumentEditor({
         <label className={styles.field}>
           <span>{name} Mode</span>
           <select
-            value={mode}
-            onChange={(event) => {
-              checkpoint();
-              const nextMode = event.target.value as 'literal' | 'expression';
-              setMode(nextMode);
-              if (nextMode === 'literal' && decodedLiteral === undefined) {
-                updateSource(JSON.stringify(source));
-              }
-            }}
+            value={stringMode.mode}
+            onChange={(event) =>
+              stringMode.switchMode(event.target.value as 'literal' | 'expression')
+            }
           >
-            <option value="literal">Text</option>
+            <option value="literal" disabled={!stringMode.canConvertToText}>
+              {stringMode.canConvertToText ? 'Text' : 'Text (literal only)'}
+            </option>
             <option value="expression">Expression</option>
           </select>
         </label>
       )}
-      {kind === 'string' && mode === 'literal' ? (
+      {kind === 'string' && stringMode.mode === 'literal' ? (
         <PropertyField
           label={`${name} · string`}
-          value={decodedLiteral ?? source}
+          value={stringMode.textValue}
+          variableMode="template"
           onBeginEdit={checkpoint}
-          onChange={(text) => updateSource(JSON.stringify(text))}
+          onChange={stringMode.updateText}
         />
       ) : (
         <PropertyField
@@ -564,7 +621,7 @@ function EventArgumentEditor({
           variableMode="expression"
           expectedType={{ kind }}
           onBeginEdit={checkpoint}
-          onChange={updateSource}
+          onChange={stringMode.updateExpression}
         />
       )}
     </>
@@ -587,21 +644,17 @@ function SignalMatchEditor({
   const { checkpoint, updateNodeData } = useStoryGraphStore();
   const enabled = value !== undefined;
   const source = value?.source ?? (kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
-  const decodedLiteral = decodeStringLiteral(source);
-  const [mode, setMode] = useState<'literal' | 'expression'>(() =>
-    kind === 'string' && decodedLiteral !== undefined ? 'literal' : 'expression',
-  );
-
-  useEffect(() => {
-    setMode(
-      kind === 'string' && decodeStringLiteral(source) !== undefined ? 'literal' : 'expression',
-    );
-  }, [kind, name, nodeId]);
 
   const updateSource = (nextSource: string) =>
     updateNodeData(nodeId, StoryNodeType.WaitSignal, {
       matches: { ...matches, [name]: { source: nextSource, bindings: {} } },
     });
+  const stringMode = useStringExpressionMode({
+    source,
+    identity: `${nodeId}:${name}:${kind}`,
+    checkpoint,
+    updateSource,
+  });
 
   return (
     <>
@@ -627,28 +680,26 @@ function SignalMatchEditor({
         <label className={styles.field}>
           <span>{name} Mode</span>
           <select
-            value={mode}
-            onChange={(event) => {
-              checkpoint();
-              const nextMode = event.target.value as 'literal' | 'expression';
-              setMode(nextMode);
-              if (nextMode === 'literal' && decodedLiteral === undefined) {
-                updateSource(JSON.stringify(source));
-              }
-            }}
+            value={stringMode.mode}
+            onChange={(event) =>
+              stringMode.switchMode(event.target.value as 'literal' | 'expression')
+            }
           >
-            <option value="literal">Text</option>
+            <option value="literal" disabled={!stringMode.canConvertToText}>
+              {stringMode.canConvertToText ? 'Text' : 'Text (literal only)'}
+            </option>
             <option value="expression">Expression</option>
           </select>
         </label>
       )}
       {enabled &&
-        (kind === 'string' && mode === 'literal' ? (
+        (kind === 'string' && stringMode.mode === 'literal' ? (
           <PropertyField
             label={`${name} · string`}
-            value={decodedLiteral ?? source}
+            value={stringMode.textValue}
+            variableMode="template"
             onBeginEdit={checkpoint}
-            onChange={(text) => updateSource(JSON.stringify(text))}
+            onChange={stringMode.updateText}
           />
         ) : (
           <PropertyField
@@ -657,7 +708,7 @@ function SignalMatchEditor({
             variableMode="expression"
             expectedType={{ kind }}
             onBeginEdit={checkpoint}
-            onChange={updateSource}
+            onChange={stringMode.updateExpression}
           />
         ))}
     </>

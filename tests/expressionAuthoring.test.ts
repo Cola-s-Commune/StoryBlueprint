@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { CharacterSource, VariableDefinition } from '../packages/common/src';
 import {
+  createStringValueModeState,
+  editStringValueText,
   expressionCandidates,
   expressionDiagnostic,
+  expressionToTextTemplate,
   insertExpressionCandidate,
   insertExpressionOperator,
+  stringValueModeText,
+  switchStringValueMode,
+  textTemplateToExpression,
 } from '../packages/editor/src/renderer/components/Panels/expressionAuthoring';
 
 const storyVariables: VariableDefinition[] = [
@@ -23,6 +29,14 @@ const storyVariables: VariableDefinition[] = [
     scope: 'story',
     valueType: { kind: 'boolean' },
     defaultValue: false,
+  },
+  {
+    id: 'v_player',
+    name: 'playerName',
+    displayName: 'Player Name',
+    scope: 'story',
+    valueType: { kind: 'string' },
+    defaultValue: '',
   },
 ];
 
@@ -79,5 +93,50 @@ describe('expression authoring helpers', () => {
     expect(
       expressionDiagnostic('missing', storyVariables, [], characters, { kind: 'boolean' }),
     ).toMatchObject({ kind: 'error', offset: 0 });
+  });
+
+  it('shows a string variable as an Ink-style Text template', () => {
+    const template = expressionToTextTemplate('playerName', storyVariables, [], characters);
+    const initial = createStringValueModeState('playerName', template);
+    expect(initial.literalDraft).toBe('{playerName}');
+    const asExpression = switchStringValueMode(initial, 'playerName', 'expression', template);
+    expect(asExpression.converted).toBe(true);
+    expect(asExpression.state.mode).toBe('expression');
+    expect(asExpression.source).toBe('playerName');
+    const asText = switchStringValueMode(
+      asExpression.state,
+      asExpression.source,
+      'literal',
+      template,
+    );
+    expect(asText.converted).toBe(true);
+    expect(asText.source).toBe('playerName');
+    expect(asText.state.mode).toBe('literal');
+  });
+
+  it('removes expression quotes when a string literal is shown as Text', () => {
+    const literal = createStringValueModeState('"A"');
+    const asExpression = switchStringValueMode(literal, '"A"', 'expression');
+    const asText = switchStringValueMode(asExpression.state, asExpression.source, 'literal');
+    expect(asText.converted).toBe(true);
+    expect(stringValueModeText(asText.source, asText.state)).toBe('A');
+
+    const singleQuoted = createStringValueModeState("'B'");
+    expect(singleQuoted.mode).toBe('literal');
+    expect(stringValueModeText("'B'", singleQuoted)).toBe('B');
+  });
+
+  it('round-trips composite string expressions as Ink-style templates', () => {
+    const source = '"A" + playerName';
+    const template = expressionToTextTemplate(source, storyVariables, [], characters);
+    expect(template).toBe('A{playerName}');
+    const expression = createStringValueModeState(source, template);
+    expect(expression.mode).toBe('literal');
+
+    const edited = editStringValueText(expression, 'Hello {playerName}, gold {gold}');
+    expect(edited.source).toBe(textTemplateToExpression('Hello {playerName}, gold {gold}'));
+    expect(
+      expressionDiagnostic(edited.source, storyVariables, [], characters, { kind: 'string' }),
+    ).toEqual({ kind: 'valid', message: 'Valid string expression' });
   });
 });

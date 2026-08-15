@@ -68,6 +68,11 @@ describe('variables and templates', () => {
     expect(evaluateExpression(expression, (id) => (id === 'v_gold' ? 5 : 'Arys'))).toBe(true);
   });
 
+  it('coerces scalar values when concatenating with a string', () => {
+    const expression = compileExpression('"Gold: " + gold', variables);
+    expect(evaluateExpression(expression, (id) => (id === 'v_gold' ? 5 : 'Arys'))).toBe('Gold: 5');
+  });
+
   it('renders template expressions and escaped braces', () => {
     const template = compileTextTemplate(
       'Hello {playerName}, gold: {gold + 2}. {{ok}}',

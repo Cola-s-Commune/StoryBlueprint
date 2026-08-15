@@ -290,9 +290,24 @@ class Parser {
       result = scalarType('boolean');
     } else if (
       operator === 'add' &&
-      left.valueType.kind === 'string' &&
-      right.valueType.kind === 'string'
+      (left.valueType.kind === 'string' || right.valueType.kind === 'string')
     ) {
+      if (left.valueType.kind !== 'string') {
+        left = {
+          kind: 'convert',
+          target: left,
+          to: scalarType('string'),
+          valueType: scalarType('string'),
+        };
+      }
+      if (right.valueType.kind !== 'string') {
+        right = {
+          kind: 'convert',
+          target: right,
+          to: scalarType('string'),
+          valueType: scalarType('string'),
+        };
+      }
       result = scalarType('string');
     } else {
       if (
