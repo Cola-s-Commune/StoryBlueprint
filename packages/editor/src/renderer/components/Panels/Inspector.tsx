@@ -32,6 +32,7 @@ import { toSourceGraph, type EditorGraphState } from '../../graph/editorGraph';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
 import { formatDialogueInk, parseDialogueInk } from '../../dialogue/dialogueInk';
 import { formatChoiceInk, parseChoiceInk } from '../../dialogue/choiceInk';
+import { ExpressionField } from './ExpressionField';
 import { StoryDataInspector } from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
@@ -45,11 +46,28 @@ interface PropertyFieldProps {
   value: string;
   multiline?: boolean;
   variableMode?: 'template' | 'expression';
+  expectedType?: ValueType;
   onBeginEdit: () => void;
   onChange: (value: string) => void;
 }
 
-function PropertyField({
+function PropertyField(props: PropertyFieldProps) {
+  if (props.variableMode === 'expression') {
+    return (
+      <ExpressionField
+        label={props.label}
+        value={props.value}
+        multiline={props.multiline}
+        expectedType={props.expectedType}
+        onBeginEdit={props.onBeginEdit}
+        onChange={props.onChange}
+      />
+    );
+  }
+  return <PlainPropertyField {...props} />;
+}
+
+function PlainPropertyField({
   label,
   value,
   multiline,
@@ -468,6 +486,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           label="Value Expression"
           value={data.value.source}
           variableMode="expression"
+          expectedType={variable?.valueType}
           onBeginEdit={checkpoint}
           onChange={updateValue}
         />
@@ -543,6 +562,7 @@ function EventArgumentEditor({
           label={`${name} · ${kind}`}
           value={source}
           variableMode="expression"
+          expectedType={{ kind }}
           onBeginEdit={checkpoint}
           onChange={updateSource}
         />
@@ -635,6 +655,7 @@ function SignalMatchEditor({
             label={`${name} · ${kind}`}
             value={source}
             variableMode="expression"
+            expectedType={{ kind }}
             onBeginEdit={checkpoint}
             onChange={updateSource}
           />
@@ -947,6 +968,7 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                       label="Visible If"
                       value={option.visibleIf?.source ?? ''}
                       variableMode="expression"
+                      expectedType={{ kind: 'boolean' }}
                       onBeginEdit={checkpoint}
                       onChange={(source) =>
                         updateOption(option.id, {
@@ -958,6 +980,7 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                       label="Enabled If"
                       value={option.enabledIf?.source ?? ''}
                       variableMode="expression"
+                      expectedType={{ kind: 'boolean' }}
                       onBeginEdit={checkpoint}
                       onChange={(source) =>
                         updateOption(option.id, {
@@ -1856,6 +1879,7 @@ export function Inspector() {
             value={data.condition.source}
             multiline
             variableMode="expression"
+            expectedType={{ kind: 'boolean' }}
             onBeginEdit={checkpoint}
             onChange={(source) =>
               updateNodeData(node.id, StoryNodeType.Branch, {
@@ -2022,6 +2046,7 @@ export function Inspector() {
                     current?.source ?? expressionForDefault(parameter.variable.defaultValue).source
                   }
                   variableMode="expression"
+                  expectedType={parameter.variable.valueType}
                   onBeginEdit={checkpoint}
                   onChange={(source) =>
                     updateNodeData(node.id, StoryNodeType.CallSubstory, {
@@ -2183,6 +2208,7 @@ export function Inspector() {
                   ).source
                 }
                 variableMode="expression"
+                expectedType={output.variable.valueType}
                 onBeginEdit={checkpoint}
                 onChange={(source) =>
                   updateNodeData(node.id, StoryNodeType.Return, {

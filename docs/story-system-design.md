@@ -266,6 +266,14 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 - 文件加载时重新解析表达式；语法错误、类型错误和失效引用在编译前报告。
 - Runtime Program 只包含 Typed Expression AST，不包含需要动态解析或 `eval` 的源码。
 
+编辑器第一阶段保留文本为权威编辑面，同时提供 Scratch 风格的轻量辅助，而不是把每个运算符变成画布节点：
+
+- 输入变量名时按需补全 Story、Project、Substory 和 Character Field，并显示类型与作用域。
+- `Ctrl+Space` 可主动打开变量候选；方向键、Enter / Tab 和 Escape 可完成键盘操作。
+- 常用布尔、比较和算术运算符以紧凑按钮插入当前光标或包裹选区。
+- Branch、Choice、Set Variable、Event、Signal 和 Substory 接口按各自期望类型即时解析；诊断使用延迟值计算，避免阻塞连续输入。
+- 候选面板只在编辑时构建，并限制渲染数量；变量规模增大时通过继续输入缩小结果。
+
 ---
 
 ## 6. Blackboard 与项目数据

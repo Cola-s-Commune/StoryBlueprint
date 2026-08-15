@@ -379,6 +379,8 @@
 ## Property Renderer
 
 - [x] String / Multiline String
+- [x] 表达式文本编辑、按需变量补全、紧凑运算符按钮与即时类型诊断
+- [x] 变量选择器按名称/类型/作用域搜索，关闭时不渲染候选并限制展开结果数量
 - [ ] Number
 - [ ] Boolean
 - [ ] Enum
