@@ -118,50 +118,218 @@ function VariableSelect({
   onBeginEdit: () => void;
   onChange: (value: VariableId | undefined) => void;
 }) {
-  const { availableVariables, projectVariables, characters } = useStoryGraphStore();
+  const { availableVariables, projectVariables, characters, chapters, activeGraphId } =
+    useStoryGraphStore();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const accepts = (variable: VariableDefinition) =>
     !valueType ||
     valueType.kind === 'any' ||
     variable.valueType.kind === 'any' ||
     variable.valueType.kind === valueType.kind;
+
+  const selected = useMemo(() => {
+    if (!value) return undefined;
+    const variable =
+      availableVariables.find((candidate) => candidate.id === value) ??
+      projectVariables.find((candidate) => candidate.id === value);
+    if (variable) return { variable, prefix: '' };
+    for (const character of characters) {
+      const field = character.fields?.find((candidate) => candidate.id === value);
+      if (field) return { variable: field, prefix: `${character.displayName}.` };
+    }
+    return undefined;
+  }, [availableVariables, characters, projectVariables, value]);
+
+  const activeChapter = chapters.find((chapter) => chapter.id === activeGraphId);
+  const inputIds = useMemo(
+    () => new Set(activeChapter?.parameters.map((parameter) => parameter.variable.id) ?? []),
+    [activeChapter?.parameters],
+  );
+  const localIds = useMemo(
+    () => new Set(activeChapter?.localVariables.map((variable) => variable.id) ?? []),
+    [activeChapter?.localVariables],
+  );
+  const resultLimit = 60;
+  const { results, totalMatches } = useMemo(() => {
+    if (!open) return { results: [], totalMatches: 0 };
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const options: {
+      variable: VariableDefinition;
+      prefix: string;
+      group: string;
+    }[] = [];
+    const addOption = (variable: VariableDefinition, prefix: string, group: string) => {
+      if (!accepts(variable)) return;
+      const searchText =
+        `${prefix}${variable.name} ${variable.displayName} ${variable.valueType.kind} ${group}`.toLocaleLowerCase();
+      if (normalizedQuery && !searchText.includes(normalizedQuery)) return;
+      options.push({ variable, prefix, group });
+    };
+    for (const variable of availableVariables) {
+      const group = inputIds.has(variable.id)
+        ? 'Substory Inputs'
+        : localIds.has(variable.id)
+          ? 'Substory Locals'
+          : variable.scope === 'story'
+            ? 'Story'
+            : 'Chapter';
+      addOption(variable, '', group);
+    }
+    for (const variable of projectVariables) addOption(variable, '', 'Project');
+    for (const character of characters) {
+      for (const field of character.fields ?? []) {
+        addOption(field, `${character.displayName}.`, `Character · ${character.displayName}`);
+      }
+    }
+    options.sort(
+      (left, right) =>
+        left.group.localeCompare(right.group) ||
+        `${left.prefix}${left.variable.displayName}`.localeCompare(
+          `${right.prefix}${right.variable.displayName}`,
+        ),
+    );
+    return { results: options.slice(0, resultLimit), totalMatches: options.length };
+  }, [
+    availableVariables,
+    characters,
+    inputIds,
+    localIds,
+    open,
+    projectVariables,
+    query,
+    valueType,
+  ]);
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveIndex(0);
+    searchRef.current?.focus();
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [open]);
+
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, Math.max(0, results.length - 1)));
+  }, [results.length]);
+
+  const choose = (nextValue: VariableId | undefined) => {
+    if (nextValue !== value) {
+      onBeginEdit();
+      onChange(nextValue);
+    }
+    setOpen(false);
+    setQuery('');
+  };
+
   return (
-    <label className={styles.field}>
+    <div className={styles.field} ref={rootRef}>
       <span>{label}</span>
-      <select
-        value={value ?? ''}
-        onChange={(event) => {
-          onBeginEdit();
-          onChange((event.target.value || undefined) as VariableId | undefined);
-        }}
-      >
-        <option value="">Select variable…</option>
-        {availableVariables.filter(accepts).map((variable) => (
-          <option key={variable.id} value={variable.id}>
-            {variable.name} · {variable.valueType.kind}
-          </option>
-        ))}
-        {projectVariables.length > 0 && (
-          <optgroup label="Project">
-            {projectVariables.filter(accepts).map((variable) => (
-              <option key={variable.id} value={variable.id}>
-                {variable.name} · {variable.valueType.kind}
-              </option>
-            ))}
-          </optgroup>
+      <div className={styles.variablePicker}>
+        <button
+          type="button"
+          className={`${styles.variablePickerTrigger} ${!selected && value ? styles.missingValue : ''}`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen((current) => !current);
+            setQuery('');
+          }}
+        >
+          <span>
+            {selected
+              ? `${selected.prefix}${selected.variable.displayName} · ${selected.variable.valueType.kind}`
+              : value
+                ? 'Missing variable'
+                : 'Select variable…'}
+          </span>
+          <span className={styles.variablePickerChevron} aria-hidden="true">
+            {open ? '▴' : '▾'}
+          </span>
+        </button>
+        {open && (
+          <div className={styles.variablePickerPopup}>
+            <input
+              ref={searchRef}
+              className={styles.variablePickerSearch}
+              value={query}
+              placeholder="Search name, type, or scope…"
+              aria-label={`Search ${label}`}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveIndex(0);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setOpen(false);
+                } else if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setActiveIndex((current) => Math.min(results.length - 1, current + 1));
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setActiveIndex((current) => Math.max(0, current - 1));
+                } else if (event.key === 'Enter' && results[activeIndex]) {
+                  event.preventDefault();
+                  choose(results[activeIndex].variable.id);
+                }
+              }}
+            />
+            <div className={styles.variablePickerResults} role="listbox">
+              {value && (
+                <button
+                  type="button"
+                  className={styles.variablePickerClear}
+                  onClick={() => choose(undefined)}
+                >
+                  Clear selection
+                </button>
+              )}
+              {results.map((option, index) => {
+                const previousGroup = index > 0 ? results[index - 1]?.group : undefined;
+                return (
+                  <div key={option.variable.id}>
+                    {option.group !== previousGroup && (
+                      <div className={styles.variablePickerGroup}>{option.group}</div>
+                    )}
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={option.variable.id === value}
+                      className={`${styles.variablePickerOption} ${index === activeIndex ? styles.variablePickerOptionActive : ''}`}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => choose(option.variable.id)}
+                    >
+                      <span>
+                        {option.prefix}
+                        {option.variable.displayName}
+                      </span>
+                      <small>
+                        {option.variable.name} · {option.variable.valueType.kind}
+                      </small>
+                    </button>
+                  </div>
+                );
+              })}
+              {results.length === 0 && (
+                <div className={styles.variablePickerEmpty}>No matching variables.</div>
+              )}
+            </div>
+            {totalMatches > resultLimit && (
+              <div className={styles.variablePickerLimit}>
+                Showing {resultLimit} of {totalMatches}. Refine the search to see more.
+              </div>
+            )}
+          </div>
         )}
-        {characters.map((character) =>
-          (character.fields?.length ?? 0) > 0 ? (
-            <optgroup key={character.id} label={character.displayName}>
-              {character.fields!.filter(accepts).map((field) => (
-                <option key={field.id} value={field.id}>
-                  {character.name}.{field.name} · {field.valueType.kind}
-                </option>
-              ))}
-            </optgroup>
-          ) : null,
-        )}
-      </select>
-    </label>
+      </div>
+    </div>
   );
 }
 

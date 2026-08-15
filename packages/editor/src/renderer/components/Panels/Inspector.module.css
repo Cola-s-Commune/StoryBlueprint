@@ -115,6 +115,145 @@
   font-size: 9px;
 }
 
+.variablePicker {
+  position: relative;
+}
+
+.variablePickerTrigger {
+  display: flex;
+  width: 100%;
+  min-height: 31px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  border: 1px solid #414141;
+  border-radius: 3px;
+  outline: none;
+  background: #252525;
+  color: #e2e2e2;
+  padding: 7px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.variablePickerTrigger:hover,
+.variablePickerTrigger:focus-visible,
+.variablePickerTrigger[aria-expanded='true'] {
+  border-color: #4778a8;
+  box-shadow: 0 0 0 1px #4778a8;
+}
+
+.variablePickerTrigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variablePickerTrigger.missingValue {
+  border-color: #895757;
+  color: #e5a2a2;
+}
+
+.variablePickerChevron {
+  flex: 0 0 auto;
+  color: #8996a5;
+}
+
+.variablePickerPopup {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  min-width: 250px;
+  overflow: hidden;
+  border: 1px solid #4b5867;
+  border-radius: 5px;
+  background: #1d2228;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+}
+
+.variablePickerSearch {
+  width: calc(100% - 12px) !important;
+  margin: 6px;
+  background: #171b20 !important;
+}
+
+.variablePickerResults {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0 4px 4px;
+}
+
+.variablePickerGroup {
+  padding: 7px 7px 4px;
+  color: #728092;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.variablePickerOption,
+.variablePickerClear {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #dce4ed;
+  padding: 6px 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+}
+
+.variablePickerOption small {
+  overflow: hidden;
+  color: #788697;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variablePickerOptionActive,
+.variablePickerOption:hover,
+.variablePickerOption[aria-selected='true'] {
+  background: #2b4054;
+}
+
+.variablePickerOption[aria-selected='true'] {
+  box-shadow: inset 2px 0 #5b9bd5;
+}
+
+.variablePickerClear {
+  display: block;
+  margin-bottom: 2px;
+  color: #aab5c2;
+}
+
+.variablePickerClear:hover {
+  background: #343b44;
+}
+
+.variablePickerEmpty,
+.variablePickerLimit {
+  padding: 10px 8px;
+  color: #778493;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.variablePickerLimit {
+  border-top: 1px solid #303842;
+  padding: 6px 8px;
+}
+
 .optionGroup {
   margin: 0 -4px 12px;
   padding: 9px 8px 1px;
