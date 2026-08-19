@@ -46,6 +46,7 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:update-project-stories', request),
   exportCompiledProject: (content) => ipcRenderer.invoke('workspace:export-compiled', content),
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
+  openInkFile: () => ipcRenderer.invoke('workspace:open-ink'),
   updateProjectSettings: (settings) =>
     ipcRenderer.invoke('workspace:update-project-settings', settings),
   extractProjectLocalization: (sourceLocale) =>

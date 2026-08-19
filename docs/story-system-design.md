@@ -127,7 +127,28 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 编辑器面向作者统一称为 **Substory（子故事）**，Source Model 与 Runtime 中继续使用
 `Chapter` 作为稳定技术术语。一个 Story 资源包含一个 Main Story 和零到多个 Substory。
 
-### 3.1 从选区提取 Substory
+### 3.5 Substory 应用场景与组织决策
+
+Substory 主要用于把一个 Story 内可复用、可测试或需要独立接口的流程封装起来：
+
+- 从 Main Story 提取一段完整流程，例如开场问候、战斗结算、任务奖励或一段分支对话。
+- 把带输入和输出的规则流程封装成类似 UE Function 的接口，例如计算价格、检查条件、生成选项。
+- 把只在当前 Story 有意义的演出流程、UI 交互或 Ink/节点混合片段隔离出来，减少 Main Story 的视觉复杂度。
+- 为 AI 或多人协作提供较小的编辑单元，让局部修改、预览、合并和测试不必触碰整张 Main Story。
+- 在 Runtime 中形成明确的 CallFrame 边界，便于暂停、恢复、返回值传递和诊断定位。
+
+Substory 与 Story 的边界保持不同：Story 是可由引擎启动、切换、暂停或结束的独立运行资源；Substory 是某个 Story 内可调用并返回的逻辑单元。未来的 `Start Story`、`Switch Story`、`Resume Story`、`End Story` 等 Story Control 节点负责跨 Story 生命周期，不复用 Substory 的 Call / Return 语义。
+
+第一阶段采用**扁平所有权、树状视图**：
+
+- 所有 Substory 直接属于所在 Story，在 Source Model、编译产物和 Runtime 中使用稳定 ID，不存在“Substory 拥有另一个 Substory”的资源层级。
+- Resource Browser 可以使用文件夹、标签、收藏和搜索组织 Substory；这些是编辑器导航信息，不代表运行时父子调用关系。
+- Substory 之间可以互相调用，调用链可以是 `A -> B -> C`；编译器仍需检测递归和循环依赖，并给出明确诊断。
+- 未来如需封装，可增加 `public / private` 可见性或文件夹范围规则，但不把移动文件夹变成稳定引用的一部分。
+
+暂不采用真正的树状所有权。只有在出现稳定的私有依赖边界、独立版本发布、按目录授权或大型团队模块化需求后，才重新评估命名空间/父子 Substory；即使启用，也应继续以稳定 ID 引用，并把目录移动视为编辑器元数据变更而非运行时语义变更。
+
+### 3.6 从选区提取 Substory
 
 第一阶段只允许提取单入口、单出口的控制流选区：
 
@@ -569,6 +590,18 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 - 部分导入出现不支持结构时，先生成 Diagnostics 和预览，由用户选择取消或降级为 Ink Block。
 - Ink Block 原始源码保持原样；一旦拆成可视节点，之后只保证语义等价。
 
+第一版 `Ink Node Profile v1` 已提供显式 `.ink` 文件导入：
+
+- 连续 `Character: text` / `Narrator: text` 合并成多 Line Dialogue，并识别现有 `emotion`、`voice` 和普通 Tag。
+- `* option -> knot` 或 Option 下一行的 `-> knot` 转成 Choice 与稳定 Option 输出。
+- `=== knot ===` 和 `-> knot` 转成 Flow Anchor / Flow Jump，避免把 Ink 标签混入作者可见文本。
+- `VAR name = literal` 创建 Boolean、Number 或 String Story Variable；`~ name = expression` 转 Set Variable，`{name}` 继续使用统一 Text Template 语义。
+- 只包含一个条件、一个 True Divert 和一个 Else Divert 的条件块转 Branch；更复杂的条件正文暂不猜测转换。
+- 导入先生成独立 Graph Proposal。作者可以移动新增节点，只有 Apply 才写入当前 Main Story / Substory；整个导入作为一个 `Import Ink as Nodes` Undo 事务。
+- 不支持、悬空或不可证明等价的控制流按原始行列产生可复制 Diagnostics，并阻止写入，不静默丢弃内容。
+
+该 Profile 不是完整 Ink Parser，也不改变“完整 Ink Block Runtime 与渐进节点转换并存”的方向。函数、Tunnel、Thread、复杂 Choice 正文、循环和 External Function 后续通过覆盖矩阵逐项加入；在 Ink Block 可用后，无法转换的完整片段可选择保留为 Ink Block。
+
 参考：
 
 - <https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md>
@@ -884,11 +917,19 @@ interface StoryAdapter {
   callEvent(request: EventRequest, signal: AbortSignal): Promise<void>;
   waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<SignalPayload>;
   resolveText(textId: string, locale: string): Promise<string | undefined>;
-  readExternalVariable(id: string): Promise<RuntimeValue>;
-  writeExternalVariable(id: string, value: RuntimeValue): Promise<void>;
+  readExternalVariable(variable: VariableDefinition): Promise<RuntimeValue>;
+  writeExternalVariable(variable: VariableDefinition, value: RuntimeValue): Promise<void>;
 }
 ```
 
+- External variable definitions are passed as a read-only contract, including stable ID,
+  scope, display name, value type and default value. The engine should use the stable ID for
+  persistence and may use scope/character metadata to resolve ownership.
+- Runtime validates every adapter read, restored value, assignment, substory argument and
+  return output against the declared `ValueType`. A malformed adapter value produces
+  `INVALID_ADAPTER_RESULT`; an adapter exception produces `ADAPTER_ERROR`.
+- External writes are coalesced per variable and acknowledged only after the adapter resolves.
+  A failed write remains queued so the host can retry rather than silently losing story state.
 - Choice 等 Adapter 返回值必须经过 Runtime 类型和 ID 校验。
 - 停止、切换存档或销毁 Story 时，Runtime 使用 AbortSignal 取消未完成请求。
 - Event 与 Signal 必须在项目接口表中声明；Event 是单向命令，Signal 是唯一的外部同步点。

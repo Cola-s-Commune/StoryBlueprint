@@ -107,6 +107,8 @@
 - [x] Story 内 Main Story / Substory 蓝图列表
 - [x] 新建、重命名、切换和安全删除 Substory
 - [x] 多选节点提取为单入口、单出口 Substory
+- [ ] Substory 文件夹、标签、收藏与按需索引（组织用途，不改变稳定 ID 所有权）
+- [ ] Substory 调用图、递归/循环依赖诊断与公共/私有可见性评估
 - [x] 文件系统 TreeView
 - [ ] Search
 - [ ] Context Menu
@@ -322,6 +324,15 @@
 - [x] Render
 - [ ] 根 Story 终止语义
 - [ ] Chapter 内使用警告
+
+## Story Control Nodes（跨 Story）
+
+- [ ] `Start Story`：启动另一个 Story 实例并传入参数
+- [ ] `Switch Story`：结束/挂起当前 Story 并切换到目标 Story
+- [ ] `Resume Story`：恢复已有 Story 实例或存档
+- [ ] `End Story`：显式结束指定 Story 实例
+- [ ] Story Control 的 Adapter、参数、存档边界、返回策略和失败诊断
+- [ ] Story 与 Substory 的调用边界和生命周期文档化；不把 Story Control 当作 Substory Call / Return
 
 ---
 
@@ -626,7 +637,7 @@
 - [x] 多 Line Dialogue 的逐句暂停、继续、历史和恢复位置
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
-- [ ] Project / Story / Chapter / Character Variables 状态机集成
+- [x] Project / Story / Chapter / Character Variables 状态机集成
 - [x] Typed Return Value
 - [x] 无返回值 Substory Call Stack / Return
 - [x] End Story
@@ -647,9 +658,9 @@
 - [x] 游戏引擎按稳定 Event ID 注册具体 Handler
 - [ ] Wait / Fire-and-forget、返回值与 Failed 分支语义
 - [ ] Text / Voice / Asset 解析
-- [ ] External Variable 读写
+- [x] External Variable 读写
 - [x] AbortSignal 取消
-- [ ] Adapter 返回值校验与错误策略
+- [x] Adapter 返回值校验与错误策略
 
 ---
 
@@ -806,12 +817,12 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 ## Versioned Ink Profile
 
-- [ ] 定义可转换为原生节点的版本化 Ink Profile
-- [ ] 建立完整 Ink 语法与原生节点类型的覆盖矩阵
+- [x] 定义第一版可转换为原生节点的版本化 Ink Profile
+- [ ] 建立完整 Ink 语法与原生节点类型的覆盖矩阵（已覆盖对白、Choice、Knot/Divert、变量和简单条件）
 - [ ] Speaker / Voice / Emotion / Text ID Tag 规范
 - [ ] Tag 转义与稳定 ID 规则
-- [ ] Ink Variable 与 Typed Variable 映射
-- [ ] 连续 Ink 台词合并为多 Line Dialogue，控制流边界处自动拆分
+- [x] Ink `VAR` / 赋值与 Boolean、Number、String Story Variable 映射
+- [x] 连续 Ink 台词合并为多 Line Dialogue，控制流边界处自动拆分
 - [ ] Expressions 保持内嵌，不把普通运算展开成大量数据节点
 
 ---
@@ -819,9 +830,10 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 ## Import / Export
 
 - [ ] `.story` → `.ink` 语义导出
-- [ ] 受支持 `.ink` → Typed Story Graph
+- [x] 受支持 `.ink` → Typed Story Graph Proposal，Apply / Discard 与单步 Undo
 - [ ] 完整 `.ink` → 原生节点的长期转换目标
 - [ ] 暂未覆盖的结构保留为可完整运行的 Ink Block，并提供 Diagnostics / Preview
+- [x] 原生 `.ink` 文件 → Nodes 显式转换入口、行列 Diagnostics 与可移动 Diff Preview
 - [ ] Linked / Embedded Ink Block → Nodes 显式转换
 - [ ] 选中原生节点 → Ink Block 显式转换
 - [ ] 转换前显示语义 Diff，不承诺保留原始空白、排版和注释位置

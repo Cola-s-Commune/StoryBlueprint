@@ -26,6 +26,7 @@ type SubMenuItem =
         | 'save-all'
         | 'save-as'
         | 'build-project'
+        | 'import-ink'
         | 'exit'
         | 'copy-text'
         | 'undo'
@@ -71,6 +72,7 @@ const menuItems: MenuItem[] = [
         shortcut: 'Ctrl+Shift+B',
         action: 'build-project',
       },
+      { type: 'item', label: 'Import Ink as Nodes...', action: 'import-ink' },
       { type: 'separator' },
       { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
     ],
@@ -146,6 +148,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     saveStory,
     saveAllStories,
     buildProject,
+    importInkFile,
     undo,
     redo,
     canUndo,
@@ -243,6 +246,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
       case 'build-project':
         onShowPanel('problems');
         void buildProject();
+        break;
+      case 'import-ink':
+        void importInkFile();
         break;
       case 'undo':
         undo();

@@ -1,4 +1,5 @@
 import {
+  runtimeValueMatchesType,
   STORY_RUNTIME_FORMAT,
   STORY_RUNTIME_VERSION,
   type BlockId,
@@ -9,6 +10,7 @@ import {
   type RuntimeInstruction,
   type RuntimeProgram,
   type RuntimeValue,
+  type VariableDefinition,
   type VariableId,
 } from '@story-blueprint/common';
 import { evaluateExpression, renderTextTemplate, resolveChoiceOptions } from './evaluator';
@@ -83,6 +85,8 @@ export class StoryRuntime {
   private currentState: RuntimeState;
   private lastDiagnostic?: RuntimeDiagnostic;
   private readonly pendingExternalWrites = new Map<VariableId, RuntimeValue>();
+  private readonly variableDefinitions: ReadonlyMap<VariableId, VariableDefinition>;
+  private readonly externalVariableDefinitions: ReadonlyMap<VariableId, VariableDefinition>;
   private readonly externalVariableIdSet: ReadonlySet<VariableId>;
   private locale?: string;
 
@@ -98,12 +102,17 @@ export class StoryRuntime {
       throw new Error('Runtime state does not match the program content version');
     }
     this.program = program;
-    this.externalVariableIdSet = new Set(
+    this.variableDefinitions = new Map(
+      program.variables.map((variable) => [variable.id, variable]),
+    );
+    this.externalVariableDefinitions = new Map(
       program.variables
         .filter((variable) => variable.scope === 'character' || variable.scope === 'project')
-        .map((variable) => variable.id),
+        .map((variable) => [variable.id, variable]),
     );
+    this.externalVariableIdSet = new Set(this.externalVariableDefinitions.keys());
     this.currentState = cloneState(restoredState ?? createRuntimeState(program));
+    this.validateRestoredState(this.currentState);
     this.locale = locale ?? program.sourceLocale;
   }
 
@@ -113,6 +122,10 @@ export class StoryRuntime {
 
   get externalVariableIds(): readonly VariableId[] {
     return [...this.externalVariableIdSet];
+  }
+
+  get externalVariables(): readonly VariableDefinition[] {
+    return [...this.externalVariableDefinitions.values()];
   }
 
   get currentLocale(): string | undefined {
@@ -125,23 +138,28 @@ export class StoryRuntime {
 
   /** Supplies the engine-owned value before story execution begins. */
   hydrateExternalVariable(id: VariableId, value: RuntimeValue): void {
-    const definition = this.program.variables.find((variable) => variable.id === id);
-    if (!definition || !this.externalVariableIdSet.has(id)) {
+    const definition = this.externalVariableDefinitions.get(id);
+    if (!definition) {
       throw new TypeError(`Unknown external variable ${id}`);
     }
-    if (typeof value !== definition.valueType.kind) {
-      throw new TypeError(
-        `External variable ${definition.name} must be ${definition.valueType.kind}`,
-      );
-    }
+    this.assertValueType(value, definition, 'External variable');
     this.currentState.storyVariables[id] = value;
   }
 
-  /** Returns coalesced engine writes and clears the pending queue. */
-  drainExternalVariableWrites(): readonly { id: VariableId; value: RuntimeValue }[] {
-    const writes = [...this.pendingExternalWrites].map(([id, value]) => ({ id, value }));
-    this.pendingExternalWrites.clear();
-    return writes;
+  /** Returns coalesced engine writes without removing them from the retryable queue. */
+  peekExternalVariableWrites(): readonly {
+    variable: VariableDefinition;
+    value: RuntimeValue;
+  }[] {
+    return [...this.pendingExternalWrites].map(([id, value]) => ({
+      variable: this.externalVariableDefinitions.get(id)!,
+      value,
+    }));
+  }
+
+  /** Confirms one successful engine write. Failed and later writes remain retryable. */
+  acknowledgeExternalVariableWrite(id: VariableId): void {
+    this.pendingExternalWrites.delete(id);
   }
 
   get diagnostic(): RuntimeDiagnostic | undefined {
@@ -285,6 +303,17 @@ export class StoryRuntime {
     });
   }
 
+  failAdapterResult(message: string, cause?: unknown): RuntimeRunResult {
+    return this.fail({
+      code: 'INVALID_ADAPTER_RESULT',
+      severity: 'error',
+      message,
+      location: this.location(),
+      instructionId: this.currentInstruction()?.id,
+      cause,
+    });
+  }
+
   private execute(instruction: RuntimeInstruction): RuntimeRunResult | undefined {
     switch (instruction.op) {
       case 'dialogue': {
@@ -404,7 +433,13 @@ export class StoryRuntime {
           ...chapter.localVariables.map((variable) => [variable.id, variable.defaultValue]),
         ]);
         for (const [variableId, expression] of Object.entries(instruction.arguments)) {
-          locals[variableId] = evaluateExpression(expression, this.readVariable);
+          const parameter = chapter.parameters.find(
+            (candidate) => candidate.variableId === variableId,
+          );
+          if (!parameter) throw new TypeError(`Unknown substory input ${variableId}`);
+          const value = evaluateExpression(expression, this.readVariable);
+          this.assertValueType(value, parameter, 'Substory input');
+          locals[variableId] = value;
         }
         this.currentState.callStack.push({
           chapterId: instruction.chapterId,
@@ -422,7 +457,7 @@ export class StoryRuntime {
             evaluateExpression(expression, this.readVariable),
           ]),
         );
-        const frame = this.currentState.callStack.pop();
+        const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
         if (!frame) {
           return this.fail({
             code: 'INVALID_LOCATION',
@@ -432,6 +467,14 @@ export class StoryRuntime {
             instructionId: instruction.id,
           });
         }
+        const chapter = this.program.chapters[frame.chapterId];
+        if (!chapter) throw new TypeError(`Missing substory ${frame.chapterId}`);
+        for (const [outputId, value] of Object.entries(values)) {
+          const output = chapter.outputs.find((candidate) => candidate.variableId === outputId);
+          if (!output) throw new TypeError(`Unknown substory output ${outputId}`);
+          this.assertValueType(value, output, 'Substory output');
+        }
+        this.currentState.callStack.pop();
         this.currentState.blockId = frame.returnTo.blockId;
         this.currentState.instructionIndex = frame.returnTo.instructionIndex;
         this.currentState.status = 'running';
@@ -558,10 +601,56 @@ export class StoryRuntime {
 
   private writeVariable(id: VariableId, value: RuntimeValue): void {
     const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
-    if (frame && id in frame.locals) frame.locals[id] = value;
-    else {
+    if (frame && id in frame.locals) {
+      const chapter = this.program.chapters[frame.chapterId];
+      const definition = [...(chapter?.parameters ?? []), ...(chapter?.localVariables ?? [])].find(
+        (candidate) => ('variableId' in candidate ? candidate.variableId : candidate.id) === id,
+      );
+      if (!definition) throw new TypeError(`Missing local variable definition ${id}`);
+      this.assertValueType(value, definition, 'Local variable');
+      frame.locals[id] = value;
+    } else {
+      const definition = this.variableDefinitions.get(id);
+      if (!definition) throw new TypeError(`Missing variable ${id}`);
+      this.assertValueType(value, definition, 'Variable');
       this.currentState.storyVariables[id] = value;
       if (this.externalVariableIdSet.has(id)) this.pendingExternalWrites.set(id, value);
+    }
+  }
+
+  private assertValueType(
+    value: RuntimeValue,
+    definition:
+      | Pick<VariableDefinition, 'name' | 'valueType'>
+      | { variableId: VariableId; valueType: VariableDefinition['valueType'] },
+    label: string,
+  ): void {
+    if (runtimeValueMatchesType(value, definition.valueType)) return;
+    const name = 'name' in definition ? definition.name : definition.variableId;
+    throw new TypeError(`${label} ${name} must be ${definition.valueType.kind}`);
+  }
+
+  private validateRestoredState(state: RuntimeState): void {
+    for (const definition of this.program.variables) {
+      if (!(definition.id in state.storyVariables)) {
+        throw new TypeError(`Runtime state is missing variable ${definition.name}`);
+      }
+      this.assertValueType(
+        state.storyVariables[definition.id],
+        definition,
+        'Runtime state variable',
+      );
+    }
+    for (const frame of state.callStack) {
+      const chapter = this.program.chapters[frame.chapterId];
+      if (!chapter)
+        throw new TypeError(`Runtime state references missing substory ${frame.chapterId}`);
+      for (const definition of [...chapter.parameters, ...chapter.localVariables]) {
+        const id = 'variableId' in definition ? definition.variableId : definition.id;
+        if (!(id in frame.locals))
+          throw new TypeError(`Runtime state is missing local variable ${id}`);
+        this.assertValueType(frame.locals[id], definition, 'Runtime state local');
+      }
     }
   }
 

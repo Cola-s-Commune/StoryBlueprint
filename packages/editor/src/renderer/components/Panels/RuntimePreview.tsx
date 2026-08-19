@@ -62,8 +62,16 @@ function valueLabel(value: RuntimeValue): string {
 }
 
 export function RuntimePreview() {
-  const { hasActiveStory, source, characters, assets, variables, events, signals, workspace } =
-    useStoryGraphStore();
+  const {
+    hasActiveStory,
+    source,
+    characters,
+    assets,
+    projectVariables,
+    events,
+    signals,
+    workspace,
+  } = useStoryGraphStore();
   const [session, setSession] = useState<PreviewSession>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly CompilerDiagnostic[]>([]);
@@ -72,6 +80,10 @@ export function RuntimePreview() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'loaded' | 'failed'>('idle');
   const [previewLocale, setPreviewLocale] = useState('');
   const dispatchedEventResult = useRef<RuntimeRunResult>();
+  const authoringVariables = useMemo(
+    () => [...source.variables, ...projectVariables],
+    [projectVariables, source.variables],
+  );
 
   useEffect(() => {
     setSession(undefined);
@@ -81,7 +93,7 @@ export function RuntimePreview() {
     setSavedStateJson('');
     setSaveStatus('idle');
     dispatchedEventResult.current = undefined;
-  }, [source]);
+  }, [projectVariables, source]);
 
   const characterNames = useMemo(
     () =>
@@ -118,9 +130,23 @@ export function RuntimePreview() {
 
   const start = useCallback(() => {
     const compiled = compileStory(
-      { ...source, characters, assets, events, signals },
       {
-        contentVersion: previewContentVersion({ source, characters, assets, events, signals }),
+        ...source,
+        variables: [...source.variables, ...projectVariables],
+        characters,
+        assets,
+        events,
+        signals,
+      },
+      {
+        contentVersion: previewContentVersion({
+          source,
+          projectVariables,
+          characters,
+          assets,
+          events,
+          signals,
+        }),
         translations: localizationTranslationsForStory(
           workspace?.localization?.document,
           source.id,
@@ -149,11 +175,11 @@ export function RuntimePreview() {
       program: compiled.program,
       result: runtime.runUntilPause(),
       characters,
-      variables,
+      variables: compiled.program.variables,
       events,
       signals,
     });
-  }, [assets, characters, events, signals, source, variables, workspace?.localization]);
+  }, [assets, characters, events, projectVariables, signals, source, workspace?.localization]);
 
   const openCompiled = useCallback(async () => {
     if (!window.electronAPI) return;
@@ -345,10 +371,7 @@ export function RuntimePreview() {
                   acceptResult(session.runtime, session.runtime.runUntilPause());
                 }}
               >
-                {[
-                  session.program.sourceLocale,
-                  ...(session.program.locales ?? []),
-                ]
+                {[session.program.sourceLocale, ...(session.program.locales ?? [])]
                   .filter((locale): locale is string => Boolean(locale))
                   .map((locale) => (
                     <option key={locale} value={locale}>
@@ -544,10 +567,10 @@ export function RuntimePreview() {
 
         <aside className={styles.variables}>
           <div className={styles.asideTitle}>Runtime Variables</div>
-          {(session?.variables ?? variables).length === 0 && (
+          {(session?.variables ?? authoringVariables).length === 0 && (
             <div className={styles.muted}>No variables</div>
           )}
-          {(session?.variables ?? variables).map((variable) => (
+          {(session?.variables ?? authoringVariables).map((variable) => (
             <div key={variable.id} className={styles.variableRow}>
               <span>{variable.displayName}</span>
               <code>{valueLabel(state?.storyVariables[variable.id] ?? variable.defaultValue)}</code>

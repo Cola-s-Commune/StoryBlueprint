@@ -13,6 +13,7 @@ import type {
   RuntimeProgram,
   RuntimeValue,
   TextId,
+  VariableDefinition,
   VariableId,
 } from '@story-blueprint/common';
 
@@ -103,8 +104,8 @@ export interface StoryAdapter {
   /** Resolves when the engine observes the requested signal. */
   waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<SignalPayload>;
   resolveText(textId: TextId, locale: string): Promise<string | undefined>;
-  readExternalVariable(id: VariableId): Promise<RuntimeValue>;
-  writeExternalVariable(id: VariableId, value: RuntimeValue): Promise<void>;
+  readExternalVariable(variable: VariableDefinition): Promise<RuntimeValue>;
+  writeExternalVariable(variable: VariableDefinition, value: RuntimeValue): Promise<void>;
 }
 
 export type RuntimeDiagnosticCode =

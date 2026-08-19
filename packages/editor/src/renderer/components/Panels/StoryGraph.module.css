@@ -551,6 +551,95 @@
   background: #684040;
 }
 
+.inkImportDiagnostics {
+  position: absolute;
+  z-index: 15;
+  top: 58px;
+  right: 12px;
+  display: grid;
+  width: min(520px, calc(100% - 24px));
+  max-height: min(360px, calc(100% - 74px));
+  overflow: hidden;
+  border: 1px solid #7a6042;
+  border-radius: 5px;
+  background: rgb(42 36 29 / 97%);
+  box-shadow: 0 9px 28px rgb(0 0 0 / 42%);
+  color: #e8ded1;
+}
+
+.inkImportDiagnostics > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border-bottom: 1px solid #5e4d3a;
+}
+
+.inkImportDiagnostics > header > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.inkImportDiagnostics > header strong {
+  font-size: 11px;
+}
+
+.inkImportDiagnostics > header span {
+  overflow: hidden;
+  color: #a99680;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inkImportDiagnostics > header .inkImportCopy {
+  flex: none;
+  overflow: visible;
+}
+
+.inkImportDiagnostics > header > button {
+  border: 0;
+  background: transparent;
+  color: #c9b9a6;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.inkImportDiagnostics > div {
+  display: grid;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.inkImportDiagnostics p {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 7px;
+  margin: 0;
+  padding: 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.inkImportDiagnostics p:hover {
+  background: rgb(255 255 255 / 4%);
+}
+
+.inkImportDiagnostics p[data-severity='error'] code {
+  color: #ed8d82;
+}
+
+.inkImportDiagnostics p[data-severity='warning'] code {
+  color: #e1b56f;
+}
+
+.inkImportDiagnostics p span {
+  overflow-wrap: anywhere;
+}
+
 .searchPanel {
   position: absolute;
   z-index: 16;

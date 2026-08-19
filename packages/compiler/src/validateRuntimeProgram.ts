@@ -1,10 +1,9 @@
 import {
   isRuntimeTerminator,
+  runtimeValueMatchesType,
   type BlockId,
   type RuntimeInstruction,
   type RuntimeProgram,
-  type RuntimeValue,
-  type ValueType,
 } from '@story-blueprint/common';
 import type { CompilerDiagnostic } from './types';
 
@@ -20,29 +19,6 @@ function targetBlocks(instruction: RuntimeInstruction): readonly BlockId[] {
       return [instruction.target, instruction.returnTo.blockId];
     default:
       return [];
-  }
-}
-
-function valueMatchesType(value: RuntimeValue, type: ValueType): boolean {
-  if (value === null) return Boolean(type.nullable) || type.kind === 'any';
-  switch (type.kind) {
-    case 'any':
-      return true;
-    case 'boolean':
-      return typeof value === 'boolean';
-    case 'number':
-      return typeof value === 'number' && Number.isFinite(value);
-    case 'string':
-      return typeof value === 'string';
-    case 'enum':
-      return typeof value === 'string' && type.values.includes(value);
-    case 'struct':
-      return (
-        typeof value === 'object' &&
-        Object.entries(type.fields).every(
-          ([name, fieldType]) => name in value && valueMatchesType(value[name], fieldType),
-        )
-      );
   }
 }
 
@@ -235,7 +211,7 @@ export function validateRuntimeProgram(program: RuntimeProgram): readonly Compil
         });
       }
       ids.add(parameter.variableId);
-      if (!valueMatchesType(parameter.defaultValue, parameter.valueType)) {
+      if (!runtimeValueMatchesType(parameter.defaultValue, parameter.valueType)) {
         diagnostics.push({
           code: 'INVALID_NODE',
           severity: 'error',
@@ -265,7 +241,7 @@ export function validateRuntimeProgram(program: RuntimeProgram): readonly Compil
         });
       }
       ids.add(variable.id);
-      if (!valueMatchesType(variable.defaultValue, variable.valueType)) {
+      if (!runtimeValueMatchesType(variable.defaultValue, variable.valueType)) {
         diagnostics.push({
           code: 'INVALID_NODE',
           severity: 'error',

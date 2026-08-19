@@ -141,6 +141,7 @@ export type {
   VariableScope,
   VariableDefinition,
 } from './types/values';
+export { runtimeValueMatchesType } from './types/values';
 export type {
   ExpressionSource,
   TextTemplateSource,

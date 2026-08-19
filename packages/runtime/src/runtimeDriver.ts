@@ -10,21 +10,31 @@ export class StoryRuntimeDriver {
   ) {}
 
   async run(signal: AbortSignal): Promise<RuntimeRunResult> {
-    try {
-      if (!this.hydratedExternalVariables) {
-        for (const id of this.runtime.externalVariableIds) {
-          this.runtime.hydrateExternalVariable(id, await this.adapter.readExternalVariable(id));
+    if (!this.hydratedExternalVariables) {
+      for (const variable of this.runtime.externalVariables) {
+        let value;
+        try {
+          value = await this.adapter.readExternalVariable(variable);
+        } catch (cause) {
+          return this.runtime.failAdapter(cause);
         }
-        this.hydratedExternalVariables = true;
+        try {
+          this.runtime.hydrateExternalVariable(variable.id, value);
+        } catch (cause) {
+          return this.runtime.failAdapterResult(
+            cause instanceof Error ? cause.message : String(cause),
+            cause,
+          );
+        }
       }
-    } catch (cause) {
-      return this.runtime.failAdapter(cause);
+      this.hydratedExternalVariables = true;
     }
 
     let result = this.runtime.runUntilPause();
     const flushExternalWrites = async () => {
-      for (const write of this.runtime.drainExternalVariableWrites()) {
-        await this.adapter.writeExternalVariable(write.id, write.value);
+      for (const write of this.runtime.peekExternalVariableWrites()) {
+        await this.adapter.writeExternalVariable(write.variable, write.value);
+        this.runtime.acknowledgeExternalVariableWrite(write.variable.id);
       }
     };
     while (result.kind === 'waiting') {

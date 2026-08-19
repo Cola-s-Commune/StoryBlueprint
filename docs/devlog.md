@@ -1,5 +1,6 @@
 # Dev Log
 
+- Expression 快捷运算符按结果类型收紧：String 只显示拼接和括号，`==` / `!=` 仅在 Boolean 条件中作为比较操作出现；底层仍保留字符串比较能力。
 - Inspector 表达式输入升级为轻量 Scratch 风格辅助编辑：保留可读文本，支持变量/角色字段按需补全、Ctrl+Space 与键盘选择、常用运算符按钮及延迟即时类型诊断；覆盖 Branch、Choice、Set Variable、Event、Signal、Substory Input 与 Return Output。String 参数的 Text 改为与 Dialogue / Ink 一致的 `{expression}` 模板，例如 `Plan {Plan}`；字符串拼接 Expression 可无损显示回模板，模板在内部降级为 Typed Expression，数值和布尔插值会显式转换为字符串。模式切换本身不改写数据，也不制造无意义的 Undo。变量目标选择器同步改为按作用域搜索并只在展开时最多渲染 60 项，避免多 Output 和大量变量产生重复长列表。
 - 新增项目级《编辑器撤销与重做规范》：所有内容新增、删除与修改默认必须可原子恢复；统一定义事务边界、文本草稿、跨文件写回、快捷键、例外和新功能验收清单，并登记全项目资源操作审计任务。
 - 撤销规范首轮审计将 Project Variable、Event 与 Signal 纳入统一 Editor History；新增、删除、属性及参数改写可 Undo / Redo，事务同时快照受影响的已打开 Story，并按顺序写回 `.storyproject`。Event / Signal 删除不再错误提示“不可撤销”。
@@ -247,3 +248,7 @@ npm run dev
 - Substory 接口进一步对齐 UE Function：Entry 展示并编辑多个命名 Input，Return 共享并编辑多个命名 Output，Call Substory 为每个 Output 独立选择调用方变量；`.story` KDL、AI 语义快照、编译产物、可序列化 Call Frame 和 Runtime 均改为稳定 Output ID 到值/目标变量的映射。
 - Story Source 升级为 v5、Runtime Program 升级为 v3；读取 v4 的单 `return-type` / `result-variable` / `value` 时会迁移为一个稳定命名的 `Result` Output，后续保存写成新的多 Output KDL。
 - 新增项目级 Localization 工作流：从所有 Story / Substory 提取 Dialogue Line、Choice Prompt 与 Option 到独立 `.storyloc` KDL 资源，Localization Dock 支持搜索上下文、添加/删除 Locale、逐条翻译、刷新源文和配置 Fallback。翻译保持原表达式绑定能力，项目编译将语言变体写入无节点 Runtime Program，Preview 可即时切换语言并按回退链解析。
+- Runtime Preview 编译当前 Story 时注入 Project Variables；Common 层统一校验 nullable、enum、struct 和有限数值，Runtime 对外部读写、恢复状态、变量赋值及 Substory 参数/输出执行类型保护。
+- StoryAdapter 的外部变量接口改为接收完整 `VariableDefinition`；非法返回值与 Adapter 异常分别诊断为 `INVALID_ADAPTER_RESULT` / `ADAPTER_ERROR`，外部写回在成功确认后才从队列移除，失败写入可重试。
+- 记录 Substory 组织决策：先采用扁平所有权、树状资源视图；Substory 用于 Story 内可复用/可测试的函数式流程，未来由独立 Story Control 节点负责跨 Story 的启动、切换、恢复和结束，不混用 Call / Return 语义。
+- 新增 `Ink Node Profile v1` 导入闭环：File 菜单可选择 `.ink`，连续对白、Choice + Divert、Knot、Boolean/Number/String 变量、赋值和简单条件转换为 Typed Graph Proposal；新增节点可独立移动，Apply 后作为单一 Undo 事务，复杂语法按原始行列拒绝并提供可复制诊断。

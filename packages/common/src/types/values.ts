@@ -27,3 +27,28 @@ export interface VariableDefinition {
   valueType: ValueType;
   defaultValue: RuntimeValue;
 }
+
+/** Checks untrusted runtime data against the serialized value-type contract. */
+export function runtimeValueMatchesType(value: RuntimeValue, type: ValueType): boolean {
+  if (value === null) return type.kind === 'any' || Boolean(type.nullable);
+  switch (type.kind) {
+    case 'any':
+      return true;
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'string':
+      return typeof value === 'string';
+    case 'enum':
+      return typeof value === 'string' && type.values.includes(value);
+    case 'struct':
+      return (
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        Object.entries(type.fields).every(
+          ([name, fieldType]) => name in value && runtimeValueMatchesType(value[name], fieldType),
+        )
+      );
+  }
+}

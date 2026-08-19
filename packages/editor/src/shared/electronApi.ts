@@ -193,6 +193,9 @@ export type ExportCompiledProjectResult =
 export type OpenCompiledProjectResult =
   { canceled: true } | { canceled: false; filePath: string; content: string };
 
+export type OpenInkFileResult =
+  { canceled: true } | { canceled: false; filePath: string; content: string };
+
 export interface CreateWorkspaceStoryRequest {
   directory: string;
   name: string;
@@ -323,6 +326,7 @@ export interface ElectronAPI {
   ) => Promise<WorkspaceInfo>;
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
+  openInkFile: () => Promise<OpenInkFileResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
   extractProjectLocalization: (sourceLocale: string) => Promise<WorkspaceInfo>;
   updateProjectLocalization: (document: StoryLocalizationDocument) => Promise<WorkspaceInfo>;

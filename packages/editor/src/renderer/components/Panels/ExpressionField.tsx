@@ -23,7 +23,7 @@ interface ExpressionFieldProps {
 function operatorsFor(expectedType?: ValueType): readonly string[] {
   if (expectedType?.kind === 'boolean') return ['&&', '||', '!', '==', '!=', '<', '>', '(', ')'];
   if (expectedType?.kind === 'number') return ['+', '-', '*', '/', '%', '(', ')'];
-  if (expectedType?.kind === 'string') return ['+', '==', '!=', '(', ')'];
+  if (expectedType?.kind === 'string') return ['+', '(', ')'];
   return ['&&', '||', '!', '==', '!=', '<', '>', '+', '-', '(', ')'];
 }
 

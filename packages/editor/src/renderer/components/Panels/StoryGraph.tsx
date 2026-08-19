@@ -166,6 +166,8 @@ export function StoryGraph() {
     updateAIProposalNodes,
     applyAIProposal,
     discardAIProposal,
+    inkImportReport,
+    dismissInkImportReport,
     storyMergePreview,
     storyMergePreviewGraphId,
     clearStoryMergePreview,
@@ -1609,8 +1611,14 @@ export function StoryGraph() {
         {aiProposal && (
           <aside className={styles.aiChangeBanner}>
             <div>
-              <strong>AI proposal preview</strong>
-              <span>Move the green nodes, then Apply or Discard. Story is unchanged.</span>
+              <strong>
+                {aiProposal.origin === 'ink' ? 'Ink import preview' : 'AI proposal preview'}
+              </strong>
+              <span>
+                {aiProposal.origin === 'ink' && inkImportReport?.summary
+                  ? `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
+                  : 'Move the green nodes, then Apply or Discard. Story is unchanged.'}
+              </span>
             </div>
             <button type="button" onClick={() => void applyAIProposal()}>
               Apply
@@ -1618,6 +1626,41 @@ export function StoryGraph() {
             <button type="button" className={styles.aiUndoButton} onClick={discardAIProposal}>
               Discard
             </button>
+          </aside>
+        )}
+        {inkImportReport && inkImportReport.diagnostics.length > 0 && (
+          <aside className={styles.inkImportDiagnostics}>
+            <header>
+              <div>
+                <strong>Ink import diagnostics</strong>
+                <span title={inkImportReport.filePath}>
+                  {inkImportReport.filePath ?? 'Ink source'}
+                </span>
+              </div>
+              <span className={styles.inkImportCopy}>
+                <CopyButton
+                  text={inkImportReport.diagnostics
+                    .map(
+                      (item) =>
+                        `[${item.severity.toUpperCase()}] ${item.line}:${item.column} ${item.message}`,
+                    )
+                    .join('\n')}
+                />
+              </span>
+              <button type="button" onClick={dismissInkImportReport}>
+                ×
+              </button>
+            </header>
+            <div>
+              {inkImportReport.diagnostics.map((item, index) => (
+                <p key={`${item.line}-${item.column}-${index}`} data-severity={item.severity}>
+                  <code>
+                    {item.line}:{item.column}
+                  </code>
+                  <span>{item.message}</span>
+                </p>
+              ))}
+            </div>
           </aside>
         )}
         {activeMergePreview && !aiProposal && (

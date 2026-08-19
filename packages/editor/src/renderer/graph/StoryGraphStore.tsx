@@ -119,6 +119,11 @@ import type {
   ProjectResourceSnapshot,
   WorkspaceInfo,
 } from '../../shared/electronApi';
+import {
+  buildInkImportTransaction,
+  type InkImportDiagnostic,
+  type InkImportSummary,
+} from '../dialogue/inkImport';
 
 nodeRegistry.registerBuiltins();
 
@@ -297,6 +302,13 @@ interface AIEditorChanges {
 interface AIEditorProposal extends AIEditorChanges {
   graph: EditorGraphState;
   transaction: unknown;
+  origin: 'ai' | 'ink';
+}
+
+export interface InkImportReport {
+  filePath?: string;
+  diagnostics: readonly InkImportDiagnostic[];
+  summary?: InkImportSummary;
 }
 
 export interface ExternalStoryMergeRequest {
@@ -367,6 +379,9 @@ interface StoryGraphStoreValue {
   updateAIProposalNodes: OnNodesChange<EditorGraphNode>;
   applyAIProposal: () => BlueprintTransactionResult | undefined;
   discardAIProposal: () => void;
+  inkImportReport?: InkImportReport;
+  dismissInkImportReport: () => void;
+  importInkFile: () => Promise<void>;
   storyMergePreview?: StoryMergePreview;
   storyMergePreviewGraphId?: ActiveGraphId;
   storyMergeDecisionRequest?: { id: string; choice: StoryMergeChoice; nonce: number };
@@ -544,6 +559,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
   const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
   const [aiProposal, setAIProposal] = useState<AIEditorProposal>();
+  const [inkImportReport, setInkImportReport] = useState<InkImportReport>();
   const [storyMergePreview, setStoryMergePreview] = useState<StoryMergePreview>();
   const [storyMergePreviewGraphId, setStoryMergePreviewGraphIdState] = useState<ActiveGraphId>();
   const [storyMergeDecisionRequest, setStoryMergeDecisionRequest] = useState<{
@@ -1232,7 +1248,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
-  const discardAIProposal = useCallback(() => setAIProposal(undefined), []);
+  const discardAIProposal = useCallback(() => {
+    setAIProposal((current) => {
+      if (current?.origin === 'ink') setInkImportReport(undefined);
+      return undefined;
+    });
+  }, []);
+  const dismissInkImportReport = useCallback(() => setInkImportReport(undefined), []);
   const updateAIProposalNodes = useCallback<OnNodesChange<EditorGraphNode>>((changes) => {
     const allowed = changes.filter(
       (change) =>
@@ -1252,7 +1274,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const executeBlueprintCommands = useCallback(
     (
       transactionValue: unknown,
-      options: { dryRun?: boolean; stage?: boolean } = {},
+      options: { dryRun?: boolean; stage?: boolean; origin?: 'ai' | 'ink' } = {},
     ): BlueprintTransactionResult => {
       if (options.stage) setAIProposal(undefined);
       if (
@@ -1404,6 +1426,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             edges: prepared.graph.edges.map((edge) => ({ ...edge, selected: false })),
           },
           transaction: structuredClone(transactionValue),
+          origin: options.origin ?? 'ai',
           addedNodeIds: prepared.addedNodeIds,
           changedNodeIds,
           removedNodeIds: prepared.removedNodeIds,
@@ -1421,7 +1444,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const committedGraph = stagedProposal
         ? applyAIProposalPositions(prepared.graph, stagedProposal.graph)
         : prepared.graph;
-      checkpoint(undefined, 'Apply AI Changes');
+      checkpoint(
+        undefined,
+        stagedProposal?.origin === 'ink' ? 'Import Ink as Nodes' : 'Apply AI Changes',
+      );
       restoreGraph(committedGraph);
       const nextProjectVariables = result.document.variables.filter(
         (variable) => variable.scope === 'project',
@@ -1448,18 +1474,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         }
       }
       setAIProposal(undefined);
+      if (stagedProposal?.origin === 'ink') setInkImportReport(undefined);
       setAIChanges(
-        stagedProposal
+        stagedProposal?.origin === 'ink'
           ? undefined
-          : {
-              nonce: Date.now(),
-              addedNodeIds: prepared.addedNodeIds,
-              changedNodeIds,
-              removedNodeIds: prepared.removedNodeIds,
-              layoutNodeIds: movedNodeIds,
-              variableChangeCount,
-              characterChangeCount,
-            },
+          : stagedProposal
+            ? undefined
+            : {
+                nonce: Date.now(),
+                addedNodeIds: prepared.addedNodeIds,
+                changedNodeIds,
+                removedNodeIds: prepared.removedNodeIds,
+                layoutNodeIds: movedNodeIds,
+                variableChangeCount,
+                characterChangeCount,
+              },
       );
       markDirty();
       return result;
@@ -1485,9 +1514,75 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const applyAIProposal = useCallback(
-    () => (aiProposal ? executeBlueprintCommands(aiProposal.transaction) : undefined),
+    () =>
+      aiProposal
+        ? executeBlueprintCommands(aiProposal.transaction, { origin: aiProposal.origin })
+        : undefined,
     [aiProposal, executeBlueprintCommands],
   );
+
+  const importInkFile = useCallback(async () => {
+    if (!hasActiveStory || !window.electronAPI) return;
+    try {
+      const opened = await window.electronAPI.openInkFile();
+      if (opened.canceled) return;
+      const imported = buildInkImportTransaction(opened.content, {
+        revision: semanticSnapshot.revision,
+        chapterId: activeGraphId === 'root' ? undefined : activeGraphId,
+        characters: resolvedCharacters,
+        assets: resolvedAssets,
+        variables: [...availableVariables, ...projectVariables],
+      });
+      if (!imported.ok) {
+        setInkImportReport({ filePath: opened.filePath, diagnostics: imported.diagnostics });
+        setAIProposal(undefined);
+        return;
+      }
+      const result = executeBlueprintCommands(imported.transaction, {
+        dryRun: true,
+        stage: true,
+        origin: 'ink',
+      });
+      if (!result.ok) {
+        setInkImportReport({
+          filePath: opened.filePath,
+          diagnostics: result.diagnostics.map((item) => ({
+            severity: 'error' as const,
+            line: 1,
+            column: 1,
+            message: item.message,
+          })),
+          summary: imported.summary,
+        });
+        return;
+      }
+      setInkImportReport({
+        filePath: opened.filePath,
+        diagnostics: imported.diagnostics,
+        summary: imported.summary,
+      });
+    } catch (error) {
+      setInkImportReport({
+        diagnostics: [
+          {
+            severity: 'error',
+            line: 1,
+            column: 1,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      });
+    }
+  }, [
+    activeGraphId,
+    availableVariables,
+    executeBlueprintCommands,
+    hasActiveStory,
+    projectVariables,
+    resolvedAssets,
+    resolvedCharacters,
+    semanticSnapshot.revision,
+  ]);
 
   const addNode = useCallback(
     (
@@ -4802,6 +4897,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateAIProposalNodes,
       applyAIProposal,
       discardAIProposal,
+      inkImportReport,
+      dismissInkImportReport,
+      importInkFile,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,
@@ -4898,6 +4996,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateAIProposalNodes,
       applyAIProposal,
       discardAIProposal,
+      inkImportReport,
+      dismissInkImportReport,
+      importInkFile,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,

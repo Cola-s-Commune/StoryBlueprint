@@ -320,6 +320,7 @@ export function AICommands() {
     activeGraphId,
     nodes,
   } = useStoryGraphStore();
+  const aiCommandProposal = aiProposal?.origin === 'ai' ? aiProposal : undefined;
   const [commandText, setCommandText] = useState(() => commandTemplate(semanticSnapshot.revision));
   const [result, setResult] = useState<BlueprintTransactionResult>();
   const [previewBase, setPreviewBase] = useState<StorySemanticSnapshot>();
@@ -380,7 +381,7 @@ export function AICommands() {
   const diffChangeCount = diffCounts
     ? diffCounts.added + diffCounts.changed + diffCounts.removed
     : 0;
-  const layoutNodeIds = result?.ok && aiProposal ? aiProposal.layoutNodeIds : [];
+  const layoutNodeIds = result?.ok && aiCommandProposal ? aiCommandProposal.layoutNodeIds : [];
   const reviewChangeCount = diffChangeCount + layoutNodeIds.length;
   const errors = [providerError, clipboardError, localError, diagnosticText(result)]
     .filter(Boolean)
@@ -1105,7 +1106,7 @@ export function AICommands() {
                 Dry Run
               </button>
             )}
-            {result?.ok && !result.committed && aiProposal && (
+            {result?.ok && !result.committed && aiCommandProposal && (
               <>
                 <button
                   type="button"
@@ -1128,7 +1129,7 @@ export function AICommands() {
                 ? result.committed
                   ? 'Applied · Undo available'
                   : isDryRunCurrent
-                    ? aiProposal
+                    ? aiCommandProposal
                       ? 'Preview ready · arrange green nodes on the canvas'
                       : 'Preview discarded'
                     : 'Story changed · run Dry Run again'

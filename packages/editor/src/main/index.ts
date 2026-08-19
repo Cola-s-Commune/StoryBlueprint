@@ -123,6 +123,7 @@ const MAX_RECENT_PROJECTS = 10;
 const MAX_SESSION_STORIES = 50;
 const MAX_RECOVERY_BYTES = 128 * 1024 * 1024;
 const MAX_COMPILED_PROJECT_BYTES = 128 * 1024 * 1024;
+const MAX_INK_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_AI_CONTEXT_BYTES = 8 * 1024 * 1024;
 const MAX_AI_INSTRUCTION_BYTES = 32 * 1024;
 const MAX_AI_HISTORY_BYTES = 512 * 1024;
@@ -2731,6 +2732,24 @@ function registerStoryFileHandlers(): void {
       (value as { version?: unknown }).version !== STORY_COMPILED_PROJECT_VERSION
     ) {
       throw new Error('Unsupported compiled project format');
+    }
+    return { canceled: false, filePath, content };
+  });
+
+  ipcMain.handle('workspace:open-ink', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Ink as Nodes',
+      defaultPath: workspaceRoot ?? app.getPath('documents'),
+      properties: ['openFile'],
+      filters: [{ name: 'Ink Source', extensions: ['ink'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const filePath = result.filePaths[0];
+    if (extname(filePath).toLowerCase() !== '.ink') throw new Error('Choose an .ink file');
+    const content = await readFile(filePath, 'utf8');
+    if (Buffer.byteLength(content, 'utf8') > MAX_INK_SOURCE_BYTES) {
+      throw new Error('Ink source is too large');
     }
     return { canceled: false, filePath, content };
   });
