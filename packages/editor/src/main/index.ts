@@ -63,6 +63,7 @@ import type {
   GenerateAICommandResult,
   RecentProject,
   UpdateAIProviderSettingsRequest,
+  UpdateSettings,
   WorkspaceEntry,
   WorkspaceInfo,
   ProjectResourceSnapshot,
@@ -92,6 +93,12 @@ import {
   type PersistedWindowState,
 } from './windowState';
 import { parseRecoveryStore } from './recoveryStore';
+import {
+  checkUpdateFeed,
+  defaultUpdateSettings,
+  isAllowedUpdateUrl,
+  isUpdateSettings,
+} from './updateChecker';
 import {
   canReuseWorkspaceFileFingerprint,
   planWorkspaceFilePoll,
@@ -324,6 +331,15 @@ function aiChatSessionsFile(): string {
 
 function windowStateFile(): string {
   return join(app.getPath('userData'), 'window-state.json');
+}
+
+function updateSettingsFile(): string {
+  return join(app.getPath('userData'), 'update-settings.json');
+}
+
+async function readUpdateSettings(): Promise<UpdateSettings> {
+  const stored = await readJsonFile(updateSettingsFile());
+  return isUpdateSettings(stored) ? { ...defaultUpdateSettings, ...stored } : defaultUpdateSettings;
 }
 
 async function readWindowState(): Promise<PersistedWindowState | undefined> {
@@ -1503,6 +1519,33 @@ function registerStoryFileHandlers(): void {
       platform: process.platform,
       arch: process.arch,
     };
+  });
+  ipcMain.handle('app:get-update-settings', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return readUpdateSettings();
+  });
+  ipcMain.handle('app:update-update-settings', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || typeof value !== 'object' || value === null) {
+      throw new Error('Invalid update settings');
+    }
+    const request = value as Partial<UpdateSettings>;
+    const settings = {
+      ...request,
+      feedUrl: typeof request.feedUrl === 'string' ? request.feedUrl.trim() : request.feedUrl,
+    };
+    if (!isUpdateSettings(settings)) throw new Error('Invalid update settings');
+    await writeUserDataJson(updateSettingsFile(), settings);
+    return settings;
+  });
+  ipcMain.handle('app:check-for-updates', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return checkUpdateFeed(app.getVersion(), await readUpdateSettings());
+  });
+  ipcMain.handle('app:open-external', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || typeof value !== 'string' || !isAllowedUpdateUrl(value)) {
+      throw new Error('Invalid external URL');
+    }
+    await shell.openExternal(value);
   });
   ipcMain.handle('app:get-window-state', async (event) => {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');

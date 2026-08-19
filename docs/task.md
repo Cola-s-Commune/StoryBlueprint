@@ -897,6 +897,18 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 ---
 
+## Application Updates
+
+- [x] 应用级 Feed URL、Stable / Beta、启用和启动检查配置（存入 userData，不进入项目文件）
+- [x] Help → Check for Updates 手动检查、版本比较、Release Notes 和下载入口
+- [x] HTTPS Feed / Artifact URL 安全边界；开发环境允许 localhost HTTP
+- [x] 版本化 JSON Update Manifest、相对产物 URL 和 SemVer / prerelease 比较
+- [ ] Release 脚本生成 Update Manifest 与安装器 / Portable SHA-512
+- [ ] 发布公钥内置、Manifest 签名与下载后哈希/签名验证
+- [ ] NSIS 自动下载、退出并安装；Portable 仅下载和提示替换
+
+---
+
 # MVP Definition
 
 项目达到 MVP 需要满足：

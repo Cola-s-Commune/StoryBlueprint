@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
-import type { AppInfo } from '../../../shared/electronApi';
+import type { AppInfo, UpdateCheckResult } from '../../../shared/electronApi';
 import { AboutDialog } from './AboutDialog';
+import { UpdateDialog } from './UpdateDialog';
 import styles from './MenuBar.module.css';
 
 type MenuItem = {
@@ -35,6 +36,7 @@ type SubMenuItem =
         | 'zoom-out'
         | 'zoom-reset'
         | 'reset-layout'
+        | 'updates'
         | 'about';
       panelId?:
         | 'resources'
@@ -114,7 +116,11 @@ const menuItems: MenuItem[] = [
   },
   {
     label: 'Help',
-    submenu: [{ type: 'item', label: 'About Story Blueprint', action: 'about' }],
+    submenu: [
+      { type: 'item', label: 'Check for Updates...', action: 'updates' },
+      { type: 'separator' },
+      { type: 'item', label: 'About Story Blueprint', action: 'about' },
+    ],
   },
 ];
 
@@ -159,7 +165,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>();
+  const [automaticUpdateResult, setAutomaticUpdateResult] = useState<UpdateCheckResult>();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -170,6 +178,28 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    void api
+      .getAppInfo()
+      .then(setAppInfo)
+      .catch(() => undefined);
+    void api
+      .getUpdateSettings()
+      .then((settings) => {
+        if (!settings.enabled || !settings.autoCheck || !settings.feedUrl) return;
+        return api.checkForUpdates();
+      })
+      .then((result) => {
+        if (result?.status === 'available') {
+          setAutomaticUpdateResult(result);
+          setUpdatesOpen(true);
+        }
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -278,6 +308,11 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         setAboutOpen(true);
         void window.electronAPI?.getAppInfo().then(setAppInfo);
         break;
+      case 'updates':
+        setAutomaticUpdateResult(undefined);
+        setUpdatesOpen(true);
+        void window.electronAPI?.getAppInfo().then(setAppInfo);
+        break;
     }
   };
 
@@ -375,6 +410,13 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           appInfo={appInfo}
           projectPath={workspace?.rootPath}
           onClose={() => setAboutOpen(false)}
+        />
+      )}
+      {updatesOpen && (
+        <UpdateDialog
+          currentVersion={appInfo?.version}
+          initialResult={automaticUpdateResult}
+          onClose={() => setUpdatesOpen(false)}
         />
       )}
     </div>

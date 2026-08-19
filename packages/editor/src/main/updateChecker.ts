@@ -1,0 +1,175 @@
+import type { UpdateCheckResult, UpdateManifest, UpdateSettings } from '../shared/electronApi';
+
+const MAX_UPDATE_MANIFEST_BYTES = 1 * 1024 * 1024;
+
+interface SemVer {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: readonly (number | string)[];
+}
+
+export const defaultUpdateSettings: UpdateSettings = {
+  enabled: false,
+  feedUrl: '',
+  channel: 'stable',
+  autoCheck: false,
+};
+
+export function isAllowedUpdateUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:') return true;
+    return (
+      url.protocol === 'http:' &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1')
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isUpdateSettings(value: unknown): value is UpdateSettings {
+  if (typeof value !== 'object' || value === null) return false;
+  const settings = value as Partial<UpdateSettings>;
+  return (
+    typeof settings.enabled === 'boolean' &&
+    typeof settings.feedUrl === 'string' &&
+    settings.feedUrl.length <= 2_048 &&
+    (settings.feedUrl === '' || isAllowedUpdateUrl(settings.feedUrl)) &&
+    (settings.channel === 'stable' || settings.channel === 'beta') &&
+    typeof settings.autoCheck === 'boolean'
+  );
+}
+
+function parseSemVer(value: string): SemVer | undefined {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    value.trim(),
+  );
+  if (!match) return undefined;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: (match[4] ?? '')
+      .split('.')
+      .filter(Boolean)
+      .map((part) => (/^\d+$/.test(part) ? Number(part) : part)),
+  };
+}
+
+export function compareUpdateVersions(left: string, right: string): number {
+  const leftVersion = parseSemVer(left);
+  const rightVersion = parseSemVer(right);
+  if (!leftVersion || !rightVersion) throw new Error('Update manifest contains an invalid version');
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    if (leftVersion[key] !== rightVersion[key]) return leftVersion[key] - rightVersion[key];
+  }
+  if (leftVersion.prerelease.length === 0 && rightVersion.prerelease.length === 0) return 0;
+  if (leftVersion.prerelease.length === 0) return 1;
+  if (rightVersion.prerelease.length === 0) return -1;
+  const length = Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftVersion.prerelease[index];
+    const rightPart = rightVersion.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    if (typeof leftPart === 'number' && typeof rightPart === 'number') return leftPart - rightPart;
+    if (typeof leftPart === 'number') return -1;
+    if (typeof rightPart === 'number') return 1;
+    return leftPart.localeCompare(rightPart);
+  }
+  return 0;
+}
+
+function isUpdateManifest(value: unknown): value is UpdateManifest {
+  if (typeof value !== 'object' || value === null) return false;
+  const manifest = value as Partial<UpdateManifest>;
+  return (
+    manifest.format === 'story-blueprint-update' &&
+    manifest.version === 1 &&
+    (manifest.channel === 'stable' || manifest.channel === 'beta') &&
+    typeof manifest.latestVersion === 'string' &&
+    Boolean(parseSemVer(manifest.latestVersion)) &&
+    (manifest.releaseDate === undefined || typeof manifest.releaseDate === 'string') &&
+    (manifest.notes === undefined ||
+      (typeof manifest.notes === 'string' && manifest.notes.length <= 100_000)) &&
+    (manifest.installerUrl === undefined || typeof manifest.installerUrl === 'string') &&
+    (manifest.portableUrl === undefined || typeof manifest.portableUrl === 'string')
+  );
+}
+
+function resolveUpdateUrl(feedUrl: string, candidate: string | undefined): string | undefined {
+  if (!candidate) return undefined;
+  let resolved: URL;
+  try {
+    resolved = new URL(candidate, feedUrl);
+  } catch {
+    throw new Error('Update manifest contains an invalid download URL');
+  }
+  if (!isAllowedUpdateUrl(resolved.toString())) {
+    throw new Error('Update download URLs must use HTTPS (localhost HTTP is allowed)');
+  }
+  return resolved.toString();
+}
+
+function resolveManifestUrl(feedUrl: string, channel: UpdateSettings['channel']): string {
+  const url = new URL(feedUrl);
+  if (url.pathname.toLowerCase().endsWith('.json')) return url.toString();
+  if (!url.pathname.endsWith('/')) url.pathname += '/';
+  return new URL(`${channel}.json`, url).toString();
+}
+
+export async function checkUpdateFeed(
+  currentVersion: string,
+  settings: UpdateSettings,
+  fetchManifest: typeof fetch = fetch,
+): Promise<UpdateCheckResult> {
+  const checkedAt = new Date().toISOString();
+  if (!settings.enabled || !settings.feedUrl) {
+    return { status: 'disabled', currentVersion, checkedAt };
+  }
+  try {
+    const manifestUrl = resolveManifestUrl(settings.feedUrl, settings.channel);
+    const response = await fetchManifest(manifestUrl, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Update feed returned HTTP ${response.status}`);
+    const finalManifestUrl = response.url || manifestUrl;
+    if (!isAllowedUpdateUrl(finalManifestUrl)) {
+      throw new Error('Update feed redirected to an unsafe URL');
+    }
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_UPDATE_MANIFEST_BYTES) {
+      throw new Error('Update manifest is too large');
+    }
+    const value: unknown = JSON.parse(text);
+    if (!isUpdateManifest(value)) throw new Error('Invalid Story Blueprint update manifest');
+    if (value.channel !== settings.channel) {
+      return { status: 'up-to-date', currentVersion, checkedAt };
+    }
+    const installerUrl = resolveUpdateUrl(finalManifestUrl, value.installerUrl);
+    const portableUrl = resolveUpdateUrl(finalManifestUrl, value.portableUrl);
+    const status =
+      compareUpdateVersions(value.latestVersion, currentVersion) > 0 ? 'available' : 'up-to-date';
+    return {
+      status,
+      currentVersion,
+      latestVersion: value.latestVersion,
+      releaseDate: value.releaseDate,
+      notes: value.notes,
+      installerUrl,
+      portableUrl,
+      checkedAt,
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      currentVersion,
+      checkedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

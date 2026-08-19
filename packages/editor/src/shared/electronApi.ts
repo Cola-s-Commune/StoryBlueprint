@@ -285,6 +285,46 @@ export interface AppInfo {
   arch: string;
 }
 
+export type UpdateChannel = 'stable' | 'beta';
+
+export interface UpdateSettings {
+  enabled: boolean;
+  feedUrl: string;
+  channel: UpdateChannel;
+  autoCheck: boolean;
+}
+
+export interface UpdateManifest {
+  format: 'story-blueprint-update';
+  version: 1;
+  channel: UpdateChannel;
+  latestVersion: string;
+  releaseDate?: string;
+  notes?: string;
+  installerUrl?: string;
+  portableUrl?: string;
+  installerSha512?: string;
+  portableSha512?: string;
+}
+
+export type UpdateCheckResult =
+  | {
+      status: 'disabled' | 'up-to-date' | 'available';
+      currentVersion: string;
+      latestVersion?: string;
+      releaseDate?: string;
+      notes?: string;
+      installerUrl?: string;
+      portableUrl?: string;
+      checkedAt: string;
+    }
+  | {
+      status: 'error';
+      currentVersion: string;
+      checkedAt: string;
+      error: string;
+    };
+
 export interface ElectronAPI {
   platform: string;
   isElectron: true;
@@ -292,6 +332,10 @@ export interface ElectronAPI {
   readClipboardText: () => Promise<string>;
   setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
   getAppInfo: () => Promise<AppInfo>;
+  getUpdateSettings: () => Promise<UpdateSettings>;
+  updateUpdateSettings: (settings: UpdateSettings) => Promise<UpdateSettings>;
+  checkForUpdates: () => Promise<UpdateCheckResult>;
+  openExternal: (url: string) => Promise<void>;
   getWindowState: () => Promise<EditorWindowState>;
   minimizeWindow: () => Promise<void>;
   toggleMaximizeWindow: () => Promise<EditorWindowState>;

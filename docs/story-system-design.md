@@ -1331,7 +1331,41 @@ Remote Stage 内容生成 SHA-256 Revision；Validate 和 Apply 都重新读取�
 
 ---
 
-## 15. 推荐实现顺序
+## 15. 应用在线更新
+
+更新配置属于编辑器本机设置，保存在 Electron `userData/update-settings.json`，不能写入
+`.storyproject` 或随 Story 提交。作者可以手动填写 Feed URL、选择 Stable / Beta 通道，并分别控制
+是否启用和是否在启动时检查。默认 Feed 为空且禁用。
+
+第一阶段只检查和通知，不自动下载、覆盖或安装。远程 Feed 与产物 URL 必须使用 HTTPS；仅为本地测试允许
+`http://localhost`、`127.0.0.1` 和 `::1`。主进程负责网络请求、大小限制、协议校验、Manifest 解析和
+SemVer（含 prerelease）比较，Renderer 不直接请求更新服务器。启动检查失败保持静默，手动检查显示错误；
+只有发现更高版本才自动打开更新窗口。
+
+Update Manifest v1 使用 JSON：
+
+```json
+{
+  "format": "story-blueprint-update",
+  "version": 1,
+  "channel": "stable",
+  "latestVersion": "0.2.0",
+  "releaseDate": "2026-08-20T00:00:00.000Z",
+  "notes": "Release notes shown to the user.",
+  "installerUrl": "./StoryBlueprint-Setup-0.2.0-x64.exe",
+  "portableUrl": "./StoryBlueprint-Portable-0.2.0-x64.exe"
+}
+```
+
+Feed URL 可以是直接指向 JSON 的完整地址，也可以是基础目录；基础目录按所选通道读取 `stable.json` 或
+`beta.json`。相对产物 URL 以最终 Manifest URL 为基准解析。当前下载按钮只交给操作系统浏览器，不修改本地程序。进入自动下载
+阶段前必须由 Release 流程生成 SHA-512，并加入与更新域名分离的离线签名私钥；客户端内置公钥验证
+Manifest 和产物，手动 Feed URL 不能替换公钥或关闭验证。NSIS 后续可退出并安装，Portable 默认只下载并
+提示用户替换，不能覆盖正在运行的 EXE。
+
+---
+
+## 16. 推荐实现顺序
 
 1. 定义稳定 ID 规则、版本化 `.story` Schema、Node Definition 和 TypeScript Source Model。
 2. 同时定义 Runtime Program Schema、RuntimeState 和 Adapter 契约，固定编译两端的语义。

@@ -1,0 +1,184 @@
+.backdrop {
+  position: fixed;
+  z-index: 10001;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 58%);
+  -webkit-app-region: no-drag;
+}
+
+.dialog {
+  position: relative;
+  width: min(520px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 25px 28px 22px;
+  border: 1px solid #454b55;
+  border-radius: 8px;
+  background: #20242b;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 55%);
+  color: #e7edf4;
+}
+
+.dialog h1 {
+  margin: 0 0 5px;
+  font-size: 21px;
+}
+
+.subtitle,
+.hint,
+.saved,
+.status {
+  color: #9faaba;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.subtitle {
+  margin: 0 0 18px;
+}
+
+.dialog label {
+  display: grid;
+  gap: 6px;
+  margin: 11px 0;
+  color: #aeb9c7;
+  font-size: 11px;
+}
+
+.dialog input:not([type='checkbox']),
+.dialog select {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 9px;
+  border: 1px solid #3d4652;
+  border-radius: 4px;
+  outline: none;
+  background: #171b20;
+  color: #e7edf4;
+  font: inherit;
+}
+
+.dialog input:not([type='checkbox']):focus,
+.dialog select:focus {
+  border-color: #6d9ed3;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.checkbox {
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.checkbox input {
+  accent-color: #6d9ed3;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.actions button {
+  padding: 7px 12px;
+  border: 1px solid #4b5969;
+  border-radius: 4px;
+  background: #2d3947;
+  color: #e7edf4;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.actions button:hover:not(:disabled) {
+  background: #38495c;
+}
+
+.actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.result {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 10px;
+  border: 1px solid #343d49;
+  border-radius: 5px;
+  background: #191d23;
+  font-size: 11px;
+}
+
+.result span,
+.result p {
+  margin: 0;
+  color: #aeb9c7;
+  line-height: 1.45;
+}
+
+.links {
+  display: flex;
+  gap: 12px;
+}
+
+.links a {
+  color: #8eb9ed;
+}
+
+.links button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8eb9ed;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.status {
+  margin: 10px 0 0;
+  color: #b9d998;
+}
+
+.hint,
+.saved {
+  margin: 12px 0 0;
+}
+
+.saved {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #aeb7c2;
+  font-size: 22px;
+  line-height: 28px;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: #343b46;
+  color: #ffffff;
+}

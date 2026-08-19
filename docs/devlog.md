@@ -1,5 +1,6 @@
 # Dev Log
 
+- 新增应用级更新检查基础设施：Help 菜单可配置自定义 Feed URL、Stable / Beta 和启动检查，设置仅保存在 Electron userData；主进程限制远程 HTTPS（localhost 可用 HTTP），解析版本化 JSON Manifest、比较含 prerelease 的 SemVer，并仅在发现新版本时提供安装器 / Portable 外部下载入口。当前不自动下载或安装，签名验证仍是启用自动更新前的硬前置。
 - Expression 快捷运算符按结果类型收紧：String 只显示拼接和括号，`==` / `!=` 仅在 Boolean 条件中作为比较操作出现；底层仍保留字符串比较能力。
 - Inspector 表达式输入升级为轻量 Scratch 风格辅助编辑：保留可读文本，支持变量/角色字段按需补全、Ctrl+Space 与键盘选择、常用运算符按钮及延迟即时类型诊断；覆盖 Branch、Choice、Set Variable、Event、Signal、Substory Input 与 Return Output。String 参数的 Text 改为与 Dialogue / Ink 一致的 `{expression}` 模板，例如 `Plan {Plan}`；字符串拼接 Expression 可无损显示回模板，模板在内部降级为 Typed Expression，数值和布尔插值会显式转换为字符串。模式切换本身不改写数据，也不制造无意义的 Undo。变量目标选择器同步改为按作用域搜索并只在展开时最多渲染 60 项，避免多 Output 和大量变量产生重复长列表。
 - 新增项目级《编辑器撤销与重做规范》：所有内容新增、删除与修改默认必须可原子恢复；统一定义事务边界、文本草稿、跨文件写回、快捷键、例外和新功能验收清单，并登记全项目资源操作审计任务。
