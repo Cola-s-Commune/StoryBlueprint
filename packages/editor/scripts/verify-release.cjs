@@ -1,4 +1,5 @@
-const { existsSync, readdirSync, statSync } = require('node:fs');
+const { createHash } = require('node:crypto');
+const { existsSync, readFileSync, readdirSync, statSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -6,6 +7,9 @@ const releaseRoot = resolve(__dirname, '../../../release');
 const releaseDirectory = resolve(releaseRoot, 'win-unpacked');
 const resourcesDirectory = resolve(releaseDirectory, 'resources');
 const asarPath = resolve(resourcesDirectory, 'app.asar');
+const packageVersion = JSON.parse(
+  readFileSync(resolve(__dirname, '../package.json'), 'utf8'),
+).version;
 
 if (!existsSync(releaseDirectory)) {
   throw new Error(`Windows release directory does not exist: ${releaseDirectory}`);
@@ -34,18 +38,48 @@ function smokeTest(filePath, cwd) {
 
 smokeTest(resolve(releaseDirectory, executable), releaseDirectory);
 
-const portable = readdirSync(releaseRoot).find((name) =>
-  /^StoryBlueprint-Portable-.*-x64\.exe$/i.test(name),
-);
+const portable = `StoryBlueprint-Portable-${packageVersion}-x64.exe`;
+if (!existsSync(resolve(releaseRoot, portable))) {
+  throw new Error(`Windows portable artifact was not found: ${portable}`);
+}
 if (portable) smokeTest(resolve(releaseRoot, portable), releaseRoot);
 
-const installer = readdirSync(releaseRoot).find((name) =>
-  /^StoryBlueprint-Setup-.*-x64\.exe$/i.test(name),
-);
+const installer = `StoryBlueprint-Setup-${packageVersion}-x64.exe`;
+if (!existsSync(resolve(releaseRoot, installer))) {
+  throw new Error(`Windows installer was not found: ${installer}`);
+}
 if (installer && statSync(resolve(releaseRoot, installer)).size < 1024 * 1024) {
   throw new Error(`Windows installer is unexpectedly small: ${installer}`);
 }
 
+function sha512(filePath) {
+  return createHash('sha512').update(readFileSync(filePath)).digest('base64');
+}
+
+const manifests = ['stable.json', 'beta.json']
+  .map((name) => ({ name, path: resolve(releaseRoot, name) }))
+  .filter(({ path }) => existsSync(path))
+  .map(({ name, path }) => ({ name, value: JSON.parse(readFileSync(path, 'utf8')) }));
+const matchingManifest = manifests.find(({ value }) => value.latestVersion === packageVersion);
+if (!matchingManifest) {
+  throw new Error(`No update manifest matches packaged version ${packageVersion}`);
+}
+const installerPath = resolve(releaseRoot, installer);
+const portablePath = resolve(releaseRoot, portable);
+const expected = {
+  installerUrl: `./${installer}`,
+  portableUrl: `./${portable}`,
+  installerSize: statSync(installerPath).size,
+  portableSize: statSync(portablePath).size,
+  installerSha512: sha512(installerPath),
+  portableSha512: sha512(portablePath),
+};
+for (const [key, value] of Object.entries(expected)) {
+  if (matchingManifest.value[key] !== value) {
+    throw new Error(`Update manifest ${matchingManifest.name} has an invalid ${key}`);
+  }
+}
+
 console.log(
-  `Verified ${executable}, resources/app.asar${portable ? `, ${portable}` : ''}${installer ? `, and ${installer}` : ''}`,
+  `Verified ${executable}, resources/app.asar, ${portable}, ${installer}, and ${matchingManifest.name}`,
 );

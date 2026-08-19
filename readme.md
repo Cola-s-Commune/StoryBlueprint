@@ -256,13 +256,25 @@ npm run release:win:portable
 npm run release:win:installer
 
 # 同时生成安装包和 portable 版本
+# 完成后自动生成 release/stable.json
 npm run release:win
+
+# 仅重新生成更新清单（已有两个 EXE 时）
+npm run release:win:manifest
 
 # 隐藏启动两个发行版本，验证 ASAR、preload 和 renderer
 npm run verify:release:win
 ```
 
-发行产物写入 `release/`。当前版本包含自定义应用图标、Windows 安装器和 portable 版本；尚未配置代码签名或自动更新。
+发行产物写入 `release/`。`release:win` 会在两个 EXE 都成功后生成包含相对下载地址、字节大小和 Base64 SHA-512 的 `stable.json`。预发布版本默认生成 `beta.json`，也可通过 `STORY_BLUEPRINT_UPDATE_CHANNEL` 指定通道；`STORY_BLUEPRINT_RELEASE_NOTES` 或 `STORY_BLUEPRINT_RELEASE_NOTES_FILE` 可提供更新说明。
+
+可在尚未购买服务器时本地验证 Feed：
+
+```powershell
+python -m http.server 8080 --directory release
+```
+
+然后在 `Help → Check for Updates...` 填写 `http://localhost:8080/`。当前尚未配置代码签名或自动安装。
 
 ---
 

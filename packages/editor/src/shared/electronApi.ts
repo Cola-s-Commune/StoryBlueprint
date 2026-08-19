@@ -305,6 +305,8 @@ export interface UpdateManifest {
   portableUrl?: string;
   installerSha512?: string;
   portableSha512?: string;
+  installerSize?: number;
+  portableSize?: number;
 }
 
 export type UpdateCheckResult =

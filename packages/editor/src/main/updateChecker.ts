@@ -96,7 +96,17 @@ function isUpdateManifest(value: unknown): value is UpdateManifest {
     (manifest.notes === undefined ||
       (typeof manifest.notes === 'string' && manifest.notes.length <= 100_000)) &&
     (manifest.installerUrl === undefined || typeof manifest.installerUrl === 'string') &&
-    (manifest.portableUrl === undefined || typeof manifest.portableUrl === 'string')
+    (manifest.portableUrl === undefined || typeof manifest.portableUrl === 'string') &&
+    (manifest.installerSha512 === undefined ||
+      (typeof manifest.installerSha512 === 'string' &&
+        /^[A-Za-z0-9+/]{86}==$/.test(manifest.installerSha512))) &&
+    (manifest.portableSha512 === undefined ||
+      (typeof manifest.portableSha512 === 'string' &&
+        /^[A-Za-z0-9+/]{86}==$/.test(manifest.portableSha512))) &&
+    (manifest.installerSize === undefined ||
+      (Number.isSafeInteger(manifest.installerSize) && manifest.installerSize > 0)) &&
+    (manifest.portableSize === undefined ||
+      (Number.isSafeInteger(manifest.portableSize) && manifest.portableSize > 0))
   );
 }
 
