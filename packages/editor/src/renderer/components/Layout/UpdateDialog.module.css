@@ -146,6 +146,54 @@
   text-decoration: underline;
 }
 
+.links button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.download {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px 10px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #3b556b;
+  border-radius: 5px;
+  background: #19232d;
+  color: #b9cad9;
+  font-size: 11px;
+}
+
+.download div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.download progress {
+  width: 100%;
+  height: 7px;
+  grid-column: 1 / -1;
+  accent-color: #6d9ed3;
+}
+
+.download button,
+.reveal {
+  padding: 5px 8px;
+  border: 1px solid #4b5969;
+  border-radius: 4px;
+  background: #293542;
+  color: #dbe8f4;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.reveal {
+  margin-top: 10px;
+}
+
 .status {
   margin: 10px 0 0;
   color: #b9d998;

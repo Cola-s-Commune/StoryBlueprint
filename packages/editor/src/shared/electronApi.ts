@@ -316,9 +316,35 @@ export interface UpdateManifest {
   signature?: UpdateManifestSignature;
 }
 
+export interface UpdateDownloadProgress {
+  received: number;
+  total: number;
+}
+
+export interface UpdateDownloadResult {
+  path: string;
+  kind: 'installer' | 'portable';
+}
+
+export interface UpdateAvailableResult {
+  status: 'available';
+  currentVersion: string;
+  latestVersion: string;
+  releaseDate?: string;
+  notes?: string;
+  installerUrl?: string;
+  portableUrl?: string;
+  installerSha512?: string;
+  portableSha512?: string;
+  installerSize?: number;
+  portableSize?: number;
+  checkedAt: string;
+}
+
 export type UpdateCheckResult =
+  | UpdateAvailableResult
   | {
-      status: 'disabled' | 'up-to-date' | 'available';
+      status: 'disabled' | 'up-to-date';
       currentVersion: string;
       latestVersion?: string;
       releaseDate?: string;
@@ -344,6 +370,12 @@ export interface ElectronAPI {
   getUpdateSettings: () => Promise<UpdateSettings>;
   updateUpdateSettings: (settings: UpdateSettings) => Promise<UpdateSettings>;
   checkForUpdates: () => Promise<UpdateCheckResult>;
+  downloadUpdate: (
+    kind: 'installer' | 'portable',
+  ) => Promise<UpdateDownloadResult>;
+  cancelUpdateDownload: () => Promise<void>;
+  revealDownloadedUpdate: (path: string) => Promise<void>;
+  onUpdateDownloadProgress: (listener: (progress: UpdateDownloadProgress) => void) => () => void;
   openExternal: (url: string) => Promise<void>;
   getWindowState: () => Promise<EditorWindowState>;
   minimizeWindow: () => Promise<void>;

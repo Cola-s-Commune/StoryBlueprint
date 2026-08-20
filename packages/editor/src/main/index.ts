@@ -99,6 +99,7 @@ import {
   isAllowedUpdateUrl,
   isUpdateSettings,
 } from './updateChecker';
+import { downloadVerifiedUpdateArtifact } from './updateDownloader';
 import {
   canReuseWorkspaceFileFingerprint,
   planWorkspaceFilePoll,
@@ -121,6 +122,7 @@ let lastGitCheckoutChangeAt = 0;
 const releaseSmokeTest = process.argv.includes('--smoke-test');
 const ownsSingleInstance = releaseSmokeTest || app.requestSingleInstanceLock();
 let windowStateSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let activeUpdateDownload: AbortController | undefined;
 
 const MAX_STORY_BYTES = 64 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES = 10_000;
@@ -1540,6 +1542,56 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('app:check-for-updates', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return checkUpdateFeed(app.getVersion(), await readUpdateSettings());
+  });
+  ipcMain.handle('app:cancel-update-download', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    activeUpdateDownload?.abort();
+    activeUpdateDownload = undefined;
+  });
+  ipcMain.handle('app:download-update', async (event, kind: unknown) => {
+    if (!isTrustedSender(event) || (kind !== 'installer' && kind !== 'portable')) {
+      throw new Error('Invalid update download request');
+    }
+    if (activeUpdateDownload) throw new Error('An update download is already in progress');
+    const result = await checkUpdateFeed(app.getVersion(), await readUpdateSettings());
+    if (result.status !== 'available') {
+      throw new Error(result.status === 'error' ? result.error : 'No verified update is available');
+    }
+    const url = kind === 'installer' ? result.installerUrl : result.portableUrl;
+    const sha512 = kind === 'installer' ? result.installerSha512 : result.portableSha512;
+    const size = kind === 'installer' ? result.installerSize : result.portableSize;
+    if (
+      typeof url !== 'string' ||
+      !isAllowedUpdateUrl(url) ||
+      typeof sha512 !== 'string' ||
+      !/^[A-Za-z0-9+/]{86}==$/.test(sha512) ||
+      !Number.isSafeInteger(size) ||
+      typeof size !== 'number' ||
+      size <= 0
+    ) {
+      throw new Error('Update result does not contain a verified artifact');
+    }
+    const controller = new AbortController();
+    activeUpdateDownload = controller;
+    try {
+      const path = await downloadVerifiedUpdateArtifact(
+        { url, sha512, size, directory: join(app.getPath('downloads'), 'Story Blueprint') },
+        (progress) => event.sender.send('app:update-download-progress', progress),
+        controller.signal,
+      );
+      return { path, kind };
+    } finally {
+      if (activeUpdateDownload === controller) activeUpdateDownload = undefined;
+    }
+  });
+  ipcMain.handle('app:reveal-downloaded-update', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || typeof value !== 'string' || !isAbsolute(value)) {
+      throw new Error('Invalid downloaded update path');
+    }
+    const downloadsRoot = resolve(app.getPath('downloads'), 'Story Blueprint') + sep;
+    const normalized = resolve(value);
+    if (!normalized.startsWith(downloadsRoot)) throw new Error('Downloaded update path is outside the download directory');
+    shell.showItemInFolder(normalized);
   });
   ipcMain.handle('app:open-external', async (event, value: unknown) => {
     if (!isTrustedSender(event) || typeof value !== 'string' || !isAllowedUpdateUrl(value)) {

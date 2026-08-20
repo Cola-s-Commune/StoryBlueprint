@@ -255,3 +255,4 @@ npm run dev
 - 记录 Substory 组织决策：先采用扁平所有权、树状资源视图；Substory 用于 Story 内可复用/可测试的函数式流程，未来由独立 Story Control 节点负责跨 Story 的启动、切换、恢复和结束，不混用 Call / Return 语义。
 - 新增 `Ink Node Profile v1` 导入闭环：File 菜单可选择 `.ink`，连续对白、Choice + Divert、Knot、Boolean/Number/String 变量、赋值和简单条件转换为 Typed Graph Proposal；新增节点可独立移动，Apply 后作为单一 Undo 事务，复杂语法按原始行列拒绝并提供可复制诊断。
 - 更新清单加入 Ed25519 签名链：发布脚本从环境变量或 CI Secret 读取私钥，客户端内置公钥并拒绝缺失、篡改或未知 key 的 Manifest。
+- 更新下载改为主进程重新验签 Feed 后流式保存，按清单 SHA-512 与大小校验、支持进度和取消；校验通过后才显示下载文件。

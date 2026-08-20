@@ -1377,6 +1377,11 @@ Release 流程在 NSIS 与 Portable 都成功后生成所选通道 Manifest，�
 NSIS 后续可退出并安装，Portable 默认只下载并
 提示用户替换，不能覆盖正在运行的 EXE。
 
+下载阶段会在主进程重新读取并验签当前 Feed，Renderer 不能提交 URL、哈希或大小。Artifact 通过临时
+`.part` 文件流式下载到 Downloads/Story Blueprint，逐块报告进度，严格匹配签名清单的精确字节数与
+SHA-512 后才原子改名；取消、网络错误或校验失败会删除临时文件。当前 Installer 和 Portable 都只在
+完成后提供“在文件夹中显示”，不自动启动安装器或尝试覆盖正在运行的 Portable。
+
 ---
 
 ## 16. 推荐实现顺序

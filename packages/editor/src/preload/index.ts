@@ -11,6 +11,15 @@ const electronAPI = {
   getUpdateSettings: () => ipcRenderer.invoke('app:get-update-settings'),
   updateUpdateSettings: (settings) => ipcRenderer.invoke('app:update-update-settings', settings),
   checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
+  downloadUpdate: (kind) => ipcRenderer.invoke('app:download-update', kind),
+  cancelUpdateDownload: () => ipcRenderer.invoke('app:cancel-update-download'),
+  revealDownloadedUpdate: (path) => ipcRenderer.invoke('app:reveal-downloaded-update', path),
+  onUpdateDownloadProgress: (listener) => {
+    const handler = (_event: IpcRendererEvent, progress: Parameters<typeof listener>[0]) =>
+      listener(progress);
+    ipcRenderer.on('app:update-download-progress', handler);
+    return () => ipcRenderer.removeListener('app:update-download-progress', handler);
+  },
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   getWindowState: () => ipcRenderer.invoke('app:get-window-state'),
   minimizeWindow: () => ipcRenderer.invoke('app:minimize-window'),

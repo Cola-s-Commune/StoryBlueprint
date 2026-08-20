@@ -222,6 +222,10 @@ export async function checkUpdateFeed(
       notes: value.notes,
       installerUrl,
       portableUrl,
+      installerSha512: value.installerSha512,
+      portableSha512: value.portableSha512,
+      installerSize: value.installerSize,
+      portableSize: value.portableSize,
       checkedAt,
     };
   } catch (error) {

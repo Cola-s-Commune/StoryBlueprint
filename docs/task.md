@@ -905,7 +905,8 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 版本化 JSON Update Manifest、相对产物 URL 和 SemVer / prerelease 比较
 - [x] Release 脚本生成 Update Manifest 与安装器 / Portable SHA-512、大小和相对 URL
 - [x] 发布公钥内置、Ed25519 Manifest 签名验证；未签名、篡改或未知 key 的清单拒绝进入更新流程
-- [ ] NSIS 自动下载、退出并安装；Portable 仅下载和提示替换
+- [x] 应用内下载已验签 Artifact，流式 SHA-512 / 大小校验、进度、取消和安全落盘；Installer / Portable 均由用户显式打开
+- [ ] NSIS 下载后退出并安装；Portable 仅下载和提示替换
 
 ---
 
