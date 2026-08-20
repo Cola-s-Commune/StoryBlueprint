@@ -126,6 +126,13 @@ describe('OpenAI-compatible provider helpers', () => {
     });
   });
 
+  it('keeps a non-JSON provider reply visible instead of losing the entire turn', () => {
+    expect(parseAIAssistantResponse('I can see the attached file and will use it.')).toEqual({
+      reply: 'I can see the attached file and will use it.',
+      unstructured: true,
+    });
+  });
+
   it('normalizes Source-shaped text in compact line and option commands', () => {
     expect(
       normalizeAIBlueprintCommand({

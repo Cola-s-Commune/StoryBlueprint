@@ -3,6 +3,8 @@ const LOCAL_AI_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 export interface AIAssistantResponse {
   reply: string;
   command?: unknown;
+  /** The provider returned conversational text instead of the requested JSON envelope. */
+  unstructured?: boolean;
 }
 
 export interface OpenAIStreamDelta {
@@ -118,7 +120,14 @@ function parseJSONResponse(content: string): unknown {
 }
 
 export function parseAIAssistantResponse(content: string, baseRevision?: string): AIAssistantResponse {
-  const value = parseJSONResponse(content);
+  let value: unknown;
+  try {
+    value = parseJSONResponse(content);
+  } catch {
+    const reply = content.trim();
+    if (!reply) throw new Error('AI response content is empty');
+    return { reply, unstructured: true };
+  }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('AI response must be an object');
   }

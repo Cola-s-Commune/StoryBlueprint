@@ -778,7 +778,11 @@ export function AICommands() {
         setResult(undefined);
         setPreviewBase(undefined);
         setDryRunToken(undefined);
-        setProviderStatus(`Answered${response.model ? ` by ${response.model}` : ''}`);
+        setProviderStatus(
+          assistant.unstructured
+            ? `Response from ${response.model || 'provider'} was not a Blueprint JSON command`
+            : `Answered${response.model ? ` by ${response.model}` : ''}`,
+        );
       }
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : String(error));
