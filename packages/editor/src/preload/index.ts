@@ -70,6 +70,7 @@ const electronAPI = {
   updateAIProviderSettings: (settings) =>
     ipcRenderer.invoke('ai:update-provider-settings', settings),
   generateAICommand: (request) => ipcRenderer.invoke('ai:generate-command', request),
+  pickAIContextFiles: () => ipcRenderer.invoke('ai:pick-context-files'),
   cancelAICommand: (requestId) => ipcRenderer.send('ai:cancel-command', requestId),
   listAIChatSessions: (scopeKey) => ipcRenderer.invoke('ai:list-chat-sessions', scopeKey),
   saveAIChatSession: (session) => ipcRenderer.invoke('ai:save-chat-session', session),

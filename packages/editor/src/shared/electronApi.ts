@@ -247,6 +247,13 @@ export interface GenerateAICommandRequest {
   context: string;
   schema: unknown;
   history?: readonly AIConversationMessage[];
+  attachments?: readonly AIFileAttachment[];
+}
+
+export interface AIFileAttachment {
+  id: string;
+  name: string;
+  content: string;
 }
 
 export interface AIConversationMessage {
@@ -420,6 +427,7 @@ export interface ElectronAPI {
     settings: UpdateAIProviderSettingsRequest,
   ) => Promise<AIProviderSettings>;
   generateAICommand: (request: GenerateAICommandRequest) => Promise<GenerateAICommandResult>;
+  pickAIContextFiles: () => Promise<AIFileAttachment[]>;
   cancelAICommand: (requestId: string) => void;
   listAIChatSessions: (scopeKey: string) => Promise<AIChatSession[]>;
   saveAIChatSession: (session: AIChatSession) => Promise<void>;

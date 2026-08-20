@@ -256,3 +256,4 @@ npm run dev
 - 新增 `Ink Node Profile v1` 导入闭环：File 菜单可选择 `.ink`，连续对白、Choice + Divert、Knot、Boolean/Number/String 变量、赋值和简单条件转换为 Typed Graph Proposal；新增节点可独立移动，Apply 后作为单一 Undo 事务，复杂语法按原始行列拒绝并提供可复制诊断。
 - 更新清单加入 Ed25519 签名链：发布脚本从环境变量或 CI Secret 读取私钥，客户端内置公钥并拒绝缺失、篡改或未知 key 的 Manifest。
 - 更新下载改为主进程重新验签 Feed 后流式保存，按清单 SHA-512 与大小校验、支持进度和取消；校验通过后才显示下载文件。
+- 新增项目级 `AGENTS.md` AI 协作契约：明确编辑目标是可执行的故事控制流图而非剧情梗概，新建项目自动生成；AI 面板支持作者显式附加受限文本参考文件，附件仅进入当前请求且在主进程边界校验。

@@ -14,6 +14,7 @@ import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import type {
   AIChatSession,
   AIConversationMessage,
+  AIFileAttachment,
   AIProviderSettings,
   AIReasoningEffort,
   AIStructuredOutputMode,
@@ -328,6 +329,7 @@ export function AICommands() {
   const [clipboardError, setClipboardError] = useState<string>();
   const [localError, setLocalError] = useState<string>();
   const [instruction, setInstruction] = useState('');
+  const [attachments, setAttachments] = useState<AIFileAttachment[]>([]);
   const [contextScope, setContextScope] = useState<AIContextScope>('story');
   const [providerSettings, setProviderSettings] = useState<AIProviderSettings>();
   const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
@@ -625,6 +627,7 @@ export function AICommands() {
         context: retry && retryContext ? retryContext : contextText,
         schema: AI_ASSISTANT_RESPONSE_SCHEMA,
         history: conversationHistory,
+        attachments,
       });
       const assistant = parseAIAssistantResponse(response.content);
       const userMessage = retry
@@ -648,6 +651,7 @@ export function AICommands() {
       });
       setModelReasoning(response.reasoning);
       setInstruction('');
+      setAttachments([]);
       if (assistant.command) {
         const command = JSON.stringify(normalizeAIBlueprintCommand(assistant.command), null, 2);
         setCommandText(command);
@@ -667,6 +671,20 @@ export function AICommands() {
       if (requestIdRef.current === requestId) requestIdRef.current = undefined;
       setPendingUserMessage(undefined);
       setGenerating(false);
+    }
+  };
+
+  const addAttachments = async () => {
+    if (!window.electronAPI) return;
+    setProviderError(undefined);
+    try {
+      const selected = await window.electronAPI.pickAIContextFiles();
+      setAttachments((current) => {
+        const ids = new Set(current.map((attachment) => attachment.id));
+        return [...current, ...selected.filter((attachment) => !ids.has(attachment.id))].slice(0, 8);
+      });
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -963,6 +981,23 @@ export function AICommands() {
             }}
             placeholder="Ask about the story, discuss an idea, or request a change…"
           />
+          {attachments.length > 0 && (
+            <div className={styles.attachments} aria-label="Attached AI reference files">
+              {attachments.map((attachment) => (
+                <span key={attachment.id} title={`${attachment.name} · ${attachment.content.length.toLocaleString()} characters`}>
+                  {attachment.name}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${attachment.name}`}
+                    disabled={generating}
+                    onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className={styles.requestControls}>
             <label>
               <span>Context</span>
@@ -976,6 +1011,9 @@ export function AICommands() {
                 <option value="story">Whole Story</option>
               </select>
             </label>
+            <button type="button" disabled={generating} onClick={() => void addAttachments()}>
+              Attach Files
+            </button>
             <span className={styles.composerHint}>Enter to send · Shift+Enter for newline</span>
             <button
               type="button"
