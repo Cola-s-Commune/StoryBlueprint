@@ -49,6 +49,23 @@
   padding: 5px 7px;
 }
 
+.chatTitleInput {
+  width: min(210px, 22vw);
+  min-width: 120px;
+  padding: 5px 7px;
+  border: 1px solid #434a54;
+  border-radius: 4px;
+  outline: none;
+  color: #dfe6ef;
+  background: #252a31;
+  font: inherit;
+  font-size: 11px;
+}
+
+.chatTitleInput:focus {
+  border-color: #728fbb;
+}
+
 .deleteChatButton {
   color: #dca0a5 !important;
 }

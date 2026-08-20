@@ -342,6 +342,7 @@ export function AICommands() {
   const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
   const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState('');
+  const [chatTitle, setChatTitle] = useState('');
   const [loadedChatScope, setLoadedChatScope] = useState('');
   const [lastUserRequest, setLastUserRequest] = useState('');
   const [pendingUserMessage, setPendingUserMessage] = useState<string>();
@@ -416,6 +417,7 @@ export function AICommands() {
     setChatSessions([]);
     setActiveChatSessionId(newSessionId);
     chatCreatedAtRef.current = createdAt;
+    setChatTitle('');
     setConversation([]);
     setConversationHistory([]);
     setLastUserRequest('');
@@ -439,6 +441,7 @@ export function AICommands() {
           skipNextChatSaveRef.current = true;
           setActiveChatSessionId(latest.id);
           chatCreatedAtRef.current = latest.createdAt;
+          setChatTitle(latest.title);
           setConversation([...latest.messages]);
           setConversationHistory([...latest.history]);
           setLastUserRequest(
@@ -459,6 +462,12 @@ export function AICommands() {
   }, [chatScopeKey]);
 
   useEffect(() => {
+    if (chatTitle.trim() || conversation.length === 0) return;
+    const firstUserMessage = conversation.find((message) => message.role === 'user')?.content;
+    if (firstUserMessage) setChatTitle(compactText(firstUserMessage, 64));
+  }, [chatTitle, conversation]);
+
+  useEffect(() => {
     if (
       !window.electronAPI ||
       !chatScopeKey ||
@@ -473,8 +482,7 @@ export function AICommands() {
       return;
     }
     const now = new Date().toISOString();
-    const firstUserMessage = conversation.find((message) => message.role === 'user')?.content ?? '';
-    const title = compactText(firstUserMessage, 64) || 'New conversation';
+    const title = compactText(chatTitle, 120) || 'New conversation';
     const session: AIChatSession = {
       id: activeChatSessionId,
       scopeKey: chatScopeKey,
@@ -491,7 +499,7 @@ export function AICommands() {
     void window.electronAPI
       .saveAIChatSession(session)
       .catch((error) => setProviderError(error instanceof Error ? error.message : String(error)));
-  }, [activeChatSessionId, chatScopeKey, conversation, conversationHistory, loadedChatScope]);
+  }, [activeChatSessionId, chatScopeKey, conversation, conversationHistory, loadedChatScope, chatTitle]);
 
   useEffect(() => {
     const element = conversationRef.current;
@@ -702,6 +710,7 @@ export function AICommands() {
     skipNextChatSaveRef.current = true;
     setActiveChatSessionId(session.id);
     chatCreatedAtRef.current = session.createdAt;
+    setChatTitle(session.title);
     setConversation([...session.messages]);
     setConversationHistory([...session.history]);
     setLastUserRequest(
@@ -714,6 +723,7 @@ export function AICommands() {
   const startNewChat = () => {
     setActiveChatSessionId(crypto.randomUUID());
     chatCreatedAtRef.current = new Date().toISOString();
+    setChatTitle('');
     setConversation([]);
     setConversationHistory([]);
     setLastUserRequest('');
@@ -756,6 +766,16 @@ export function AICommands() {
               {semanticSnapshot.story.displayName} · {semanticSnapshot.revision}
             </span>
           </div>
+          <input
+            className={styles.chatTitleInput}
+            aria-label="Conversation name"
+            value={chatTitle}
+            maxLength={120}
+            placeholder="Conversation name"
+            disabled={generating}
+            onChange={(event) => setChatTitle(event.target.value)}
+            onBlur={(event) => setChatTitle(event.target.value.trim())}
+          />
           {chatSessions.length > 0 && (
             <select
               className={styles.sessionPicker}
