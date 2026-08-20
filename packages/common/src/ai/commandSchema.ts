@@ -478,6 +478,12 @@ export const BLUEPRINT_NODE_CATALOG = [
     outputPorts: ['out'],
   },
   {
+    type: StoryNodeType.InkBlock,
+    data: { sourceMode: 'embedded', source: 'Hello.' },
+    inputPorts: ['in'],
+    outputPorts: ['out'],
+  },
+  {
     type: StoryNodeType.Choice,
     data: {
       prompt: { source: 'Choose' },

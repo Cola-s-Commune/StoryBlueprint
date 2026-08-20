@@ -13,6 +13,7 @@ import {
   type ChapterId,
   type ChoiceNodeData,
   type DialogueNodeData,
+  type InkBlockNodeData,
   type FlowJumpNodeData,
   type GetVariableNodeData,
   type InstructionId,
@@ -30,6 +31,7 @@ import {
   type VariableId,
   type WaitSignalNodeData,
 } from '@story-blueprint/common';
+import { Compiler as InkCompiler } from 'inkjs/full';
 import {
   compileExpression,
   compileTextTemplate,
@@ -341,8 +343,69 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 });
               }
             }
-            const target = requireTarget(node, 'out');
+            const target = resolveTarget(node.id, 'out');
             if (target) instructions.push(jump(node, target));
+            else instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            break;
+          }
+          case StoryNodeType.InkBlock: {
+            const data = node.data as unknown as InkBlockNodeData;
+            if (data.sourceMode !== 'embedded') {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: 'Ink Block source mode must be embedded',
+                sourceNodeId: node.id,
+              });
+              break;
+            }
+            try {
+              const compiler = new InkCompiler(data.source);
+              const compiledInk = compiler.Compile();
+              if (compiler.errors.length > 0) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Ink Block: ${compiler.errors.join('\n')}`,
+                  sourceNodeId: node.id,
+                });
+                break;
+              }
+              const entryKnot = data.entryKnot?.trim();
+              if (entryKnot && !compiledInk.KnotContainerWithName(entryKnot)) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Ink Block entry knot does not exist: ${entryKnot}`,
+                  sourceNodeId: node.id,
+                });
+                break;
+              }
+              for (const warning of compiler.warnings) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'warning',
+                  message: `Ink Block: ${warning}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              instructions.push({
+                id: instructionId(node.id),
+                op: 'ink-block',
+                inkJson: compiledInk.ToJson() as string,
+                entryKnot,
+              });
+              const target = resolveTarget(node.id, 'out');
+              if (target) instructions.push(jump(node, target));
+              else instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            } catch (error) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: `Ink Block: ${error instanceof Error ? error.message : String(error)}`,
+                sourceNodeId: node.id,
+              });
+            }
             break;
           }
           case StoryNodeType.SetVariable: {

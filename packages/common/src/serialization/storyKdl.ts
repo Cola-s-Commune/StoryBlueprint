@@ -188,6 +188,15 @@ function serializeSourceNode(source: SourceNode): Node {
       }
       break;
     }
+    case StoryNodeType.InkBlock: {
+      const ink = data as StoryNodeDataMap[StoryNodeType.InkBlock];
+      if (ink.sourceMode !== 'embedded') {
+        throw new StoryFormatError(`${source.id}.sourceMode must be embedded`);
+      }
+      target.setProperty('source', requiredString(ink.source, `${source.id}.source`));
+      if (ink.entryKnot) target.setProperty('entry-knot', ink.entryKnot);
+      break;
+    }
     case StoryNodeType.Choice: {
       const choice = data as StoryNodeDataMap[StoryNodeType.Choice];
       target.setProperty('prompt', requiredString(choice.prompt.source, `${source.id}.prompt`));
@@ -615,6 +624,7 @@ function parseSourceNode(
   const typeProperties: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Start]: ['title'],
     [StoryNodeType.Dialogue]: [],
+    [StoryNodeType.InkBlock]: ['source', 'entry-knot'],
     [StoryNodeType.Choice]: ['prompt'],
     [StoryNodeType.Branch]: ['condition'],
     [StoryNodeType.GetVariable]: ['variable'],
@@ -630,6 +640,7 @@ function parseSourceNode(
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Dialogue]: ['line'],
+    [StoryNodeType.InkBlock]: [],
     [StoryNodeType.Choice]: ['option', 'binding'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: ['binding'],
@@ -691,6 +702,13 @@ function parseSourceNode(
       data = { lines };
       break;
     }
+    case StoryNodeType.InkBlock:
+      data = {
+        sourceMode: 'embedded',
+        source: requiredString(node.getProperty('source'), `${id}.source`),
+        entryKnot: optionalString(node.getProperty('entry-knot'), `${id}.entry-knot`),
+      };
+      break;
     case StoryNodeType.Choice: {
       const optionIds = new Set<string>();
       const options = node.findNodesByName('option').map((optionNode): ChoiceOption => {

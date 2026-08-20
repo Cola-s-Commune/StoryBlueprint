@@ -13,6 +13,7 @@ import {
   type VariableDefinition,
   type VariableId,
 } from '@story-blueprint/common';
+import { Story as InkStory } from 'inkjs';
 import { evaluateExpression, renderTextTemplate, resolveChoiceOptions } from './evaluator';
 import type {
   ChoiceRequest,
@@ -53,8 +54,14 @@ function cloneState(state: RuntimeState): RuntimeState {
     pending: state.pending
       ? state.pending.kind === 'signal'
         ? { ...state.pending, matches: { ...state.pending.matches } }
-        : { ...state.pending }
+        : state.pending.kind === 'ink-choice'
+          ? {
+              ...state.pending,
+              options: state.pending.options.map((option) => ({ ...option })),
+            }
+          : { ...state.pending }
       : undefined,
+    ink: state.ink ? { ...state.ink } : undefined,
   };
 }
 
@@ -210,6 +217,12 @@ export class StoryRuntime {
   }
 
   continueDialogue(): RuntimeRunResult {
+    const instruction = this.currentInstruction();
+    if (this.currentState.pending?.kind === 'ink-dialogue' && instruction?.op === 'ink-block') {
+      this.currentState.pending = undefined;
+      this.currentState.status = 'running';
+      return this.advanceInk(instruction) ?? this.runUntilPause();
+    }
     if (this.currentState.pending?.kind !== 'dialogue') {
       return this.fail({
         code: 'INVALID_ADAPTER_RESULT',
@@ -226,6 +239,44 @@ export class StoryRuntime {
 
   choose(optionId: OptionId): RuntimeRunResult {
     const instruction = this.currentInstruction();
+    if (this.currentState.pending?.kind === 'ink-choice' && instruction?.op === 'ink-block') {
+      const choice = this.currentState.pending.options.find((option) => option.id === optionId);
+      if (!choice) {
+        return this.fail({
+          code: 'INVALID_OPTION',
+          severity: 'error',
+          message: `Ink choice option ${optionId} is missing`,
+          location: this.location(),
+          instructionId: instruction.id,
+        });
+      }
+      const choiceIndex = Number(optionId.slice('ink:'.length));
+      if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
+        return this.fail({
+          code: 'INVALID_OPTION',
+          severity: 'error',
+          message: `Ink choice option ${optionId} is invalid`,
+          location: this.location(),
+          instructionId: instruction.id,
+        });
+      }
+      try {
+        const story = this.inkStory(instruction);
+        story.ChooseChoiceIndex(choiceIndex);
+        this.currentState.pending = undefined;
+        this.currentState.status = 'running';
+        return this.advanceInk(instruction, story) ?? this.runUntilPause();
+      } catch (cause) {
+        return this.fail({
+          code: 'INVALID_ADAPTER_RESULT',
+          severity: 'error',
+          message: cause instanceof Error ? cause.message : String(cause),
+          location: this.location(),
+          instructionId: instruction.id,
+          cause,
+        });
+      }
+    }
     if (this.currentState.pending?.kind !== 'choice' || instruction?.op !== 'choice') {
       return this.fail({
         code: 'INVALID_ADAPTER_RESULT',
@@ -343,6 +394,8 @@ export class StoryRuntime {
           },
         });
       }
+      case 'ink-block':
+        return this.advanceInk(instruction);
       case 'set-variable':
         this.writeVariable(
           instruction.variableId,
@@ -521,8 +574,32 @@ export class StoryRuntime {
         },
       };
     }
+    if (this.currentState.pending?.kind === 'ink-dialogue' && instruction?.op === 'ink-block') {
+      return {
+        kind: 'dialogue',
+        request: {
+          requestId: instruction.id,
+          textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
+          defaultText: this.currentState.pending.defaultText,
+        },
+      };
+    }
     if (this.currentState.pending?.kind === 'choice' && instruction?.op === 'choice') {
       return this.choiceInteraction(instruction);
+    }
+    if (this.currentState.pending?.kind === 'ink-choice' && instruction?.op === 'ink-block') {
+      return {
+        kind: 'choice',
+        request: {
+          requestId: instruction.id,
+          options: this.currentState.pending.options.map((option) => ({
+            id: option.id,
+            textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
+            defaultText: option.text,
+            enabled: true,
+          })),
+        },
+      };
     }
     if (this.currentState.pending?.kind === 'event' && instruction?.op === 'call-event') {
       return this.eventInteraction(instruction);
@@ -652,6 +729,84 @@ export class StoryRuntime {
         this.assertValueType(frame.locals[id], definition, 'Runtime state local');
       }
     }
+  }
+
+  /** Rehydrates an Ink story only from serializable runtime state. */
+  private inkStory(instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>): InkStory {
+    const story = new InkStory(instruction.inkJson);
+    if (this.currentState.ink?.instructionId === instruction.id) {
+      story.state.LoadJson(this.currentState.ink.stateJson);
+    } else if (instruction.entryKnot) {
+      story.ChoosePathString(instruction.entryKnot);
+    }
+    return story;
+  }
+
+  private saveInkState(
+    instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
+    story: InkStory,
+  ): void {
+    this.currentState.ink = { instructionId: instruction.id, stateJson: story.state.ToJson() };
+  }
+
+  private advanceInk(
+    instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
+    existingStory?: InkStory,
+  ): RuntimeRunResult | undefined {
+    const story = existingStory ?? this.inkStory(instruction);
+    while (story.canContinue) {
+      const text = story.Continue();
+      if (!text) continue;
+      const normalizedText = text.replace(/[\r\n]+$/g, '');
+      if (!normalizedText) continue;
+      this.saveInkState(instruction, story);
+      this.currentState.pending = {
+        kind: 'ink-dialogue',
+        requestId: instruction.id,
+        instructionId: instruction.id,
+        defaultText: normalizedText,
+      };
+      this.currentState.status = 'waiting';
+      return this.waiting({
+        kind: 'dialogue',
+        request: {
+          requestId: instruction.id,
+          textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
+          defaultText: normalizedText,
+        },
+      });
+    }
+    if (story.currentChoices.length > 0) {
+      const options = story.currentChoices.map((choice, index) => ({
+        id: `ink:${index}` as OptionId,
+        text: choice.text,
+      }));
+      this.saveInkState(instruction, story);
+      this.currentState.pending = {
+        kind: 'ink-choice',
+        requestId: instruction.id,
+        instructionId: instruction.id,
+        options,
+      };
+      this.currentState.status = 'waiting';
+      return this.waiting({
+        kind: 'choice',
+        request: {
+          requestId: instruction.id,
+          options: options.map((option) => ({
+            id: option.id,
+            textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
+            defaultText: option.text,
+            enabled: true,
+          })),
+        },
+      });
+    }
+    this.currentState.ink = undefined;
+    this.currentState.pending = undefined;
+    this.currentState.status = 'running';
+    this.currentState.instructionIndex += 1;
+    return undefined;
   }
 
   private currentInstruction(): RuntimeInstruction | undefined {

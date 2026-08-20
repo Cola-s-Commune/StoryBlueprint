@@ -87,6 +87,17 @@ export class NodeRegistry {
       }),
     });
 
+    this.register<StoryNodeType.InkBlock>({
+      type: StoryNodeType.InkBlock,
+      version: 1,
+      label: 'Ink Block',
+      category: 'narrative',
+      color: '#7f72c5',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({ sourceMode: 'embedded', source: 'Hello.' }),
+    });
+
     // Choice
     this.register<StoryNodeType.Choice>({
       type: StoryNodeType.Choice,

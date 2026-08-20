@@ -374,12 +374,12 @@ export interface ElectronAPI {
   readClipboardText: () => Promise<string>;
   setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
   getAppInfo: () => Promise<AppInfo>;
+  revealLogs: () => Promise<void>;
+  reportRendererError: (scope: string, message: string) => Promise<void>;
   getUpdateSettings: () => Promise<UpdateSettings>;
   updateUpdateSettings: (settings: UpdateSettings) => Promise<UpdateSettings>;
   checkForUpdates: () => Promise<UpdateCheckResult>;
-  downloadUpdate: (
-    kind: 'installer' | 'portable',
-  ) => Promise<UpdateDownloadResult>;
+  downloadUpdate: (kind: 'installer' | 'portable') => Promise<UpdateDownloadResult>;
   cancelUpdateDownload: () => Promise<void>;
   revealDownloadedUpdate: (path: string) => Promise<void>;
   installDownloadedUpdate: (path: string) => Promise<void>;

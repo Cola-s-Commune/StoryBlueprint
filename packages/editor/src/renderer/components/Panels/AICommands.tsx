@@ -82,6 +82,8 @@ function nodeSummary(
   let content = '';
   if (node.type === StoryNodeType.Dialogue) {
     content = (node.data as StoryNodeDataMap[StoryNodeType.Dialogue]).lines[0]?.text.source ?? '';
+  } else if (node.type === StoryNodeType.InkBlock) {
+    content = (node.data as StoryNodeDataMap[StoryNodeType.InkBlock]).source;
   } else if (node.type === StoryNodeType.Choice) {
     content = (node.data as StoryNodeDataMap[StoryNodeType.Choice]).prompt.source;
   }
@@ -420,6 +422,7 @@ export function AICommands() {
     setChatTitle('');
     setConversation([]);
     setConversationHistory([]);
+    setAttachments([]);
     setLastUserRequest('');
     setModelReasoning(undefined);
     setResult(undefined);
@@ -499,7 +502,14 @@ export function AICommands() {
     void window.electronAPI
       .saveAIChatSession(session)
       .catch((error) => setProviderError(error instanceof Error ? error.message : String(error)));
-  }, [activeChatSessionId, chatScopeKey, conversation, conversationHistory, loadedChatScope, chatTitle]);
+  }, [
+    activeChatSessionId,
+    chatScopeKey,
+    conversation,
+    conversationHistory,
+    loadedChatScope,
+    chatTitle,
+  ]);
 
   useEffect(() => {
     const element = conversationRef.current;
@@ -659,7 +669,6 @@ export function AICommands() {
       });
       setModelReasoning(response.reasoning);
       setInstruction('');
-      setAttachments([]);
       if (assistant.command) {
         const command = JSON.stringify(normalizeAIBlueprintCommand(assistant.command), null, 2);
         setCommandText(command);
@@ -689,7 +698,10 @@ export function AICommands() {
       const selected = await window.electronAPI.pickAIContextFiles();
       setAttachments((current) => {
         const ids = new Set(current.map((attachment) => attachment.id));
-        return [...current, ...selected.filter((attachment) => !ids.has(attachment.id))].slice(0, 8);
+        return [...current, ...selected.filter((attachment) => !ids.has(attachment.id))].slice(
+          0,
+          8,
+        );
       });
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : String(error));
@@ -713,6 +725,7 @@ export function AICommands() {
     setChatTitle(session.title);
     setConversation([...session.messages]);
     setConversationHistory([...session.history]);
+    setAttachments([]);
     setLastUserRequest(
       [...session.messages].reverse().find((message) => message.role === 'user')?.content ?? '',
     );
@@ -726,6 +739,7 @@ export function AICommands() {
     setChatTitle('');
     setConversation([]);
     setConversationHistory([]);
+    setAttachments([]);
     setLastUserRequest('');
     setInstruction('');
     clearProposal();
@@ -1002,15 +1016,26 @@ export function AICommands() {
             placeholder="Ask about the story, discuss an idea, or request a change…"
           />
           {attachments.length > 0 && (
-            <div className={styles.attachments} aria-label="Attached AI reference files">
+            <div
+              className={styles.attachments}
+              aria-label="Attached AI reference files"
+              title="Reference files are included with every message in this conversation until removed."
+            >
               {attachments.map((attachment) => (
-                <span key={attachment.id} title={`${attachment.name} · ${attachment.content.length.toLocaleString()} characters`}>
+                <span
+                  key={attachment.id}
+                  title={`${attachment.name} · ${attachment.content.length.toLocaleString()} characters`}
+                >
                   {attachment.name}
                   <button
                     type="button"
                     aria-label={`Remove ${attachment.name}`}
                     disabled={generating}
-                    onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                    onClick={() =>
+                      setAttachments((current) =>
+                        current.filter((item) => item.id !== attachment.id),
+                      )
+                    }
                   >
                     ×
                   </button>

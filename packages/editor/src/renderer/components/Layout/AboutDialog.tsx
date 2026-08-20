@@ -59,6 +59,14 @@ export function AboutDialog({ appInfo, projectPath, onClose }: AboutDialogProps)
           </div>
         </dl>
 
+        <button
+          type="button"
+          className={styles.logs}
+          onClick={() => void window.electronAPI?.revealLogs()}
+        >
+          Open Logs Folder
+        </button>
+
         <p className={styles.copyright}>© 2026 Story Blueprint Contributors</p>
       </section>
     </div>

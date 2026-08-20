@@ -8,6 +8,9 @@ const electronAPI = {
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   setWindowZoom: (action) => ipcRenderer.invoke('app:set-window-zoom', action),
   getAppInfo: () => ipcRenderer.invoke('app:get-info'),
+  revealLogs: () => ipcRenderer.invoke('app:reveal-logs'),
+  reportRendererError: (scope, message) =>
+    ipcRenderer.invoke('app:report-renderer-error', scope, message),
   getUpdateSettings: () => ipcRenderer.invoke('app:get-update-settings'),
   updateUpdateSettings: (settings) => ipcRenderer.invoke('app:update-update-settings', settings),
   checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),

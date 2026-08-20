@@ -2,6 +2,7 @@ import {
   StoryNodeType,
   type ChoiceNodeData,
   type DialogueNodeData,
+  type InkBlockNodeData,
   type NodeId,
   type StorySemanticSnapshot,
 } from '@story-blueprint/common';
@@ -85,6 +86,14 @@ export function buildStorySearchIndex(snapshot: StorySemanticSnapshot): StorySea
             line,
           );
         });
+      } else if (node.type === StoryNodeType.InkBlock) {
+        const ink = node.data as InkBlockNodeData;
+        addNodeEntry(
+          'source',
+          ink.entryKnot || 'Ink Block',
+          'Ink Block · Embedded source',
+          ink.source,
+        );
       } else if (node.type === StoryNodeType.Choice) {
         const choice = node.data as ChoiceNodeData;
         addNodeEntry('prompt', choice.prompt.source || 'Choice', 'Choice · Prompt', choice.prompt);

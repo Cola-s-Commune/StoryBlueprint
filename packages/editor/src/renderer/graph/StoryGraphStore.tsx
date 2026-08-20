@@ -128,7 +128,7 @@ import {
 nodeRegistry.registerBuiltins();
 
 function createNewGraph(): EditorGraphState {
-  const instance = NodeFactory.create(
+  const entry = NodeFactory.create(
     NodeFactory.generateId(StoryNodeType.Start),
     StoryNodeType.Start,
     {
@@ -136,7 +136,28 @@ function createNewGraph(): EditorGraphState {
       y: 120,
     },
   );
-  return { nodes: instance ? [{ ...toEditorGraphNode(instance), selected: true }] : [], edges: [] };
+  const end = NodeFactory.create(NodeFactory.generateId(StoryNodeType.End), StoryNodeType.End, {
+    x: 480,
+    y: 120,
+  });
+  if (!entry || !end) return { nodes: [], edges: [] };
+  entry.data = { title: 'Story Entry' };
+  end.data = { title: 'End Story' };
+  return {
+    nodes: [
+      { ...toEditorGraphNode(entry), selected: true },
+      { ...toEditorGraphNode(end), selected: false },
+    ],
+    edges: [
+      {
+        id: createStableId('edge'),
+        source: entry.id,
+        sourceHandle: 'out',
+        target: end.id,
+        targetHandle: 'in',
+      },
+    ],
+  };
 }
 
 function createNewSubstoryGraph(): EditorGraphState {
@@ -553,6 +574,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const signals = workspace?.project?.signals ?? [];
   const projectVariables = workspace?.project?.variables ?? [];
   const [workspaceError, setWorkspaceError] = useState<string>();
+  useEffect(() => {
+    if (!workspaceError) return;
+    void window.electronAPI?.reportRendererError('workspace-error', workspaceError);
+  }, [workspaceError]);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [problems, setProblems] = useState<readonly ProjectCompilerDiagnostic[]>([]);
   const [lastBuildPath, setLastBuildPath] = useState<string>();

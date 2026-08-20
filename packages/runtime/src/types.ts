@@ -29,10 +29,22 @@ export interface CallFrame {
 export type PendingInteraction =
   | { kind: 'dialogue'; requestId: string; instructionId: InstructionId }
   | {
+      kind: 'ink-dialogue';
+      requestId: string;
+      instructionId: InstructionId;
+      defaultText: string;
+    }
+  | {
       kind: 'choice';
       requestId: string;
       instructionId: InstructionId;
       optionIds: readonly OptionId[];
+    }
+  | {
+      kind: 'ink-choice';
+      requestId: string;
+      instructionId: InstructionId;
+      options: readonly { id: OptionId; text: string }[];
     }
   | { kind: 'event'; requestId: string; instructionId: InstructionId; eventId: EventId }
   | {
@@ -55,6 +67,8 @@ export interface RuntimeState {
   storyVariables: Record<string, RuntimeValue>;
   /** Full payloads received before a matching Wait for Signal instruction. */
   signalInbox: Record<string, SignalPayload[]>;
+  /** Serialized state for the currently executing embedded Ink Block. */
+  ink?: { instructionId: InstructionId; stateJson: string };
   pending?: PendingInteraction;
   status: RuntimeStatus;
   randomSeed?: number;

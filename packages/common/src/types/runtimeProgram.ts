@@ -15,7 +15,7 @@ import type {
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_RUNTIME_FORMAT = 'story-runtime' as const;
-export const STORY_RUNTIME_VERSION = 3 as const;
+export const STORY_RUNTIME_VERSION = 4 as const;
 
 export interface ProgramLocation {
   blockId: BlockId;
@@ -54,6 +54,13 @@ export interface DialogueInstruction extends RuntimeInstructionBase {
   emotion?: string;
   portraitId?: AssetId;
   tags?: readonly string[];
+}
+
+export interface InkBlockInstruction extends RuntimeInstructionBase {
+  op: 'ink-block';
+  /** Compiled Ink JSON, kept in the node-free runtime artifact. */
+  inkJson: string;
+  entryKnot?: string;
 }
 
 export interface NarrationInstruction extends RuntimeInstructionBase {
@@ -127,6 +134,7 @@ export interface EndStoryInstruction extends RuntimeInstructionBase {
 
 export type RuntimeInstruction =
   | DialogueInstruction
+  | InkBlockInstruction
   | NarrationInstruction
   | SetVariableInstruction
   | CallEventInstruction

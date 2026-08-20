@@ -9,6 +9,7 @@ import {
   type ChoiceNodeData,
   type ChoiceOption,
   type DialogueNodeData,
+  type InkBlockNodeData,
   type DialogueLine,
   type DialogueLineId,
   type EndNodeData,
@@ -1917,6 +1918,33 @@ export function Inspector() {
       case StoryNodeType.Dialogue: {
         const data = node.data as DialogueNodeData;
         return <DialogueEditor key={node.id} nodeId={node.id} data={data} />;
+      }
+      case StoryNodeType.InkBlock: {
+        const data = node.data as InkBlockNodeData;
+        return (
+          <>
+            <div className={styles.info}>
+              Embedded Ink runs as one resumable block. Its choices stay inside the block.
+            </div>
+            <PropertyField
+              label="Entry knot (optional)"
+              value={data.entryKnot ?? ''}
+              onBeginEdit={checkpoint}
+              onChange={(entryKnot) =>
+                updateNodeData(node.id, StoryNodeType.InkBlock, {
+                  entryKnot: entryKnot.trim() || undefined,
+                })
+              }
+            />
+            <PropertyField
+              label="Ink Source"
+              value={data.source}
+              multiline
+              onBeginEdit={checkpoint}
+              onChange={(source) => updateNodeData(node.id, StoryNodeType.InkBlock, { source })}
+            />
+          </>
+        );
       }
       case StoryNodeType.Choice: {
         const data = node.data as ChoiceNodeData;

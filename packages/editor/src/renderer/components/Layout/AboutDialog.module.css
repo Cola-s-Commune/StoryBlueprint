@@ -101,3 +101,20 @@
   color: #738092;
   font-size: 11px;
 }
+
+.logs {
+  margin-top: 14px;
+  border: 1px solid #46576a;
+  border-radius: 4px;
+  background: #293543;
+  color: #c8d9ea;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.logs:hover {
+  border-color: #5f83a8;
+  background: #334557;
+}

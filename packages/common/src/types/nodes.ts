@@ -24,6 +24,7 @@ import type { ValueType } from './values';
 export enum StoryNodeType {
   Start = 'story-entry',
   Dialogue = 'dialogue',
+  InkBlock = 'ink-block',
   Choice = 'choice',
   Branch = 'branch',
   GetVariable = 'get-variable',
@@ -77,6 +78,13 @@ export interface DialogueLine {
 /** Data for Dialogue node — one uninterrupted sequence of dialogue lines. */
 export interface DialogueNodeData {
   lines: DialogueLine[];
+}
+
+/** Embedded Ink source executed as one resumable runtime block. */
+export interface InkBlockNodeData {
+  sourceMode: 'embedded';
+  source: string;
+  entryKnot?: string;
 }
 
 /** Data for Choice node — presents options to the player */
@@ -167,6 +175,7 @@ export interface EndNodeData {
 export interface StoryNodeDataMap {
   [StoryNodeType.Start]: StartNodeData;
   [StoryNodeType.Dialogue]: DialogueNodeData;
+  [StoryNodeType.InkBlock]: InkBlockNodeData;
   [StoryNodeType.Choice]: ChoiceNodeData;
   [StoryNodeType.Branch]: BranchNodeData;
   [StoryNodeType.GetVariable]: GetVariableNodeData;

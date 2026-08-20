@@ -21,6 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@story-blueprint/common": "*"
+    "@story-blueprint/common": "*",
+    "inkjs": "^2.3.2"
   }
 }
