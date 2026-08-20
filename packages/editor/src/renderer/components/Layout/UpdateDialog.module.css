@@ -194,6 +194,18 @@
   margin-top: 10px;
 }
 
+.downloadActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.install {
+  margin-top: 10px;
+  border-color: #668b62 !important;
+  background: #2b4730 !important;
+}
+
 .status {
   margin: 10px 0 0;
   color: #b9d998;

@@ -14,6 +14,7 @@ const electronAPI = {
   downloadUpdate: (kind) => ipcRenderer.invoke('app:download-update', kind),
   cancelUpdateDownload: () => ipcRenderer.invoke('app:cancel-update-download'),
   revealDownloadedUpdate: (path) => ipcRenderer.invoke('app:reveal-downloaded-update', path),
+  installDownloadedUpdate: (path) => ipcRenderer.invoke('app:install-downloaded-update', path),
   onUpdateDownloadProgress: (listener) => {
     const handler = (_event: IpcRendererEvent, progress: Parameters<typeof listener>[0]) =>
       listener(progress);

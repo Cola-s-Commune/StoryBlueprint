@@ -382,6 +382,7 @@ export interface ElectronAPI {
   ) => Promise<UpdateDownloadResult>;
   cancelUpdateDownload: () => Promise<void>;
   revealDownloadedUpdate: (path: string) => Promise<void>;
+  installDownloadedUpdate: (path: string) => Promise<void>;
   onUpdateDownloadProgress: (listener: (progress: UpdateDownloadProgress) => void) => () => void;
   openExternal: (url: string) => Promise<void>;
   getWindowState: () => Promise<EditorWindowState>;

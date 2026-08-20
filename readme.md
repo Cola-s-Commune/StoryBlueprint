@@ -277,7 +277,7 @@ npm run verify:release:win
 python -m http.server 8080 --directory release
 ```
 
-然后在 `Help → Check for Updates...` 填写 `http://localhost:8080/`。更新包会下载到 `Downloads/Story Blueprint`，应用重新验证 Feed 后会按 Manifest 的 SHA-512 与大小校验文件，再交给用户手动打开。当前尚未自动安装或替换正在运行的 Portable。
+然后在 `Help → Check for Updates...` 填写 `http://localhost:8080/`。更新包会下载到 `Downloads/Story Blueprint`，应用重新验证 Feed 后会按 Manifest 的 SHA-512 与大小校验文件。Installer 可在下载完成后显式安装并重启；Portable 仍需用户手动替换，应用不会覆盖正在运行的 EXE。
 
 ---
 

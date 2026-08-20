@@ -1374,8 +1374,9 @@ Release 流程在 NSIS 与 Portable 都成功后生成所选通道 Manifest，�
 `signature` 后的规范化 JSON 签名，字段包含 `algorithm`、`keyId` 和 Base64 `value`。发布脚本从
 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY` 或 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE` 读取私钥，客户端只信任内置的
 `keyId → 公钥` 映射；缺少签名、未知 key、签名不匹配或清单被修改都会拒绝更新。手动 Feed URL 不能替换公钥或关闭验证。
-NSIS 后续可退出并安装，Portable 默认只下载并
-提示用户替换，不能覆盖正在运行的 EXE。
+下载完成后，Installer 提供显式“Install and Restart”操作。主进程只接受 Downloads/Story Blueprint
+内、命名符合安装器格式且已通过校验的 EXE；存在未保存 Story 时拒绝启动。确认后以 detached 进程
+启动 NSIS 并退出编辑器。Portable 默认只下载并提示用户替换，不能覆盖正在运行的 EXE。
 
 下载阶段会在主进程重新读取并验签当前 Feed，Renderer 不能提交 URL、哈希或大小。Artifact 通过临时
 `.part` 文件流式下载到 Downloads/Story Blueprint，逐块报告进度，严格匹配签名清单的精确字节数与

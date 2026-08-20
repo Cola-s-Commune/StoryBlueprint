@@ -12,6 +12,7 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron';
 import { mkdir, readFile, readdir, realpath, stat, unlink, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { is } from '@electron-toolkit/utils';
@@ -1639,6 +1640,25 @@ function registerStoryFileHandlers(): void {
     const normalized = resolve(value);
     if (!normalized.startsWith(downloadsRoot)) throw new Error('Downloaded update path is outside the download directory');
     shell.showItemInFolder(normalized);
+  });
+  ipcMain.handle('app:install-downloaded-update', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || typeof value !== 'string' || !isAbsolute(value)) {
+      throw new Error('Invalid downloaded installer path');
+    }
+    if (storyDirty) {
+      throw new Error('Save or discard Story changes before installing the update');
+    }
+    const downloadsRoot = resolve(app.getPath('downloads'), 'Story Blueprint') + sep;
+    const normalized = resolve(value);
+    if (!normalized.startsWith(downloadsRoot) || !/^StoryBlueprint-Setup-[A-Za-z0-9._-]+\.exe$/i.test(basename(normalized))) {
+      throw new Error('Downloaded installer path is outside the allowed update directory');
+    }
+    const metadata = await stat(normalized).catch(() => undefined);
+    if (!metadata?.isFile()) throw new Error('Downloaded installer no longer exists');
+    const child = spawn(normalized, [], { detached: true, stdio: 'ignore', windowsHide: false });
+    child.unref();
+    closeAfterSave = true;
+    app.quit();
   });
   ipcMain.handle('app:open-external', async (event, value: unknown) => {
     if (!isTrustedSender(event) || typeof value !== 'string' || !isAllowedUpdateUrl(value)) {

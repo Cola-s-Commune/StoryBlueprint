@@ -35,6 +35,7 @@ export function UpdateDialog({ currentVersion, initialResult, onClose }: UpdateD
   const [status, setStatus] = useState<string>();
   const [download, setDownload] = useState<UpdateDownloadProgress>();
   const [downloadedPath, setDownloadedPath] = useState<string>();
+  const [downloadedKind, setDownloadedKind] = useState<'installer' | 'portable'>();
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -96,10 +97,12 @@ export function UpdateDialog({ currentVersion, initialResult, onClose }: UpdateD
     setBusy(true);
     setDownload({ received: 0, total: kind === 'installer' ? result.installerSize ?? 0 : result.portableSize ?? 0 });
     setDownloadedPath(undefined);
+    setDownloadedKind(undefined);
     setStatus(undefined);
     try {
       const downloaded = await window.electronAPI.downloadUpdate(kind);
       setDownloadedPath(downloaded.path);
+      setDownloadedKind(downloaded.kind);
       setStatus(`${kind === 'installer' ? 'Installer' : 'Portable update'} downloaded and verified.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -112,6 +115,18 @@ export function UpdateDialog({ currentVersion, initialResult, onClose }: UpdateD
 
   const cancelDownload = async () => {
     await window.electronAPI?.cancelUpdateDownload();
+  };
+
+  const installDownloadedUpdate = async () => {
+    if (!downloadedPath || downloadedKind !== 'installer' || !window.electronAPI) return;
+    setBusy(true);
+    setStatus(undefined);
+    try {
+      await window.electronAPI.installDownloadedUpdate(downloadedPath);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      setBusy(false);
+    }
   };
 
   return (
@@ -232,13 +247,20 @@ export function UpdateDialog({ currentVersion, initialResult, onClose }: UpdateD
         )}
         {status && <p className={styles.status}>{status}</p>}
         {downloadedPath && (
-          <button
-            type="button"
-            className={styles.reveal}
-            onClick={() => void window.electronAPI?.revealDownloadedUpdate(downloadedPath)}
-          >
-            Show Downloaded File
-          </button>
+          <div className={styles.downloadActions}>
+            <button
+              type="button"
+              className={styles.reveal}
+              onClick={() => void window.electronAPI?.revealDownloadedUpdate(downloadedPath)}
+            >
+              Show Downloaded File
+            </button>
+            {downloadedKind === 'installer' && (
+              <button type="button" className={styles.install} onClick={() => void installDownloadedUpdate()}>
+                Install and Restart
+              </button>
+            )}
+          </div>
         )}
         <p className={styles.hint}>
           HTTPS is required for remote feeds. HTTP is allowed for localhost testing.
