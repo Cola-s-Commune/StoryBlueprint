@@ -262,11 +262,14 @@ npm run release:win
 # 仅重新生成更新清单（已有两个 EXE 时）
 npm run release:win:manifest
 
+# 首次发布前生成 Ed25519 发布密钥
+npm run release:keygen
+
 # 隐藏启动两个发行版本，验证 ASAR、preload 和 renderer
 npm run verify:release:win
 ```
 
-发行产物写入 `release/`。`release:win` 会在两个 EXE 都成功后生成包含相对下载地址、字节大小和 Base64 SHA-512 的 `stable.json`。预发布版本默认生成 `beta.json`，也可通过 `STORY_BLUEPRINT_UPDATE_CHANNEL` 指定通道；`STORY_BLUEPRINT_RELEASE_NOTES` 或 `STORY_BLUEPRINT_RELEASE_NOTES_FILE` 可提供更新说明。
+发行产物写入 `release/`。`release:win` 会在两个 EXE 都成功后生成包含相对下载地址、字节大小、Base64 SHA-512 和 Ed25519 签名的 `stable.json`。预发布版本默认生成 `beta.json`，也可通过 `STORY_BLUEPRINT_UPDATE_CHANNEL` 指定通道；`STORY_BLUEPRINT_RELEASE_NOTES` 或 `STORY_BLUEPRINT_RELEASE_NOTES_FILE` 可提供更新说明。发布清单必须签名：通过 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY` 或 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE` 提供私钥，并用 `STORY_BLUEPRINT_UPDATE_KEY_ID` 指定已内置在客户端的公钥 ID。`release:keygen` 默认把私钥写入 Git 已忽略的 `.release-keys/release-2026.pem`，同时更新客户端公钥表；私钥应另行备份到安全存储或 CI Secret，不能提交到 Git。
 
 可在尚未购买服务器时本地验证 Feed：
 

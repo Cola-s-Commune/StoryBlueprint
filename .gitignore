@@ -55,6 +55,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Environment & secrets
+.release-keys/
 .env
 .env.local
 .env.*.local

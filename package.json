@@ -16,6 +16,7 @@
     "release:win:portable": "npm run release:win:portable --workspace @story-blueprint/editor",
     "release:win:installer": "npm run release:win:installer --workspace @story-blueprint/editor",
     "release:win:manifest": "npm run release:win:manifest --workspace @story-blueprint/editor",
+    "release:keygen": "npm run release:keygen --workspace @story-blueprint/editor",
     "release:win": "npm run release:win:installer && npm run release:win:portable && npm run release:win:manifest",
     "verify:release:win": "npm run verify:win --workspace @story-blueprint/editor",
     "lint": "npm run lint --workspaces",

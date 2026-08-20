@@ -1357,7 +1357,12 @@ Update Manifest v1 使用 JSON：
   "installerSha512": "Base64 SHA-512",
   "portableSha512": "Base64 SHA-512",
   "installerSize": 101051025,
-  "portableSize": 90919253
+  "portableSize": 90919253,
+  "signature": {
+    "algorithm": "ed25519",
+    "keyId": "release-2026",
+    "value": "Base64 Ed25519 signature"
+  }
 }
 ```
 
@@ -1365,8 +1370,11 @@ Feed URL 可以是直接指向 JSON 的完整地址，也可以是基础目录�
 `beta.json`。相对产物 URL 以最终 Manifest URL 为基准解析。当前下载按钮只交给操作系统浏览器，不修改本地程序。进入自动下载
 Release 流程在 NSIS 与 Portable 都成功后生成所选通道 Manifest，并由验证脚本重新计算 SHA-512 与大小。
 `STORY_BLUEPRINT_UPDATE_CHANNEL` 选择通道，`STORY_BLUEPRINT_RELEASE_NOTES` 或
-`STORY_BLUEPRINT_RELEASE_NOTES_FILE` 提供说明。进入自动下载阶段前还必须加入与更新域名分离的离线签名私钥；客户端内置公钥验证
-Manifest 和产物，手动 Feed URL 不能替换公钥或关闭验证。NSIS 后续可退出并安装，Portable 默认只下载并
+`STORY_BLUEPRINT_RELEASE_NOTES_FILE` 提供说明。Manifest v1 现在要求 `signature` 字段：使用 Ed25519 对移除
+`signature` 后的规范化 JSON 签名，字段包含 `algorithm`、`keyId` 和 Base64 `value`。发布脚本从
+`STORY_BLUEPRINT_UPDATE_PRIVATE_KEY` 或 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE` 读取私钥，客户端只信任内置的
+`keyId → 公钥` 映射；缺少签名、未知 key、签名不匹配或清单被修改都会拒绝更新。手动 Feed URL 不能替换公钥或关闭验证。
+NSIS 后续可退出并安装，Portable 默认只下载并
 提示用户替换，不能覆盖正在运行的 EXE。
 
 ---

@@ -19,6 +19,7 @@
     "prerelease:win:installer": "node scripts/check-release-node.cjs",
     "release:win:installer": "npm run build && electron-builder --win nsis --x64",
     "release:win:manifest": "node scripts/generate-update-manifest.cjs",
+    "release:keygen": "node scripts/generate-update-keypair.cjs",
     "verify:win": "node scripts/verify-release.cjs",
     "preview": "electron-vite preview",
     "lint": "eslint src --ext .ts,.tsx",

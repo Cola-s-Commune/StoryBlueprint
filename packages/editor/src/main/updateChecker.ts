@@ -1,6 +1,9 @@
+import { createPublicKey, verify } from 'node:crypto';
 import type { UpdateCheckResult, UpdateManifest, UpdateSettings } from '../shared/electronApi';
+import trustedUpdateKeys from '../../update-public-keys.json';
 
 const MAX_UPDATE_MANIFEST_BYTES = 1 * 1024 * 1024;
+const TRUSTED_UPDATE_KEYS: Readonly<Record<string, string>> = trustedUpdateKeys;
 
 interface SemVer {
   major: number;
@@ -106,8 +109,51 @@ function isUpdateManifest(value: unknown): value is UpdateManifest {
     (manifest.installerSize === undefined ||
       (Number.isSafeInteger(manifest.installerSize) && manifest.installerSize > 0)) &&
     (manifest.portableSize === undefined ||
-      (Number.isSafeInteger(manifest.portableSize) && manifest.portableSize > 0))
+      (Number.isSafeInteger(manifest.portableSize) && manifest.portableSize > 0)) &&
+    (manifest.signature === undefined ||
+      (typeof manifest.signature === 'object' &&
+        manifest.signature !== null &&
+        manifest.signature.algorithm === 'ed25519' &&
+        typeof manifest.signature.keyId === 'string' &&
+        /^[A-Za-z0-9._-]{1,64}$/.test(manifest.signature.keyId) &&
+        typeof manifest.signature.value === 'string' &&
+        /^[A-Za-z0-9+/]{86}==$/.test(manifest.signature.value)))
   );
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(',')}}`;
+}
+
+export function verifyUpdateManifestSignature(
+  manifest: UpdateManifest,
+  trustedKeys: Readonly<Record<string, string>> = TRUSTED_UPDATE_KEYS,
+): boolean {
+  if (!manifest.signature) return false;
+  const publicKeyDer = trustedKeys[manifest.signature.keyId];
+  if (!publicKeyDer || manifest.signature.algorithm !== 'ed25519') return false;
+  const signedPayload = { ...manifest };
+  delete signedPayload.signature;
+  try {
+    return verify(
+      null,
+      Buffer.from(canonicalJson(signedPayload), 'utf8'),
+      createPublicKey({
+        key: Buffer.from(publicKeyDer, 'base64'),
+        format: 'der',
+        type: 'spki',
+      }),
+      Buffer.from(manifest.signature.value, 'base64'),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function resolveUpdateUrl(feedUrl: string, candidate: string | undefined): string | undefined {
@@ -135,6 +181,7 @@ export async function checkUpdateFeed(
   currentVersion: string,
   settings: UpdateSettings,
   fetchManifest: typeof fetch = fetch,
+  trustedKeys?: Readonly<Record<string, string>>,
 ): Promise<UpdateCheckResult> {
   const checkedAt = new Date().toISOString();
   if (!settings.enabled || !settings.feedUrl) {
@@ -157,6 +204,9 @@ export async function checkUpdateFeed(
     }
     const value: unknown = JSON.parse(text);
     if (!isUpdateManifest(value)) throw new Error('Invalid Story Blueprint update manifest');
+    if (!verifyUpdateManifestSignature(value, trustedKeys)) {
+      throw new Error('Update manifest signature is missing, invalid, or untrusted');
+    }
     if (value.channel !== settings.channel) {
       return { status: 'up-to-date', currentVersion, checkedAt };
     }

@@ -287,6 +287,12 @@ export interface AppInfo {
 
 export type UpdateChannel = 'stable' | 'beta';
 
+export interface UpdateManifestSignature {
+  algorithm: 'ed25519';
+  keyId: string;
+  value: string;
+}
+
 export interface UpdateSettings {
   enabled: boolean;
   feedUrl: string;
@@ -307,6 +313,7 @@ export interface UpdateManifest {
   portableSha512?: string;
   installerSize?: number;
   portableSize?: number;
+  signature?: UpdateManifestSignature;
 }
 
 export type UpdateCheckResult =

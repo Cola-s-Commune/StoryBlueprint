@@ -12,6 +12,8 @@ interface ManifestOptions {
   channel: 'stable' | 'beta';
   releaseDate?: string;
   notes?: string;
+  privateKey?: string;
+  keyId?: string;
 }
 
 interface ManifestGenerator {
@@ -27,6 +29,7 @@ const require = createRequire(import.meta.url);
 const generator =
   require('../packages/editor/scripts/generate-update-manifest.cjs') as ManifestGenerator;
 const temporaryDirectories: string[] = [];
+const testPrivateKey = `-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIItH58ldg6QtugE/rPc9IWF1PeF6y5akaaMESoPQPzsl\n-----END PRIVATE KEY-----\n`;
 
 async function temporaryRelease(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'story-blueprint-release-'));
@@ -57,6 +60,7 @@ describe('Windows update manifest generation', () => {
       channel: 'stable',
       releaseDate: '2026-08-20T00:00:00.000Z',
       notes: 'Manifest generation test.',
+      privateKey: testPrivateKey,
     });
     const saved = JSON.parse(await readFile(result.outputPath, 'utf8')) as UpdateManifest;
 
@@ -73,6 +77,7 @@ describe('Windows update manifest generation', () => {
       installerSha512: createHash('sha512').update(installer).digest('base64'),
       portableSha512: createHash('sha512').update(portable).digest('base64'),
     });
+    expect(saved.signature).toMatchObject({ algorithm: 'ed25519', keyId: 'release-2026' });
   });
 
   it('rejects unsupported channels, invalid versions, and missing artifacts', async () => {
@@ -83,6 +88,7 @@ describe('Windows update manifest generation', () => {
         releaseRoot: await temporaryRelease(),
         version: '0.2.0-beta.1',
         channel: 'beta',
+        privateKey: testPrivateKey,
       }),
     ).rejects.toThrow(/does not exist/);
     await expect(
@@ -90,6 +96,7 @@ describe('Windows update manifest generation', () => {
         releaseRoot: await temporaryRelease(),
         version: '0.2.0-beta.1',
         channel: 'stable',
+        privateKey: testPrivateKey,
       }),
     ).rejects.toThrow(/cannot be published to the stable channel/);
   });

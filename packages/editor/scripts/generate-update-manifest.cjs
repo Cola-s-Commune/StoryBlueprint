@@ -1,5 +1,11 @@
-const { createHash } = require('node:crypto');
-const { createReadStream, existsSync, readFileSync, statSync, writeFileSync } = require('node:fs');
+const { createHash, sign } = require('node:crypto');
+const {
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} = require('node:fs');
 const { basename, resolve } = require('node:path');
 
 const workspaceRoot = resolve(__dirname, '../../..');
@@ -41,6 +47,41 @@ function readNotes({ notes, notesFile }) {
   return trimmed;
 }
 
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(',')}}`;
+}
+
+function resolveSigningKey(options) {
+  const hasPrivateKeyOption = Object.prototype.hasOwnProperty.call(options, 'privateKey');
+  const hasPrivateKeyFileOption = Object.prototype.hasOwnProperty.call(options, 'privateKeyFile');
+  const privateKey = hasPrivateKeyOption
+    ? options.privateKey
+    : process.env.STORY_BLUEPRINT_UPDATE_PRIVATE_KEY;
+  const privateKeyFile = hasPrivateKeyFileOption
+    ? options.privateKeyFile
+    : process.env.STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE;
+  if (privateKey && privateKeyFile) throw new Error('Use either an update private key or a private key file, not both');
+  if (!privateKey && !privateKeyFile) {
+    throw new Error(
+      'Update manifest signing requires STORY_BLUEPRINT_UPDATE_PRIVATE_KEY or STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE',
+    );
+  }
+  return privateKeyFile ? readFileSync(resolve(workspaceRoot, privateKeyFile), 'utf8') : privateKey;
+}
+
+function signManifest(manifest, options) {
+  const keyId = options.keyId ?? process.env.STORY_BLUEPRINT_UPDATE_KEY_ID ?? 'release-2026';
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(keyId)) throw new Error(`Invalid update signing key id: ${keyId}`);
+  const privateKey = resolveSigningKey(options);
+  const value = sign(null, Buffer.from(canonicalJson(manifest), 'utf8'), privateKey).toString('base64');
+  return { ...manifest, signature: { algorithm: 'ed25519', keyId, value } };
+}
+
 async function generateUpdateManifest(options) {
   const version = validateVersion(options.version);
   const channel = validateChannel(options.channel);
@@ -63,7 +104,7 @@ async function generateUpdateManifest(options) {
     sha512File(installerPath),
     sha512File(portablePath),
   ]);
-  const manifest = {
+  const unsignedManifest = {
     format: 'story-blueprint-update',
     version: 1,
     channel,
@@ -77,6 +118,7 @@ async function generateUpdateManifest(options) {
     installerSize: statSync(installerPath).size,
     portableSize: statSync(portablePath).size,
   };
+  const manifest = signManifest(unsignedManifest, options);
   const outputPath = resolve(outputRoot, `${channel}.json`);
   writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   return { manifest, outputPath };
@@ -103,7 +145,7 @@ async function main() {
     notes,
   });
   console.log(
-    `Generated ${result.outputPath} for ${result.manifest.latestVersion} (${channel}) with SHA-512 hashes`,
+    `Generated ${result.outputPath} for ${result.manifest.latestVersion} (${channel}) with SHA-512 hashes and Ed25519 signature`,
   );
 }
 
@@ -116,6 +158,8 @@ if (require.main === module) {
 
 module.exports = {
   generateUpdateManifest,
+  canonicalJson,
+  signManifest,
   sha512File,
   validateChannel,
   validateVersion,

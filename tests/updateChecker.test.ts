@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sign } from 'node:crypto';
 import {
   checkUpdateFeed,
   compareUpdateVersions,
@@ -6,6 +7,27 @@ import {
   isUpdateSettings,
 } from '../packages/editor/src/main/updateChecker';
 import type { UpdateManifest, UpdateSettings } from '../packages/editor/src/shared/electronApi';
+
+const testPrivateKey = `-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIItH58ldg6QtugE/rPc9IWF1PeF6y5akaaMESoPQPzsl\n-----END PRIVATE KEY-----\n`;
+const testTrustedKeys = {
+  'release-2026': 'MCowBQYDK2VwAyEAo8pO3oql9TCZQMXM6Wfzqcx+ba2tTklJt+OFaOgj+1g=',
+};
+function signed(manifest: Omit<UpdateManifest, 'signature'>): UpdateManifest {
+  const canonical = (value: unknown): string => {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`;
+  };
+  return {
+    ...manifest,
+    signature: {
+      algorithm: 'ed25519',
+      keyId: 'release-2026',
+      value: sign(null, Buffer.from(canonical(manifest)), testPrivateKey).toString('base64'),
+    },
+  };
+}
 
 const settings: UpdateSettings = {
   enabled: true,
@@ -45,7 +67,7 @@ describe('application update checker', () => {
     const result = await checkUpdateFeed(
       '0.1.0',
       settings,
-      response({
+      response(signed({
         format: 'story-blueprint-update',
         version: 1,
         channel: 'stable',
@@ -54,7 +76,8 @@ describe('application update checker', () => {
         notes: 'Update checker test.',
         installerUrl: './StoryBlueprint-Setup-0.2.0-x64.exe',
         portableUrl: './StoryBlueprint-Portable-0.2.0-x64.exe',
-      }),
+      })),
+      testTrustedKeys,
     );
 
     expect(result).toMatchObject({
@@ -74,14 +97,15 @@ describe('application update checker', () => {
       async (input) => {
         requestedUrl = String(input);
         return new Response(
-          JSON.stringify({
+          JSON.stringify(signed({
             format: 'story-blueprint-update',
             version: 1,
             channel: 'beta',
             latestVersion: '0.2.0-beta.1',
-          }),
+          })),
         );
       },
+      testTrustedKeys,
     );
 
     expect(requestedUrl).toBe('https://updates.example.com/story-blueprint/beta.json');
@@ -92,12 +116,13 @@ describe('application update checker', () => {
     const wrongChannel = await checkUpdateFeed(
       '0.1.0',
       settings,
-      response({
+      response(signed({
         format: 'story-blueprint-update',
         version: 1,
         channel: 'beta',
         latestVersion: '0.3.0-beta.1',
-      }),
+      })),
+      testTrustedKeys,
     );
     expect(wrongChannel.status).toBe('up-to-date');
 
@@ -106,5 +131,17 @@ describe('application update checker', () => {
       status: 'error',
       error: 'Invalid Story Blueprint update manifest',
     });
+  });
+
+  it('rejects unsigned or tampered manifests', async () => {
+    const unsigned = await checkUpdateFeed('0.1.0', settings, response({
+      format: 'story-blueprint-update', version: 1, channel: 'stable', latestVersion: '0.2.0',
+    } as UpdateManifest));
+    expect(unsigned.status).toBe('error');
+    expect(unsigned.error).toMatch(/signature/);
+    const manifest = signed({ format: 'story-blueprint-update', version: 1, channel: 'stable', latestVersion: '0.2.0' });
+    manifest.latestVersion = '0.3.0';
+    const tampered = await checkUpdateFeed('0.1.0', settings, response(manifest), testTrustedKeys);
+    expect(tampered.status).toBe('error');
   });
 });

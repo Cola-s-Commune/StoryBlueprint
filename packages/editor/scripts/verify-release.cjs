@@ -1,4 +1,4 @@
-const { createHash } = require('node:crypto');
+const { createHash, createPublicKey, verify } = require('node:crypto');
 const { existsSync, readFileSync, readdirSync, statSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -74,6 +74,22 @@ const expected = {
   installerSha512: sha512(installerPath),
   portableSha512: sha512(portablePath),
 };
+if (!matchingManifest.value.signature || matchingManifest.value.signature.algorithm !== 'ed25519') {
+  throw new Error(`Update manifest ${matchingManifest.name} is missing an Ed25519 signature`);
+}
+const trustedKeys = JSON.parse(readFileSync(resolve(__dirname, '../update-public-keys.json'), 'utf8'));
+const publicKeyDer = trustedKeys[matchingManifest.value.signature.keyId];
+if (!publicKeyDer) throw new Error(`Update manifest ${matchingManifest.name} uses an unknown signing key`);
+const signedPayload = { ...matchingManifest.value };
+delete signedPayload.signature;
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+}
+if (!verify(null, Buffer.from(canonicalJson(signedPayload), 'utf8'), createPublicKey({ key: Buffer.from(publicKeyDer, 'base64'), format: 'der', type: 'spki' }), Buffer.from(matchingManifest.value.signature.value, 'base64'))) {
+  throw new Error(`Update manifest ${matchingManifest.name} has an invalid signature`);
+}
 for (const [key, value] of Object.entries(expected)) {
   if (matchingManifest.value[key] !== value) {
     throw new Error(`Update manifest ${matchingManifest.name} has an invalid ${key}`);
