@@ -93,19 +93,63 @@ export function extractAIResponseContent(value: unknown): {
   };
 }
 
-export function parseAIAssistantResponse(content: string): AIAssistantResponse {
-  let value: unknown;
+function parseJSONResponse(content: string): unknown {
+  const trimmed = content.trim();
+  const withoutFence = trimmed
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
   try {
-    value = JSON.parse(content) as unknown;
+    return JSON.parse(withoutFence) as unknown;
   } catch {
+    // Providers occasionally add a short preamble before a JSON object. Only
+    // use the first balanced object when it can be parsed completely.
+    const start = withoutFence.indexOf('{');
+    const end = withoutFence.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(withoutFence.slice(start, end + 1)) as unknown;
+      } catch {
+        // Fall through to the stable user-facing parse error below.
+      }
+    }
     throw new Error('AI response is not valid JSON');
   }
+}
+
+export function parseAIAssistantResponse(content: string, baseRevision?: string): AIAssistantResponse {
+  const value = parseJSONResponse(content);
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('AI response must be an object');
   }
   const object = value as Record<string, unknown>;
   if (object.format === 'story-blueprint-commands') {
     return { reply: 'I prepared a Blueprint change for review.', command: value };
+  }
+  if (baseRevision && typeof baseRevision === 'string') {
+    const operation = object.kind;
+    if (typeof operation === 'string' && operation.length > 0) {
+      return {
+        reply: 'I prepared a Blueprint change for review.',
+        command: {
+          format: BLUEPRINT_COMMAND_FORMAT,
+          version: BLUEPRINT_COMMAND_VERSION,
+          baseRevision,
+          operations: [value],
+        },
+      };
+    }
+    if (Array.isArray(object.operations)) {
+      return {
+        reply: 'I prepared a Blueprint change for review.',
+        command: {
+          ...object,
+          format: BLUEPRINT_COMMAND_FORMAT,
+          version: BLUEPRINT_COMMAND_VERSION,
+          baseRevision: typeof object.baseRevision === 'string' ? object.baseRevision : baseRevision,
+        },
+      };
+    }
   }
   if (typeof object.reply !== 'string' || !object.reply.trim()) {
     throw new Error('AI response does not contain a user-facing reply');
@@ -162,3 +206,4 @@ export function normalizeAIBlueprintCommand(command: unknown): unknown {
   }
   return normalized;
 }
+import { BLUEPRINT_COMMAND_FORMAT, BLUEPRINT_COMMAND_VERSION } from '@story-blueprint/common';

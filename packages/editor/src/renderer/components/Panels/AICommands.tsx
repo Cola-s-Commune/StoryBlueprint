@@ -745,7 +745,7 @@ export function AICommands() {
         history: conversationHistory,
         attachments,
       });
-      const assistant = parseAIAssistantResponse(response.content);
+      const assistant = parseAIAssistantResponse(response.content, semanticSnapshot.revision);
       const userMessage = retry
         ? 'Please correct the proposed change using the validation diagnostics.'
         : requestInstruction;

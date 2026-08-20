@@ -103,6 +103,29 @@ describe('OpenAI-compatible provider helpers', () => {
     });
   });
 
+  it('accepts fenced JSON and wraps a bare Blueprint operation for review', () => {
+    expect(
+      parseAIAssistantResponse(
+        '```json\n{"kind":"add-node","graph":{"kind":"root"},"node":{"id":"n_one","type":"dialogue","data":{"lines":[]}}}\n```',
+        'rev_current',
+      ),
+    ).toEqual({
+      reply: 'I prepared a Blueprint change for review.',
+      command: {
+        format: 'story-blueprint-commands',
+        version: 1,
+        baseRevision: 'rev_current',
+        operations: [
+          {
+            kind: 'add-node',
+            graph: { kind: 'root' },
+            node: { id: 'n_one', type: 'dialogue', data: { lines: [] } },
+          },
+        ],
+      },
+    });
+  });
+
   it('normalizes Source-shaped text in compact line and option commands', () => {
     expect(
       normalizeAIBlueprintCommand({
