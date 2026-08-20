@@ -24,7 +24,7 @@ import { ExternalChangesCenter } from './ExternalChangesCenter';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v6';
+const layoutStorageKey = 'story-blueprint:dock-layout:v7';
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
@@ -44,7 +44,6 @@ function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
   if (
     panelId === 'preview' ||
     panelId === 'problems' ||
-    panelId === 'aiCommands' ||
     panelId === 'storyMerge' ||
     panelId === 'history' ||
     panelId === 'localization'
@@ -87,6 +86,16 @@ function createDefaultLayout(api: DockviewApi) {
     initialHeight: 320,
     minimumHeight: 160,
   });
+  api.addPanel({
+    id: 'aiCommands',
+    component: 'aiCommands',
+    title: 'AI Commands',
+    // AI authoring needs the full height of a side workbench, not a bottom output strip.
+    position: { referencePanel: inspector },
+    initialWidth: 480,
+    minimumWidth: 360,
+    maximumWidth: 760,
+  });
   const bottomPanel = api.addPanel({
     id: 'preview',
     component: 'preview',
@@ -101,13 +110,6 @@ function createDefaultLayout(api: DockviewApi) {
     title: 'Problems',
     position: { referencePanel: bottomPanel },
     minimumHeight: 120,
-  });
-  api.addPanel({
-    id: 'aiCommands',
-    component: 'aiCommands',
-    title: 'AI Commands',
-    position: { referencePanel: bottomPanel },
-    minimumHeight: 180,
   });
   api.addPanel({
     id: 'history',
@@ -173,7 +175,7 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       });
       break;
     case 'preview': {
-      const bottomPanel = api.getPanel('problems') ?? api.getPanel('aiCommands');
+      const bottomPanel = api.getPanel('problems');
       api.addPanel({
         ...common,
         title: 'Runtime Preview',
@@ -189,7 +191,7 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       break;
     }
     case 'problems': {
-      const bottomPanel = api.getPanel('preview') ?? api.getPanel('aiCommands');
+      const bottomPanel = api.getPanel('preview');
       api.addPanel({
         ...common,
         title: 'Problems',
@@ -205,24 +207,19 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       break;
     }
     case 'aiCommands': {
-      const bottomPanel = api.getPanel('preview') ?? api.getPanel('problems');
+      const inspector = api.getPanel('inspector');
       api.addPanel({
         ...common,
         title: 'AI Commands',
-        ...((bottomPanel ?? graph) && {
-          position: {
-            referencePanel: bottomPanel ?? graph!,
-            ...(bottomPanel ? {} : { direction: 'below' as const }),
-          },
-        }),
-        initialHeight: 320,
-        minimumHeight: 180,
+        ...((inspector ?? graph) && { position: { referencePanel: inspector ?? graph! } }),
+        initialWidth: 480,
+        minimumWidth: 360,
+        maximumWidth: 760,
       });
       break;
     }
     case 'storyMerge': {
-      const bottomPanel =
-        api.getPanel('preview') ?? api.getPanel('problems') ?? api.getPanel('aiCommands');
+      const bottomPanel = api.getPanel('preview') ?? api.getPanel('problems');
       api.addPanel({
         ...common,
         title: 'Story Merge',
@@ -238,8 +235,7 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       break;
     }
     case 'history': {
-      const bottomPanel =
-        api.getPanel('preview') ?? api.getPanel('problems') ?? api.getPanel('aiCommands');
+      const bottomPanel = api.getPanel('preview') ?? api.getPanel('problems');
       api.addPanel({
         ...common,
         title: 'History',
