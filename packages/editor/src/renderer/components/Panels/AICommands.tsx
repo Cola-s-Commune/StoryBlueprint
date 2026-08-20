@@ -15,10 +15,12 @@ import type {
   AIChatSession,
   AIConversationMessage,
   AIFileAttachment,
-  AIProviderSettings,
+  AIProviderProfile,
+  AIProviderRegistry,
   AIReasoningEffort,
   AIStructuredOutputMode,
   AIThinkingMode,
+  AIStreamProgress,
 } from '../../../shared/electronApi';
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
 import { CopyButton } from './CopyButton';
@@ -39,12 +41,39 @@ interface SemanticDiff {
 type AIContextScope = 'selection' | 'graph' | 'story';
 
 interface AIProviderDraft {
+  id?: string;
+  name: string;
   endpoint: string;
   model: string;
   timeoutSeconds: number;
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;
+}
+
+function draftFromProvider(profile: AIProviderProfile): AIProviderDraft {
+  return {
+    id: profile.id,
+    name: profile.name,
+    endpoint: profile.endpoint,
+    model: profile.model,
+    timeoutSeconds: profile.timeoutMs / 1_000,
+    structuredOutput: profile.structuredOutput,
+    thinkingMode: profile.thinkingMode,
+    reasoningEffort: profile.reasoningEffort,
+  };
+}
+
+function createProviderDraft(): AIProviderDraft {
+  return {
+    name: 'New Provider',
+    endpoint: 'https://api.openai.com/v1',
+    model: '',
+    timeoutSeconds: 120,
+    structuredOutput: 'json-schema',
+    thinkingMode: 'auto',
+    reasoningEffort: 'high',
+  };
 }
 
 const AI_ASSISTANT_RESPONSE_SCHEMA = {
@@ -333,13 +362,14 @@ export function AICommands() {
   const [instruction, setInstruction] = useState('');
   const [attachments, setAttachments] = useState<AIFileAttachment[]>([]);
   const [contextScope, setContextScope] = useState<AIContextScope>('story');
-  const [providerSettings, setProviderSettings] = useState<AIProviderSettings>();
+  const [providerRegistry, setProviderRegistry] = useState<AIProviderRegistry>();
   const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [providerError, setProviderError] = useState<string>();
   const [providerStatus, setProviderStatus] = useState<string>();
   const [modelReasoning, setModelReasoning] = useState<string>();
+  const [streamedContent, setStreamedContent] = useState('');
   const [conversation, setConversation] = useState<AIConversationMessage[]>([]);
   const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
   const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
@@ -355,6 +385,20 @@ export function AICommands() {
   const conversationRef = useRef<HTMLDivElement>(null);
   const chatCreatedAtRef = useRef(new Date().toISOString());
   const skipNextChatSaveRef = useRef(false);
+  const activeProvider = useMemo(
+    () =>
+      providerRegistry?.providers.find(
+        (profile) => profile.id === providerRegistry.activeProviderId,
+      ),
+    [providerRegistry],
+  );
+  const editingProvider = useMemo(
+    () =>
+      providerDraft?.id
+        ? providerRegistry?.providers.find((profile) => profile.id === providerDraft.id)
+        : undefined,
+    [providerDraft?.id, providerRegistry],
+  );
   const selectedNodeIds = useMemo(
     () => nodes.filter((node) => node.selected).map((node) => node.id),
     [nodes],
@@ -519,19 +563,15 @@ export function AICommands() {
   useEffect(() => {
     let disposed = false;
     void window.electronAPI
-      ?.getAIProviderSettings()
-      .then((settings) => {
+      ?.getAIProviderRegistry()
+      .then((registry) => {
         if (disposed) return;
-        setProviderSettings(settings);
-        setProviderDraft({
-          endpoint: settings.endpoint,
-          model: settings.model,
-          timeoutSeconds: settings.timeoutMs / 1_000,
-          structuredOutput: settings.structuredOutput,
-          thinkingMode: settings.thinkingMode,
-          reasoningEffort: settings.reasoningEffort,
-        });
-        setShowProviderSettings(!settings.model);
+        const active = registry.providers.find(
+          (profile) => profile.id === registry.activeProviderId,
+        );
+        setProviderRegistry(registry);
+        if (active) setProviderDraft(draftFromProvider(active));
+        setShowProviderSettings(!active?.model);
       })
       .catch((error) => {
         if (!disposed) setProviderError(error instanceof Error ? error.message : String(error));
@@ -540,6 +580,23 @@ export function AICommands() {
       disposed = true;
       if (requestIdRef.current) window.electronAPI?.cancelAICommand(requestIdRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    return window.electronAPI.onAIStreamProgress((progress: AIStreamProgress) => {
+      if (progress.requestId !== requestIdRef.current) return;
+      if (progress.reasoningDelta) {
+        setModelReasoning((current) => `${current ?? ''}${progress.reasoningDelta}`);
+      }
+      if (progress.contentDelta) {
+        setStreamedContent((current) => current + progress.contentDelta);
+      }
+      if (progress.phase === 'connecting') setProviderStatus('Connecting to provider…');
+      else if (progress.phase === 'thinking') setProviderStatus('Thinking…');
+      else if (progress.phase === 'writing') setProviderStatus('Writing response…');
+      else if (progress.phase === 'completed') setProviderStatus('Finalizing response…');
+    });
   }, []);
 
   const dryRunText = (text: string) => {
@@ -584,7 +641,9 @@ export function AICommands() {
     if (!providerDraft || !window.electronAPI) return;
     setProviderError(undefined);
     try {
-      const settings = await window.electronAPI.updateAIProviderSettings({
+      const registry = await window.electronAPI.saveAIProviderProfile({
+        ...(providerDraft.id ? { id: providerDraft.id } : {}),
+        name: providerDraft.name,
         endpoint: providerDraft.endpoint,
         model: providerDraft.model,
         timeoutMs: Math.round(providerDraft.timeoutSeconds * 1_000),
@@ -593,26 +652,63 @@ export function AICommands() {
         reasoningEffort: providerDraft.reasoningEffort,
         ...(apiKey === undefined ? {} : { apiKey }),
       });
-      setProviderSettings(settings);
-      setProviderDraft({
-        endpoint: settings.endpoint,
-        model: settings.model,
-        timeoutSeconds: settings.timeoutMs / 1_000,
-        structuredOutput: settings.structuredOutput,
-        thinkingMode: settings.thinkingMode,
-        reasoningEffort: settings.reasoningEffort,
-      });
+      const saved = registry.providers.find((profile) => profile.id === registry.activeProviderId);
+      setProviderRegistry(registry);
+      if (saved) setProviderDraft(draftFromProvider(saved));
       setApiKeyDraft('');
       setProviderStatus(apiKey === '' ? 'API Key removed' : 'Provider settings saved');
-      if (settings.model) setShowProviderSettings(false);
+      if (saved?.model) setShowProviderSettings(false);
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : String(error));
     }
   };
 
+  const selectProvider = async (providerId: string) => {
+    if (!window.electronAPI) return;
+    try {
+      const registry = await window.electronAPI.selectAIProvider(providerId);
+      const active = registry.providers.find((profile) => profile.id === registry.activeProviderId);
+      setProviderRegistry(registry);
+      if (active) setProviderDraft(draftFromProvider(active));
+      setApiKeyDraft('');
+      setProviderError(undefined);
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const deleteProvider = async () => {
+    if (!providerDraft?.id || !window.electronAPI) return;
+    if (!window.confirm(`Delete AI provider "${providerDraft.name}"? Its saved API key will also be removed.`)) {
+      return;
+    }
+    try {
+      const registry = await window.electronAPI.deleteAIProviderProfile(providerDraft.id);
+      const active = registry.providers.find((profile) => profile.id === registry.activeProviderId);
+      setProviderRegistry(registry);
+      if (active) setProviderDraft(draftFromProvider(active));
+      setApiKeyDraft('');
+      setProviderStatus('Provider removed');
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const addProvider = () => {
+    setProviderDraft(createProviderDraft());
+    setApiKeyDraft('');
+    setProviderError(undefined);
+    setShowProviderSettings(true);
+  };
+
   const generate = async (retry = false) => {
     if (!window.electronAPI) {
       setProviderError('AI generation is available only in the desktop editor');
+      return;
+    }
+    if (!activeProvider?.model) {
+      setProviderError('Configure an AI provider and model before generating commands');
+      setShowProviderSettings(true);
       return;
     }
     const requestInstruction = retry ? lastUserRequest : instruction.trim();
@@ -633,12 +729,14 @@ export function AICommands() {
         : requestInstruction,
     );
     setModelReasoning(undefined);
+    setStreamedContent('');
     setProviderError(undefined);
     setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Working…');
     if (!retry) setLastUserRequest(requestInstruction);
     try {
       const response = await window.electronAPI.generateAICommand({
         requestId,
+        providerId: activeProvider?.id ?? '',
         instruction: retry
           ? `Correct the rejected command for this request: ${requestInstruction}`
           : requestInstruction,
@@ -668,6 +766,7 @@ export function AICommands() {
         return next.slice(-40);
       });
       setModelReasoning(response.reasoning);
+      setStreamedContent('');
       setInstruction('');
       if (assistant.command) {
         const command = JSON.stringify(normalizeAIBlueprintCommand(assistant.command), null, 2);
@@ -826,6 +925,22 @@ export function AICommands() {
               Delete
             </button>
           )}
+          {providerRegistry && (
+            <select
+              className={styles.providerPicker}
+              aria-label="Active AI provider"
+              value={providerRegistry.activeProviderId}
+              disabled={generating}
+              onChange={(event) => void selectProvider(event.target.value)}
+              title="Active AI provider"
+            >
+              {providerRegistry.providers.map((profile) => (
+                <option value={profile.id} key={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             className={styles.providerButton}
@@ -837,9 +952,37 @@ export function AICommands() {
         {showProviderSettings && providerDraft && (
           <div className={styles.providerSettings}>
             <label>
+              <span>Provider</span>
+              <select
+                value={providerDraft.id ?? ''}
+                disabled={generating}
+                onChange={(event) => {
+                  if (event.target.value) void selectProvider(event.target.value);
+                }}
+              >
+                {!providerDraft.id && <option value="">New provider</option>}
+                {providerRegistry?.providers.map((profile) => (
+                  <option value={profile.id} key={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Provider name</span>
+              <input
+                value={providerDraft.name}
+                disabled={generating}
+                maxLength={120}
+                onChange={(event) => setProviderDraft({ ...providerDraft, name: event.target.value })}
+                placeholder="e.g. DeepSeek"
+              />
+            </label>
+            <label>
               <span>OpenAI-compatible endpoint</span>
               <input
                 value={providerDraft.endpoint}
+                disabled={generating}
                 onChange={(event) =>
                   setProviderDraft({ ...providerDraft, endpoint: event.target.value })
                 }
@@ -850,6 +993,7 @@ export function AICommands() {
               <span>Model</span>
               <input
                 value={providerDraft.model}
+                disabled={generating}
                 onChange={(event) =>
                   setProviderDraft({ ...providerDraft, model: event.target.value })
                 }
@@ -863,6 +1007,7 @@ export function AICommands() {
                 min={5}
                 max={600}
                 value={providerDraft.timeoutSeconds}
+                disabled={generating}
                 onChange={(event) =>
                   setProviderDraft({
                     ...providerDraft,
@@ -875,6 +1020,7 @@ export function AICommands() {
               <span>Structured output</span>
               <select
                 value={providerDraft.structuredOutput}
+                disabled={generating}
                 onChange={(event) =>
                   setProviderDraft({
                     ...providerDraft,
@@ -890,6 +1036,7 @@ export function AICommands() {
               <span>Thinking</span>
               <select
                 value={providerDraft.thinkingMode}
+                disabled={generating}
                 onChange={(event) =>
                   setProviderDraft({
                     ...providerDraft,
@@ -920,26 +1067,35 @@ export function AICommands() {
             </label>
             <label className={styles.apiKeyField}>
               <span>
-                API Key {providerSettings?.hasApiKey ? '· securely saved' : '· optional locally'}
+                API Key {editingProvider?.hasApiKey ? '· securely saved' : '· optional locally'}
               </span>
               <input
                 type="password"
                 autoComplete="off"
                 value={apiKeyDraft}
                 onChange={(event) => setApiKeyDraft(event.target.value)}
-                placeholder={providerSettings?.hasApiKey ? 'Leave blank to keep saved key' : 'sk-…'}
+                placeholder={editingProvider?.hasApiKey ? 'Leave blank to keep saved key' : 'sk-…'}
               />
             </label>
             <div className={styles.providerActions}>
               <button
                 type="button"
                 onClick={() => void saveProviderSettings(apiKeyDraft || undefined)}
+                disabled={generating}
               >
-                Save Settings
+                {providerDraft.id ? 'Save Provider' : 'Add Provider'}
               </button>
-              {providerSettings?.hasApiKey && (
-                <button type="button" onClick={() => void saveProviderSettings('')}>
+              <button type="button" onClick={addProvider} disabled={generating}>
+                New Provider
+              </button>
+              {editingProvider?.hasApiKey && (
+                <button type="button" onClick={() => void saveProviderSettings('')} disabled={generating}>
                   Remove Key
+                </button>
+              )}
+              {providerDraft.id && providerRegistry && providerRegistry.providers.length > 1 && (
+                <button type="button" onClick={() => void deleteProvider()} disabled={generating}>
+                  Delete Provider
                 </button>
               )}
             </div>
@@ -982,7 +1138,7 @@ export function AICommands() {
             <div className={styles.activityMessage}>
               <span className={styles.activitySpinner} aria-hidden="true" />
               <div>
-                <strong>Working on your request</strong>
+                <strong>{providerStatus || 'Working on your request'}</strong>
                 <span>
                   Reading the latest{' '}
                   {contextScope === 'story'
@@ -992,6 +1148,7 @@ export function AICommands() {
                       : 'selection'}{' '}
                   and checking the Blueprint contract…
                 </span>
+                {streamedContent && <pre className={styles.streamedContent}>{streamedContent}</pre>}
               </div>
             </div>
           )}
@@ -1063,7 +1220,7 @@ export function AICommands() {
             <button
               type="button"
               className={styles.primaryButton}
-              disabled={generating || !providerSettings?.model || !instruction.trim()}
+              disabled={generating || !activeProvider?.model || !instruction.trim()}
               onClick={() => void generate()}
             >
               {generating ? 'Thinking…' : 'Send'}
@@ -1088,7 +1245,7 @@ export function AICommands() {
             )}
             <span className={styles.providerStatus}>
               {providerStatus ??
-                (!providerSettings?.model ? 'Configure a provider and model to generate' : '')}
+                (!activeProvider?.model ? 'Configure a provider and model to generate' : '')}
             </span>
           </div>
         </div>

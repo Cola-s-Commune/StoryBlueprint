@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractAIResponseContent,
   normalizeAIBlueprintCommand,
+  parseOpenAIStreamDelta,
   parseAIAssistantResponse,
   resolveAICompletionsUrl,
 } from '../packages/editor/src/shared/aiProvider';
@@ -58,6 +59,18 @@ describe('OpenAI-compatible provider helpers', () => {
       model: 'deepseek-v4-pro',
       reasoning: 'I should reconnect the existing successor.',
     });
+  });
+
+  it('extracts reasoning and content deltas from OpenAI-compatible streaming chunks', () => {
+    expect(
+      parseOpenAIStreamDelta({
+        model: 'deepseek-reasoner',
+        choices: [{ delta: { reasoning_content: 'Checking links…' } }],
+      }),
+    ).toEqual({ model: 'deepseek-reasoner', reasoning: 'Checking links…' });
+    expect(
+      parseOpenAIStreamDelta({ choices: [{ delta: { content: [{ text: '{"reply":' }] } }] }),
+    ).toEqual({ content: '{"reply":' });
   });
 
   it('rejects empty provider responses', () => {

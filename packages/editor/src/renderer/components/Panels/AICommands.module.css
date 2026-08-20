@@ -49,6 +49,12 @@
   padding: 5px 7px;
 }
 
+.providerPicker {
+  width: min(170px, 22vw);
+  min-width: 110px;
+  padding: 5px 7px;
+}
+
 .chatTitleInput {
   width: min(210px, 22vw);
   min-width: 120px;
@@ -117,7 +123,7 @@
   max-height: 40%;
   flex: none;
   overflow: auto;
-  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) 120px 180px;
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 2fr) minmax(140px, 1fr) 120px;
   gap: 8px;
   margin-bottom: 8px;
   padding: 9px;
@@ -148,7 +154,7 @@
 }
 
 .providerActions {
-  grid-column: span 2;
+  grid-column: span 4;
   align-self: end;
 }
 
@@ -321,6 +327,19 @@
 
 .activityMessage span {
   font-size: 10px;
+}
+
+.streamedContent {
+  max-height: 150px;
+  overflow: auto;
+  margin: 5px 0 0;
+  padding: 6px;
+  border: 1px solid #323a44;
+  color: #bec9d5;
+  background: #161a1f;
+  font: 10px/1.45 'Cascadia Code', Consolas, monospace;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 .activitySpinner {

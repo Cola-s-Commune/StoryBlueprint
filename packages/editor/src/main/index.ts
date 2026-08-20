@@ -67,13 +67,16 @@ import type {
   UpdateProjectSettingsRequest,
   UpdateProjectStoryFilesRequest,
   AIChatSession,
+  AIProviderProfile,
+  AIProviderRegistry,
   AIProviderSettings,
   ApplyWorkspaceMergeFile,
   GenerateAICommandRequest,
   GenerateAICommandResult,
   AIFileAttachment,
   RecentProject,
-  UpdateAIProviderSettingsRequest,
+  SaveAIProviderProfileRequest,
+  AIStreamProgress,
   UpdateSettings,
   WorkspaceEntry,
   WorkspaceInfo,
@@ -97,7 +100,7 @@ import {
 } from './workspaceGit';
 import { validateProjectResourceSnapshot } from './projectResourceSnapshot';
 import { restoreStoryHistoryFile } from './storyHistoryRestore';
-import { extractAIResponseContent, resolveAICompletionsUrl } from '../shared/aiProvider';
+import { parseOpenAIStreamDelta, resolveAICompletionsUrl } from '../shared/aiProvider';
 import {
   isPersistedWindowState,
   resolveWindowBounds,
@@ -158,6 +161,7 @@ const MAX_ERROR_LOG_MESSAGE_BYTES = 256 * 1024;
 const WORKSPACE_GIT_POLL_INTERVAL_MS = 1_500;
 const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
+const canceledAIRequests = new Set<string>();
 const DEFAULT_PROJECT_AGENTS = `# Story Blueprint AI Instructions
 
 Story Blueprint is an authoring tool for executable, graph-based interactive narrative. A Story is not a prose synopsis: it is a directed control-flow graph that compiles to runtime logic.
@@ -356,6 +360,19 @@ type StoredAIProviderSettings = Omit<
 > &
   Partial<Pick<AIProviderSettings, 'thinkingMode' | 'reasoningEffort'>>;
 
+type StoredAIProviderProfile = StoredAIProviderSettings & {
+  id: string;
+  name: string;
+};
+
+interface StoredAIProviderRegistry {
+  version: 1;
+  activeProviderId: string;
+  providers: StoredAIProviderProfile[];
+}
+
+const DEFAULT_AI_PROVIDER_ID = 'provider_default';
+
 function recentProjectsFile(): string {
   return join(app.getPath('userData'), 'recent-projects.json');
 }
@@ -372,8 +389,16 @@ function aiProviderSettingsFile(): string {
   return join(app.getPath('userData'), 'ai-provider.json');
 }
 
+function aiProviderRegistryFile(): string {
+  return join(app.getPath('userData'), 'ai-providers.json');
+}
+
 function aiProviderKeyFile(): string {
   return join(app.getPath('userData'), 'ai-provider-key');
+}
+
+function aiProviderKeyFileFor(providerId: string): string {
+  return join(app.getPath('userData'), `ai-provider-key-${providerId}`);
 }
 
 function aiChatSessionsFile(): string {
@@ -499,9 +524,36 @@ function isAIProviderSettings(value: unknown): value is StoredAIProviderSettings
   );
 }
 
-async function readAIProviderKey(): Promise<string | undefined> {
+function isAIProviderProfile(value: unknown): value is StoredAIProviderProfile {
+  if (!isAIProviderSettings(value)) return false;
+  const profile = value as Partial<StoredAIProviderProfile>;
+  return (
+    typeof profile.id === 'string' &&
+    /^provider_[a-zA-Z0-9_-]{4,128}$/.test(profile.id) &&
+    typeof profile.name === 'string' &&
+    profile.name.trim().length > 0 &&
+    profile.name.length <= 120
+  );
+}
+
+function isAIProviderRegistry(value: unknown): value is StoredAIProviderRegistry {
+  if (typeof value !== 'object' || value === null) return false;
+  const registry = value as Partial<StoredAIProviderRegistry>;
+  return (
+    registry.version === 1 &&
+    typeof registry.activeProviderId === 'string' &&
+    Array.isArray(registry.providers) &&
+    registry.providers.length > 0 &&
+    registry.providers.length <= 20 &&
+    registry.providers.every(isAIProviderProfile) &&
+    registry.providers.some((profile) => profile.id === registry.activeProviderId) &&
+    new Set(registry.providers.map((profile) => profile.id)).size === registry.providers.length
+  );
+}
+
+async function decryptAIProviderKey(filePath: string): Promise<string | undefined> {
   try {
-    const encrypted = await readFile(aiProviderKeyFile());
+    const encrypted = await readFile(filePath);
     if (!safeStorage.isEncryptionAvailable()) return undefined;
     return safeStorage.decryptString(encrypted);
   } catch {
@@ -509,24 +561,71 @@ async function readAIProviderKey(): Promise<string | undefined> {
   }
 }
 
-async function writeAIProviderKey(apiKey: string): Promise<void> {
+async function readAIProviderKey(providerId: string): Promise<string | undefined> {
+  return decryptAIProviderKey(aiProviderKeyFileFor(providerId));
+}
+
+async function writeAIProviderKey(providerId: string, apiKey: string): Promise<void> {
+  const filePath = aiProviderKeyFileFor(providerId);
   if (!apiKey) {
-    await unlink(aiProviderKeyFile()).catch(() => undefined);
+    await unlink(filePath).catch(() => undefined);
     return;
   }
   if (!safeStorage.isEncryptionAvailable()) {
     throw new Error('Operating-system secure storage is unavailable; the API Key was not saved');
   }
   await mkdir(app.getPath('userData'), { recursive: true });
-  await writeFile(aiProviderKeyFile(), safeStorage.encryptString(apiKey));
+  await writeFile(filePath, safeStorage.encryptString(apiKey));
 }
 
-async function readAIProviderSettings(): Promise<AIProviderSettings> {
+function defaultAIProviderProfile(): StoredAIProviderProfile {
+  return {
+    id: DEFAULT_AI_PROVIDER_ID,
+    name: 'OpenAI-compatible',
+    ...defaultAIProviderSettings,
+  };
+}
+
+async function writeAIProviderRegistry(registry: StoredAIProviderRegistry): Promise<void> {
+  await writeUserDataJson(aiProviderRegistryFile(), registry);
+}
+
+async function hydrateAIProviderRegistry(registry: StoredAIProviderRegistry): Promise<AIProviderRegistry> {
+  const providers = await Promise.all(
+    registry.providers.map(async (profile) => ({
+      ...defaultAIProviderSettings,
+      ...profile,
+      hasApiKey: Boolean(await readAIProviderKey(profile.id)),
+    })),
+  );
+  return { activeProviderId: registry.activeProviderId, providers };
+}
+
+async function readAIProviderRegistry(): Promise<AIProviderRegistry> {
+  const storedRegistry = await readJsonFile(aiProviderRegistryFile());
+  if (isAIProviderRegistry(storedRegistry)) return hydrateAIProviderRegistry(storedRegistry);
+
   const stored = await readJsonFile(aiProviderSettingsFile());
-  const settings = isAIProviderSettings(stored)
-    ? { ...defaultAIProviderSettings, ...stored }
-    : defaultAIProviderSettings;
-  return { ...settings, hasApiKey: Boolean(await readAIProviderKey()) };
+  const profile: StoredAIProviderProfile = {
+    ...defaultAIProviderProfile(),
+    ...(isAIProviderSettings(stored) ? stored : {}),
+  };
+  const registry: StoredAIProviderRegistry = {
+    version: 1,
+    activeProviderId: profile.id,
+    providers: [profile],
+  };
+  const legacyKey = await decryptAIProviderKey(aiProviderKeyFile());
+  if (legacyKey) await writeAIProviderKey(profile.id, legacyKey);
+  await writeAIProviderRegistry(registry);
+  return hydrateAIProviderRegistry(registry);
+}
+
+async function readActiveAIProvider(providerId: string): Promise<AIProviderProfile> {
+  const registry = await readAIProviderRegistry();
+  const profile = registry.providers.find((candidate) => candidate.id === providerId);
+  if (!profile) throw new Error('Selected AI provider no longer exists');
+  return profile;
 }
 
 function validGenerateAICommandRequest(value: unknown): value is GenerateAICommandRequest {
@@ -536,6 +635,8 @@ function validGenerateAICommandRequest(value: unknown): value is GenerateAIComma
   return (
     typeof request.requestId === 'string' &&
     /^[a-zA-Z0-9_-]{8,128}$/.test(request.requestId) &&
+    typeof request.providerId === 'string' &&
+    /^provider_[a-zA-Z0-9_-]{4,128}$/.test(request.providerId) &&
     typeof request.instruction === 'string' &&
     request.instruction.trim().length > 0 &&
     Buffer.byteLength(request.instruction, 'utf8') <= MAX_AI_INSTRUCTION_BYTES &&
@@ -1745,9 +1846,9 @@ function registerStoryFileHandlers(): void {
     mainWindow.close();
   });
 
-  ipcMain.handle('ai:get-provider-settings', async (event) => {
+  ipcMain.handle('ai:get-provider-registry', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
-    return readAIProviderSettings();
+    return readAIProviderRegistry();
   });
   ipcMain.handle('ai:list-chat-sessions', async (event, scopeKey: unknown) => {
     if (
@@ -1792,12 +1893,17 @@ function registerStoryFileHandlers(): void {
       );
     });
   });
-  ipcMain.handle('ai:update-provider-settings', async (event, value: unknown) => {
+  ipcMain.handle('ai:save-provider-profile', async (event, value: unknown) => {
     if (!isTrustedSender(event) || typeof value !== 'object' || value === null) {
       throw new Error('Invalid AI provider settings');
     }
-    const request = value as Partial<UpdateAIProviderSettingsRequest>;
+    const request = value as Partial<SaveAIProviderProfileRequest>;
     if (
+      (request.id !== undefined &&
+        (typeof request.id !== 'string' || !/^provider_[a-zA-Z0-9_-]{4,128}$/.test(request.id))) ||
+      typeof request.name !== 'string' ||
+      request.name.trim().length === 0 ||
+      request.name.length > 120 ||
       typeof request.endpoint !== 'string' ||
       typeof request.model !== 'string' ||
       typeof request.timeoutMs !== 'number' ||
@@ -1813,7 +1919,16 @@ function registerStoryFileHandlers(): void {
       throw new Error('Invalid AI provider settings');
     }
     resolveAICompletionsUrl(request.endpoint.trim());
-    const settings = {
+    const current = await readAIProviderRegistry();
+    const existing = request.id
+      ? current.providers.find((profile) => profile.id === request.id)
+      : undefined;
+    if (request.id && !existing) throw new Error('AI provider no longer exists');
+    if (!existing && current.providers.length >= 20) throw new Error('Add at most 20 AI providers');
+    const providerId = existing?.id ?? `provider_${randomUUID()}`;
+    const settings: StoredAIProviderProfile = {
+      id: providerId,
+      name: request.name.trim(),
       provider: 'openai-compatible' as const,
       endpoint: request.endpoint.trim().replace(/\/+$/, ''),
       model: request.model.trim(),
@@ -1822,27 +1937,84 @@ function registerStoryFileHandlers(): void {
       thinkingMode: request.thinkingMode,
       reasoningEffort: request.reasoningEffort,
     };
-    if (request.apiKey !== undefined) await writeAIProviderKey(request.apiKey.trim());
-    await writeUserDataJson(aiProviderSettingsFile(), settings);
-    return { ...settings, hasApiKey: Boolean(await readAIProviderKey()) };
+    if (request.apiKey !== undefined) await writeAIProviderKey(providerId, request.apiKey.trim());
+    const providers = existing
+      ? current.providers.map(({ hasApiKey: _hasApiKey, ...profile }) =>
+          profile.id === providerId ? settings : profile,
+        )
+      : [...current.providers.map(({ hasApiKey: _hasApiKey, ...profile }) => profile), settings];
+    await writeAIProviderRegistry({
+      version: 1,
+      activeProviderId: existing ? current.activeProviderId : providerId,
+      providers,
+    });
+    return readAIProviderRegistry();
+  });
+  ipcMain.handle('ai:delete-provider-profile', async (event, providerId: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      typeof providerId !== 'string' ||
+      !/^provider_[a-zA-Z0-9_-]{4,128}$/.test(providerId)
+    ) {
+      throw new Error('Invalid AI provider');
+    }
+    const current = await readAIProviderRegistry();
+    if (!current.providers.some((profile) => profile.id === providerId)) {
+      throw new Error('AI provider no longer exists');
+    }
+    if (current.providers.length === 1) throw new Error('Keep at least one AI provider profile');
+    const providers = current.providers
+      .filter((profile) => profile.id !== providerId)
+      .map(({ hasApiKey: _hasApiKey, ...profile }) => profile);
+    const activeProviderId =
+      current.activeProviderId === providerId ? providers[0].id : current.activeProviderId;
+    await writeAIProviderRegistry({ version: 1, activeProviderId, providers });
+    await unlink(aiProviderKeyFileFor(providerId)).catch(() => undefined);
+    return readAIProviderRegistry();
+  });
+  ipcMain.handle('ai:select-provider', async (event, providerId: unknown) => {
+    if (
+      !isTrustedSender(event) ||
+      typeof providerId !== 'string' ||
+      !/^provider_[a-zA-Z0-9_-]{4,128}$/.test(providerId)
+    ) {
+      throw new Error('Invalid AI provider');
+    }
+    const current = await readAIProviderRegistry();
+    if (!current.providers.some((profile) => profile.id === providerId)) {
+      throw new Error('AI provider no longer exists');
+    }
+    await writeAIProviderRegistry({
+      version: 1,
+      activeProviderId: providerId,
+      providers: current.providers.map(({ hasApiKey: _hasApiKey, ...profile }) => profile),
+    });
+    return readAIProviderRegistry();
   });
   ipcMain.handle('ai:generate-command', async (event, value: unknown) => {
     if (!isTrustedSender(event) || !validGenerateAICommandRequest(value)) {
       throw new Error('Invalid AI command request');
     }
-    const settings = await readAIProviderSettings();
+    const settings = await readActiveAIProvider(value.providerId);
     if (!settings.model) throw new Error('Configure an AI model before generating commands');
     if (aiRequests.has(value.requestId)) throw new Error('AI request ID is already active');
     const controller = new AbortController();
     aiRequests.set(value.requestId, controller);
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, settings.timeoutMs);
+    let timeoutKind: 'initial' | 'idle' | undefined = 'initial';
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const resetTimeout = (kind: 'initial' | 'idle') => {
+      if (timeout) clearTimeout(timeout);
+      timeoutKind = kind;
+      timeout = setTimeout(() => controller.abort(), settings.timeoutMs);
+    };
+    const emitProgress = (progress: Omit<AIStreamProgress, 'requestId'>) => {
+      if (!event.sender.isDestroyed()) event.sender.send('ai:stream-progress', { requestId: value.requestId, ...progress });
+    };
+    resetTimeout('initial');
+    emitProgress({ phase: 'connecting' });
     try {
       const [apiKey, projectInstructions] = await Promise.all([
-        readAIProviderKey(),
+        readAIProviderKey(settings.id),
         readProjectAgentsInstructions(),
       ]);
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1888,6 +2060,7 @@ function registerStoryFileHandlers(): void {
             },
           ],
           response_format: responseFormat,
+          stream: true,
           ...(settings.thinkingMode === 'auto'
             ? {}
             : {
@@ -1902,35 +2075,104 @@ function registerStoryFileHandlers(): void {
       if (Number.isFinite(declaredLength) && declaredLength > MAX_AI_RESPONSE_BYTES) {
         throw new Error('AI provider response is too large');
       }
-      const responseText = await response.text();
-      if (Buffer.byteLength(responseText, 'utf8') > MAX_AI_RESPONSE_BYTES) {
-        throw new Error('AI provider response is too large');
-      }
       if (!response.ok) {
+        const responseText = await response.text();
         const details = responseText.slice(0, 4_000);
         throw new Error(`AI provider returned HTTP ${response.status}: ${details}`);
       }
-      let responseBody: unknown;
-      try {
-        responseBody = JSON.parse(responseText) as unknown;
-      } catch {
-        throw new Error('AI provider returned invalid JSON');
+      if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+        throw new Error('AI provider does not support streaming chat completions');
       }
-      const result = extractAIResponseContent(responseBody);
-      return { ...result, model: result.model || settings.model } satisfies GenerateAICommandResult;
+      if (!response.body) throw new Error('AI provider returned an empty streaming response');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = '';
+      let receivedBytes = 0;
+      let model = '';
+      let reasoning = '';
+      let content = '';
+      let receivedEvent = false;
+      const consumeEvent = (record: string) => {
+        const payload = record
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n');
+        if (!payload || payload === '[DONE]') return;
+        let value: unknown;
+        try {
+          value = JSON.parse(payload) as unknown;
+        } catch {
+          throw new Error('AI provider returned invalid streaming JSON');
+        }
+        const delta = parseOpenAIStreamDelta(value);
+        if (!delta) return;
+        receivedEvent = true;
+        resetTimeout('idle');
+        if (delta.model) model = delta.model;
+        if (delta.reasoning) {
+          reasoning += delta.reasoning;
+          emitProgress({ phase: 'thinking', reasoningDelta: delta.reasoning, ...(model ? { model } : {}) });
+        }
+        if (delta.content) {
+          content += delta.content;
+          emitProgress({ phase: 'writing', contentDelta: delta.content, ...(model ? { model } : {}) });
+        }
+      };
+      let streamDone = false;
+      while (!streamDone) {
+        const { done, value: chunk } = await reader.read();
+        if (done) {
+          streamDone = true;
+          continue;
+        }
+        receivedBytes += chunk.byteLength;
+        if (receivedBytes > MAX_AI_RESPONSE_BYTES) {
+          throw new Error('AI provider response is too large');
+        }
+        pending += decoder.decode(chunk, { stream: true });
+        let boundary = pending.search(/\r?\n\r?\n/);
+        while (boundary >= 0) {
+          const record = pending.slice(0, boundary);
+          pending = pending.slice(boundary).replace(/^\r?\n\r?\n/, '');
+          consumeEvent(record);
+          boundary = pending.search(/\r?\n\r?\n/);
+        }
+      }
+      pending += decoder.decode();
+      if (pending.trim()) consumeEvent(pending);
+      if (!receivedEvent || !content.trim()) throw new Error('AI provider streaming response is empty');
+      emitProgress({ phase: 'completed', ...(model ? { model } : {}) });
+      return {
+        content,
+        model: model || settings.model,
+        ...(reasoning.trim() ? { reasoning: reasoning.trim() } : {}),
+      } satisfies GenerateAICommandResult;
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(timedOut ? 'AI request timed out' : 'AI request canceled');
+        throw new Error(
+          canceledAIRequests.has(value.requestId)
+            ? 'AI request canceled'
+            : timeoutKind === 'initial'
+            ? `AI provider did not begin responding within ${Math.round(settings.timeoutMs / 1_000)} seconds`
+            : timeoutKind === 'idle'
+              ? `AI provider stopped streaming for ${Math.round(settings.timeoutMs / 1_000)} seconds`
+              : 'AI request canceled',
+        );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
+      canceledAIRequests.delete(value.requestId);
       if (aiRequests.get(value.requestId) === controller) aiRequests.delete(value.requestId);
     }
   });
   ipcMain.on('ai:cancel-command', (event, requestId: unknown) => {
     if (!isTrustedSender(event) || typeof requestId !== 'string') return;
-    aiRequests.get(requestId)?.abort();
+    const controller = aiRequests.get(requestId);
+    if (!controller) return;
+    canceledAIRequests.add(requestId);
+    controller.abort();
   });
   ipcMain.handle('ai:pick-context-files', async (event) => {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');

@@ -5,6 +5,43 @@ export interface AIAssistantResponse {
   command?: unknown;
 }
 
+export interface OpenAIStreamDelta {
+  model?: string;
+  reasoning?: string;
+  content?: string;
+}
+
+/** Extracts the useful delta fields from one OpenAI-compatible SSE payload. */
+export function parseOpenAIStreamDelta(value: unknown): OpenAIStreamDelta | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const response = value as { model?: unknown; choices?: unknown };
+  const choice = Array.isArray(response.choices) ? response.choices[0] : undefined;
+  if (typeof choice !== 'object' || choice === null) return undefined;
+  const delta = (choice as { delta?: unknown }).delta;
+  if (typeof delta !== 'object' || delta === null) return undefined;
+  const fields = delta as Record<string, unknown>;
+  const reasoningValue = fields.reasoning_content ?? fields.reasoning;
+  const reasoning = typeof reasoningValue === 'string' ? reasoningValue : '';
+  const rawContent = fields.content;
+  const content =
+    typeof rawContent === 'string'
+      ? rawContent
+      : Array.isArray(rawContent)
+        ? rawContent
+            .map((part) =>
+              typeof part === 'object' && part !== null && 'text' in part ? String(part.text) : '',
+            )
+            .join('')
+        : '';
+  const model = typeof response.model === 'string' ? response.model : '';
+  if (!model && !reasoning && !content) return undefined;
+  return {
+    ...(model ? { model } : {}),
+    ...(reasoning ? { reasoning } : {}),
+    ...(content ? { content } : {}),
+  };
+}
+
 export function resolveAICompletionsUrl(endpoint: string): string {
   let url: URL;
   try {

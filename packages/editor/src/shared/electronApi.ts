@@ -230,7 +230,20 @@ export interface AIProviderSettings {
   hasApiKey: boolean;
 }
 
-export interface UpdateAIProviderSettingsRequest {
+export interface AIProviderProfile extends AIProviderSettings {
+  id: string;
+  name: string;
+}
+
+export interface AIProviderRegistry {
+  activeProviderId: string;
+  providers: readonly AIProviderProfile[];
+}
+
+export interface SaveAIProviderProfileRequest {
+  /** Omit when creating a new provider profile. */
+  id?: string;
+  name: string;
   endpoint: string;
   model: string;
   timeoutMs: number;
@@ -243,11 +256,20 @@ export interface UpdateAIProviderSettingsRequest {
 
 export interface GenerateAICommandRequest {
   requestId: string;
+  providerId: string;
   instruction: string;
   context: string;
   schema: unknown;
   history?: readonly AIConversationMessage[];
   attachments?: readonly AIFileAttachment[];
+}
+
+export interface AIStreamProgress {
+  requestId: string;
+  phase: 'connecting' | 'thinking' | 'writing' | 'completed';
+  reasoningDelta?: string;
+  contentDelta?: string;
+  model?: string;
 }
 
 export interface AIFileAttachment {
@@ -423,11 +445,12 @@ export interface ElectronAPI {
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
   extractProjectLocalization: (sourceLocale: string) => Promise<WorkspaceInfo>;
   updateProjectLocalization: (document: StoryLocalizationDocument) => Promise<WorkspaceInfo>;
-  getAIProviderSettings: () => Promise<AIProviderSettings>;
-  updateAIProviderSettings: (
-    settings: UpdateAIProviderSettingsRequest,
-  ) => Promise<AIProviderSettings>;
+  getAIProviderRegistry: () => Promise<AIProviderRegistry>;
+  saveAIProviderProfile: (settings: SaveAIProviderProfileRequest) => Promise<AIProviderRegistry>;
+  deleteAIProviderProfile: (providerId: string) => Promise<AIProviderRegistry>;
+  selectAIProvider: (providerId: string) => Promise<AIProviderRegistry>;
   generateAICommand: (request: GenerateAICommandRequest) => Promise<GenerateAICommandResult>;
+  onAIStreamProgress: (listener: (progress: AIStreamProgress) => void) => () => void;
   pickAIContextFiles: () => Promise<AIFileAttachment[]>;
   cancelAICommand: (requestId: string) => void;
   listAIChatSessions: (scopeKey: string) => Promise<AIChatSession[]>;

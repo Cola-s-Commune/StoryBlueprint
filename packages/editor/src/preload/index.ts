@@ -70,10 +70,18 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:extract-localization', sourceLocale),
   updateProjectLocalization: (document) =>
     ipcRenderer.invoke('workspace:update-localization', document),
-  getAIProviderSettings: () => ipcRenderer.invoke('ai:get-provider-settings'),
-  updateAIProviderSettings: (settings) =>
-    ipcRenderer.invoke('ai:update-provider-settings', settings),
+  getAIProviderRegistry: () => ipcRenderer.invoke('ai:get-provider-registry'),
+  saveAIProviderProfile: (settings) => ipcRenderer.invoke('ai:save-provider-profile', settings),
+  deleteAIProviderProfile: (providerId) =>
+    ipcRenderer.invoke('ai:delete-provider-profile', providerId),
+  selectAIProvider: (providerId) => ipcRenderer.invoke('ai:select-provider', providerId),
   generateAICommand: (request) => ipcRenderer.invoke('ai:generate-command', request),
+  onAIStreamProgress: (listener) => {
+    const handler = (_event: IpcRendererEvent, progress: Parameters<typeof listener>[0]) =>
+      listener(progress);
+    ipcRenderer.on('ai:stream-progress', handler);
+    return () => ipcRenderer.removeListener('ai:stream-progress', handler);
+  },
   pickAIContextFiles: () => ipcRenderer.invoke('ai:pick-context-files'),
   cancelAICommand: (requestId) => ipcRenderer.send('ai:cancel-command', requestId),
   listAIChatSessions: (scopeKey) => ipcRenderer.invoke('ai:list-chat-sessions', scopeKey),
