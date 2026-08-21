@@ -290,6 +290,9 @@ function aiContext(
     'Never emit ports, positions, definitionVersion, UI state, or fields not allowed by the schema.',
     'Use the Node Catalog for add-node data and port IDs; ports are always derived by the editor.',
     'IMPORTANT TEXT SHAPES: add-node data uses { "source": "text" } as shown in the Node Catalog, but add-dialogue-line, update-dialogue-line, add-choice-option, and update-choice-option use a plain string for text.',
+    'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
+    'DIALOGUE SEMANTICS: A line with speakerId is only that character\'s spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.',
+    'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
@@ -370,6 +373,7 @@ export function AICommands() {
   const [providerStatus, setProviderStatus] = useState<string>();
   const [modelReasoning, setModelReasoning] = useState<string>();
   const [streamedContent, setStreamedContent] = useState('');
+  const [rawAIResponse, setRawAIResponse] = useState<string>();
   const [conversation, setConversation] = useState<AIConversationMessage[]>([]);
   const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
   const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
@@ -599,7 +603,7 @@ export function AICommands() {
     });
   }, []);
 
-  const dryRunText = (text: string) => {
+  const dryRunText = (text: string): BlueprintTransactionResult | undefined => {
     setLocalError(undefined);
     let command: unknown;
     try {
@@ -607,9 +611,9 @@ export function AICommands() {
     } catch (error) {
       setLocalError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
       setShowTechnicalDetails(true);
-      return;
+      return undefined;
     }
-    if (command === undefined) return;
+    if (command === undefined) return undefined;
     const normalizedCommand = normalizeAIBlueprintCommand(command);
     const wasNormalized = JSON.stringify(normalizedCommand) !== JSON.stringify(command);
     const normalizedText = wasNormalized ? JSON.stringify(normalizedCommand, null, 2) : text;
@@ -619,6 +623,7 @@ export function AICommands() {
     setPreviewBase(semanticSnapshot);
     setDryRunToken(next.ok ? `${semanticSnapshot.revision}\n${normalizedText}` : undefined);
     setShowDiffDetails(false);
+    return next;
   };
 
   const dryRun = () => dryRunText(commandText);
@@ -730,6 +735,7 @@ export function AICommands() {
     );
     setModelReasoning(undefined);
     setStreamedContent('');
+    setRawAIResponse(undefined);
     setProviderError(undefined);
     setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Working…');
     if (!retry) setLastUserRequest(requestInstruction);
@@ -746,6 +752,7 @@ export function AICommands() {
         attachments,
       });
       const assistant = parseAIAssistantResponse(response.content, semanticSnapshot.revision);
+      setRawAIResponse(response.content);
       const userMessage = retry
         ? 'Please correct the proposed change using the validation diagnostics.'
         : requestInstruction;
@@ -771,8 +778,12 @@ export function AICommands() {
       if (assistant.command) {
         const command = JSON.stringify(normalizeAIBlueprintCommand(assistant.command), null, 2);
         setCommandText(command);
-        setProviderStatus(`Proposed${response.model ? ` by ${response.model}` : ''} · reviewing`);
-        dryRunText(command);
+        const dryRunResult = dryRunText(command);
+        setProviderStatus(
+          dryRunResult?.ok
+            ? `Proposed${response.model ? ` by ${response.model}` : ''}${assistant.jsonRepaired ? ' · repaired unescaped quotes' : ''} · preview ready`
+            : `Proposal from ${response.model || 'provider'} was rejected · see diagnostics`,
+        );
       } else {
         discardAIProposal();
         setResult(undefined);
@@ -817,6 +828,7 @@ export function AICommands() {
     setPreviewBase(undefined);
     setDryRunToken(undefined);
     setModelReasoning(undefined);
+    setRawAIResponse(undefined);
     setProviderStatus(undefined);
     setLocalError(undefined);
   };
@@ -1281,6 +1293,7 @@ export function AICommands() {
               <CopyButton text={contextText} label="Copy AI Context" />
               <CopyButton text={schemaText} label="Copy Schema" />
               <CopyButton text={snapshotText} label="Copy Snapshot" />
+              {rawAIResponse && <CopyButton text={rawAIResponse} label="Copy AI Response" />}
               <button
                 type="button"
                 onClick={() => {
@@ -1336,6 +1349,12 @@ export function AICommands() {
                   }}
                 />
               </label>
+              {rawAIResponse && (
+                <label className={styles.editorPane}>
+                  <span>Raw AI Response · read only</span>
+                  <textarea readOnly spellCheck={false} value={rawAIResponse} />
+                </label>
+              )}
             </div>
           </>
         )}

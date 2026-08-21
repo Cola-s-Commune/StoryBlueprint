@@ -236,6 +236,8 @@
 - [x] Line 支持 Speaker、Text Template、Emotion、Voice、Tags
 - [x] Inspector 支持新增、删除、复制和拖动排序 Line
 - [x] Line 属性卡默认折叠为“说话人 + 台词”摘要，可独立展开并直接定位到对应 Ink 行
+- [x] Dialogue 语义约束：speaker Line 只保存角色实际台词；叙述、动作和环境描写拆为 Narrator Line，AI 与导入规则同步遵守
+- [x] AI 说话人解析：明确的新临时角色可通过同一事务 `add-character` 后绑定台词；身份不明确时询问作者
 - [x] Inspector 提供 Monaco `Lines / Ink` 双视图，结构化编辑后即时重建 Dialogue Ink 文本
 - [x] Dialogue Ink 子集支持批量编辑、资源名称解析、行级诊断、自动写回/撤销和稳定 ID 对齐
 - [x] Dialogue Ink 使用 `Character: text` 剧本前缀；拒绝行尾 `# speaker`，不兼容早期试验格式

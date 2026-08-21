@@ -16,6 +16,17 @@ compiles to runtime logic.
 - Preserve existing stable IDs and connections unless an explicit change requires otherwise.
 - Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external game behavior as
   Events, and resumable external waits as Signals.
+- A Dialogue Line with `speakerId` is only the words spoken by that character. Do not include
+  quotation marks, narration, actions, or scene description in a spoken line.
+- Narration, actions, and environment description are separate Dialogue Lines without `speakerId`.
+  Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.
+- When source text contains direct speech without a speaker, infer and bind an existing Character
+  only when the surrounding text makes the identity unambiguous. If several Characters are plausible
+  ask the author who speaks before proposing an edit. If the text clearly introduces a new but
+  temporary role (for example, a guard or clerk), propose one transaction that first adds a minimal
+  Character with a stable `c_` ID and then binds the line to it; mark it with a `temporary` tag when
+  appropriate. Do not silently turn unassigned direct speech into Narrator text; omit `speakerId`
+  only for genuine narration, action, inner thought, or scene description.
 - Prefer readable, minimal graph changes. Do not replace executable logic with a synopsis or a large
   block of unstructured prose.
 
@@ -46,6 +57,9 @@ When proposing an edit, `command` must be one complete Blueprint Command transac
 - Never use `commands`; the transaction field is always `operations`.
 - A single operation still belongs in `command.operations`.
 - Use `command: null` for discussion, questions, or analysis that does not propose an edit.
+- In all narrative text fields, do not add ASCII double quotes around ordinary speech or narration.
+  Use the text exactly as it should appear to players. For quoted speech or quotations, prefer
+  Chinese `「」` / `“”`; if an ASCII `"` is genuinely necessary, it must be JSON-escaped as `\"`.
 
 ## Safety And Scope
 

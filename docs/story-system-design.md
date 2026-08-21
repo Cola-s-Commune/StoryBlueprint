@@ -474,6 +474,17 @@ Line 未填写 `speakerId` 时明确表示 Narrator，未填写 voice 或 emotio
 Compiler 将 Line 按作者顺序降级为连续 Dialogue 指令，每句都形成独立暂停点。Choice、Branch、
 Event 或变量修改不能插入 Line 列表，遇到这些控制边界时必须拆成多个节点。
 
+语义上，填写 `speakerId` 的 Line 只能包含该角色实际说出的文字，不包含包围引号、说话动作、
+叙述或环境描写。叙述和动作使用不填写 `speakerId` 的独立 Narrator Line。导入或由 AI 生成
+`“我走进门。「你好。」”` 这类混合文本时，应拆成“我走进门。”（Narrator）和“你好。”（角色）
+两条 Line；角色台词本身不需要再写 `「」`。
+
+AI 导入文本时，未显式标注说话人的直接发言不等于 Narrator：只有上下文能无歧义对应到已存在的
+Character 时，AI 才可绑定该 Character 的稳定 `speakerId`；存在多个合理候选或项目中尚无对应
+Character 时，若文本明确引入了一个临时身份（例如保安、干事），AI 可以在同一事务中先创建
+最小 Character（稳定 `c_` ID，可加 `temporary` 标签）再绑定台词；身份仍不明确时必须先询问作者。
+无 `speakerId` 只保留给真正的叙述、动作、内心和场景描写。
+
 ```kdl
 dialogue n_greet {
   line ln_hello t_hello "你好，{playerName}。" speaker=c_alice voice=a_greeting emotion=happy {

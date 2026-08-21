@@ -5,6 +5,8 @@ export interface AIAssistantResponse {
   command?: unknown;
   /** The provider returned conversational text instead of the requested JSON envelope. */
   unstructured?: boolean;
+  /** A malformed quote inside a JSON string was conservatively escaped before parsing. */
+  jsonRepaired?: boolean;
 }
 
 export interface OpenAIStreamDelta {
@@ -95,14 +97,52 @@ export function extractAIResponseContent(value: unknown): {
   };
 }
 
-function parseJSONResponse(content: string): unknown {
+function repairUnescapedStringQuotes(content: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (!inString) {
+      result += character;
+      if (character === '"') inString = true;
+      continue;
+    }
+    if (escaped) {
+      result += character;
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      result += character;
+      escaped = true;
+      continue;
+    }
+    if (character !== '"') {
+      result += character;
+      continue;
+    }
+    const following = content.slice(index + 1).match(/^\s*(.)/)?.[1];
+    // A JSON string closes only before a structural delimiter. Other quotes
+    // are almost certainly dialogue punctuation emitted without JSON escaping.
+    if (following && ![':', ',', '}', ']'].includes(following)) {
+      result += '\\"';
+      continue;
+    }
+    result += character;
+    inString = false;
+  }
+  return result;
+}
+
+function parseJSONResponse(content: string): { value: unknown; repaired: boolean } {
   const trimmed = content.trim();
   const withoutFence = trimmed
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
   try {
-    return JSON.parse(withoutFence) as unknown;
+    return { value: JSON.parse(withoutFence) as unknown, repaired: false };
   } catch {
     // Providers occasionally add a short preamble before a JSON object. Only
     // use the first balanced object when it can be parsed completely.
@@ -110,7 +150,20 @@ function parseJSONResponse(content: string): unknown {
     const end = withoutFence.lastIndexOf('}');
     if (start >= 0 && end > start) {
       try {
-        return JSON.parse(withoutFence.slice(start, end + 1)) as unknown;
+        return { value: JSON.parse(withoutFence.slice(start, end + 1)) as unknown, repaired: false };
+      } catch {
+        const repaired = repairUnescapedStringQuotes(withoutFence.slice(start, end + 1));
+        try {
+          return { value: JSON.parse(repaired) as unknown, repaired: repaired !== withoutFence };
+        } catch {
+          // Fall through to the stable user-facing parse error below.
+        }
+      }
+    }
+    const repaired = repairUnescapedStringQuotes(withoutFence);
+    if (repaired !== withoutFence) {
+      try {
+        return { value: JSON.parse(repaired) as unknown, repaired: true };
       } catch {
         // Fall through to the stable user-facing parse error below.
       }
@@ -120,20 +173,25 @@ function parseJSONResponse(content: string): unknown {
 }
 
 export function parseAIAssistantResponse(content: string, baseRevision?: string): AIAssistantResponse {
-  let value: unknown;
+  let parsed: { value: unknown; repaired: boolean };
   try {
-    value = parseJSONResponse(content);
+    parsed = parseJSONResponse(content);
   } catch {
     const reply = content.trim();
     if (!reply) throw new Error('AI response content is empty');
     return { reply, unstructured: true };
   }
+  const { value } = parsed;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('AI response must be an object');
   }
   const object = value as Record<string, unknown>;
   if (object.format === 'story-blueprint-commands') {
-    return { reply: 'I prepared a Blueprint change for review.', command: value };
+    return {
+      reply: 'I prepared a Blueprint change for review.',
+      command: value,
+      ...(parsed.repaired ? { jsonRepaired: true } : {}),
+    };
   }
   if (baseRevision && typeof baseRevision === 'string') {
     const operation = object.kind;
@@ -146,6 +204,7 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
           baseRevision,
           operations: [value],
         },
+        ...(parsed.repaired ? { jsonRepaired: true } : {}),
       };
     }
     if (Array.isArray(object.operations)) {
@@ -157,6 +216,7 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
           version: BLUEPRINT_COMMAND_VERSION,
           baseRevision: typeof object.baseRevision === 'string' ? object.baseRevision : baseRevision,
         },
+        ...(parsed.repaired ? { jsonRepaired: true } : {}),
       };
     }
   }
@@ -170,6 +230,7 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
   return {
     reply: object.reply.trim(),
     ...(command !== undefined && command !== null ? { command } : {}),
+    ...(parsed.repaired ? { jsonRepaired: true } : {}),
   };
 }
 
