@@ -449,6 +449,14 @@
   user-select: text;
 }
 
+.reasoningPlaceholder {
+  padding: 10px;
+  border-top: 1px solid #292d33;
+  color: #7f8995;
+  background: #15181c;
+  font-size: 11px;
+}
+
 .toolTracePane {
   flex: none;
   max-height: 34%;

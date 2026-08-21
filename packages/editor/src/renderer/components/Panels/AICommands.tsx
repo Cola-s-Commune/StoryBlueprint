@@ -555,6 +555,7 @@ export function AICommands() {
   const [providerError, setProviderError] = useState<string>();
   const [providerStatus, setProviderStatus] = useState<string>();
   const [modelReasoning, setModelReasoning] = useState<string>();
+  const [reasoningOpen, setReasoningOpen] = useState(false);
   const [streamedContent, setStreamedContent] = useState('');
   const [rawAIResponse, setRawAIResponse] = useState<string>();
   const [toolTrace, setToolTrace] = useState<Array<{ name: string; arguments: Record<string, unknown>; result: string }>>([]);
@@ -789,7 +790,10 @@ export function AICommands() {
       }
       if (progress.phase === 'connecting') setProviderStatus('Connecting to provider…');
       else if (progress.phase === 'thinking') setProviderStatus('Thinking…');
-      else if (progress.phase === 'writing') setProviderStatus('Writing response…');
+      else if (progress.phase === 'writing') {
+        setReasoningOpen(false);
+        setProviderStatus('Writing response…');
+      }
       else if (progress.phase === 'completed') setProviderStatus('Finalizing response…');
     });
   }, []);
@@ -922,6 +926,7 @@ export function AICommands() {
     const requestId = crypto.randomUUID();
     requestIdRef.current = requestId;
     setGenerating(true);
+    setReasoningOpen(true);
     setPendingUserMessage(
       retry
         ? 'Please correct the proposed change using the validation diagnostics.'
@@ -1023,6 +1028,7 @@ export function AICommands() {
       if (requestIdRef.current === requestId) requestIdRef.current = undefined;
       setPendingUserMessage(undefined);
       setGenerating(false);
+      setReasoningOpen(false);
     }
   };
 
@@ -1530,16 +1536,38 @@ export function AICommands() {
         </div>
       </section>
 
-      {modelReasoning && (
-        <details className={styles.reasoningPane}>
-          <summary>
-            <span>Model reasoning · {modelReasoning.length.toLocaleString()} characters</span>
-            <CopyButton text={modelReasoning} label="Copy Reasoning" />
-          </summary>
-          <p>Provider-supplied reasoning for reference; Dry Run remains the source of truth.</p>
+      <details
+        className={styles.reasoningPane}
+        open={reasoningOpen}
+        onToggle={(event) => setReasoningOpen(event.currentTarget.open)}
+      >
+        <summary>
+          <span>
+            Thinking process
+            {modelReasoning
+              ? ` · ${modelReasoning.length.toLocaleString()} characters`
+              : generating
+                ? ' · in progress'
+                : ' · no provider trace'}
+          </span>
+          {modelReasoning && (
+            <span
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <CopyButton text={modelReasoning} label="Copy Reasoning" />
+            </span>
+          )}
+        </summary>
+        <p>Provider-supplied reasoning for reference; Dry Run remains the source of truth.</p>
+        {modelReasoning ? (
           <pre>{modelReasoning}</pre>
-        </details>
-      )}
+        ) : (
+          <div className={styles.reasoningPlaceholder}>
+            {generating ? 'Waiting for provider reasoning…' : 'This provider did not return a reasoning trace.'}
+          </div>
+        )}
+      </details>
 
       {toolTrace.length > 0 && (
         <details className={styles.toolTracePane}>
