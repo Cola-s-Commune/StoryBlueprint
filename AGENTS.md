@@ -57,6 +57,8 @@ When proposing an edit, `command` must be one complete Blueprint Command transac
 - Never use `commands`; the transaction field is always `operations`.
 - A single operation still belongs in `command.operations`.
 - Use `command: null` for discussion, questions, or analysis that does not propose an edit.
+- If an edit depends on ambiguous speaker identity, graph target, or control flow, return
+  `command: null`, `needsClarification: true`, and a non-empty `questions` array instead of guessing.
 - In all narrative text fields, do not add ASCII double quotes around ordinary speech or narration.
   Use the text exactly as it should appear to players. For quoted speech or quotations, prefer
   Chinese `「」` / `“”`; if an ASCII `"` is genuinely necessary, it must be JSON-escaped as `\"`.

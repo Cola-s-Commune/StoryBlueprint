@@ -133,6 +133,18 @@ describe('OpenAI-compatible provider helpers', () => {
     });
   });
 
+  it('preserves explicit clarification state without creating a command', () => {
+    expect(
+      parseAIAssistantResponse(
+        '{"reply":"I need to know who speaks this line.","command":null,"needsClarification":true,"questions":["Who is speaking?"]}',
+      ),
+    ).toEqual({
+      reply: 'I need to know who speaks this line.',
+      needsClarification: true,
+      questions: ['Who is speaking?'],
+    });
+  });
+
   it('repairs an unescaped quote inside a narrative text value', () => {
     const response = parseAIAssistantResponse(
       '{"reply":"I prepared a change.","command":{"format":"story-blueprint-commands","version":1,"baseRevision":"rev_current","operations":[{"kind":"add-dialogue-line","graph":{"kind":"root"},"nodeId":"n_one","line":{"id":"ln_one","text":"他说 "你好" 然后离开了。"}}]}}',

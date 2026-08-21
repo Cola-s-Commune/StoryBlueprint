@@ -85,8 +85,72 @@ const AI_ASSISTANT_RESPONSE_SCHEMA = {
     command: {
       anyOf: [BLUEPRINT_COMMAND_JSON_SCHEMA, { type: 'null' }],
     },
+    needsClarification: { type: 'boolean' },
+    questions: { type: 'array', items: { type: 'string', minLength: 1 } },
   },
 } as const;
+
+const AI_CONTEXT_CHAR_BUDGET = 1_800_000;
+
+function compactAIValue(value: string, limit = 480): string {
+  return value.length > limit ? `${value.slice(0, limit)}…` : value;
+}
+
+function compactAISnapshot(snapshot: StorySemanticSnapshot): StorySemanticSnapshot {
+  return {
+    ...snapshot,
+    graphs: snapshot.graphs.map((graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node) => {
+        if (node.type === StoryNodeType.Dialogue) {
+          const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
+          return {
+            ...node,
+            data: {
+              ...data,
+              lines: data.lines.map((line) => ({
+                ...line,
+                text: { ...line.text, source: compactAIValue(line.text.source) },
+              })),
+            },
+          };
+        }
+        if (node.type === StoryNodeType.Choice) {
+          const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
+          return {
+            ...node,
+            data: {
+              ...data,
+              prompt: { ...data.prompt, source: compactAIValue(data.prompt.source) },
+              options: data.options.map((option) => ({
+                ...option,
+                text: { ...option.text, source: compactAIValue(option.text.source) },
+              })),
+            },
+          };
+        }
+        if (node.type === StoryNodeType.InkBlock) {
+          const data = node.data as StoryNodeDataMap[StoryNodeType.InkBlock];
+          return { ...node, data: { ...data, source: compactAIValue(data.source, 800) } };
+        }
+        return node;
+      }),
+    })),
+  };
+}
+
+function manifestAISnapshot(snapshot: StorySemanticSnapshot): StorySemanticSnapshot {
+  return {
+    ...snapshot,
+    graphs: snapshot.graphs.map((graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node) => ({
+        ...node,
+        data: {} as StoryNodeDataMap[StoryNodeType],
+      })),
+    })),
+  };
+}
 
 function graphKey(graph: StorySemanticSnapshot['graphs'][number]): string {
   return graph.kind === 'root' ? 'root' : `chapter:${graph.chapterId}`;
@@ -281,7 +345,7 @@ function aiContext(
   scope?: { kind: AIContextScope; activeGraphId: string; selectedNodeIds: readonly string[] },
 ): string {
   const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
-  return [
+  const build = (contextSnapshot: StorySemanticSnapshot, compacted: boolean) => [
     'Use this semantic Story Blueprint state to answer the author or propose an edit.',
     'Answer questions normally. Ask for clarification instead of guessing important story intent.',
     `Any proposed command MUST validate against the ${BLUEPRINT_COMMAND_FORMAT}@${BLUEPRINT_COMMAND_VERSION} JSON Schema below.`,
@@ -315,9 +379,17 @@ function aiContext(
     'VALID TRANSACTION EXAMPLE:',
     JSON.stringify(example, null, 2),
     '',
-    'CURRENT SEMANTIC SNAPSHOT:',
-    JSON.stringify(snapshot, null, 2),
+    compacted
+      ? 'CURRENT SEMANTIC SNAPSHOT (COMPACTED): Long text was truncated for context budget. Stable IDs, types, speakers, and structure are preserved; ask for the exact node text when needed.'
+      : 'CURRENT SEMANTIC SNAPSHOT:',
+    JSON.stringify(contextSnapshot, null, 2),
   ].join('\n');
+  const full = build(snapshot, false);
+  if (full.length <= AI_CONTEXT_CHAR_BUDGET) return full;
+  const compacted = compactAISnapshot(snapshot);
+  const compactedText = build(compacted, true);
+  if (compactedText.length <= AI_CONTEXT_CHAR_BUDGET) return compactedText;
+  return `${build(manifestAISnapshot(snapshot), true)}\n\nCONTEXT NOTE: This is a node manifest because the Story exceeds the context budget. Ask for the exact node data before editing a node.`;
 }
 
 async function readClipboard(): Promise<string> {
@@ -790,7 +862,9 @@ export function AICommands() {
         setPreviewBase(undefined);
         setDryRunToken(undefined);
         setProviderStatus(
-          assistant.unstructured
+          assistant.needsClarification
+            ? 'Clarification needed before proposing an edit'
+            : assistant.unstructured
             ? `Response from ${response.model || 'provider'} was not a Blueprint JSON command`
             : `Answered${response.model ? ` by ${response.model}` : ''}`,
         );

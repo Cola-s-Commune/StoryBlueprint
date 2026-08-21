@@ -3,6 +3,8 @@ const LOCAL_AI_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 export interface AIAssistantResponse {
   reply: string;
   command?: unknown;
+  needsClarification?: boolean;
+  questions?: string[];
   /** The provider returned conversational text instead of the requested JSON envelope. */
   unstructured?: boolean;
   /** A malformed quote inside a JSON string was conservatively escaped before parsing. */
@@ -230,6 +232,12 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
   return {
     reply: object.reply.trim(),
     ...(command !== undefined && command !== null ? { command } : {}),
+    ...(object.needsClarification === true ? { needsClarification: true } : {}),
+    ...(Array.isArray(object.questions)
+      ? {
+          questions: object.questions.filter((question): question is string => typeof question === 'string' && question.trim().length > 0),
+        }
+      : {}),
     ...(parsed.repaired ? { jsonRepaired: true } : {}),
   };
 }
