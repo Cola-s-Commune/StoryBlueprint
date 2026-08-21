@@ -59,6 +59,8 @@ When proposing an edit, `command` must be one complete Blueprint Command transac
 - Use `command: null` for discussion, questions, or analysis that does not propose an edit.
 - If an edit depends on ambiguous speaker identity, graph target, or control flow, return
   `command: null`, `needsClarification: true`, and a non-empty `questions` array instead of guessing.
+- When the supplied manifest lacks exact Story data, request a listed read-only context tool with
+  `command: null` and `toolRequest: {"name":"...","arguments":{...}}`; do not invent missing IDs.
 - In all narrative text fields, do not add ASCII double quotes around ordinary speech or narration.
   Use the text exactly as it should appear to players. For quoted speech or quotations, prefer
   Chinese `「」` / `“”`; if an ASCII `"` is genuinely necessary, it must be JSON-escaped as `\"`.

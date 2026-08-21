@@ -87,6 +87,15 @@ const AI_ASSISTANT_RESPONSE_SCHEMA = {
     },
     needsClarification: { type: 'boolean' },
     questions: { type: 'array', items: { type: 'string', minLength: 1 } },
+    toolRequest: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      properties: {
+        name: { enum: ['story.search', 'story.get_nodes', 'story.get_characters', 'story.get_graph'] },
+        arguments: { type: 'object' },
+      },
+      required: ['name', 'arguments'],
+    },
   },
 } as const;
 
@@ -357,6 +366,7 @@ function aiContext(
     'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
     'DIALOGUE SEMANTICS: A line with speakerId is only that character\'s spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.',
     'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
+    'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}. After receiving a tool result, answer the original request. Tools never modify the Story.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
@@ -412,6 +422,50 @@ function diagnosticText(result: BlueprintTransactionResult | undefined): string 
       return `${diagnostic.code}${location ? ` ${location}` : ''}: ${diagnostic.message}`;
     })
     .join('\n');
+}
+
+function runAIContextTool(
+  snapshot: StorySemanticSnapshot,
+  request: { name: string; arguments: Record<string, unknown> },
+): unknown {
+  const args = request.arguments;
+  if (request.name === 'story.search') {
+    const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+    if (!query) return { error: 'story.search requires a non-empty query' };
+    const results: Array<Record<string, unknown>> = [];
+    for (const character of snapshot.characters) {
+      const haystack = JSON.stringify(character).toLowerCase();
+      if (haystack.includes(query)) results.push({ kind: 'character', id: character.id, name: character.name, displayName: character.displayName });
+    }
+    for (const graph of snapshot.graphs) {
+      for (const node of graph.nodes) {
+        const haystack = JSON.stringify(node).toLowerCase();
+        if (haystack.includes(query)) results.push({ kind: 'node', graph: graph.kind === 'root' ? { kind: 'root' } : { kind: 'chapter', chapterId: graph.chapterId }, id: node.id, type: node.type, name: node.name });
+      }
+    }
+    return { query, results: results.slice(0, 50) };
+  }
+  if (request.name === 'story.get_characters') {
+    const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === 'string') : [];
+    return { characters: snapshot.characters.filter((character) => ids.includes(character.id)) };
+  }
+  if (request.name === 'story.get_nodes') {
+    const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === 'string') : [];
+    const nodes = snapshot.graphs.flatMap((graph) =>
+      graph.nodes
+        .filter((node) => ids.includes(node.id))
+        .map((node) => ({ graph: graph.kind === 'root' ? { kind: 'root' } : { kind: 'chapter', chapterId: graph.chapterId }, node })),
+    );
+    return { nodes };
+  }
+  if (request.name === 'story.get_graph') {
+    const graphId = typeof args.graphId === 'string' ? args.graphId : 'root';
+    const graph = snapshot.graphs.find((candidate) =>
+      graphId === 'root' ? candidate.kind === 'root' : candidate.kind === 'chapter' && candidate.chapterId === graphId,
+    );
+    return graph ? { graph } : { error: `Unknown graph: ${graphId}` };
+  }
+  return { error: `Unknown read-only AI tool: ${request.name}` };
 }
 
 export function AICommands() {
@@ -812,18 +866,29 @@ export function AICommands() {
     setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Working…');
     if (!retry) setLastUserRequest(requestInstruction);
     try {
-      const response = await window.electronAPI.generateAICommand({
-        requestId,
-        providerId: activeProvider?.id ?? '',
-        instruction: retry
-          ? `Correct the rejected command for this request: ${requestInstruction}`
-          : requestInstruction,
-        context: retry && retryContext ? retryContext : contextText,
-        schema: AI_ASSISTANT_RESPONSE_SCHEMA,
-        history: conversationHistory,
-        attachments,
-      });
-      const assistant = parseAIAssistantResponse(response.content, semanticSnapshot.revision);
+      let response: { content: string; model: string; reasoning?: string } | undefined;
+      let assistant: ReturnType<typeof parseAIAssistantResponse> | undefined;
+      let toolContext = '';
+      for (let toolRound = 0; toolRound < 4; toolRound += 1) {
+        if (toolRound > 0) setProviderStatus(`Reading Story context · tool ${toolRound}/3…`);
+        response = await window.electronAPI.generateAICommand({
+          requestId,
+          providerId: activeProvider?.id ?? '',
+          instruction: retry
+            ? `Correct the rejected command for this request: ${requestInstruction}`
+            : requestInstruction,
+          context: `${retry && retryContext ? retryContext : contextText}${toolContext}`,
+          schema: AI_ASSISTANT_RESPONSE_SCHEMA,
+          history: conversationHistory,
+          attachments,
+        });
+        assistant = parseAIAssistantResponse(response.content, semanticSnapshot.revision);
+        if (!assistant.toolRequest) break;
+        if (toolRound === 3) throw new Error('AI requested too many context tool calls');
+        const toolResult = runAIContextTool(semanticSnapshot, assistant.toolRequest);
+        toolContext += `\n\nREAD-ONLY TOOL RESULT (${assistant.toolRequest.name}):\n${JSON.stringify(toolResult, null, 2)}\n\nUse this result to answer the original request. Do not request another tool unless essential.`;
+      }
+      if (!response || !assistant) throw new Error('AI provider returned no final response');
       setRawAIResponse(response.content);
       const userMessage = retry
         ? 'Please correct the proposed change using the validation diagnostics.'

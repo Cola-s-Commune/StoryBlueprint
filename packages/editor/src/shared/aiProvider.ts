@@ -5,6 +5,10 @@ export interface AIAssistantResponse {
   command?: unknown;
   needsClarification?: boolean;
   questions?: string[];
+  toolRequest?: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
   /** The provider returned conversational text instead of the requested JSON envelope. */
   unstructured?: boolean;
   /** A malformed quote inside a JSON string was conservatively escaped before parsing. */
@@ -236,6 +240,21 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
     ...(Array.isArray(object.questions)
       ? {
           questions: object.questions.filter((question): question is string => typeof question === 'string' && question.trim().length > 0),
+        }
+      : {}),
+    ...(object.toolRequest && typeof object.toolRequest === 'object' && !Array.isArray(object.toolRequest)
+      ? {
+          toolRequest: {
+            name: typeof (object.toolRequest as Record<string, unknown>).name === 'string'
+              ? (object.toolRequest as Record<string, unknown>).name as string
+              : '',
+            arguments:
+              typeof (object.toolRequest as Record<string, unknown>).arguments === 'object' &&
+              (object.toolRequest as Record<string, unknown>).arguments !== null &&
+              !Array.isArray((object.toolRequest as Record<string, unknown>).arguments)
+                ? ((object.toolRequest as Record<string, unknown>).arguments as Record<string, unknown>)
+                : {},
+          },
         }
       : {}),
     ...(parsed.repaired ? { jsonRepaired: true } : {}),
