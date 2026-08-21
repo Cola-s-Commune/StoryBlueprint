@@ -303,6 +303,7 @@
 - [x] Event Reference 使用稳定 ID，参数重命名同步更新已打开 Story 的节点绑定
 - [x] 第一阶段 Boolean / Number / String 参数及 Literal / Expression / Variable 表达式绑定
 - [x] Call Event 固定为派发后立即继续；无返回值、完成状态或失败分支
+- [x] Event / Signal 支持带引擎类型名的 opaque JSON 参数；编辑器只校验完整 JSON 并原样交给 Adapter，不开放成员访问或 Story 编程
 - [ ] Boolean / Number / String / CharacterRef / AssetRef 参数
 - [ ] Array / Struct / Map / Json 递归复杂参数，编译产物使用 JSON 兼容值
 - [ ] 参数支持 Literal、Expression、Variable Binding 和结构化编辑
@@ -317,8 +318,16 @@
 - [x] RuntimeState 序列化提前到达的 Signal Payload 队列；Wait 节点消费第一条匹配项
 - [x] Pending Signal 可保存、恢复和通过 AbortSignal 取消 Adapter 等待
 - [x] Boolean / Number / String Signal Payload；Wait 参数可逐项选择 Any 或 Match Expression
+- [x] Engine JSON Signal Payload 支持 Any 或完整结构深比较，不把复杂对象拆成表达式逻辑
+- [x] Engine JSON 可作为 Variable、Character Field 与 Substory Input / Output / Local 整值存储和传递；同名引擎类型才能连接或赋值，不提供成员访问和运算
+- [x] 项目级 Engine Type Schema 资源：Name、Display Name、Description 与图形化字段定义
+- [x] Engine Type Schema Designer：图形化增删、改名、排序字段并修改 Boolean / Number / String / Enum / Object / Array 类型
+- [x] Object 字段引用其他 Engine Type；Array 配置元素类型，并检测直接或间接循环引用
+- [x] Schema 驱动 JSON Value Inspector：嵌套字段、数组项增删、默认值、可空与 Raw JSON 双向切换
+- [ ] Schema 变更影响预览与安全迁移：类型更改、字段改名或删除均可撤销，并列出全部受影响变量和节点
+- [x] Schema 只用于作者表单、校验、文档和引擎契约；编译产物仍是普通 JSON，不生成成员访问或数据处理逻辑
 - [x] Match Expression 到达 Wait 时求值并进入 PendingInteraction；未匹配 Payload 继续缓存
-- [ ] CharacterRef / AssetRef 与复杂 JSON Payload；首版不做对象深度相等匹配
+- [ ] CharacterRef / AssetRef 专用引用类型（Engine JSON 已独立支持完整结构匹配）
 
 ---
 

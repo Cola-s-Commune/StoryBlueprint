@@ -24,6 +24,15 @@ compiles to runtime logic.
 - Preserve existing stable IDs and connections unless an explicit change requires otherwise.
 - Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external game behavior as
   Events, and resumable external waits as Signals.
+- Values whose `valueType.kind` is `json` are opaque engine payloads. This includes Variables,
+  Character Fields, Substory inputs/outputs/locals, and Event or Signal parameters. Their `name`
+  identifies the engine-side contract. They may be stored, assigned, and passed as one complete
+  value only, and connections or assignments must use the same type name. Preserve the JSON intact.
+  Do not access members, interpolate it into text, perform arithmetic or comparisons, use it in
+  Branch logic, or create a network of data-processing nodes; the game Adapter owns its behavior.
+- When an Engine Type Schema is present in the semantic snapshot, construct every JSON value from
+  its declared fields, nested object references, arrays, and enum choices. Do not invent undeclared
+  fields or incompatible values. The Schema is an authoring and engine-contract aid, not Story code.
 - A Dialogue Line with `speakerId` is only the words spoken by that character. Do not include
   quotation marks, narration, actions, or scene description in a spoken line.
 - Narration, actions, and environment description are separate Dialogue Lines without `speakerId`.

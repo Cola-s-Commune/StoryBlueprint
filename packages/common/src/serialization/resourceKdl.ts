@@ -61,6 +61,7 @@ function assertShape(
 
 function scalarTypeName(valueType: ValueType): string {
   if (['boolean', 'number', 'string'].includes(valueType.kind)) return valueType.kind;
+  if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
   throw new StoryFormatError(`Unsupported character field type ${valueType.kind}`);
 }
 
@@ -71,15 +72,12 @@ function serializeCharacterField(field: VariableDefinition): Node {
   node.setProperty('name', field.name);
   if (field.displayName !== field.name) node.setProperty('display-name', field.displayName);
   node.setProperty('type', scalarTypeName(field.valueType));
-  if (
-    field.defaultValue !== null &&
-    typeof field.defaultValue !== 'boolean' &&
-    typeof field.defaultValue !== 'number' &&
-    typeof field.defaultValue !== 'string'
-  ) {
-    throw new StoryFormatError(`${field.id}.default must be a scalar`);
-  }
-  node.setProperty('default', field.defaultValue as null | boolean | number | string);
+  node.setProperty(
+    'default',
+    field.valueType.kind === 'json'
+      ? JSON.stringify(field.defaultValue)
+      : (field.defaultValue as null | boolean | number | string),
+  );
   return node;
 }
 
@@ -89,17 +87,28 @@ function parseCharacterField(node: Node, characterId: string): VariableDefinitio
   if (!isStableId(id, 'variable')) throw new StoryFormatError(`${id} is not a valid field ID`);
   const name = stringValue(node.getProperty('name'), `${id}.name`);
   const type = stringValue(node.getProperty('type'), `${id}.type`);
-  if (!['boolean', 'number', 'string'].includes(type)) {
+  if (!['boolean', 'number', 'string'].includes(type) && !type.startsWith('json:')) {
     throw new StoryFormatError(`${id}.type is unsupported`);
   }
-  const defaultValue = node.getProperty('default');
-  if (typeof defaultValue !== type) throw new StoryFormatError(`${id}.default must be ${type}`);
+  const valueType: ValueType = type.startsWith('json:')
+    ? { kind: 'json', name: type.slice(5) }
+    : { kind: type as 'boolean' | 'number' | 'string' };
+  const serializedDefault = node.getProperty('default');
+  const defaultValue = valueType.kind === 'json'
+    ? (() => {
+        if (typeof serializedDefault !== 'string') throw new StoryFormatError(`${id}.default must be JSON text`);
+        try { return JSON.parse(serializedDefault) as RuntimeValue; }
+        catch { throw new StoryFormatError(`${id}.default contains invalid JSON`); }
+      })()
+    : serializedDefault;
+  if (valueType.kind !== 'json' && typeof defaultValue !== valueType.kind)
+    throw new StoryFormatError(`${id}.default must be ${valueType.kind}`);
   return {
     id,
     name,
     displayName: (node.getProperty('display-name') as string | undefined) ?? name,
     scope: 'character',
-    valueType: { kind: type as 'boolean' | 'number' | 'string' },
+    valueType,
     defaultValue: defaultValue as RuntimeValue,
   };
 }

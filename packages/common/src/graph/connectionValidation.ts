@@ -133,6 +133,7 @@ function sameValueType(source: ValueType | undefined, target: ValueType | undefi
   if (source.nullable && !target.nullable) return false;
   if (source.kind === 'enum' && target.kind === 'enum') return source.name === target.name;
   if (source.kind === 'struct' && target.kind === 'struct') return source.name === target.name;
+  if (source.kind === 'json' && target.kind === 'json') return source.name === target.name;
   return true;
 }
 

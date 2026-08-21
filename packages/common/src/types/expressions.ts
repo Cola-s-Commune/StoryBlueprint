@@ -1,5 +1,5 @@
 import type { VariableId } from './ids';
-import type { RuntimeScalar, ValueType } from './values';
+import type { RuntimeValue, ValueType } from './values';
 
 export interface ExpressionSource {
   /** Human- and AI-readable expression text. */
@@ -32,7 +32,7 @@ export type BinaryOperator =
   | 'or';
 
 export type TypedExpression =
-  | { kind: 'literal'; value: RuntimeScalar; valueType: ValueType }
+  | { kind: 'literal'; value: RuntimeValue; valueType: ValueType }
   | { kind: 'variable'; variableId: VariableId; valueType: ValueType }
   | { kind: 'unary'; operator: UnaryOperator; operand: TypedExpression; valueType: ValueType }
   | {

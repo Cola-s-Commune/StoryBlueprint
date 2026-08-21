@@ -6,6 +6,9 @@ import {
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type ProjectStoryReference,
+  type EngineFieldType,
+  type EngineTypeDefinition,
+  engineValueMatchesFieldType,
   type StoryProjectDocument,
 } from '../types/project';
 import type { EventSource, SignalSource } from '../types/source';
@@ -60,6 +63,67 @@ function assertChildren(node: Node, path: string, allowed: readonly string[]): v
 
 function validateProject(project: StoryProjectDocument): void {
   if (!isStableId(project.id, 'project')) throw new StoryFormatError('Invalid project ID');
+  const engineTypeNames = new Set<string>();
+  for (const engineType of project.engineTypes ?? []) {
+    if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(engineType.name)) {
+      throw new StoryFormatError(`Invalid Engine Type name ${engineType.name}`);
+    }
+    if (engineTypeNames.has(engineType.name)) {
+      throw new StoryFormatError(`Duplicate Engine Type ${engineType.name}`);
+    }
+    engineTypeNames.add(engineType.name);
+    const fieldNames = new Set<string>();
+    for (const field of engineType.fields) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field.name)) {
+        throw new StoryFormatError(`Invalid field ${engineType.name}.${field.name}`);
+      }
+      if (fieldNames.has(field.name)) {
+        throw new StoryFormatError(`Duplicate field ${engineType.name}.${field.name}`);
+      }
+      fieldNames.add(field.name);
+    }
+  }
+  const validateFieldReferences = (fieldType: EngineFieldType, path: string): void => {
+    if (fieldType.kind === 'object' && !engineTypeNames.has(fieldType.typeName)) {
+      throw new StoryFormatError(`${path} references missing Engine Type ${fieldType.typeName}`);
+    }
+    if (fieldType.kind === 'array') validateFieldReferences(fieldType.elementType, `${path}[]`);
+  };
+  for (const engineType of project.engineTypes ?? []) {
+    for (const field of engineType.fields) {
+      validateFieldReferences(field.type, `${engineType.name}.${field.name}`);
+      if (
+        !(field.defaultValue === null && field.nullable) &&
+        !engineValueMatchesFieldType(field.defaultValue, field.type, project.engineTypes ?? [])
+      ) {
+        throw new StoryFormatError(
+          `${engineType.name}.${field.name} default does not match its Engine Field type`,
+        );
+      }
+    }
+  }
+  const referencedTypeNames = (fieldType: EngineFieldType): string[] =>
+    fieldType.kind === 'object'
+      ? [fieldType.typeName]
+      : fieldType.kind === 'array'
+        ? referencedTypeNames(fieldType.elementType)
+        : [];
+  const engineTypesByName = new Map(
+    (project.engineTypes ?? []).map((engineType) => [engineType.name, engineType]),
+  );
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visitEngineType = (name: string): void => {
+    if (visiting.has(name)) throw new StoryFormatError(`Cyclic Engine Type reference at ${name}`);
+    if (visited.has(name)) return;
+    visiting.add(name);
+    for (const field of engineTypesByName.get(name)?.fields ?? []) {
+      for (const reference of referencedTypeNames(field.type)) visitEngineType(reference);
+    }
+    visiting.delete(name);
+    visited.add(name);
+  };
+  for (const name of engineTypeNames) visitEngineType(name);
   const storyIds = new Set<string>();
   const storyPaths = new Set<string>();
   for (const story of project.stories) {
@@ -171,11 +235,30 @@ function validateProject(project: StoryProjectDocument): void {
     if (variableIds.has(variable.id) || variableNames.has(variable.name)) {
       throw new StoryFormatError(`Duplicate project variable ${variable.name}`);
     }
-    if (!['boolean', 'number', 'string'].includes(variable.valueType.kind)) {
+    if (
+      !['boolean', 'number', 'string', 'json'].includes(variable.valueType.kind) ||
+      (variable.valueType.kind === 'json' && !variable.valueType.name.trim())
+    ) {
       throw new StoryFormatError(`Unsupported project variable type in ${variable.name}`);
     }
-    if (typeof variable.defaultValue !== variable.valueType.kind) {
+    if (
+      variable.valueType.kind !== 'json' &&
+      typeof variable.defaultValue !== variable.valueType.kind
+    ) {
       throw new StoryFormatError(`Invalid default value for project variable ${variable.name}`);
+    }
+    if (
+      variable.valueType.kind === 'json' &&
+      engineTypeNames.has(variable.valueType.name) &&
+      !engineValueMatchesFieldType(
+        variable.defaultValue,
+        { kind: 'object', typeName: variable.valueType.name },
+        project.engineTypes ?? [],
+      )
+    ) {
+      throw new StoryFormatError(
+        `Project variable ${variable.name} does not match Engine Type ${variable.valueType.name}`,
+      );
     }
     variableIds.add(variable.id);
     variableNames.add(variable.name);
@@ -189,7 +272,10 @@ function validateProject(project: StoryProjectDocument): void {
       throw new StoryFormatError(`Duplicate event name ${event.name}`);
     eventIds.add(event.id);
     eventNames.add(event.name);
-    if (event.returnType && !['boolean', 'number', 'string'].includes(event.returnType.kind)) {
+    if (
+      event.returnType &&
+      !['boolean', 'number', 'string', 'json'].includes(event.returnType.kind)
+    ) {
       throw new StoryFormatError(`Unsupported return type in event ${event.name}`);
     }
     const parameterNames = new Set<string>();
@@ -198,7 +284,10 @@ function validateProject(project: StoryProjectDocument): void {
         throw new StoryFormatError(`Invalid or duplicate parameter in event ${event.name}`);
       }
       parameterNames.add(parameter.name);
-      if (!['boolean', 'number', 'string'].includes(parameter.valueType.kind)) {
+      if (
+        !['boolean', 'number', 'string', 'json'].includes(parameter.valueType.kind) ||
+        (parameter.valueType.kind === 'json' && !parameter.valueType.name.trim())
+      ) {
         throw new StoryFormatError(`Unsupported parameter type in event ${event.name}`);
       }
     }
@@ -221,7 +310,10 @@ function validateProject(project: StoryProjectDocument): void {
         throw new StoryFormatError(`Invalid or duplicate parameter in signal ${signal.name}`);
       }
       parameterNames.add(parameter.name);
-      if (!['boolean', 'number', 'string'].includes(parameter.valueType.kind)) {
+      if (
+        !['boolean', 'number', 'string', 'json'].includes(parameter.valueType.kind) ||
+        (parameter.valueType.kind === 'json' && !parameter.valueType.name.trim())
+      ) {
         throw new StoryFormatError(`Unsupported parameter type in signal ${signal.name}`);
       }
     }
@@ -230,7 +322,49 @@ function validateProject(project: StoryProjectDocument): void {
 
 function scalarValueType(name: string, path: string): ValueType {
   if (name === 'boolean' || name === 'number' || name === 'string') return { kind: name };
+  if (name.startsWith('json:') && name.slice(5).trim())
+    return { kind: 'json', name: name.slice(5) };
   throw new StoryFormatError(`${path} has unsupported value type ${name}`);
+}
+
+function projectValueTypeName(valueType: ValueType): string {
+  return valueType.kind === 'json' ? `json:${valueType.name}` : valueType.kind;
+}
+
+function engineFieldTypeName(type: EngineFieldType): string {
+  switch (type.kind) {
+    case 'boolean':
+    case 'number':
+    case 'string':
+      return type.kind;
+    case 'enum':
+      return `enum:${JSON.stringify(type.values)}`;
+    case 'object':
+      return `object:${type.typeName}`;
+    case 'array':
+      return `array:${engineFieldTypeName(type.elementType)}`;
+  }
+}
+
+function parseEngineFieldType(value: string, path: string): EngineFieldType {
+  if (value === 'boolean' || value === 'number' || value === 'string') return { kind: value };
+  if (value.startsWith('object:') && value.slice(7)) {
+    return { kind: 'object', typeName: value.slice(7) };
+  }
+  if (value.startsWith('array:')) {
+    return { kind: 'array', elementType: parseEngineFieldType(value.slice(6), `${path}.element`) };
+  }
+  if (value.startsWith('enum:')) {
+    try {
+      const values = JSON.parse(value.slice(5)) as unknown;
+      if (Array.isArray(values) && values.every((item) => typeof item === 'string')) {
+        return { kind: 'enum', values };
+      }
+    } catch {
+      // Report the stable format error below.
+    }
+  }
+  throw new StoryFormatError(`${path} contains invalid Engine Field type ${value}`);
 }
 
 function appendUsage(target: Node, storyIds: readonly string[]): void {
@@ -309,6 +443,32 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
     }
     root.appendNode(assets);
   }
+  if ((project.engineTypes?.length ?? 0) > 0) {
+    const engineTypes = Node.create('engine-types');
+    for (const engineType of [...(project.engineTypes ?? [])].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const typeNode = Node.create('engine-type');
+      typeNode.addArgument(engineType.name);
+      if (engineType.displayName !== engineType.name) {
+        typeNode.setProperty('display-name', engineType.displayName);
+      }
+      if (engineType.description) typeNode.setProperty('description', engineType.description);
+      for (const field of engineType.fields) {
+        const fieldNode = Node.create('field');
+        fieldNode.addArgument(field.name);
+        if (field.displayName !== field.name)
+          fieldNode.setProperty('display-name', field.displayName);
+        if (field.description) fieldNode.setProperty('description', field.description);
+        fieldNode.setProperty('type', engineFieldTypeName(field.type));
+        if (field.nullable) fieldNode.setProperty('nullable', true);
+        fieldNode.setProperty('default', JSON.stringify(field.defaultValue));
+        typeNode.appendNode(fieldNode);
+      }
+      engineTypes.appendNode(typeNode);
+    }
+    root.appendNode(engineTypes);
+  }
   if ((project.variables?.length ?? 0) > 0) {
     const variables = Node.create('variables');
     for (const variable of [...(project.variables ?? [])].sort((left, right) =>
@@ -320,8 +480,13 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       if (variable.displayName !== variable.name) {
         node.setProperty('display-name', variable.displayName);
       }
-      node.setProperty('type', variable.valueType.kind);
-      node.setProperty('default', variable.defaultValue as boolean | number | string);
+      node.setProperty('type', projectValueTypeName(variable.valueType));
+      node.setProperty(
+        'default',
+        variable.valueType.kind === 'json'
+          ? JSON.stringify(variable.defaultValue)
+          : (variable.defaultValue as boolean | number | string),
+      );
       variables.appendNode(node);
     }
     root.appendNode(variables);
@@ -338,11 +503,11 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       if (event.description) node.setProperty('description', event.description);
       node.setProperty('resumable', event.resumable);
       node.setProperty('side-effect', event.sideEffect);
-      if (event.returnType) node.setProperty('return-type', event.returnType.kind);
+      if (event.returnType) node.setProperty('return-type', projectValueTypeName(event.returnType));
       for (const parameter of event.parameters) {
         const parameterNode = Node.create('parameter');
         parameterNode.addArgument(parameter.name);
-        parameterNode.setProperty('type', parameter.valueType.kind);
+        parameterNode.setProperty('type', projectValueTypeName(parameter.valueType));
         node.appendNode(parameterNode);
       }
       events.appendNode(node);
@@ -362,7 +527,7 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       for (const parameter of signal.parameters) {
         const parameterNode = Node.create('parameter');
         parameterNode.addArgument(parameter.name);
-        parameterNode.setProperty('type', parameter.valueType.kind);
+        parameterNode.setProperty('type', projectValueTypeName(parameter.valueType));
         node.appendNode(parameterNode);
       }
       signals.appendNode(node);
@@ -407,11 +572,20 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     'stories',
     'characters',
     'assets',
+    'engine-types',
     'variables',
     'events',
     'signals',
   ]);
-  for (const section of ['stories', 'characters', 'assets', 'variables', 'events', 'signals']) {
+  for (const section of [
+    'stories',
+    'characters',
+    'assets',
+    'engine-types',
+    'variables',
+    'events',
+    'signals',
+  ]) {
     if (root.findNodesByName(section).length > 1) {
       throw new StoryFormatError(`Project may contain at most one ${section} section`);
     }
@@ -514,6 +688,71 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     },
   );
 
+  const engineTypesContainer = root.findNodeByName('engine-types');
+  if (engineTypesContainer) {
+    assertArguments(engineTypesContainer, 'engine-types', 0);
+    assertProperties(engineTypesContainer, 'engine-types', []);
+    assertChildren(engineTypesContainer, 'engine-types', ['engine-type']);
+  }
+  const engineTypes: EngineTypeDefinition[] = (
+    engineTypesContainer?.findNodesByName('engine-type') ?? []
+  ).map((node, index) => {
+    const path = `engine-types[${index}]`;
+    assertArguments(node, path, 1);
+    assertProperties(node, path, ['display-name', 'description']);
+    assertChildren(node, path, ['field']);
+    const name = requiredString(node.getArgument(0), `${path}.name`);
+    return {
+      name,
+      displayName: (node.getProperty('display-name') as string | undefined) ?? name,
+      description:
+        node.getProperty('description') === undefined
+          ? undefined
+          : requiredString(node.getProperty('description'), `${path}.description`),
+      fields: node.findNodesByName('field').map((fieldNode, fieldIndex) => {
+        const fieldPath = `${path}.field[${fieldIndex}]`;
+        assertArguments(fieldNode, fieldPath, 1);
+        assertProperties(fieldNode, fieldPath, [
+          'display-name',
+          'description',
+          'type',
+          'nullable',
+          'default',
+        ]);
+        assertChildren(fieldNode, fieldPath, []);
+        const fieldName = requiredString(fieldNode.getArgument(0), `${fieldPath}.name`);
+        const serializedDefault = requiredString(
+          fieldNode.getProperty('default'),
+          `${fieldPath}.default`,
+        );
+        let defaultValue: RuntimeValue;
+        try {
+          defaultValue = JSON.parse(serializedDefault) as RuntimeValue;
+        } catch {
+          throw new StoryFormatError(`${fieldPath}.default contains invalid JSON`);
+        }
+        const nullable = fieldNode.getProperty('nullable');
+        if (nullable !== undefined && typeof nullable !== 'boolean') {
+          throw new StoryFormatError(`${fieldPath}.nullable must be a boolean`);
+        }
+        return {
+          name: fieldName,
+          displayName: (fieldNode.getProperty('display-name') as string | undefined) ?? fieldName,
+          description:
+            fieldNode.getProperty('description') === undefined
+              ? undefined
+              : requiredString(fieldNode.getProperty('description'), `${fieldPath}.description`),
+          type: parseEngineFieldType(
+            requiredString(fieldNode.getProperty('type'), `${fieldPath}.type`),
+            `${fieldPath}.type`,
+          ),
+          nullable: nullable || undefined,
+          defaultValue,
+        };
+      }),
+    };
+  });
+
   const variablesContainer = root.findNodeByName('variables');
   if (variablesContainer) {
     assertArguments(variablesContainer, 'variables', 0);
@@ -532,8 +771,20 @@ export function parseStoryProject(text: string): StoryProjectDocument {
       requiredString(node.getProperty('type'), `${path}.type`),
       `${path}.type`,
     );
-    const defaultValue = node.getProperty('default');
-    if (typeof defaultValue !== valueType.kind) {
+    const serializedDefault = node.getProperty('default');
+    const defaultValue =
+      valueType.kind === 'json'
+        ? (() => {
+            if (typeof serializedDefault !== 'string')
+              throw new StoryFormatError(`${path}.default must be JSON text`);
+            try {
+              return JSON.parse(serializedDefault) as RuntimeValue;
+            } catch {
+              throw new StoryFormatError(`${path}.default contains invalid JSON`);
+            }
+          })()
+        : serializedDefault;
+    if (valueType.kind !== 'json' && typeof defaultValue !== valueType.kind) {
       throw new StoryFormatError(`${path}.default must be ${valueType.kind}`);
     }
     return {
@@ -666,6 +917,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     stories,
     characters,
     assets,
+    engineTypes,
     variables,
     events,
     signals,

@@ -350,7 +350,19 @@ function valueTypeName(valueType: ValueType): string {
   if (valueType.kind === 'boolean' || valueType.kind === 'number' || valueType.kind === 'string') {
     return valueType.kind;
   }
+  if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
   throw new StoryFormatError(`Unsupported variable type ${valueType.kind}`);
+}
+
+function serializeVariableDefault(variable: VariableDefinition): null | boolean | number | string {
+  if (variable.valueType.kind === 'json') return JSON.stringify(variable.defaultValue);
+  if (
+    variable.defaultValue === null ||
+    typeof variable.defaultValue === 'boolean' ||
+    typeof variable.defaultValue === 'number' ||
+    typeof variable.defaultValue === 'string'
+  ) return variable.defaultValue;
+  throw new StoryFormatError(`${variable.id}.default must match ${variable.valueType.kind}`);
 }
 
 function serializeVariables(variables: readonly VariableDefinition[]): Node | undefined {
@@ -364,15 +376,7 @@ function serializeVariables(variables: readonly VariableDefinition[]): Node | un
       node.setProperty('display-name', variable.displayName);
     node.setProperty('type', valueTypeName(variable.valueType));
     if (variable.scope !== 'story') node.setProperty('scope', variable.scope);
-    if (
-      variable.defaultValue !== null &&
-      typeof variable.defaultValue !== 'boolean' &&
-      typeof variable.defaultValue !== 'number' &&
-      typeof variable.defaultValue !== 'string'
-    ) {
-      throw new StoryFormatError(`${variable.id}.default must be a scalar`);
-    }
-    node.setProperty('default', variable.defaultValue);
+    node.setProperty('default', serializeVariableDefault(variable));
     container.appendNode(node);
   }
   return container;
@@ -486,15 +490,7 @@ function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined
       if (variable.displayName !== variable.name)
         child.setProperty('display-name', variable.displayName);
       child.setProperty('type', valueTypeName(variable.valueType));
-      if (
-        variable.defaultValue !== null &&
-        typeof variable.defaultValue !== 'boolean' &&
-        typeof variable.defaultValue !== 'number' &&
-        typeof variable.defaultValue !== 'string'
-      ) {
-        throw new StoryFormatError(`${variable.id}.default must be a scalar`);
-      }
-      child.setProperty('default', variable.defaultValue);
+      child.setProperty('default', serializeVariableDefault(variable));
       node.appendNode(child);
     };
     for (const parameter of chapter.parameters) appendVariable('parameter', parameter.variable);
@@ -979,7 +975,23 @@ function parseGraph(graph: Node, legacyOutputId?: VariableDefinition['id']): Sou
 function parseValueType(value: unknown, path: string): ValueType {
   const kind = requiredString(value, path);
   if (kind === 'boolean' || kind === 'number' || kind === 'string') return { kind };
+  if (kind.startsWith('json:') && kind.slice(5).trim()) return { kind: 'json', name: kind.slice(5) };
   throw new StoryFormatError(`${path} contains unsupported type ${kind}`);
+}
+
+function parseVariableDefault(valueType: ValueType, value: unknown, path: string): RuntimeValue {
+  if (valueType.kind === 'json') {
+    if (typeof value !== 'string') throw new StoryFormatError(`${path} must contain JSON text`);
+    try {
+      return JSON.parse(value) as RuntimeValue;
+    } catch {
+      throw new StoryFormatError(`${path} contains invalid JSON`);
+    }
+  }
+  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+    return value;
+  }
+  throw new StoryFormatError(`${path} must be a scalar`);
 }
 
 function parseVariables(container: Node | undefined): VariableDefinition[] {
@@ -1003,22 +1015,14 @@ function parseVariables(container: Node | undefined): VariableDefinition[] {
     if (!['story', 'chapter', 'local'].includes(scopeValue)) {
       throw new StoryFormatError(`${id}.scope is unsupported`);
     }
-    const defaultValue = node.getProperty('default');
-    if (
-      defaultValue !== null &&
-      typeof defaultValue !== 'boolean' &&
-      typeof defaultValue !== 'number' &&
-      typeof defaultValue !== 'string'
-    ) {
-      throw new StoryFormatError(`${id}.default must be a scalar`);
-    }
+    const defaultValue = parseVariableDefault(valueType, node.getProperty('default'), `${id}.default`);
     return {
       id,
       name,
       displayName: optionalString(node.getProperty('display-name'), `${id}.display-name`) ?? name,
       scope: scopeValue as VariableScope,
       valueType,
-      defaultValue: defaultValue as RuntimeValue,
+      defaultValue,
     };
   });
 }
@@ -1246,15 +1250,11 @@ function parseChapters(container: Node | undefined): ChapterSource[] {
       interfaceIds.add(variableId);
       interfaceNames.add(variableName);
       const valueType = parseValueType(variableNode.getProperty('type'), `${path}.type`);
-      const defaultValue = variableNode.getProperty('default');
-      if (
-        defaultValue !== null &&
-        typeof defaultValue !== 'boolean' &&
-        typeof defaultValue !== 'number' &&
-        typeof defaultValue !== 'string'
-      ) {
-        throw new StoryFormatError(`${path}.default must be a scalar`);
-      }
+      const defaultValue = parseVariableDefault(
+        valueType,
+        variableNode.getProperty('default'),
+        `${path}.default`,
+      );
       return {
         id: variableId,
         name: variableName,
@@ -1263,7 +1263,7 @@ function parseChapters(container: Node | undefined): ChapterSource[] {
           variableName,
         scope: 'local',
         valueType,
-        defaultValue: defaultValue as RuntimeValue,
+        defaultValue,
       };
     };
     return {

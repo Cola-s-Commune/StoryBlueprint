@@ -205,6 +205,10 @@ export {
   type ProjectStoryReference,
   type ProjectCharacterReference,
   type ProjectAssetReference,
+  type EngineFieldType,
+  type EngineTypeField,
+  type EngineTypeDefinition,
+  engineValueMatchesFieldType,
   type StoryProjectDocument,
 } from './types/project';
 

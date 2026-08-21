@@ -1365,7 +1365,9 @@ export function StoryGraph() {
                         ? '""'
                         : parameter.valueType.kind === 'boolean'
                           ? 'false'
-                          : '0',
+                          : parameter.valueType.kind === 'json'
+                            ? '{}'
+                            : '0',
                     bindings: {},
                   },
                 ]),

@@ -13,6 +13,7 @@ import {
   type ChapterId,
   type ChoiceNodeData,
   type DialogueNodeData,
+  type ExpressionSource,
   type InkBlockNodeData,
   type FlowJumpNodeData,
   type GetVariableNodeData,
@@ -22,6 +23,10 @@ import {
   type RuntimeBlock,
   type RuntimeChapterDefinition,
   type RuntimeInstruction,
+  type RuntimeValue,
+  type TypedExpression,
+  type ValueType,
+  type VariableDefinition,
   type ReturnNodeData,
   type SetVariableNodeData,
   type SourceGraph,
@@ -54,6 +59,51 @@ function instructionId(sourceId: string, tag = 'main'): InstructionId {
 
 function programId(id: string): ProgramId {
   return `p_${suffix(id)}` as ProgramId;
+}
+
+function compileOpaqueJson(source: string, valueType: Extract<ValueType, { kind: 'json' }>): TypedExpression {
+  let value: RuntimeValue;
+  try {
+    value = JSON.parse(source) as RuntimeValue;
+  } catch (error) {
+    throw new ExpressionCompileError(
+      `Invalid JSON for engine type ${valueType.name}: ${error instanceof Error ? error.message : String(error)}`,
+      0,
+    );
+  }
+  return { kind: 'literal', value, valueType };
+}
+
+function valueTypesMatch(actual: ValueType, expected: ValueType): boolean {
+  if (actual.kind === 'any') return true;
+  if (actual.kind !== expected.kind) return false;
+  return actual.kind !== 'json' || expected.kind !== 'json' || actual.name === expected.name;
+}
+
+function compileAuthoredValue(
+  expression: ExpressionSource,
+  expectedType: ValueType,
+  variables: readonly VariableDefinition[],
+  characters: StorySourceDocument['characters'],
+): TypedExpression {
+  if (expectedType.kind !== 'json') return compileExpression(expression, variables, characters);
+  try {
+    return compileOpaqueJson(expression.source, expectedType);
+  } catch (jsonError) {
+    try {
+      const compiled = compileExpression(expression, variables, characters);
+      if (!valueTypesMatch(compiled.valueType, expectedType)) {
+        throw new ExpressionCompileError(
+          `Engine JSON value must be ${expectedType.name}`,
+          0,
+        );
+      }
+      return compiled;
+    } catch (expressionError) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(expression.source.trim())) throw expressionError;
+      throw jsonError;
+    }
+  }
 }
 
 function jump(node: SourceNode, target: BlockId): RuntimeInstruction {
@@ -128,7 +178,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
         fieldNames.add(field.name);
         if (
           field.scope !== 'character' ||
-          !['boolean', 'number', 'string'].includes(field.valueType.kind)
+          !['boolean', 'number', 'string', 'json'].includes(field.valueType.kind)
         ) {
           diagnostics.push({
             code: 'INVALID_NODE',
@@ -418,16 +468,31 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 sourceNodeId: node.id,
               });
             } else {
+              const variable = visibleVariables.find((item) => item.id === data.variableId)!;
               const value = compileSafe(node, () =>
-                compileExpression(data.value, visibleVariables, source.characters),
+                compileAuthoredValue(
+                  data.value,
+                  variable.valueType,
+                  visibleVariables,
+                  source.characters,
+                ),
               );
               if (value) {
-                instructions.push({
-                  id: instructionId(node.id),
-                  op: 'set-variable',
-                  variableId: data.variableId,
-                  value,
-                });
+                if (!valueTypesMatch(value.valueType, variable.valueType)) {
+                  diagnostics.push({
+                    code: 'EXPRESSION_ERROR',
+                    severity: 'error',
+                    message: `Set Variable ${variable.name} must be ${variable.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                } else {
+                  instructions.push({
+                    id: instructionId(node.id),
+                    op: 'set-variable',
+                    variableId: data.variableId,
+                    value,
+                  });
+                }
               }
             }
             const target = requireTarget(node, 'out');
@@ -461,12 +526,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const compiled = compileSafe(node, () =>
-                  compileExpression(argument, visibleVariables, source.characters),
+                  compileAuthoredValue(
+                    argument,
+                    parameter.valueType,
+                    visibleVariables,
+                    source.characters,
+                  ),
                 );
                 if (
                   compiled &&
-                  compiled.valueType.kind !== 'any' &&
-                  compiled.valueType.kind !== parameter.valueType.kind
+                  !valueTypesMatch(compiled.valueType, parameter.valueType)
                 ) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
@@ -518,12 +587,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const compiled = compileSafe(node, () =>
-                  compileExpression(expression, visibleVariables, source.characters),
+                  compileAuthoredValue(
+                    expression,
+                    parameter.valueType,
+                    visibleVariables,
+                    source.characters,
+                  ),
                 );
                 if (
                   compiled &&
-                  compiled.valueType.kind !== 'any' &&
-                  compiled.valueType.kind !== parameter.valueType.kind
+                  !valueTypesMatch(compiled.valueType, parameter.valueType)
                 ) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
@@ -638,12 +711,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 const argument = (data.arguments ?? {})[parameter.variable.id];
                 if (!argument) continue;
                 const compiled = compileSafe(node, () =>
-                  compileExpression(argument, visibleVariables, source.characters),
+                  compileAuthoredValue(
+                    argument,
+                    parameter.variable.valueType,
+                    visibleVariables,
+                    source.characters,
+                  ),
                 );
                 if (!compiled) continue;
                 if (
-                  compiled.valueType.kind !== 'any' &&
-                  compiled.valueType.kind !== parameter.variable.valueType.kind
+                  !valueTypesMatch(compiled.valueType, parameter.variable.valueType)
                 ) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
@@ -692,8 +769,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                     sourceNodeId: node.id,
                   });
                 } else if (
-                  resultVariable.valueType.kind !== output.variable.valueType.kind &&
-                  resultVariable.valueType.kind !== 'any'
+                  !valueTypesMatch(output.variable.valueType, resultVariable.valueType)
                 ) {
                   diagnostics.push({
                     code: 'INVALID_NODE',
@@ -754,12 +830,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   continue;
                 }
                 const value = compileSafe(node, () =>
-                  compileExpression(sourceValue, visibleVariables, source.characters),
+                  compileAuthoredValue(
+                    sourceValue,
+                    output.variable.valueType,
+                    visibleVariables,
+                    source.characters,
+                  ),
                 );
                 if (!value) continue;
                 if (
-                  value.valueType.kind !== 'any' &&
-                  value.valueType.kind !== output.variable.valueType.kind
+                  !valueTypesMatch(value.valueType, output.variable.valueType)
                 ) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createStableId } from '@story-blueprint/common';
+import { createStableId, engineValueMatchesFieldType } from '@story-blueprint/common';
 import type {
   CharacterSource,
   CharacterId,
   EventSource,
+  EngineFieldType,
+  EngineTypeDefinition,
   SignalSource,
   AssetId,
   AssetSource,
@@ -22,11 +24,221 @@ import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
 type ScalarKind = 'boolean' | 'number' | 'string';
+type EditableKind = ScalarKind | 'json';
+
+function engineTypeName(valueType: ValueType): string {
+  return valueType.kind === 'json' ? valueType.name : 'EnginePayload';
+}
 
 function defaultForType(kind: ScalarKind): RuntimeValue {
   if (kind === 'boolean') return false;
   if (kind === 'number') return 0;
   return '';
+}
+
+function defaultForEngineFieldType(
+  type: EngineFieldType,
+  engineTypes: readonly EngineTypeDefinition[],
+): RuntimeValue {
+  if (type.kind === 'boolean') return false;
+  if (type.kind === 'number') return 0;
+  if (type.kind === 'string') return '';
+  if (type.kind === 'enum') return type.values[0] ?? '';
+  if (type.kind === 'array') return [];
+  const definition = engineTypes.find((item) => item.name === type.typeName);
+  return Object.fromEntries(
+    (definition?.fields ?? []).map((field) => [field.name, structuredClone(field.defaultValue)]),
+  );
+}
+
+function StructuredJsonFields({
+  type,
+  value,
+  engineTypes,
+  onChange,
+}: {
+  type: EngineFieldType;
+  value: RuntimeValue;
+  engineTypes: readonly EngineTypeDefinition[];
+  onChange: (value: RuntimeValue) => void;
+}) {
+  if (type.kind === 'boolean') {
+    return (
+      <select value={String(value)} onChange={(event) => onChange(event.target.value === 'true')}>
+        <option value="false">False</option>
+        <option value="true">True</option>
+      </select>
+    );
+  }
+  if (type.kind === 'number') {
+    return (
+      <input
+        type="number"
+        value={typeof value === 'number' ? value : 0}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    );
+  }
+  if (type.kind === 'string') {
+    return (
+      <input
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    );
+  }
+  if (type.kind === 'enum') {
+    return (
+      <select
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {type.values.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (type.kind === 'array') {
+    const items = Array.isArray(value) ? [...value] : [];
+    return (
+      <div className={styles.structuredArray}>
+        {items.map((item, index) => (
+          <div className={styles.structuredArrayItem} key={index}>
+            <StructuredJsonFields
+              type={type.elementType}
+              value={item}
+              engineTypes={engineTypes}
+              onChange={(next) => {
+                const updated = [...items];
+                updated[index] = next;
+                onChange(updated);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}
+            >
+              −
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={() =>
+            onChange([...items, defaultForEngineFieldType(type.elementType, engineTypes)])
+          }
+        >
+          + Add Item
+        </button>
+      </div>
+    );
+  }
+  const definition = engineTypes.find((item) => item.name === type.typeName);
+  const sourceRecord =
+    !Array.isArray(value) && typeof value === 'object' && value !== null
+      ? (value as Readonly<Record<string, RuntimeValue>>)
+      : {};
+  const record: Readonly<Record<string, RuntimeValue>> = Object.fromEntries(
+    (definition?.fields ?? []).map((field) => [
+      field.name,
+      sourceRecord[field.name] ?? structuredClone(field.defaultValue),
+    ]),
+  );
+  return (
+    <div className={styles.structuredObject}>
+      {(definition?.fields ?? []).map((field) => (
+        <label key={field.name} title={field.description}>
+          <span>{field.displayName}</span>
+          <StructuredJsonFields
+            type={field.type}
+            value={record[field.name] ?? field.defaultValue}
+            engineTypes={engineTypes}
+            onChange={(next) => onChange({ ...record, [field.name]: next })}
+          />
+        </label>
+      ))}
+      {!definition && <small className={styles.warning}>Missing Engine Type {type.typeName}</small>}
+    </div>
+  );
+}
+
+export function JsonValueInput({
+  value,
+  onCommit,
+  schema,
+  fieldType,
+  engineTypes = [],
+}: {
+  value: RuntimeValue;
+  onCommit: (value: RuntimeValue) => void;
+  schema?: EngineTypeDefinition;
+  fieldType?: EngineFieldType;
+  engineTypes?: readonly EngineTypeDefinition[];
+}) {
+  const canonical = JSON.stringify(value, null, 2);
+  const [draft, setDraft] = useState(canonical);
+  const [error, setError] = useState<string>();
+  const [raw, setRaw] = useState(false);
+  useEffect(() => {
+    setDraft(canonical);
+    setError(undefined);
+  }, [canonical]);
+  const commit = () => {
+    try {
+      const parsed = JSON.parse(draft) as RuntimeValue;
+      const expectedType =
+        fieldType ?? (schema ? { kind: 'object' as const, typeName: schema.name } : undefined);
+      if (expectedType && !engineValueMatchesFieldType(parsed, expectedType, engineTypes)) {
+        setError('Value does not match the Engine Type Schema.');
+        return;
+      }
+      onCommit(parsed);
+      setError(undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+  return (
+    <>
+      {(schema || fieldType) && (
+        <button
+          type="button"
+          className={styles.rawToggle}
+          onClick={() => setRaw((current) => !current)}
+        >
+          {raw ? 'Structured Fields' : 'Raw JSON'}
+        </button>
+      )}
+      {(schema || fieldType) && !raw ? (
+        <StructuredJsonFields
+          type={fieldType ?? { kind: 'object', typeName: schema!.name }}
+          value={value}
+          engineTypes={engineTypes}
+          onChange={onCommit}
+        />
+      ) : (
+        <textarea
+          rows={5}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Escape') {
+              setDraft(canonical);
+              setError(undefined);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      )}
+      {error && <small className={styles.warning}>Invalid JSON: {error}</small>}
+    </>
+  );
 }
 
 function ScriptNameInput({
@@ -193,6 +405,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     focusVariableReference,
     updateVariable,
     removeVariable,
+    engineTypes,
   } = useStoryGraphStore();
   const substory = chapters.find((chapter) =>
     [
@@ -221,7 +434,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     ...(substory?.outputs.map((output) => output.variable) ?? []),
     ...(substory?.localVariables ?? []),
   ].some((candidate) => candidate.id !== variable.id && candidate.name === variable.name);
-  const kind = variable.valueType.kind as ScalarKind;
+  const kind = variable.valueType.kind as EditableKind;
   const projectIndexUnavailable =
     variable.scope === 'project' &&
     (variableReferencesLoading || variableReferencesError !== undefined);
@@ -257,18 +470,50 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           disabled={projectIndexUnavailable || references.length > 0}
           value={kind}
           onChange={(event) => {
-            const nextKind = event.target.value as ScalarKind;
+            const nextKind = event.target.value as EditableKind;
             updateVariable(variable.id, {
-              valueType: { kind: nextKind } as ValueType,
-              defaultValue: defaultForType(nextKind),
+              valueType:
+                nextKind === 'json'
+                  ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                  : ({ kind: nextKind } as ValueType),
+              defaultValue: nextKind === 'json' ? {} : defaultForType(nextKind),
             });
           }}
         >
           <option value="boolean">Boolean</option>
           <option value="number">Number</option>
           <option value="string">String</option>
+          <option value="json">Engine JSON</option>
         </select>
       </label>
+      {variable.valueType.kind === 'json' && (
+        <label>
+          <span>Engine Type</span>
+          <select
+            value={variable.valueType.name}
+            onChange={(event) =>
+              updateVariable(variable.id, {
+                valueType: { kind: 'json', name: event.target.value },
+                defaultValue: defaultForEngineFieldType(
+                  { kind: 'object', typeName: event.target.value },
+                  engineTypes,
+                ),
+              })
+            }
+          >
+            {!engineTypes.some((item) => item.name === engineTypeName(variable.valueType)) && (
+              <option value={engineTypeName(variable.valueType)}>
+                {engineTypeName(variable.valueType)} (undefined)
+              </option>
+            )}
+            {engineTypes.map((item) => (
+              <option key={item.name} value={item.name}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         <span>Scope</span>
         {substoryVariableKind ? (
@@ -292,7 +537,14 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       </label>
       <label>
         <span>Default</span>
-        {kind === 'boolean' ? (
+        {kind === 'json' ? (
+          <JsonValueInput
+            value={variable.defaultValue}
+            schema={engineTypes.find((item) => item.name === engineTypeName(variable.valueType))}
+            engineTypes={engineTypes}
+            onCommit={(defaultValue) => updateVariable(variable.id, { defaultValue })}
+          />
+        ) : kind === 'boolean' ? (
           <select
             value={String(variable.defaultValue)}
             onChange={(event) =>
@@ -391,6 +643,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     workspaceError,
     selectStoryData,
     updateCharacter,
+    engineTypes,
     findCharacterReferences,
     findEmotionReferences,
     findCharacterFieldReferences,
@@ -753,7 +1006,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       </div>
       <div className={styles.emotionList}>
         {fields.map((field) => {
-          const kind = field.valueType.kind as ScalarKind;
+          const kind = field.valueType.kind as EditableKind;
           const fieldReferences = findCharacterFieldReferences(field.id);
           return (
             <div className={styles.characterFieldBlock} key={field.id}>
@@ -784,21 +1037,64 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                         : undefined
                     }
                     onChange={(event) => {
-                      const nextKind = event.target.value as ScalarKind;
+                      const nextKind = event.target.value as EditableKind;
                       updateField(field.id, {
-                        valueType: { kind: nextKind },
-                        defaultValue: defaultForType(nextKind),
+                        valueType:
+                          nextKind === 'json'
+                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                            : { kind: nextKind },
+                        defaultValue: nextKind === 'json' ? {} : defaultForType(nextKind),
                       });
                     }}
                   >
                     <option value="boolean">Boolean</option>
                     <option value="number">Number</option>
                     <option value="string">String</option>
+                    <option value="json">Engine JSON</option>
                   </select>
                 </label>
+                {field.valueType.kind === 'json' && (
+                  <label>
+                    <span>Engine Type</span>
+                    <select
+                      value={field.valueType.name}
+                      onChange={(event) =>
+                        updateField(field.id, {
+                          valueType: { kind: 'json', name: event.target.value },
+                          defaultValue: defaultForEngineFieldType(
+                            { kind: 'object', typeName: event.target.value },
+                            engineTypes,
+                          ),
+                        })
+                      }
+                    >
+                      {!engineTypes.some(
+                        (item) => item.name === engineTypeName(field.valueType),
+                      ) && (
+                        <option value={engineTypeName(field.valueType)}>
+                          {engineTypeName(field.valueType)} (undefined)
+                        </option>
+                      )}
+                      {engineTypes.map((item) => (
+                        <option key={item.name} value={item.name}>
+                          {item.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label>
                   <span>Default</span>
-                  {kind === 'boolean' ? (
+                  {kind === 'json' ? (
+                    <JsonValueInput
+                      value={field.defaultValue}
+                      schema={engineTypes.find(
+                        (item) => item.name === engineTypeName(field.valueType),
+                      )}
+                      engineTypes={engineTypes}
+                      onCommit={(defaultValue) => updateField(field.id, { defaultValue })}
+                    />
+                  ) : kind === 'boolean' ? (
                     <select
                       value={String(field.defaultValue)}
                       onChange={(event) =>
@@ -979,6 +1275,262 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
   );
 }
 
+function EngineFieldTypeEditor({
+  value,
+  engineTypes,
+  ownerName,
+  onChange,
+  depth = 0,
+}: {
+  value: EngineFieldType;
+  engineTypes: readonly EngineTypeDefinition[];
+  ownerName: string;
+  onChange: (value: EngineFieldType) => void;
+  depth?: number;
+}) {
+  const kind = value.kind;
+  const changeKind = (nextKind: EngineFieldType['kind']) => {
+    if (nextKind === 'enum') onChange({ kind: 'enum', values: ['Value'] });
+    else if (nextKind === 'object') {
+      onChange({
+        kind: 'object',
+        typeName: engineTypes.find((item) => item.name !== ownerName)?.name ?? ownerName,
+      });
+    } else if (nextKind === 'array') onChange({ kind: 'array', elementType: { kind: 'string' } });
+    else onChange({ kind: nextKind });
+  };
+  return (
+    <div className={styles.engineFieldType}>
+      <select
+        value={kind}
+        onChange={(event) => changeKind(event.target.value as EngineFieldType['kind'])}
+      >
+        <option value="boolean">Boolean</option>
+        <option value="number">Number</option>
+        <option value="string">String</option>
+        <option value="enum">Enum</option>
+        <option value="object" disabled={!engineTypes.some((item) => item.name !== ownerName)}>
+          Object
+        </option>
+        <option value="array">Array</option>
+      </select>
+      {value.kind === 'enum' && (
+        <CommitInput
+          value={value.values.join(', ')}
+          onCommit={(text) =>
+            onChange({
+              kind: 'enum',
+              values: [
+                ...new Set(
+                  text
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                ),
+              ],
+            })
+          }
+        />
+      )}
+      {value.kind === 'object' && (
+        <select
+          value={value.typeName}
+          onChange={(event) => onChange({ kind: 'object', typeName: event.target.value })}
+        >
+          {engineTypes
+            .filter((item) => item.name !== ownerName)
+            .map((item) => (
+              <option key={item.name} value={item.name}>
+                {item.displayName}
+              </option>
+            ))}
+        </select>
+      )}
+      {value.kind === 'array' && depth < 3 && (
+        <div className={styles.arrayElementType}>
+          <span>Item</span>
+          <EngineFieldTypeEditor
+            value={value.elementType}
+            engineTypes={engineTypes}
+            ownerName={ownerName}
+            depth={depth + 1}
+            onChange={(elementType) => onChange({ kind: 'array', elementType })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) {
+  const { engineTypes, updateEngineType, removeEngineType } = useStoryGraphStore();
+  const update = (next: EngineTypeDefinition) => updateEngineType(definition.name, next);
+  const updateField = (index: number, next: EngineTypeDefinition['fields'][number]) =>
+    update({
+      ...definition,
+      fields: definition.fields.map((field, fieldIndex) => (fieldIndex === index ? next : field)),
+    });
+  const changeFieldType = (index: number, type: EngineFieldType) => {
+    const field = definition.fields[index]!;
+    updateField(index, {
+      ...field,
+      type,
+      defaultValue: defaultForEngineFieldType(type, engineTypes),
+    });
+  };
+  const addField = () => {
+    const used = new Set(definition.fields.map((field) => field.name));
+    let index = definition.fields.length + 1;
+    let name = `field${index}`;
+    while (used.has(name)) name = `field${++index}`;
+    update({
+      ...definition,
+      fields: [
+        ...definition.fields,
+        { name, displayName: name, type: { kind: 'string' }, defaultValue: '' },
+      ],
+    });
+  };
+  return (
+    <div className={styles.details}>
+      <div className={styles.detailsTitle}>Engine Type</div>
+      <label>
+        <span>Internal Name</span>
+        <ScriptNameInput
+          value={definition.name}
+          onCommit={(name) =>
+            update({
+              ...definition,
+              name,
+              displayName:
+                definition.displayName === definition.name ? name : definition.displayName,
+            })
+          }
+        />
+      </label>
+      <label>
+        <span>Display Name</span>
+        <CommitInput
+          value={definition.displayName}
+          onCommit={(displayName) => update({ ...definition, displayName })}
+        />
+      </label>
+      <CommitTextarea
+        label="Description"
+        rows={3}
+        value={definition.description ?? ''}
+        onCommit={(description) => update({ ...definition, description: description || undefined })}
+      />
+      <div className={styles.sectionHeader}>
+        <span>Serialized Fields</span>
+        <button type="button" onClick={addField}>
+          +
+        </button>
+      </div>
+      {definition.fields.length === 0 && <div className={styles.empty}>No fields</div>}
+      <div className={styles.engineFields}>
+        {definition.fields.map((field, index) => (
+          <div className={styles.engineFieldCard} key={`${field.name}-${index}`}>
+            <div className={styles.engineFieldHeader}>
+              <strong>{field.displayName}</strong>
+              <div>
+                <button
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => {
+                    const fields = [...definition.fields];
+                    [fields[index - 1], fields[index]] = [fields[index]!, fields[index - 1]!];
+                    update({ ...definition, fields });
+                  }}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  disabled={index === definition.fields.length - 1}
+                  onClick={() => {
+                    const fields = [...definition.fields];
+                    [fields[index], fields[index + 1]] = [fields[index + 1]!, fields[index]!];
+                    update({ ...definition, fields });
+                  }}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    update({
+                      ...definition,
+                      fields: definition.fields.filter((_, fieldIndex) => fieldIndex !== index),
+                    })
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <label>
+              <span>Name</span>
+              <CommitInput
+                value={field.name}
+                onCommit={(name) =>
+                  updateField(index, {
+                    ...field,
+                    name,
+                    displayName: field.displayName === field.name ? name : field.displayName,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Display Name</span>
+              <CommitInput
+                value={field.displayName}
+                onCommit={(displayName) => updateField(index, { ...field, displayName })}
+              />
+            </label>
+            <label>
+              <span>Type</span>
+              <EngineFieldTypeEditor
+                value={field.type}
+                engineTypes={engineTypes}
+                ownerName={definition.name}
+                onChange={(type) => changeFieldType(index, type)}
+              />
+            </label>
+            <label className={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={field.nullable ?? false}
+                onChange={(event) =>
+                  updateField(index, { ...field, nullable: event.target.checked || undefined })
+                }
+              />
+              <span>Nullable</span>
+            </label>
+            <label>
+              <span>Default</span>
+              <JsonValueInput
+                value={field.defaultValue}
+                engineTypes={engineTypes}
+                fieldType={field.type}
+                onCommit={(defaultValue) => updateField(index, { ...field, defaultValue })}
+              />
+            </label>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className={styles.dangerButton}
+        onClick={() => removeEngineType(definition.name)}
+      >
+        Delete Engine Type
+      </button>
+    </div>
+  );
+}
+
 function AssetEditor({ asset }: { asset: AssetSource }) {
   const {
     assets,
@@ -1078,7 +1630,7 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
 }
 
 function EventEditor({ event }: { event: EventSource }) {
-  const { events, workspaceError, updateEvent, removeEvent } = useStoryGraphStore();
+  const { events, engineTypes, workspaceError, updateEvent, removeEvent } = useStoryGraphStore();
   const duplicate = events.some(
     (candidate) => candidate.id !== event.id && candidate.name === event.name,
   );
@@ -1144,7 +1696,13 @@ function EventEditor({ event }: { event: EventSource }) {
               updateEvent(event.id, {
                 parameters: event.parameters.map((candidate, candidateIndex) =>
                   candidateIndex === index
-                    ? { ...candidate, valueType: { kind: change.target.value as ScalarKind } }
+                    ? {
+                        ...candidate,
+                        valueType:
+                          change.target.value === 'json'
+                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                            : { kind: change.target.value as ScalarKind },
+                      }
                     : candidate,
                 ),
               })
@@ -1153,7 +1711,36 @@ function EventEditor({ event }: { event: EventSource }) {
             <option value="boolean">Boolean</option>
             <option value="number">Number</option>
             <option value="string">String</option>
+            <option value="json">Engine JSON</option>
           </select>
+          {parameter.valueType.kind === 'json' && (
+            <select
+              value={parameter.valueType.name}
+              onChange={(change) =>
+                updateEvent(event.id, {
+                  parameters: event.parameters.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? {
+                          ...candidate,
+                          valueType: { ...parameter.valueType, name: change.target.value },
+                        }
+                      : candidate,
+                  ),
+                })
+              }
+            >
+              {!engineTypes.some((item) => item.name === engineTypeName(parameter.valueType)) && (
+                <option value={engineTypeName(parameter.valueType)}>
+                  {engineTypeName(parameter.valueType)} (undefined)
+                </option>
+              )}
+              {engineTypes.map((item) => (
+                <option key={item.name} value={item.name}>
+                  {item.displayName}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             title="Remove parameter"
@@ -1180,7 +1767,7 @@ function EventEditor({ event }: { event: EventSource }) {
 }
 
 function SignalEditor({ signal }: { signal: SignalSource }) {
-  const { signals, workspaceError, updateSignal, removeSignal } = useStoryGraphStore();
+  const { signals, engineTypes, workspaceError, updateSignal, removeSignal } = useStoryGraphStore();
   const duplicate = signals.some(
     (candidate) => candidate.id !== signal.id && candidate.name === signal.name,
   );
@@ -1246,7 +1833,13 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
               updateSignal(signal.id, {
                 parameters: signal.parameters.map((candidate, candidateIndex) =>
                   candidateIndex === index
-                    ? { ...candidate, valueType: { kind: change.target.value as ScalarKind } }
+                    ? {
+                        ...candidate,
+                        valueType:
+                          change.target.value === 'json'
+                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                            : { kind: change.target.value as ScalarKind },
+                      }
                     : candidate,
                 ),
               })
@@ -1255,7 +1848,36 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
             <option value="boolean">Boolean</option>
             <option value="number">Number</option>
             <option value="string">String</option>
+            <option value="json">Engine JSON</option>
           </select>
+          {parameter.valueType.kind === 'json' && (
+            <select
+              value={parameter.valueType.name}
+              onChange={(change) =>
+                updateSignal(signal.id, {
+                  parameters: signal.parameters.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? {
+                          ...candidate,
+                          valueType: { ...parameter.valueType, name: change.target.value },
+                        }
+                      : candidate,
+                  ),
+                })
+              }
+            >
+              {!engineTypes.some((item) => item.name === engineTypeName(parameter.valueType)) && (
+                <option value={engineTypeName(parameter.valueType)}>
+                  {engineTypeName(parameter.valueType)} (undefined)
+                </option>
+              )}
+              {engineTypes.map((item) => (
+                <option key={item.name} value={item.name}>
+                  {item.displayName}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             title="Remove parameter"
@@ -1411,6 +2033,7 @@ export function StoryDataInspector() {
     assets,
     events,
     signals,
+    engineTypes,
   } = useStoryGraphStore();
   if (!storyDataSelection) return null;
   if (storyDataSelection.kind === 'event-table')
@@ -1439,6 +2062,10 @@ export function StoryDataInspector() {
     const signal = signals.find((item) => item.id === storyDataSelection.id);
     return signal ? <SignalEditor signal={signal} /> : null;
   }
+  if (storyDataSelection.kind === 'engine-type') {
+    const definition = engineTypes.find((item) => item.name === storyDataSelection.name);
+    return definition ? <EngineTypeEditor definition={definition} /> : null;
+  }
   const asset = assets.find((item) => item.id === storyDataSelection.id);
   return asset ? <AssetEditor asset={asset} /> : null;
 }
@@ -1455,6 +2082,7 @@ export function StoryData() {
     assets,
     events,
     signals,
+    engineTypes,
     addVariable,
     addProjectVariable,
     updateSubstory,
@@ -1466,6 +2094,7 @@ export function StoryData() {
     addAsset,
     addEvent,
     addSignal,
+    addEngineType,
     checkpoint,
     storyDataSelection,
     selectStoryData,
@@ -1746,6 +2375,36 @@ export function StoryData() {
                 >
                   S
                 </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {workspace?.project && (
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span>Engine Types</span>
+              <button
+                type="button"
+                title="Add Engine Type"
+                onClick={() => {
+                  const name = addEngineType();
+                  if (name) selectStoryData({ kind: 'engine-type', name });
+                }}
+              >
+                +
+              </button>
+            </div>
+            {engineTypes.length === 0 && <div className={styles.empty}>No Engine Types</div>}
+            {engineTypes.map((engineType) => (
+              <div
+                key={engineType.name}
+                className={`${styles.item} ${storyDataSelection?.kind === 'engine-type' && storyDataSelection.name === engineType.name ? styles.selected : ''}`}
+                onClick={() => selectStoryData({ kind: 'engine-type', name: engineType.name })}
+              >
+                <span className={`${styles.typeDot} ${styles.json}`} />
+                <span className={styles.itemName}>{engineType.displayName}</span>
+                <span className={styles.itemType}>{engineType.fields.length} fields</span>
               </div>
             ))}
           </section>

@@ -79,7 +79,7 @@ export function evaluateExpression(
       if (typeof target !== 'object' || target === null || !(expression.member in target)) {
         throw new TypeError(`Missing member ${expression.member}`);
       }
-      return target[expression.member];
+      return (target as Readonly<Record<string, RuntimeValue>>)[expression.member];
     }
     case 'convert': {
       const value = evaluateExpression(expression.target, readVariable);

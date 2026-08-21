@@ -398,7 +398,8 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
       additionalProperties: false,
       required: ['kind'],
       properties: {
-        kind: { enum: ['boolean', 'number', 'string'] },
+        kind: { enum: ['boolean', 'number', 'string', 'json'] },
+        name: { type: 'string', minLength: 1 },
         nullable: { type: 'boolean' },
       },
     },
@@ -412,7 +413,7 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         displayName: { type: 'string', minLength: 1 },
         scope: { enum: ['project', 'story', 'chapter', 'local'] },
         valueType: { $ref: '#/$defs/scalarValueType' },
-        defaultValue: { type: ['null', 'boolean', 'number', 'string'] },
+        defaultValue: { type: ['null', 'boolean', 'number', 'string', 'object', 'array'] },
       },
     },
     characterField: {
@@ -425,7 +426,7 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         displayName: { type: 'string', minLength: 1 },
         scope: { const: 'character' },
         valueType: { $ref: '#/$defs/scalarValueType' },
-        defaultValue: { type: ['boolean', 'number', 'string'] },
+        defaultValue: { type: ['boolean', 'number', 'string', 'object', 'array'] },
       },
     },
     emotions: {

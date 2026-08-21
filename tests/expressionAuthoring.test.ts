@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CharacterSource, VariableDefinition } from '../packages/common/src';
+import { compileExpression, compileTextTemplate } from '../packages/compiler/src';
 import {
   createStringValueModeState,
   editStringValueText,
@@ -38,6 +39,14 @@ const storyVariables: VariableDefinition[] = [
     valueType: { kind: 'string' },
     defaultValue: '',
   },
+  {
+    id: 'v_payload',
+    name: 'payload',
+    displayName: 'Payload',
+    scope: 'story',
+    valueType: { kind: 'json', name: 'QuestPayload' },
+    defaultValue: { questId: 'intro' },
+  },
 ];
 
 const characters: CharacterSource[] = [
@@ -60,6 +69,14 @@ const characters: CharacterSource[] = [
 ];
 
 describe('expression authoring helpers', () => {
+  it('keeps Engine JSON values opaque to Story expressions and text templates', () => {
+    expect(() => compileExpression('payload == payload', storyVariables)).toThrow(
+      'Engine JSON values can only be passed or assigned as a whole',
+    );
+    expect(() => compileTextTemplate('{payload}', 't_payload', storyVariables)).toThrow(
+      'Engine JSON values cannot be interpolated into player-facing text',
+    );
+  });
   it('searches qualified character fields and prioritizes the expected type', () => {
     const all = expressionCandidates(storyVariables, [], characters, '', { kind: 'boolean' });
     expect(all.results[0]?.insertion).toBe('ready');

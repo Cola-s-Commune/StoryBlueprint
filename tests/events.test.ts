@@ -26,6 +26,14 @@ function eventStory(): StorySourceDocument {
         valueType: { kind: 'number' },
         defaultValue: 4,
       },
+      {
+        id: 'v_rewardpayload',
+        name: 'rewardPayload',
+        displayName: 'Reward Payload',
+        scope: 'story',
+        valueType: { kind: 'json', name: 'RewardPayload' },
+        defaultValue: { itemId: 'gold', amount: 3, tags: ['quest'] },
+      },
     ],
     characters: [],
     assets: [],
@@ -37,6 +45,7 @@ function eventStory(): StorySourceDocument {
         parameters: [
           { name: 'amount', valueType: { kind: 'number' } },
           { name: 'message', valueType: { kind: 'string' } },
+          { name: 'payload', valueType: { kind: 'json', name: 'RewardPayload' } },
         ],
         resumable: true,
         sideEffect: 'write',
@@ -62,6 +71,7 @@ function eventStory(): StorySourceDocument {
             arguments: {
               amount: { source: 'score + 1', bindings: {} },
               message: { source: '"Treasure"', bindings: {} },
+              payload: { source: 'rewardPayload', bindings: {} },
             },
           },
         },
@@ -88,6 +98,35 @@ function eventStory(): StorySourceDocument {
 }
 
 describe('project events', () => {
+  it('rejects passing a differently named Engine JSON contract', () => {
+    const source = eventStory();
+    source.variables.push({
+      id: 'v_otherpayload',
+      name: 'otherPayload',
+      displayName: 'Other Payload',
+      scope: 'story',
+      valueType: { kind: 'json', name: 'UnrelatedPayload' },
+      defaultValue: {},
+    });
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    (eventNode.data as { arguments: Record<string, { source: string; bindings: object }> }).arguments.payload = {
+      source: 'otherPayload',
+      bindings: {},
+    };
+
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(false);
+    if (compiled.ok) return;
+    expect(compiled.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'EXPRESSION_ERROR',
+          message: expect.stringContaining('must be RewardPayload'),
+        }),
+      ]),
+    );
+  });
+
   it('round-trips Call Event nodes through Story KDL', () => {
     const source = eventStory();
     const serialized = serializeStorySource({ ...source, events: [] });
@@ -110,7 +149,11 @@ describe('project events', () => {
       request: {
         requestId: 'i_event_main',
         eventId: 'ev_reward',
-        arguments: { amount: 5, message: 'Treasure' },
+        arguments: {
+          amount: 5,
+          message: 'Treasure',
+          payload: { itemId: 'gold', amount: 3, tags: ['quest'] },
+        },
       },
     });
     expect(runtime.continueEvent().kind).toBe('completed');
@@ -159,8 +202,45 @@ describe('project events', () => {
     );
     expect(result.kind).toBe('completed');
     expect(calls).toMatchObject([
-      { eventId: 'ev_reward', arguments: { amount: 5, message: 'Treasure' } },
+      {
+        eventId: 'ev_reward',
+        arguments: {
+          amount: 5,
+          message: 'Treasure',
+          payload: { itemId: 'gold', amount: 3, tags: ['quest'] },
+        },
+      },
     ]);
+  });
+
+  it('diagnoses malformed opaque engine JSON without exposing it to expressions', () => {
+    const source = eventStory();
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    const broken: StorySourceDocument = {
+      ...source,
+      root: {
+        ...source.root,
+        nodes: source.root.nodes.map((node) =>
+          node.id === eventNode.id
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  arguments: {
+                    ...(node.data as {
+                      arguments: Record<string, { source: string; bindings: Record<string, never> }>;
+                    }).arguments,
+                    payload: { source: '{broken', bindings: {} },
+                  },
+                },
+              }
+            : node,
+        ),
+      },
+    };
+    const compiled = compileStory(broken);
+    expect(compiled.ok).toBe(false);
+    expect(compiled.diagnostics.some((item) => item.message.includes('Invalid JSON'))).toBe(true);
   });
 
   it('waits for signals and consumes signals that arrived early', () => {

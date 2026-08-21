@@ -2,13 +2,16 @@ import type { VariableId } from './ids';
 
 export type RuntimeScalar = null | boolean | number | string;
 export type RuntimeStruct = { readonly [field: string]: RuntimeValue };
-export type RuntimeValue = RuntimeScalar | RuntimeStruct;
+export type RuntimeArray = readonly RuntimeValue[];
+export type RuntimeValue = RuntimeScalar | RuntimeStruct | RuntimeArray;
 
 export type ValueType =
   | { kind: 'any'; nullable?: boolean }
   | { kind: 'boolean'; nullable?: boolean }
   | { kind: 'number'; nullable?: boolean }
   | { kind: 'string'; nullable?: boolean }
+  /** Opaque JSON contract passed intact to the engine Adapter; Story expressions cannot inspect it. */
+  | { kind: 'json'; name: string; nullable?: boolean }
   | { kind: 'enum'; name: string; values: readonly string[]; nullable?: boolean }
   | {
       kind: 'struct';
@@ -40,15 +43,25 @@ export function runtimeValueMatchesType(value: RuntimeValue, type: ValueType): b
       return typeof value === 'number' && Number.isFinite(value);
     case 'string':
       return typeof value === 'string';
+    case 'json':
+      return isJsonValue(value);
     case 'enum':
       return typeof value === 'string' && type.values.includes(value);
     case 'struct':
       return (
         typeof value === 'object' &&
         !Array.isArray(value) &&
-        Object.entries(type.fields).every(
-          ([name, fieldType]) => name in value && runtimeValueMatchesType(value[name], fieldType),
-        )
+        Object.entries(type.fields).every(([name, fieldType]) => {
+          const record = value as RuntimeStruct;
+          return name in record && runtimeValueMatchesType(record[name]!, fieldType);
+        })
       );
   }
+}
+
+function isJsonValue(value: RuntimeValue): boolean {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return Object.values(value as RuntimeStruct).every(isJsonValue);
 }

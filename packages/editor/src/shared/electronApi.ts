@@ -213,6 +213,7 @@ export interface UpdateProjectSettingsRequest {
   variables?: readonly VariableDefinition[];
   events?: readonly EventSource[];
   signals?: readonly SignalSource[];
+  engineTypes?: readonly EngineTypeDefinition[];
 }
 
 export type AIStructuredOutputMode = 'json-schema' | 'json-object';
@@ -516,6 +517,7 @@ import type {
   CharacterSource,
   CharacterTemplateSource,
   EventSource,
+  EngineTypeDefinition,
   SignalSource,
   StoryProjectDocument,
   StoryLocalizationDocument,

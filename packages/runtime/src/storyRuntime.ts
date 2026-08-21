@@ -67,7 +67,32 @@ function cloneState(state: RuntimeState): RuntimeState {
 
 function payloadMatches(payload: SignalPayload, matches: SignalPayload): boolean {
   return Object.entries(matches).every(
-    ([name, expected]) => name in payload && Object.is(payload[name], expected),
+    ([name, expected]) => name in payload && jsonValueEquals(payload[name], expected),
+  );
+}
+
+function jsonValueEquals(left: RuntimeValue, right: RuntimeValue): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => jsonValueEquals(value, right[index]!))
+    );
+  }
+  if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+    return false;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  const leftRecord = left as Readonly<Record<string, RuntimeValue>>;
+  const rightRecord = right as Readonly<Record<string, RuntimeValue>>;
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) => key in rightRecord && jsonValueEquals(leftRecord[key]!, rightRecord[key]!),
+    )
   );
 }
 

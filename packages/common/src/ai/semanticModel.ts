@@ -11,6 +11,7 @@ import type {
 } from '../types/source';
 import type { VariableDefinition } from '../types/values';
 import type { CharacterTemplateSource } from '../types/characterTemplate';
+import type { EngineTypeDefinition } from '../types/project';
 
 export const STORY_SEMANTIC_FORMAT = 'story-blueprint-semantic' as const;
 export const STORY_SEMANTIC_VERSION = 1 as const;
@@ -61,6 +62,7 @@ export interface StorySemanticSnapshot {
   assets: readonly AssetSource[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  engineTypes?: readonly EngineTypeDefinition[];
   graphs: readonly SemanticGraph[];
 }
 
@@ -115,6 +117,7 @@ function revisionOf(value: unknown): string {
 export function createStorySemanticSnapshot(
   source: StorySourceDocument,
   characterTemplates?: readonly CharacterTemplateSource[],
+  engineTypes?: readonly EngineTypeDefinition[],
 ): StorySemanticSnapshot {
   const content = {
     story: { id: source.id, name: source.name, displayName: source.displayName },
@@ -124,6 +127,7 @@ export function createStorySemanticSnapshot(
     assets: clone(source.assets),
     events: clone(source.events),
     signals: clone(source.signals ?? []),
+    ...(engineTypes?.length ? { engineTypes: clone(engineTypes) } : {}),
     graphs: [
       semanticGraph(source.root, {
         kind: 'root',

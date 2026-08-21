@@ -21,7 +21,12 @@ import type {
   SourceNode,
   StorySourceDocument,
 } from '../types/source';
-import type { RuntimeValue, ValueType, VariableDefinition } from '../types/values';
+import {
+  runtimeValueMatchesType,
+  type RuntimeValue,
+  type ValueType,
+  type VariableDefinition,
+} from '../types/values';
 import type { CharacterTemplateSource } from '../types/characterTemplate';
 import {
   BLUEPRINT_COMMAND_FORMAT,
@@ -85,6 +90,7 @@ export interface BlueprintSemanticContext {
   events: StorySourceDocument['events'];
   signals: NonNullable<StorySourceDocument['signals']>;
   characterTemplates?: readonly CharacterTemplateSource[];
+  engineTypes?: readonly import('../types/project').EngineTypeDefinition[];
 }
 
 export interface BlueprintTransactionOptions {
@@ -143,7 +149,10 @@ function validGraphTarget(value: unknown): boolean {
 function validScalarType(value: unknown): value is ValueType {
   return (
     isRecord(value) &&
-    (value.kind === 'boolean' || value.kind === 'number' || value.kind === 'string') &&
+    (value.kind === 'boolean' ||
+      value.kind === 'number' ||
+      value.kind === 'string' ||
+      (value.kind === 'json' && typeof value.name === 'string' && value.name.trim().length > 0)) &&
     (value.nullable === undefined || typeof value.nullable === 'boolean')
   );
 }
@@ -153,7 +162,9 @@ function validRuntimeValue(value: unknown): value is RuntimeValue {
     value === null ||
     typeof value === 'boolean' ||
     typeof value === 'number' ||
-    typeof value === 'string'
+    typeof value === 'string' ||
+    (Array.isArray(value) && value.every(validRuntimeValue)) ||
+    (isRecord(value) && Object.values(value).every(validRuntimeValue))
   );
 }
 
@@ -184,9 +195,8 @@ function validCharacterField(value: unknown): value is VariableDefinition {
     validVariable({ ...(isRecord(value) ? value : {}), scope: 'story' }) &&
     isRecord(value) &&
     value.scope === 'character' &&
-    value.defaultValue !== null &&
     isRecord(value.valueType) &&
-    typeof value.defaultValue === value.valueType.kind
+    runtimeValueMatchesType(value.defaultValue as RuntimeValue, value.valueType as ValueType)
   );
 }
 
@@ -657,7 +667,9 @@ export function validateBlueprintCommandTransaction(
         break;
       case 'add-substory':
         if (!isRecord(raw.substory)) {
-          diagnostics.push(invalidShape('add-substory requires a substory object', operationIndex, path));
+          diagnostics.push(
+            invalidShape('add-substory requires a substory object', operationIndex, path),
+          );
           break;
         }
         if (
@@ -674,21 +686,28 @@ export function validateBlueprintCommandTransaction(
           !Array.isArray(raw.substory.localVariables) ||
           !raw.substory.localVariables.every(validVariable) ||
           !Array.isArray(raw.substory.nodes) ||
-          !raw.substory.nodes.every((node) =>
-            isRecord(node) &&
-            typeof node.id === 'string' &&
-            isStableId(node.id, 'node') &&
-            typeof node.type === 'string' &&
-            Object.values(StoryNodeType).includes(node.type as StoryNodeType) &&
-            isRecord(node.data) &&
-            (node.name === undefined || typeof node.name === 'string')
+          !raw.substory.nodes.every(
+            (node) =>
+              isRecord(node) &&
+              typeof node.id === 'string' &&
+              isStableId(node.id, 'node') &&
+              typeof node.type === 'string' &&
+              Object.values(StoryNodeType).includes(node.type as StoryNodeType) &&
+              isRecord(node.data) &&
+              (node.name === undefined || typeof node.name === 'string'),
           ) ||
           !Array.isArray(raw.substory.edges) ||
-          !raw.substory.edges.every((edge) =>
-            isRecord(edge) && validEndpoint(edge.from) && validEndpoint(edge.to)
+          !raw.substory.edges.every(
+            (edge) => isRecord(edge) && validEndpoint(edge.from) && validEndpoint(edge.to),
           )
         ) {
-          diagnostics.push(invalidShape('add-substory has invalid interface or initial graph', operationIndex, path));
+          diagnostics.push(
+            invalidShape(
+              'add-substory has invalid interface or initial graph',
+              operationIndex,
+              path,
+            ),
+          );
         }
         break;
       case 'add-character-from-template':
@@ -853,7 +872,7 @@ function insertAfter<T>(items: T[], item: T, afterIndex: number | undefined): T[
 }
 
 function defaultMatchesType(value: RuntimeValue, type: ValueType): boolean {
-  return value === null ? type.nullable === true : typeof value === type.kind;
+  return runtimeValueMatchesType(value, type);
 }
 
 function characterFieldError(
@@ -925,10 +944,20 @@ function applyOperation(
     for (const [index, node] of operation.substory.nodes.entries()) {
       const definition = commandRegistry.get(node.type);
       if (!definition) {
-        return operationDiagnostic(operation, operationIndex, 'INVALID_GRAPH', `Unknown node type: ${node.type}`);
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'INVALID_GRAPH',
+          `Unknown node type: ${node.type}`,
+        );
       }
       if (nodeIds.has(node.id)) {
-        return operationDiagnostic(operation, operationIndex, 'DUPLICATE_NODE_ID', `Duplicate node ID in Substory: ${node.id}`);
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'DUPLICATE_NODE_ID',
+          `Duplicate node ID in Substory: ${node.id}`,
+        );
       }
       nodeIds.add(node.id);
       nodes.push({
@@ -958,18 +987,34 @@ function applyOperation(
       ...operation.substory.localVariables,
     ].map((variable) => variable.id);
     if (new Set(allVariableIds).size !== allVariableIds.length) {
-      return operationDiagnostic(operation, operationIndex, 'INVALID_TARGET', 'Substory variable IDs must be unique');
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'Substory variable IDs must be unique',
+      );
     }
     if (operation.substory.localVariables.some((variable) => variable.scope !== 'local')) {
-      return operationDiagnostic(operation, operationIndex, 'INVALID_TARGET', 'Substory localVariables must use local scope');
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'Substory localVariables must use local scope',
+      );
     }
     const edges = structuredClone(operation.substory.edges) as SourceEdge[];
     const chapter: StorySourceDocument['chapters'][number] = {
       id: operation.substory.id,
       name: operation.substory.name,
       displayName: operation.substory.displayName,
-      parameters: structuredClone(operation.substory.parameters).map((variable) => ({ variable, direction: 'input' as const })),
-      outputs: structuredClone(operation.substory.outputs).map((variable) => ({ variable, direction: 'output' as const })),
+      parameters: structuredClone(operation.substory.parameters).map((variable) => ({
+        variable,
+        direction: 'input' as const,
+      })),
+      outputs: structuredClone(operation.substory.outputs).map((variable) => ({
+        variable,
+        direction: 'output' as const,
+      })),
       localVariables: structuredClone(operation.substory.localVariables),
       graph: { nodes, edges },
     };
@@ -1236,9 +1281,9 @@ function applyOperation(
       ...(chapter?.localVariables ?? []),
     ];
     const variable = graphVariables.find((candidate) => candidate.id === operation.variableId);
-    const characterField = story.characters.flatMap((character) =>
-      (character.fields ?? []).map((field) => ({ character, field })),
-    ).find(({ field }) => field.id === operation.variableId);
+    const characterField = story.characters
+      .flatMap((character) => (character.fields ?? []).map((field) => ({ character, field })))
+      .find(({ field }) => field.id === operation.variableId);
     const target = variable ?? characterField?.field;
     if (!target) {
       return operationDiagnostic(
@@ -1786,6 +1831,7 @@ export function executeBlueprintCommandTransaction(
   const currentSnapshot = createStorySemanticSnapshot(
     withSemanticContext(source, options.semanticContext),
     options.semanticContext?.characterTemplates,
+    options.semanticContext?.engineTypes,
   );
   if (transaction.baseRevision !== currentSnapshot.revision) {
     return {
@@ -1833,6 +1879,7 @@ export function executeBlueprintCommandTransaction(
           }
         : withSemanticContext(document, options.semanticContext),
       options.semanticContext?.characterTemplates,
+      options.semanticContext?.engineTypes,
     ),
     appliedOperationIds: transaction.operations.map((operation) => operation.operationId),
     layoutRequests: transaction.operations.filter(

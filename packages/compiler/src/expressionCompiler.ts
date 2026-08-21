@@ -259,6 +259,12 @@ class Parser {
   private binary(token: Token, left: TypedExpression, right: TypedExpression): TypedExpression {
     const operator = binaryOperators[token.value];
     if (!operator) throw new ExpressionCompileError('Unknown operator', token.offset);
+    if (left.valueType.kind === 'json' || right.valueType.kind === 'json') {
+      throw new ExpressionCompileError(
+        'Engine JSON values can only be passed or assigned as a whole',
+        token.offset,
+      );
+    }
     let result: ValueType;
     if (operator === 'and' || operator === 'or') {
       if (
@@ -367,13 +373,20 @@ export function compileTextTemplate(
       if (end < 0) throw new ExpressionCompileError('Unclosed template expression', index);
       flushText();
       const expressionSource = source.slice(index + 1, end).trim();
+      const compiledExpression = compileExpression(
+        { source: expressionSource, bindings },
+        variables,
+        characters,
+      );
+      if (compiledExpression.valueType.kind === 'json') {
+        throw new ExpressionCompileError(
+          'Engine JSON values cannot be interpolated into player-facing text',
+          index + 1,
+        );
+      }
       parts.push({
         kind: 'expression',
-        expression: compileExpression(
-          { source: expressionSource, bindings },
-          variables,
-          characters,
-        ),
+        expression: compiledExpression,
       });
       index = end + 1;
     }

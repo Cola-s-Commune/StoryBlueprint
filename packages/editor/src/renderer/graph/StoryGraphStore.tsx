@@ -50,6 +50,7 @@ import {
   type AssetId,
   type EventId,
   type EventSource,
+  type EngineTypeDefinition,
   type SignalId,
   type SignalSource,
   type DialogueNodeData,
@@ -227,7 +228,19 @@ export type StoryDataSelection =
   | { kind: 'character'; id: CharacterId }
   | { kind: 'asset'; id: AssetId }
   | { kind: 'event'; id: EventId }
-  | { kind: 'signal'; id: SignalId };
+  | { kind: 'signal'; id: SignalId }
+  | { kind: 'engine-type'; name: string };
+
+function engineFieldTypeReferences(
+  type: import('@story-blueprint/common').EngineFieldType,
+  name: string,
+): boolean {
+  return type.kind === 'object'
+    ? type.typeName === name
+    : type.kind === 'array'
+      ? engineFieldTypeReferences(type.elementType, name)
+      : false;
+}
 
 function resourceReferenceStories(
   items: readonly EditorStoryWorkspaceItem[],
@@ -305,6 +318,7 @@ interface EditorHistoryState {
   projectVariables: readonly VariableDefinition[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  engineTypes: readonly EngineTypeDefinition[];
   projectSettings?: { entryStoryId?: StoryId; outputDirectory?: string };
   localization?: StoryLocalizationDocument;
   storyFiles: { relativePath: string; content: string }[];
@@ -423,6 +437,7 @@ interface StoryGraphStoreValue {
   assets: AssetSource[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  engineTypes: readonly EngineTypeDefinition[];
   semanticSnapshot: StorySemanticSnapshot;
   executeBlueprintCommands: (
     transaction: unknown,
@@ -499,6 +514,9 @@ interface StoryGraphStoreValue {
   addSignal: () => SignalId | undefined;
   updateSignal: (id: SignalId, update: Partial<SignalSource>) => void;
   removeSignal: (id: SignalId) => void;
+  addEngineType: () => string | undefined;
+  updateEngineType: (name: string, update: EngineTypeDefinition) => boolean;
+  removeEngineType: (name: string) => void;
   markDirty: () => void;
   newStory: () => void;
   openStory: () => Promise<void>;
@@ -572,6 +590,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const events = workspace?.project?.events ?? [];
   const signals = workspace?.project?.signals ?? [];
+  const engineTypes = workspace?.project?.engineTypes ?? [];
   const projectVariables = workspace?.project?.variables ?? [];
   const [workspaceError, setWorkspaceError] = useState<string>();
   useEffect(() => {
@@ -670,12 +689,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets: resolvedAssets,
       events,
       signals,
+      engineTypes,
       characterTemplates: [
         ...BUILTIN_CHARACTER_TEMPLATES,
         ...(workspace?.characterTemplates.map((item) => item.template) ?? []),
       ],
     }),
-    [events, resolvedAssets, resolvedCharacters, signals, workspace?.characterTemplates],
+    [
+      engineTypes,
+      events,
+      resolvedAssets,
+      resolvedCharacters,
+      signals,
+      workspace?.characterTemplates,
+    ],
   );
   const semanticSnapshot = useMemo(
     () =>
@@ -686,8 +713,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           variables: [...source.variables, ...projectVariables],
         },
         aiSemanticContext.characterTemplates,
+        engineTypes,
       ),
-    [aiSemanticContext, projectVariables, source],
+    [aiSemanticContext, engineTypes, projectVariables, source],
   );
   const selectedProjectVariable =
     storyDataSelection?.kind === 'variable'
@@ -908,13 +936,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     (
       state: Pick<
         EditorHistoryState,
-        'projectVariables' | 'events' | 'signals' | 'projectSettings' | 'localization'
+        | 'projectVariables'
+        | 'events'
+        | 'signals'
+        | 'engineTypes'
+        | 'projectSettings'
+        | 'localization'
       >,
     ) => {
       if (!workspace?.project || !window.electronAPI) return;
       const projectVariables = [...structuredClone(state.projectVariables)];
       const events = [...structuredClone(state.events)];
       const signals = [...structuredClone(state.signals)];
+      const engineTypes = [...structuredClone(state.engineTypes)];
       const projectSettings = structuredClone(state.projectSettings);
       setWorkspace((current) =>
         current?.project
@@ -925,6 +959,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 variables: projectVariables,
                 events,
                 signals,
+                engineTypes,
                 ...(projectSettings ?? {}),
               },
             }
@@ -935,6 +970,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           variables: projectVariables,
           events,
           signals,
+          engineTypes,
           ...projectSettings,
         }),
       );
@@ -984,6 +1020,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           projectVariables,
           events,
           signals,
+          engineTypes,
           projectSettings: workspace?.project
             ? {
                 entryStoryId: workspace.project.entryStoryId,
@@ -1014,6 +1051,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       projectResourceSnapshot,
       resolvedCharacters,
       signals,
+      engineTypes,
       variables,
       workspace?.localization,
       workspace?.project,
@@ -1192,6 +1230,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       projectVariables,
       events,
       signals,
+      engineTypes,
       projectSettings: workspace?.project
         ? {
             entryStoryId: workspace.project.entryStoryId,
@@ -3028,7 +3067,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                       ? '""'
                       : parameter.valueType.kind === 'boolean'
                         ? 'false'
-                        : '0',
+                        : parameter.valueType.kind === 'json'
+                          ? '{}'
+                          : '0',
                   bindings: {},
                 },
               ]),
@@ -3211,6 +3252,133 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       writeProjectSignals(signals.filter((candidate) => candidate.id !== id));
     },
     [checkpoint, signals, writeProjectSignals],
+  );
+
+  const writeEngineTypes = useCallback(
+    (nextEngineTypes: readonly EngineTypeDefinition[]) => {
+      if (!workspace?.project || !window.electronAPI) return;
+      setWorkspace((current) =>
+        current?.project
+          ? { ...current, project: { ...current.project, engineTypes: nextEngineTypes } }
+          : current,
+      );
+      queueProjectResourceWrite(() =>
+        window.electronAPI!.updateProjectSettings({ engineTypes: nextEngineTypes }),
+      );
+    },
+    [queueProjectResourceWrite, workspace?.project],
+  );
+
+  const addEngineType = useCallback((): string | undefined => {
+    if (!workspace?.project) {
+      setWorkspaceError('Open or create a Story project before adding Engine Types.');
+      return undefined;
+    }
+    const used = new Set(engineTypes.map((item) => item.name));
+    let index = engineTypes.length + 1;
+    let name = `EngineType${index}`;
+    while (used.has(name)) name = `EngineType${++index}`;
+    checkpoint(undefined, 'Add Engine Type');
+    writeEngineTypes([...engineTypes, { name, displayName: name, fields: [] }]);
+    return name;
+  }, [checkpoint, engineTypes, workspace?.project, writeEngineTypes]);
+
+  const updateEngineType = useCallback(
+    (name: string, update: EngineTypeDefinition): boolean => {
+      const previous = engineTypes.find((item) => item.name === name);
+      if (!previous) return false;
+      if (update.name !== name) {
+        const typeUsed = (valueType: VariableDefinition['valueType']) =>
+          valueType.kind === 'json' && valueType.name === name;
+        const referenced =
+          engineTypes.some(
+            (candidate) =>
+              candidate.name !== name &&
+              candidate.fields.some((field) => engineFieldTypeReferences(field.type, name)),
+          ) ||
+          [...variables, ...projectVariables].some((variable) => typeUsed(variable.valueType)) ||
+          resolvedCharacters.some((character) =>
+            character.fields?.some((field) => typeUsed(field.valueType)),
+          ) ||
+          events.some((event) =>
+            event.parameters.some((parameter) => typeUsed(parameter.valueType)),
+          ) ||
+          signals.some((signal) =>
+            signal.parameters.some((parameter) => typeUsed(parameter.valueType)),
+          );
+        if (referenced) {
+          setWorkspaceError(
+            'Rename this Engine Type before using it, or remove its references first.',
+          );
+          return false;
+        }
+        if (engineTypes.some((item) => item.name === update.name)) {
+          setWorkspaceError(`Engine Type ${update.name} already exists.`);
+          return false;
+        }
+      }
+      checkpoint(undefined, 'Edit Engine Type');
+      writeEngineTypes(engineTypes.map((item) => (item.name === name ? update : item)));
+      if (update.name !== name) {
+        setStoryDataSelection({ kind: 'engine-type', name: update.name });
+      }
+      return true;
+    },
+    [
+      checkpoint,
+      engineTypes,
+      events,
+      projectVariables,
+      resolvedCharacters,
+      signals,
+      variables,
+      writeEngineTypes,
+    ],
+  );
+
+  const removeEngineType = useCallback(
+    (name: string) => {
+      const engineType = engineTypes.find((item) => item.name === name);
+      if (!engineType) return;
+      const typeUsed = (valueType: VariableDefinition['valueType']) =>
+        valueType.kind === 'json' && valueType.name === name;
+      const used =
+        [...variables, ...projectVariables].some((variable) => typeUsed(variable.valueType)) ||
+        resolvedCharacters.some((character) =>
+          character.fields?.some((field) => typeUsed(field.valueType)),
+        ) ||
+        events.some((event) =>
+          event.parameters.some((parameter) => typeUsed(parameter.valueType)),
+        ) ||
+        signals.some((signal) =>
+          signal.parameters.some((parameter) => typeUsed(parameter.valueType)),
+        ) ||
+        engineTypes.some(
+          (candidate) =>
+            candidate.name !== name &&
+            candidate.fields.some((field) => engineFieldTypeReferences(field.type, name)),
+        );
+      if (used) {
+        setWorkspaceError(`Engine Type ${name} is still referenced.`);
+        return;
+      }
+      if (!window.confirm(`Delete Engine Type "${engineType.displayName}"?`)) return;
+      checkpoint(undefined, 'Delete Engine Type');
+      setStoryDataSelection((current) =>
+        current?.kind === 'engine-type' && current.name === name ? undefined : current,
+      );
+      writeEngineTypes(engineTypes.filter((item) => item.name !== name));
+    },
+    [
+      checkpoint,
+      engineTypes,
+      events,
+      projectVariables,
+      resolvedCharacters,
+      signals,
+      variables,
+      writeEngineTypes,
+    ],
   );
 
   const updateNode = useCallback(
@@ -3743,6 +3911,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           projectVariables: structuredClone(projectVariables),
           events: structuredClone(events),
           signals: structuredClone(signals),
+          engineTypes: structuredClone(engineTypes),
           storyFiles: [...managedStoryFilesRef.current].map(([relativePath, content]) => ({
             relativePath,
             content,
@@ -3754,6 +3923,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [
       acceptOpenedStory,
       events,
+      engineTypes,
       history,
       projectVariables,
       projectResourceSnapshot,
@@ -4900,6 +5070,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addSignal,
       updateSignal,
       removeSignal,
+      engineTypes,
+      addEngineType,
+      updateEngineType,
+      removeEngineType,
       document,
       stories,
       hasActiveStory,
@@ -4992,6 +5166,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addAsset,
       addEvent,
       addSignal,
+      addEngineType,
       addSubstory,
       checkpoint,
       characters,
@@ -5111,7 +5286,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       projectVariables,
       assets,
       events,
+      engineTypes,
       signals,
+      removeEngineType,
+      updateEngineType,
       semanticSnapshot,
       executeBlueprintCommands,
       extractSelectionToSubstory,

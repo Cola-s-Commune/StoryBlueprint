@@ -42,7 +42,7 @@ import {
   stringValueModeText,
   switchStringValueMode,
 } from './expressionAuthoring';
-import { StoryDataInspector } from './StoryData';
+import { JsonValueInput, StoryDataInspector } from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -58,6 +58,51 @@ interface PropertyFieldProps {
   expectedType?: ValueType;
   onBeginEdit: () => void;
   onChange: (value: string) => void;
+}
+
+function EngineJsonSourceEditor({
+  label,
+  typeName,
+  source,
+  onBeginEdit,
+  onChange,
+}: {
+  label: string;
+  typeName: string;
+  source: string;
+  onBeginEdit: () => void;
+  onChange: (source: string) => void;
+}) {
+  const { engineTypes } = useStoryGraphStore();
+  const schema = engineTypes.find((item) => item.name === typeName);
+  let value: RuntimeValue;
+  try {
+    value = JSON.parse(source) as RuntimeValue;
+  } catch {
+    return (
+      <PropertyField
+        label={`${label} · invalid JSON`}
+        value={source}
+        multiline
+        onBeginEdit={onBeginEdit}
+        onChange={onChange}
+      />
+    );
+  }
+  return (
+    <label className={styles.field}>
+      <span>{label}</span>
+      <JsonValueInput
+        value={value}
+        schema={schema}
+        engineTypes={engineTypes}
+        onCommit={(next) => {
+          onBeginEdit();
+          onChange(JSON.stringify(next));
+        }}
+      />
+    </label>
+  );
 }
 
 function PropertyField(props: PropertyFieldProps) {
@@ -133,9 +178,11 @@ function PlainPropertyField({
 }
 
 function MetadataTitleField({
+  label = 'Title',
   value,
   onCommit,
 }: {
+  label?: string;
   value: string;
   onCommit: (value: string) => void;
 }) {
@@ -151,7 +198,7 @@ function MetadataTitleField({
   };
   return (
     <label className={styles.field}>
-      <span>Title</span>
+      <span>{label}</span>
       <input
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -192,7 +239,10 @@ function VariableSelect({
     !valueType ||
     valueType.kind === 'any' ||
     variable.valueType.kind === 'any' ||
-    variable.valueType.kind === valueType.kind;
+    (variable.valueType.kind === valueType.kind &&
+      (valueType.kind !== 'json' ||
+        variable.valueType.kind !== 'json' ||
+        variable.valueType.name === valueType.name));
 
   const selected = useMemo(() => {
     if (!value) return undefined;
@@ -228,7 +278,7 @@ function VariableSelect({
     const addOption = (variable: VariableDefinition, prefix: string, group: string) => {
       if (!accepts(variable)) return;
       const searchText =
-        `${prefix}${variable.name} ${variable.displayName} ${variable.valueType.kind} ${group}`.toLocaleLowerCase();
+        `${prefix}${variable.name} ${variable.displayName} ${variable.valueType.kind} ${variable.valueType.kind === 'json' ? variable.valueType.name : ''} ${group}`.toLocaleLowerCase();
       if (normalizedQuery && !searchText.includes(normalizedQuery)) return;
       options.push({ variable, prefix, group });
     };
@@ -522,6 +572,8 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
   ];
   const variable = allVariables.find((candidate) => candidate.id === data.variableId);
   const isString = variable?.valueType.kind === 'string';
+  const jsonType = variable?.valueType.kind === 'json' ? variable.valueType : undefined;
+  const isJson = jsonType !== undefined;
   const decodedLiteral = decodeStringLiteral(data.value.source);
 
   const updateValue = (source: string) =>
@@ -544,16 +596,19 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
         onChange={(variableId) => {
           const nextVariable = allVariables.find((candidate) => candidate.id === variableId);
           const nextIsString = nextVariable?.valueType.kind === 'string';
+          const nextIsJson = nextVariable?.valueType.kind === 'json';
           updateNodeData(nodeId, StoryNodeType.SetVariable, {
             variableId,
-            ...(nextIsString
-              ? {
-                  value: {
-                    source: JSON.stringify(decodedLiteral ?? data.value.source),
-                    bindings: {},
-                  },
-                }
-              : {}),
+            ...(nextIsJson
+              ? { value: { source: '{}', bindings: {} } }
+              : nextIsString
+                ? {
+                    value: {
+                      source: JSON.stringify(decodedLiteral ?? data.value.source),
+                      bindings: {},
+                    },
+                  }
+                : {}),
           });
         }}
       />
@@ -573,7 +628,15 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           </select>
         </label>
       )}
-      {isString && stringMode.mode === 'literal' ? (
+      {isJson ? (
+        <EngineJsonSourceEditor
+          label={`JSON or ${jsonType!.name} variable`}
+          typeName={jsonType!.name}
+          source={data.value.source}
+          onBeginEdit={checkpoint}
+          onChange={updateValue}
+        />
+      ) : isString && stringMode.mode === 'literal' ? (
         <PropertyField
           label="Text Value"
           value={stringMode.textValue}
@@ -599,17 +662,21 @@ function EventArgumentEditor({
   nodeId,
   name,
   kind,
+  typeName,
   value,
   argumentsByName,
 }: {
   nodeId: NodeId;
   name: string;
-  kind: 'boolean' | 'number' | 'string';
+  kind: 'boolean' | 'number' | 'string' | 'json';
+  typeName?: string;
   value?: CallEventNodeData['arguments'][string];
   argumentsByName: CallEventNodeData['arguments'];
 }) {
   const { checkpoint, updateNodeData } = useStoryGraphStore();
-  const source = value?.source ?? (kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
+  const source =
+    value?.source ??
+    (kind === 'json' ? '{}' : kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
 
   const updateSource = (nextSource: string) =>
     updateNodeData(nodeId, StoryNodeType.CallEvent, {
@@ -643,7 +710,15 @@ function EventArgumentEditor({
           </select>
         </label>
       )}
-      {kind === 'string' && stringMode.mode === 'literal' ? (
+      {kind === 'json' ? (
+        <EngineJsonSourceEditor
+          label={`${name} · JSON or ${typeName || 'Engine JSON'} variable`}
+          typeName={typeName ?? ''}
+          source={source}
+          onBeginEdit={checkpoint}
+          onChange={updateSource}
+        />
+      ) : kind === 'string' && stringMode.mode === 'literal' ? (
         <PropertyField
           label={`${name} · string`}
           value={stringMode.textValue}
@@ -669,18 +744,22 @@ function SignalMatchEditor({
   nodeId,
   name,
   kind,
+  typeName,
   value,
   matches,
 }: {
   nodeId: NodeId;
   name: string;
-  kind: 'boolean' | 'number' | 'string';
+  kind: 'boolean' | 'number' | 'string' | 'json';
+  typeName?: string;
   value?: WaitSignalNodeData['matches'][string];
   matches: WaitSignalNodeData['matches'];
 }) {
   const { checkpoint, updateNodeData } = useStoryGraphStore();
   const enabled = value !== undefined;
-  const source = value?.source ?? (kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
+  const source =
+    value?.source ??
+    (kind === 'json' ? '{}' : kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
 
   const updateSource = (nextSource: string) =>
     updateNodeData(nodeId, StoryNodeType.WaitSignal, {
@@ -730,7 +809,15 @@ function SignalMatchEditor({
         </label>
       )}
       {enabled &&
-        (kind === 'string' && stringMode.mode === 'literal' ? (
+        (kind === 'json' ? (
+          <EngineJsonSourceEditor
+            label={`${name} · JSON or ${typeName || 'Engine JSON'} variable`}
+            typeName={typeName ?? ''}
+            source={source}
+            onBeginEdit={checkpoint}
+            onChange={updateSource}
+          />
+        ) : kind === 'string' && stringMode.mode === 'literal' ? (
           <PropertyField
             label={`${name} · string`}
             value={stringMode.textValue}
@@ -1580,6 +1667,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
 }
 
 type ScalarKind = 'boolean' | 'number' | 'string';
+type InterfaceKind = ScalarKind | 'json';
 
 function defaultValueFor(kind: ScalarKind): RuntimeValue {
   if (kind === 'boolean') return false;
@@ -1604,20 +1692,43 @@ function InterfaceVariableRow({
   onChange: (variable: VariableDefinition) => void;
   onRemove: () => void;
 }) {
+  const { engineTypes } = useStoryGraphStore();
   const [name, setName] = useState(variable.name);
   const [displayName, setDisplayName] = useState(variable.displayName);
-  const [defaultValue, setDefaultValue] = useState(String(variable.defaultValue));
+  const [defaultValue, setDefaultValue] = useState(
+    variable.valueType.kind === 'json'
+      ? JSON.stringify(variable.defaultValue, null, 2)
+      : String(variable.defaultValue),
+  );
   useEffect(() => setName(variable.name), [variable.name]);
   useEffect(() => setDisplayName(variable.displayName), [variable.displayName]);
-  useEffect(() => setDefaultValue(String(variable.defaultValue)), [variable.defaultValue]);
-  const kind = variable.valueType.kind as ScalarKind;
+  useEffect(
+    () =>
+      setDefaultValue(
+        variable.valueType.kind === 'json'
+          ? JSON.stringify(variable.defaultValue, null, 2)
+          : String(variable.defaultValue),
+      ),
+    [variable.defaultValue, variable.valueType.kind],
+  );
+  const kind = variable.valueType.kind as InterfaceKind;
+  const interfaceEngineTypeName =
+    variable.valueType.kind === 'json' ? variable.valueType.name : 'EnginePayload';
   const commitDefault = () => {
-    const next =
-      kind === 'boolean'
-        ? defaultValue === 'true'
-        : kind === 'number'
-          ? Number(defaultValue)
-          : defaultValue;
+    let next: RuntimeValue;
+    try {
+      next =
+        kind === 'json'
+          ? (JSON.parse(defaultValue) as RuntimeValue)
+          : kind === 'boolean'
+            ? defaultValue === 'true'
+            : kind === 'number'
+              ? Number(defaultValue)
+              : defaultValue;
+    } catch {
+      setDefaultValue(JSON.stringify(variable.defaultValue, null, 2));
+      return;
+    }
     if (kind === 'number' && !Number.isFinite(next)) {
       setDefaultValue(String(variable.defaultValue));
       return;
@@ -1663,22 +1774,69 @@ function InterfaceVariableRow({
         <select
           value={kind}
           onChange={(event) => {
-            const nextKind = event.target.value as ScalarKind;
+            const nextKind = event.target.value as InterfaceKind;
             onChange({
               ...variable,
-              valueType: { kind: nextKind },
-              defaultValue: defaultValueFor(nextKind),
+              valueType:
+                nextKind === 'json'
+                  ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                  : { kind: nextKind },
+              defaultValue:
+                nextKind === 'json'
+                  ? Object.fromEntries(
+                      (engineTypes[0]?.fields ?? []).map((field) => [
+                        field.name,
+                        structuredClone(field.defaultValue),
+                      ]),
+                    )
+                  : defaultValueFor(nextKind),
             });
           }}
         >
           <option value="boolean">Boolean</option>
           <option value="number">Number</option>
           <option value="string">String</option>
+          <option value="json">Engine JSON</option>
         </select>
       </label>
+      {variable.valueType.kind === 'json' && (
+        <label className={styles.field}>
+          <span>Engine Type</span>
+          <select
+            value={variable.valueType.name}
+            onChange={(event) =>
+              onChange({
+                ...variable,
+                valueType: { kind: 'json', name: event.target.value },
+                defaultValue: Object.fromEntries(
+                  (engineTypes.find((item) => item.name === event.target.value)?.fields ?? []).map(
+                    (field) => [field.name, structuredClone(field.defaultValue)],
+                  ),
+                ),
+              })
+            }
+          >
+            {!engineTypes.some((item) => item.name === interfaceEngineTypeName) && (
+              <option value={interfaceEngineTypeName}>{interfaceEngineTypeName} (undefined)</option>
+            )}
+            {engineTypes.map((item) => (
+              <option key={item.name} value={item.name}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className={styles.field}>
         <span>Default Value</span>
-        {kind === 'boolean' ? (
+        {kind === 'json' ? (
+          <JsonValueInput
+            value={variable.defaultValue}
+            schema={engineTypes.find((item) => item.name === interfaceEngineTypeName)}
+            engineTypes={engineTypes}
+            onCommit={(next) => onChange({ ...variable, defaultValue: next })}
+          />
+        ) : kind === 'boolean' ? (
           <select
             value={defaultValue}
             onChange={(event) => {
@@ -1690,8 +1848,8 @@ function InterfaceVariableRow({
             <option value="true">True</option>
           </select>
         ) : (
-          <input
-            type={kind === 'number' ? 'number' : 'text'}
+          <textarea
+            rows={1}
             value={defaultValue}
             onChange={(event) => setDefaultValue(event.target.value)}
             onBlur={commitDefault}
@@ -2098,7 +2256,9 @@ export function Inspector() {
                               ? '""'
                               : parameter.valueType.kind === 'boolean'
                                 ? 'false'
-                                : '0',
+                                : parameter.valueType.kind === 'json'
+                                  ? '{}'
+                                  : '0',
                           bindings: {},
                         },
                       ]),
@@ -2122,7 +2282,10 @@ export function Inspector() {
                 key={`${data.eventId}-${parameter.name}`}
                 nodeId={node.id}
                 name={parameter.name}
-                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string'}
+                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string' | 'json'}
+                typeName={
+                  parameter.valueType.kind === 'json' ? parameter.valueType.name : undefined
+                }
                 value={data.arguments[parameter.name]}
                 argumentsByName={data.arguments}
               />
@@ -2166,7 +2329,10 @@ export function Inspector() {
                 key={`${data.signalId}-${parameter.name}`}
                 nodeId={node.id}
                 name={parameter.name}
-                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string'}
+                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string' | 'json'}
+                typeName={
+                  parameter.valueType.kind === 'json' ? parameter.valueType.name : undefined
+                }
                 value={(data.matches ?? {})[parameter.name]}
                 matches={data.matches ?? {}}
               />
@@ -2206,13 +2372,32 @@ export function Inspector() {
             </label>
             {selectedChapter?.parameters.map((parameter) => {
               const current = (data.arguments ?? {})[parameter.variable.id];
+              const source =
+                current?.source ?? expressionForDefault(parameter.variable.defaultValue).source;
+              if (parameter.variable.valueType.kind === 'json') {
+                return (
+                  <EngineJsonSourceEditor
+                    key={parameter.variable.id}
+                    label={`${parameter.variable.displayName} · JSON or ${parameter.variable.valueType.name} variable`}
+                    typeName={parameter.variable.valueType.name}
+                    source={source}
+                    onBeginEdit={checkpoint}
+                    onChange={(nextSource) =>
+                      updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                        arguments: {
+                          ...(data.arguments ?? {}),
+                          [parameter.variable.id]: { source: nextSource, bindings: {} },
+                        },
+                      })
+                    }
+                  />
+                );
+              }
               return (
                 <PropertyField
                   key={parameter.variable.id}
                   label={`${parameter.variable.displayName} · ${parameter.variable.valueType.kind}`}
-                  value={
-                    current?.source ?? expressionForDefault(parameter.variable.defaultValue).source
-                  }
+                  value={source}
                   variableMode="expression"
                   expectedType={parameter.variable.valueType}
                   onBeginEdit={checkpoint}
@@ -2230,7 +2415,11 @@ export function Inspector() {
             {selectedChapter?.outputs.map((output) => (
               <VariableSelect
                 key={output.variable.id}
-                label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
+                label={
+                  output.variable.valueType.kind === 'json'
+                    ? `Output · ${output.variable.displayName} · JSON or ${output.variable.valueType.name} variable`
+                    : `Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`
+                }
                 value={(data.resultVariableIds ?? {})[output.variable.id]}
                 valueType={output.variable.valueType}
                 onBeginEdit={checkpoint}
@@ -2365,29 +2554,48 @@ export function Inspector() {
                 }
               />
             ))}
-            {chapter.outputs.map((output) => (
-              <PropertyField
-                key={output.variable.id}
-                label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
-                value={
-                  data.values?.[output.variable.id]?.source ??
-                  expressionForDefault(
-                    defaultValueFor(output.variable.valueType.kind as ScalarKind),
-                  ).source
-                }
-                variableMode="expression"
-                expectedType={output.variable.valueType}
-                onBeginEdit={checkpoint}
-                onChange={(source) =>
-                  updateNodeData(node.id, StoryNodeType.Return, {
-                    values: {
-                      ...(data.values ?? {}),
-                      [output.variable.id]: { source, bindings: {} },
-                    },
-                  })
-                }
-              />
-            ))}
+            {chapter.outputs.map((output) =>
+              output.variable.valueType.kind === 'json' ? (
+                <EngineJsonSourceEditor
+                  key={output.variable.id}
+                  label={`Output · ${output.variable.displayName} · JSON or ${output.variable.valueType.name} variable`}
+                  typeName={output.variable.valueType.name}
+                  source={
+                    data.values?.[output.variable.id]?.source ??
+                    expressionForDefault(output.variable.defaultValue).source
+                  }
+                  onBeginEdit={checkpoint}
+                  onChange={(source) =>
+                    updateNodeData(node.id, StoryNodeType.Return, {
+                      values: {
+                        ...(data.values ?? {}),
+                        [output.variable.id]: { source, bindings: {} },
+                      },
+                    })
+                  }
+                />
+              ) : (
+                <PropertyField
+                  key={output.variable.id}
+                  label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
+                  value={
+                    data.values?.[output.variable.id]?.source ??
+                    expressionForDefault(output.variable.defaultValue).source
+                  }
+                  variableMode="expression"
+                  expectedType={output.variable.valueType}
+                  onBeginEdit={checkpoint}
+                  onChange={(source) =>
+                    updateNodeData(node.id, StoryNodeType.Return, {
+                      values: {
+                        ...(data.values ?? {}),
+                        [output.variable.id]: { source, bindings: {} },
+                      },
+                    })
+                  }
+                />
+              ),
+            )}
             <div className={styles.info}>Returns these outputs to the Call Substory node.</div>
           </>
         );

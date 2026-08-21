@@ -112,6 +112,22 @@ describe('story KDL v5', () => {
     expect(serialized).not.toContain('edge_');
   });
 
+  it('round-trips engine-owned JSON variables without exposing a field schema', () => {
+    const source = sourceDocument();
+    source.variables.push({
+      id: 'v_payload',
+      name: 'payload',
+      displayName: 'Payload',
+      scope: 'story',
+      valueType: { kind: 'json', name: 'QuestPayload' },
+      defaultValue: { questId: 'intro', rewards: [{ id: 'gold', amount: 3 }] },
+    });
+
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('type=json:QuestPayload');
+    expect(parseStorySource(serialized).variables.at(-1)).toEqual(source.variables.at(-1));
+  });
+
   it('preserves project-level character and asset references without embedding definitions', () => {
     const source = sourceDocument();
     source.characters = [];

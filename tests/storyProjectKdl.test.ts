@@ -41,6 +41,27 @@ function projectDocument(): StoryProjectDocument {
         storyIds: ['s_quest'],
       },
     ],
+    engineTypes: [
+      {
+        name: 'RewardPayload',
+        displayName: 'Reward Payload',
+        description: 'Inventory reward passed to the game Adapter.',
+        fields: [
+          {
+            name: 'itemId',
+            displayName: 'Item ID',
+            type: { kind: 'string' },
+            defaultValue: '',
+          },
+          {
+            name: 'tags',
+            displayName: 'Tags',
+            type: { kind: 'array', elementType: { kind: 'string' } },
+            defaultValue: [],
+          },
+        ],
+      },
+    ],
     variables: [
       {
         id: 'v_reputation',
@@ -57,7 +78,10 @@ function projectDocument(): StoryProjectDocument {
         name: 'grantReward',
         displayName: 'Grant Reward',
         description: 'Adds a reward to the player inventory.',
-        parameters: [{ name: 'amount', valueType: { kind: 'number' } }],
+        parameters: [
+          { name: 'amount', valueType: { kind: 'number' } },
+          { name: 'payload', valueType: { kind: 'json', name: 'RewardPayload' } },
+        ],
         resumable: true,
         sideEffect: 'write',
       },
@@ -88,9 +112,13 @@ describe('story project KDL', () => {
     expect(serialized).toContain('localization="Localization/raft-survival.storyloc"');
     expect(serialized).toContain('path="Characters/trader.character"');
     expect(serialized).toContain('variable v_reputation name=reputation');
+    expect(serialized).toContain('engine-type RewardPayload');
+    expect(serialized).toContain('field tags');
+    expect(serialized).toContain('type=array:string');
     expect(serialized).toContain('type=number default=0');
     expect(serialized).toContain('event ev_reward');
     expect(serialized).toContain('parameter amount type=number');
+    expect(serialized).toContain('parameter payload type=json:RewardPayload');
     expect(serialized).toContain('description="Adds a reward to the player inventory."');
     expect(serialized).toContain('signal sig_animationfinished');
     expect(serialized).toContain('parameter animation type=string');
@@ -112,5 +140,50 @@ describe('story project KDL', () => {
         characters: [{ ...project.characters[0], storyIds: ['s_missing'] }],
       }),
     ).toThrow(/missing story/);
+  });
+
+  it('rejects missing and cyclic Engine Type references', () => {
+    const project = projectDocument();
+    expect(() =>
+      serializeStoryProject({
+        ...project,
+        engineTypes: [
+          {
+            name: 'Broken',
+            displayName: 'Broken',
+            fields: [
+              {
+                name: 'target',
+                displayName: 'Target',
+                type: { kind: 'object', typeName: 'Missing' },
+                defaultValue: {},
+              },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/missing Engine Type Missing/);
+    expect(() =>
+      serializeStoryProject({
+        ...project,
+        engineTypes: [
+          {
+            name: 'Recursive',
+            displayName: 'Recursive',
+            fields: [
+              {
+                name: 'children',
+                displayName: 'Children',
+                type: {
+                  kind: 'array',
+                  elementType: { kind: 'object', typeName: 'Recursive' },
+                },
+                defaultValue: [],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/Cyclic Engine Type/);
   });
 });

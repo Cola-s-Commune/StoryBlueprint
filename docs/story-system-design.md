@@ -1034,6 +1034,20 @@ Diff Preview → Transaction → Undo / Redo
 保存 .story / 编译 .storyc.json
 ```
 
+### Engine Type Schema 与图形化 JSON
+
+复杂引擎值由项目级 `Engine Type Schema` 描述。Schema 本身使用图形化编辑器维护，作者不需要手写
+JSON Schema：可以增删、改名和排序字段，并将字段设为 Boolean、Number、String、Enum、Object 或
+Array。Object 引用另一个 Engine Type，Array 单独声明元素类型；编辑器必须拒绝无法有限展开的循环引用。
+
+引用 Engine Type 的变量、Character Field、Substory 接口、Event 参数和 Signal 参数共享同一套 Schema
+驱动表单。表单编辑结果仍是一个完整 JSON 值，并允许切换到 Raw JSON；两种模式必须即时校验并双向同步。
+Schema 只承担作者体验、默认值、验证、接口文档和迁移，不赋予 Story 成员访问、比较、遍历或计算能力。
+Runtime 与 Adapter 看到的仍是普通 JSON，不依赖编辑器 Schema 执行业务逻辑。
+
+Schema 的字段改名、删除和类型变化属于可撤销的项目资源操作。提交前应列出所有受影响的变量、角色字段、
+Substory 参数及节点值，并让作者选择采用默认值迁移、保留 Raw JSON 待修复或取消修改。
+
 ### 14.1 Blueprint Command API
 
 基础命令包括：
