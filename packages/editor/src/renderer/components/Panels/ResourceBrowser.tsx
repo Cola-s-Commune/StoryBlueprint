@@ -613,7 +613,7 @@ export function ResourceBrowser() {
                   <span className={styles.rowActions}>
                     <button
                       type="button"
-                      title="Rename Display Name"
+                      title="Rename Story Title"
                       onClick={() => {
                         switchStory(storyId);
                         cancelStoryRenameRef.current = false;
@@ -709,7 +709,7 @@ export function ResourceBrowser() {
                           <span className={styles.rowActions}>
                             <button
                               type="button"
-                              title="Rename"
+                              title="Rename Substory Title"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 cancelChapterRenameRef.current = false;

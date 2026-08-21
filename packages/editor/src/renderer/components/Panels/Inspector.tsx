@@ -132,6 +132,42 @@ function PlainPropertyField({
   );
 }
 
+function MetadataTitleField({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (!next) {
+      setDraft(value);
+      return;
+    }
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <label className={styles.field}>
+      <span>Title</span>
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+          if (event.key === 'Escape') {
+            setDraft(value);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+}
+
 function VariableSelect({
   label,
   value,
@@ -1706,6 +1742,14 @@ function SubstoryInterfaceEditor() {
       <div className={`${panelStyles.body} ${styles.body}`}>
         <section className={styles.section}>
           <div className={styles.sectionTitle}>Substory Interface</div>
+          <MetadataTitleField
+            value={chapter.displayName}
+            onCommit={(displayName) => updateSubstory(chapter.id, { displayName })}
+          />
+          <div className={styles.readonlyField}>
+            <span>Internal Name</span>
+            <code>{chapter.name}</code>
+          </div>
           <div className={styles.info}>
             Parameters come from the caller. Local variables exist only during this call.
           </div>
@@ -1832,6 +1876,7 @@ function SubstoryInterfaceEditor() {
 export function Inspector() {
   const {
     hasActiveStory,
+    document,
     nodes,
     availableVariables,
     events,
@@ -1842,6 +1887,7 @@ export function Inspector() {
     updateNode,
     updateNodeData,
     updateSubstory,
+    updateStory,
     mergeSelectedDialogues,
     storyDataSelection,
   } = useStoryGraphStore();
@@ -1897,6 +1943,29 @@ export function Inspector() {
     }
     if (selected.length === 0 && activeGraphId !== 'root') {
       return <SubstoryInterfaceEditor />;
+    }
+    if (selected.length === 0 && hasActiveStory && activeGraphId === 'root') {
+      return (
+        <div className={panelStyles.panel}>
+          <div className={`${panelStyles.body} ${styles.body}`}>
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}>Story</div>
+              <MetadataTitleField
+                value={document.displayName}
+                onCommit={(displayName) => updateStory({ displayName })}
+              />
+              <div className={styles.readonlyField}>
+                <span>Internal Name</span>
+                <code>{document.name}</code>
+              </div>
+              <div className={styles.readonlyField}>
+                <span>ID</span>
+                <code title={document.id}>{document.id}</code>
+              </div>
+            </section>
+          </div>
+        </div>
+      );
     }
     return (
       <div className={panelStyles.panel}>

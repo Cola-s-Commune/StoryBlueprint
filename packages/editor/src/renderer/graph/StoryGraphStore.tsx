@@ -1474,6 +1474,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         stagedProposal?.origin === 'ink' ? 'Import Ink as Nodes' : 'Apply AI Changes',
       );
       restoreGraph(committedGraph);
+      setChapters(
+        result.document.chapters.map((chapter) => ({
+          ...chapter,
+          graph: fromSourceGraph(chapter.graph),
+        })),
+      );
       const nextProjectVariables = result.document.variables.filter(
         (variable) => variable.scope === 'project',
       );
@@ -1530,6 +1536,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedAssets,
       resolvedCharacters,
       restoreGraph,
+      setChapters,
       queueProjectResourceWrite,
       signals,
       source,

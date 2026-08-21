@@ -147,12 +147,14 @@ export function autoLayoutGraph(
     return [...targets];
   };
   const outgoing = new Map<NodeId, NodeId[]>();
+  const incoming = new Map<NodeId, NodeId[]>();
   const indegree = new Map<NodeId, number>(layoutNodes.map((node) => [node.id, 0]));
   for (const node of layoutNodes) {
     const targets = terminalTargets(node.id);
     outgoing.set(node.id, targets);
     for (const targetId of targets) {
       indegree.set(targetId, (indegree.get(targetId) ?? 0) + 1);
+      incoming.set(targetId, [...(incoming.get(targetId) ?? []), node.id]);
     }
   }
 
@@ -227,6 +229,48 @@ export function autoLayoutGraph(
   }
   for (const node of originalOrder) visitFrom(node.id, startLayerFor(node));
 
+  // Breadth-first discovery gives a merge the rank of whichever branch reaches it first. Refine
+  // acyclic regions with longest-path ranks so a shared successor always sits to the right of the
+  // longest incoming branch. Kahn's queue intentionally leaves cyclic regions on the finite BFS
+  // ranks above; relaxing a loop as a longest path would move it right forever.
+  const remainingIndegree = new Map(indegree);
+  const acyclicLayers = new Map<NodeId, number>();
+  const rankQueue = sortIds(
+    layoutNodes.filter((node) => (remainingIndegree.get(node.id) ?? 0) === 0).map((node) => node.id),
+  );
+  let rankQueueIndex = 0;
+  for (const rootId of rankQueue) acyclicLayers.set(rootId, layers.get(rootId) ?? 0);
+  while (rankQueueIndex < rankQueue.length) {
+    const sourceId = rankQueue[rankQueueIndex++];
+    const sourceLayer = acyclicLayers.get(sourceId) ?? layers.get(sourceId) ?? 0;
+    for (const targetId of outgoing.get(sourceId) ?? []) {
+      acyclicLayers.set(
+        targetId,
+        Math.max(acyclicLayers.get(targetId) ?? 0, sourceLayer + 1),
+      );
+      const nextIndegree = (remainingIndegree.get(targetId) ?? 0) - 1;
+      remainingIndegree.set(targetId, nextIndegree);
+      if (nextIndegree === 0) rankQueue.push(targetId);
+    }
+  }
+  for (const [nodeId, layer] of acyclicLayers) {
+    if ((remainingIndegree.get(nodeId) ?? 0) === 0) layers.set(nodeId, layer);
+  }
+  // Right-align terminal nodes immediately before a merge. Without this, an edge from a shorter
+  // branch can span an occupied intermediate column and React Flow's orthogonal path runs beneath
+  // that column's node. Only single-successor terminals move, so shared or continuing flow keeps
+  // its established rank.
+  for (const merge of originalOrder) {
+    const predecessors = incoming.get(merge.id) ?? [];
+    const mergeLayer = layers.get(merge.id) ?? 0;
+    if (predecessors.length < 2 || mergeLayer < 2) continue;
+    for (const predecessorId of predecessors) {
+      if ((outgoing.get(predecessorId) ?? []).length !== 1) continue;
+      const predecessorLayer = layers.get(predecessorId) ?? 0;
+      if (predecessorLayer < mergeLayer - 1) layers.set(predecessorId, mergeLayer - 1);
+    }
+  }
+
   const byLayer = new Map<number, EditorGraphNode[]>();
   for (const node of layoutNodes) {
     const layer = layers.get(node.id) ?? 0;
@@ -244,7 +288,8 @@ export function autoLayoutGraph(
   const originY = Math.round(Math.min(...layoutNodes.map((node) => node.position.y)));
   const positions = new Map<NodeId, { x: number; y: number }>();
   let columnX = originX;
-  for (const [, column] of [...byLayer.entries()].sort(([left], [right]) => left - right)) {
+  const orderedColumns = [...byLayer.entries()].sort(([left], [right]) => left - right);
+  for (const [, column] of orderedColumns) {
     let rowY = originY;
     column.forEach((node) => {
       positions.set(node.id, {
@@ -255,6 +300,80 @@ export function autoLayoutGraph(
     });
     const columnWidth = Math.max(...column.map(layoutNodeWidth));
     columnX += columnWidth + autoLayoutColumnGap;
+  }
+
+  const nodeCenterY = (nodeId: NodeId) => {
+    const node = nodesById.get(nodeId);
+    const position = positions.get(nodeId);
+    return node && position ? position.y + layoutNodeHeight(node) / 2 : undefined;
+  };
+  const placeColumnByNeighbors = (
+    column: EditorGraphNode[],
+    neighborsFor: (nodeId: NodeId) => readonly NodeId[],
+  ) => {
+    const desiredCenters = column.map((node) => {
+      const centers = neighborsFor(node.id)
+        .map(nodeCenterY)
+        .filter((center): center is number => center !== undefined);
+      return centers.length > 0
+        ? centers.reduce((sum, center) => sum + center, 0) / centers.length
+        : nodeCenterY(node.id) ?? originY + layoutNodeHeight(node) / 2;
+    });
+    const relativeY: number[] = [];
+    let cursor = 0;
+    for (const node of column) {
+      relativeY.push(cursor);
+      cursor += layoutNodeHeight(node) + autoLayoutRowGap;
+    }
+    const actualAverage =
+      relativeY.reduce(
+        (sum, y, index) => sum + y + layoutNodeHeight(column[index]) / 2,
+        0,
+      ) / column.length;
+    const desiredAverage =
+      desiredCenters.reduce((sum, center) => sum + center, 0) / desiredCenters.length;
+    const offset = desiredAverage - actualAverage;
+    column.forEach((node, index) => {
+      const current = positions.get(node.id)!;
+      positions.set(node.id, { x: current.x, y: relativeY[index] + offset });
+    });
+  };
+
+  // Sugiyama-style barycentric sweeps keep split branches around their source and place a shared
+  // successor between its predecessors. Only forward edges participate, so loops cannot pull a
+  // column back across the graph.
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const [layer, column] of orderedColumns.slice(1)) {
+      placeColumnByNeighbors(column, (nodeId) =>
+        (incoming.get(nodeId) ?? []).filter(
+          (sourceId) => (layers.get(sourceId) ?? layer) < layer,
+        ),
+      );
+    }
+    for (const [layer, column] of [...orderedColumns].reverse().slice(1)) {
+      placeColumnByNeighbors(column, (nodeId) =>
+        (outgoing.get(nodeId) ?? []).filter(
+          (targetId) => (layers.get(targetId) ?? layer) > layer,
+        ),
+      );
+    }
+  }
+  // Finish left-to-right so convergence nodes use the final positions of every incoming branch.
+  for (const [layer, column] of orderedColumns.slice(1)) {
+    placeColumnByNeighbors(column, (nodeId) =>
+      (incoming.get(nodeId) ?? []).filter(
+        (sourceId) => (layers.get(sourceId) ?? layer) < layer,
+      ),
+    );
+  }
+  const minimumY = Math.min(...layoutNodes.map((node) => positions.get(node.id)!.y));
+  const verticalOffset = originY - minimumY;
+  for (const node of layoutNodes) {
+    const position = positions.get(node.id)!;
+    positions.set(node.id, {
+      x: Math.round(position.x),
+      y: Math.round(position.y + verticalOffset),
+    });
   }
 
   const positionedNode = (nodeId: NodeId): EditorGraphNode | undefined => {

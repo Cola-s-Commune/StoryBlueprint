@@ -106,6 +106,7 @@
 - [x] 在选中目录中新建文件夹和 Story
 - [x] Story 内 Main Story / Substory 蓝图列表
 - [x] 新建、重命名、切换和安全删除 Substory
+- [x] Story / Substory 明确区分内部 `name` 与作者标题，在 Inspector 和资源树统一编辑、展示 `displayName` 标题
 - [x] 多选节点提取为单入口、单出口 Substory
 - [ ] Substory 文件夹、标签、收藏与按需索引（组织用途，不改变稳定 ID 所有权）
 - [ ] Substory 调用图、递归/循环依赖诊断与公共/私有可见性评估
@@ -796,13 +797,17 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] SSE 流式 AI 请求；不支持 SSE 但返回标准 Chat Completion JSON 的 Provider 使用兼容回退
 - [x] 大型 Story 的 AI 上下文预算裁剪：完整快照、压缩快照和节点 Manifest 三级降级
 - [x] Provider 无关的只读 AI 工具循环：Story 搜索、节点/角色/Graph 查询与 validate_command，最多 3 次且不允许直接 Apply
+- [x] AI 通过 `add-substory` 事务创建带 Entry / Return 初始 Graph 的 Substory，并纳入 Dry Run、编译与 Undo
 - [x] Provider 思考模式与会话级 reasoning 展示（默认折叠、可复制、不进入项目数据）
 - [x] 会话式 Story Assistant：理解最新 Story 状态、回答 / 追问、可选命令提案与会话隔离
 - [x] Codex 风格 chat-first 交互：底部 Composer、键盘发送、自动滚动、上下文与工作状态、提案审核卡片
 - [x] 按 Workspace + Story 持久化 AI 会话，支持历史切换、新建和删除，不污染项目文件
 - [x] 项目级 `AGENTS.md`：新建项目自动生成、AI 请求由主进程读取并作为可版本控制的协作契约
+- [x] AI 请求始终合并最新版内置契约与项目 `AGENTS.md`，旧项目不再冻结在创建时模板；增减变量明确使用 read-modify-write 表达式
+- [x] AI `add-variable-adjustment` 高层操作按稳定变量 ID 与 signed delta 生成自绑定 Set Variable；相对修改请求中的字面量覆盖在 Dry Run 阶段阻止 Apply
 - [x] AI 参考文件附件：作者显式选择文本文件，数量和大小受限，仅附着于当前请求且不写入 Story 或聊天历史
 - [x] AI 会话标题独立可编辑：首次消息仅用于默认命名，后续重命名持久化且不被新消息覆盖
+- [x] 长篇小说 / 轻小说改编保真规则：默认保留场景、台词、叙述、心理和节奏，超长内容分批处理并报告覆盖范围
 - [x] SSE 流式命令生成与标准 Chat Completion 兼容回退
 - [x] Provider 能力配置：流式策略、只读工具开关、Full / Compact / Manifest-first 上下文策略
 - [x] Manifest-first 只读工具循环：按需读取节点、角色、Graph，并限制工具结果大小

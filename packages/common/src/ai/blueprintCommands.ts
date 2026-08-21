@@ -35,6 +35,15 @@ export interface AddNodeCommand extends BlueprintGraphCommandBase {
   };
 }
 
+/** Adds a Set Variable node whose value is derived from the variable's current numeric value. */
+export interface AddVariableAdjustmentCommand extends BlueprintGraphCommandBase {
+  kind: 'add-variable-adjustment';
+  node: { id: NodeId; name?: string };
+  variableId: VariableId;
+  /** Signed numeric change. For example, 1 increments and -1 decrements. */
+  delta: number;
+}
+
 export interface UpdateNodeCommand extends BlueprintGraphCommandBase {
   kind: 'update-node';
   nodeId: NodeId;
@@ -184,6 +193,29 @@ export interface UpdateCharacterCommand extends BlueprintCommandBase {
   };
 }
 
+export interface AddSubstoryCommand extends BlueprintCommandBase {
+  kind: 'add-substory';
+  substory: {
+    id: ChapterId;
+    name: string;
+    displayName: string;
+    parameters: readonly VariableDefinition[];
+    outputs: readonly VariableDefinition[];
+    localVariables: readonly VariableDefinition[];
+    /** Initial graph nodes omit editor coordinates; the executor assigns layout positions. */
+    nodes: readonly {
+      id: NodeId;
+      type: StoryNodeType;
+      name?: string;
+      data: StoryNodeDataMap[StoryNodeType];
+    }[];
+    edges: readonly {
+      from: { nodeId: NodeId; portId: string };
+      to: { nodeId: NodeId; portId: string };
+    }[];
+  };
+}
+
 export interface LayoutSelectionCommand extends BlueprintGraphCommandBase {
   kind: 'layout-selection';
   nodeIds: readonly NodeId[];
@@ -198,6 +230,7 @@ export type BlueprintLayoutRequest = LayoutSelectionCommand | LayoutNeighborhood
 
 export type BlueprintCommand =
   | AddNodeCommand
+  | AddVariableAdjustmentCommand
   | UpdateNodeCommand
   | RemoveNodeCommand
   | ConnectNodesCommand
@@ -207,6 +240,7 @@ export type BlueprintCommand =
   | AddCharacterCommand
   | AddCharacterFromTemplateCommand
   | UpdateCharacterCommand
+  | AddSubstoryCommand
   | AddDialogueLineCommand
   | UpdateDialogueLineCommand
   | RemoveDialogueLineCommand

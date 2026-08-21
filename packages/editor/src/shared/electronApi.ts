@@ -246,6 +246,12 @@ export interface AIProviderRegistry {
   providers: readonly AIProviderProfile[];
 }
 
+export interface AIInstructionsStatus {
+  builtInVersion: number;
+  projectAgents: 'loaded' | 'missing' | 'oversized';
+  projectAgentsPath?: string;
+}
+
 export interface SaveAIProviderProfileRequest {
   /** Omit when creating a new provider profile. */
   id?: string;
@@ -455,6 +461,7 @@ export interface ElectronAPI {
   extractProjectLocalization: (sourceLocale: string) => Promise<WorkspaceInfo>;
   updateProjectLocalization: (document: StoryLocalizationDocument) => Promise<WorkspaceInfo>;
   getAIProviderRegistry: () => Promise<AIProviderRegistry>;
+  getAIInstructionsStatus: () => Promise<AIInstructionsStatus>;
   saveAIProviderProfile: (settings: SaveAIProviderProfileRequest) => Promise<AIProviderRegistry>;
   deleteAIProviderProfile: (providerId: string) => Promise<AIProviderRegistry>;
   selectAIProvider: (providerId: string) => Promise<AIProviderRegistry>;

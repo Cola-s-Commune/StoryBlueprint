@@ -16,6 +16,7 @@ import type {
   AIConversationMessage,
   AIContextMode,
   AIFileAttachment,
+  AIInstructionsStatus,
   AIProviderProfile,
   AIProviderRegistry,
   AIReasoningEffort,
@@ -201,6 +202,8 @@ function nodeSummary(
     content = (node.data as StoryNodeDataMap[StoryNodeType.InkBlock]).source;
   } else if (node.type === StoryNodeType.Choice) {
     content = (node.data as StoryNodeDataMap[StoryNodeType.Choice]).prompt.source;
+  } else if (node.type === StoryNodeType.SetVariable) {
+    content = (node.data as StoryNodeDataMap[StoryNodeType.SetVariable]).value.source;
   }
   const label = node.name ? ` · ${node.name}` : '';
   return `${key} · ${node.type}${label}${content ? ` · “${compactText(content)}”` : ''}`;
@@ -324,6 +327,40 @@ function commandTemplate(revision: string): string {
   );
 }
 
+function relativeVariableOverwriteOperations(command: unknown, request: string): string[] {
+  const requestsRelativeChange =
+    /(?:增加|加上|加\s*\d|提高|提升|减少|减去|降低|递增|递减|increment|decrement|increase|decrease|add\s+\d|subtract)/iu.test(
+      request,
+    );
+  if (!requestsRelativeChange || typeof command !== 'object' || command === null) return [];
+  const operations = (command as { operations?: unknown }).operations;
+  if (!Array.isArray(operations)) return [];
+  return operations.flatMap((operation, index) => {
+    if (typeof operation !== 'object' || operation === null) return [];
+    const raw = operation as Record<string, unknown>;
+    const operationId = typeof raw.operationId === 'string' ? raw.operationId : `#${index + 1}`;
+    if (raw.kind === 'set-expression') {
+      const target = raw.target as Record<string, unknown> | undefined;
+      if (
+        target?.kind === 'set-variable-value' &&
+        typeof raw.source === 'string' &&
+        /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw.source.trim())
+      ) {
+        return [operationId];
+      }
+    }
+    if (raw.kind !== 'add-node') return [];
+    const node = raw.node as Record<string, unknown> | undefined;
+    if (node?.type !== StoryNodeType.SetVariable) return [];
+    const data = node.data as Record<string, unknown> | undefined;
+    const value = data?.value as Record<string, unknown> | undefined;
+    return typeof value?.source === 'string' &&
+      /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(value.source.trim())
+      ? [operationId]
+      : [];
+  });
+}
+
 function scopedSnapshot(
   snapshot: StorySemanticSnapshot,
   scope: AIContextScope,
@@ -381,16 +418,18 @@ function aiContext(
     'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
     'DIALOGUE SEMANTICS: A line with speakerId is only that character\'s spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.',
     'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
+    'NOVEL ADAPTATION: When the author supplies a novel or long-form prose and asks for a Galgame adaptation, preserve the source rather than summarizing it. Keep every scene beat, spoken line, narration, action, thought, pause, description, order, and pacing. Do not invent choices or gameplay actions, and do not reduce operation count by collapsing content. If the source is too large, propose explicit sequential batches with a covered range and continuation point; never silently omit or summarize the unprocessed range.',
     toolsEnabled
       ? 'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}, story.validate_command {command}. After receiving a tool result, answer the original request. Tools never modify the Story.'
       : 'READ-ONLY CONTEXT TOOLS are disabled for this Provider. Do not return toolRequest; use only the supplied context or ask the author a clarification question.',
+    'SUBSTORY CREATION: To create a Substory, use one add-substory operation. Include a stable ch_ ID, unique name/displayName, chapter-scope parameters and outputs, local-scope localVariables, and an initial graph containing exactly one story-entry node and usually one return node. Do not use add-node with a chapter graph to simulate a Substory. The operation creates the Substory itself; it does not automatically add a Call Substory node.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
     ...(scope
       ? [
           `The provided context scope is ${scope.kind}.`,
-          `All operations MUST target the active graph: ${scope.activeGraphId === 'root' ? '{ "kind": "root" }' : `{ "kind": "chapter", "chapterId": "${scope.activeGraphId}" }`}. Other graphs are read-only context.`,
+          `All graph-scoped operations MUST target the active graph: ${scope.activeGraphId === 'root' ? '{ "kind": "root" }' : `{ "kind": "chapter", "chapterId": "${scope.activeGraphId}" }`}. Other graphs are read-only context. Resource-level add-substory does not have a graph field and is allowed when explicitly requested.`,
           scope.kind === 'selection'
             ? `The explicitly selected node IDs are: ${scope.selectedNodeIds.join(', ')}. Neighbor nodes are included only to show connection boundaries.`
             : '',
@@ -549,6 +588,7 @@ export function AICommands() {
   const [attachments, setAttachments] = useState<AIFileAttachment[]>([]);
   const [contextScope, setContextScope] = useState<AIContextScope>('story');
   const [providerRegistry, setProviderRegistry] = useState<AIProviderRegistry>();
+  const [instructionsStatus, setInstructionsStatus] = useState<AIInstructionsStatus>();
   const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [showProviderSettings, setShowProviderSettings] = useState(false);
@@ -772,6 +812,12 @@ export function AICommands() {
       .catch((error) => {
         if (!disposed) setProviderError(error instanceof Error ? error.message : String(error));
       });
+    void window.electronAPI
+      ?.getAIInstructionsStatus()
+      .then((status) => {
+        if (!disposed) setInstructionsStatus(status);
+      })
+      .catch(() => undefined);
     return () => {
       disposed = true;
       if (requestIdRef.current) window.electronAPI?.cancelAICommand(requestIdRef.current);
@@ -813,6 +859,19 @@ export function AICommands() {
     const wasNormalized = JSON.stringify(normalizedCommand) !== JSON.stringify(command);
     const normalizedText = wasNormalized ? JSON.stringify(normalizedCommand, null, 2) : text;
     if (wasNormalized) setCommandText(normalizedText);
+    const relativeOverwrites = relativeVariableOverwriteOperations(
+      normalizedCommand,
+      lastUserRequest || instruction,
+    );
+    if (relativeOverwrites.length > 0) {
+      setLocalError(
+        `RELATIVE_VARIABLE_OVERWRITE: ${relativeOverwrites.join(', ')} assigns a numeric literal even though the request describes a relative change. Use add-variable-adjustment with variableId and signed delta.`,
+      );
+      setShowTechnicalDetails(true);
+      setResult(undefined);
+      setDryRunToken(undefined);
+      return undefined;
+    }
     const next = executeBlueprintCommands(normalizedCommand, { dryRun: true, stage: true });
     setResult(next);
     setPreviewBase(semanticSnapshot);
@@ -1396,6 +1455,13 @@ export function AICommands() {
                   ? 'Current Graph'
                   : `${selectedNodeIds.length} selected`}
             </strong>
+            {instructionsStatus && (
+              <span
+                title={instructionsStatus.projectAgentsPath}
+              >
+                Rules v{instructionsStatus.builtInVersion} · AGENTS {instructionsStatus.projectAgents}
+              </span>
+            )}
           </div>
           {conversation.length === 0 ? (
             <div className={styles.welcomeMessage}>

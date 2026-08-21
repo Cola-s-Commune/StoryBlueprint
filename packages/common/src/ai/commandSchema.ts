@@ -61,6 +61,29 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             ['graph', 'node'],
           ),
           operation(
+            'add-variable-adjustment',
+            {
+              graph,
+              node: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id'],
+                properties: {
+                  id: { type: 'string', pattern: stableIdPatterns.node },
+                  name: { type: 'string' },
+                },
+              },
+              variableId: { type: 'string', pattern: stableIdPatterns.variable },
+              delta: {
+                type: 'number',
+                not: { const: 0 },
+                description:
+                  'Signed relative change. Use 1 for increment and -1 for decrement; this never assigns a literal value.',
+              },
+            },
+            ['graph', 'node', 'variableId', 'delta'],
+          ),
+          operation(
             'update-node',
             {
               graph,
@@ -258,6 +281,58 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
               },
             },
             ['characterId', 'patch'],
+          ),
+          operation(
+            'add-substory',
+            {
+              substory: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                  'id',
+                  'name',
+                  'displayName',
+                  'parameters',
+                  'outputs',
+                  'localVariables',
+                  'nodes',
+                  'edges',
+                ],
+                properties: {
+                  id: { type: 'string', pattern: '^ch_[a-z0-9][a-z0-9_-]{2,}$' },
+                  name: { type: 'string', minLength: 1 },
+                  displayName: {
+                    type: 'string',
+                    minLength: 1,
+                    description:
+                      'Author-facing Substory title; name is the stable internal identifier.',
+                  },
+                  parameters: { type: 'array', items: { $ref: '#/$defs/variable' } },
+                  outputs: { type: 'array', items: { $ref: '#/$defs/variable' } },
+                  localVariables: { type: 'array', items: { $ref: '#/$defs/variable' } },
+                  nodes: {
+                    type: 'array',
+                    minItems: 1,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['id', 'type', 'data'],
+                      properties: {
+                        id: { type: 'string', pattern: stableIdPatterns.node },
+                        type: { enum: Object.values(StoryNodeType) },
+                        name: { type: 'string' },
+                        data: { type: 'object' },
+                      },
+                    },
+                  },
+                  edges: {
+                    type: 'array',
+                    items: { type: 'object', additionalProperties: false, required: ['from', 'to'], properties: { from: { $ref: '#/$defs/endpoint' }, to: { $ref: '#/$defs/endpoint' } } },
+                  },
+                },
+              },
+            },
+            ['substory'],
           ),
           operation(
             'layout-selection',

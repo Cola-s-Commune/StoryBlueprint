@@ -44,6 +44,11 @@ interface MutableGraph {
 
 interface MutableChapter {
   id: string;
+  name: string;
+  displayName: string;
+  parameters: StorySourceDocument['chapters'][number]['parameters'];
+  outputs: StorySourceDocument['chapters'][number]['outputs'];
+  localVariables: StorySourceDocument['chapters'][number]['localVariables'];
   graph: MutableGraph;
 }
 
@@ -307,11 +312,13 @@ function requiresGraphTarget(kind: unknown): boolean {
     'add-character',
     'add-character-from-template',
     'update-character',
+    'add-substory',
   ].includes(String(kind));
 }
 
 const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-node': ['operationId', 'kind', 'graph', 'node'],
+  'add-variable-adjustment': ['operationId', 'kind', 'graph', 'node', 'variableId', 'delta'],
   'update-node': ['operationId', 'kind', 'graph', 'nodeId', 'patch'],
   'remove-node': ['operationId', 'kind', 'graph', 'nodeId'],
   connect: ['operationId', 'kind', 'graph', 'from', 'to', 'replaceExisting'],
@@ -321,6 +328,7 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-character': ['operationId', 'kind', 'character'],
   'add-character-from-template': ['operationId', 'kind', 'templateName', 'character', 'fieldIds'],
   'update-character': ['operationId', 'kind', 'characterId', 'patch'],
+  'add-substory': ['operationId', 'kind', 'substory'],
   'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
   'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
   'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId'],
@@ -439,6 +447,27 @@ export function validateBlueprintCommandTransaction(
               'add-node requires a valid node ID, type, name, and data object',
               operationIndex,
               `${path}.node`,
+            ),
+          );
+        }
+        break;
+      case 'add-variable-adjustment':
+        if (
+          !isRecord(raw.node) ||
+          typeof raw.node.id !== 'string' ||
+          !isStableId(raw.node.id, 'node') ||
+          (raw.node.name !== undefined && typeof raw.node.name !== 'string') ||
+          typeof raw.variableId !== 'string' ||
+          !isStableId(raw.variableId, 'variable') ||
+          typeof raw.delta !== 'number' ||
+          !Number.isFinite(raw.delta) ||
+          raw.delta === 0
+        ) {
+          diagnostics.push(
+            invalidShape(
+              'add-variable-adjustment requires a node ID, numeric variable ID, and non-zero finite delta',
+              operationIndex,
+              path,
             ),
           );
         }
@@ -624,6 +653,42 @@ export function validateBlueprintCommandTransaction(
               `${path}.character`,
             ),
           );
+        }
+        break;
+      case 'add-substory':
+        if (!isRecord(raw.substory)) {
+          diagnostics.push(invalidShape('add-substory requires a substory object', operationIndex, path));
+          break;
+        }
+        if (
+          typeof raw.substory.id !== 'string' ||
+          !isStableId(raw.substory.id, 'chapter') ||
+          typeof raw.substory.name !== 'string' ||
+          raw.substory.name.trim().length === 0 ||
+          typeof raw.substory.displayName !== 'string' ||
+          raw.substory.displayName.trim().length === 0 ||
+          !Array.isArray(raw.substory.parameters) ||
+          !raw.substory.parameters.every(validVariable) ||
+          !Array.isArray(raw.substory.outputs) ||
+          !raw.substory.outputs.every(validVariable) ||
+          !Array.isArray(raw.substory.localVariables) ||
+          !raw.substory.localVariables.every(validVariable) ||
+          !Array.isArray(raw.substory.nodes) ||
+          !raw.substory.nodes.every((node) =>
+            isRecord(node) &&
+            typeof node.id === 'string' &&
+            isStableId(node.id, 'node') &&
+            typeof node.type === 'string' &&
+            Object.values(StoryNodeType).includes(node.type as StoryNodeType) &&
+            isRecord(node.data) &&
+            (node.name === undefined || typeof node.name === 'string')
+          ) ||
+          !Array.isArray(raw.substory.edges) ||
+          !raw.substory.edges.every((edge) =>
+            isRecord(edge) && validEndpoint(edge.from) && validEndpoint(edge.to)
+          )
+        ) {
+          diagnostics.push(invalidShape('add-substory has invalid interface or initial graph', operationIndex, path));
         }
         break;
       case 'add-character-from-template':
@@ -838,6 +903,79 @@ function applyOperation(
   operationIndex: number,
   options: BlueprintTransactionOptions,
 ): BlueprintCommandDiagnostic | undefined {
+  if (operation.kind === 'add-substory') {
+    if (story.chapters.some((chapter) => chapter.id === operation.substory.id)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Substory already exists: ${operation.substory.id}`,
+      );
+    }
+    if (story.chapters.some((chapter) => chapter.name === operation.substory.name)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Substory name already exists: ${operation.substory.name}`,
+      );
+    }
+    const nodeIds = new Set<string>();
+    const nodes: SourceNode[] = [];
+    for (const [index, node] of operation.substory.nodes.entries()) {
+      const definition = commandRegistry.get(node.type);
+      if (!definition) {
+        return operationDiagnostic(operation, operationIndex, 'INVALID_GRAPH', `Unknown node type: ${node.type}`);
+      }
+      if (nodeIds.has(node.id)) {
+        return operationDiagnostic(operation, operationIndex, 'DUPLICATE_NODE_ID', `Duplicate node ID in Substory: ${node.id}`);
+      }
+      nodeIds.add(node.id);
+      nodes.push({
+        id: node.id,
+        type: node.type,
+        name: node.name,
+        definitionVersion: definition.version,
+        position: { x: index * 240, y: 120 },
+        data: {
+          ...definition.defaultData(),
+          ...structuredClone(node.data),
+        },
+      } as unknown as SourceNode);
+    }
+    const startCount = nodes.filter((node) => node.type === StoryNodeType.Start).length;
+    if (startCount !== 1) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_GRAPH',
+        `New Substory must contain exactly one Story Entry; found ${startCount}`,
+      );
+    }
+    const allVariableIds = [
+      ...operation.substory.parameters,
+      ...operation.substory.outputs,
+      ...operation.substory.localVariables,
+    ].map((variable) => variable.id);
+    if (new Set(allVariableIds).size !== allVariableIds.length) {
+      return operationDiagnostic(operation, operationIndex, 'INVALID_TARGET', 'Substory variable IDs must be unique');
+    }
+    if (operation.substory.localVariables.some((variable) => variable.scope !== 'local')) {
+      return operationDiagnostic(operation, operationIndex, 'INVALID_TARGET', 'Substory localVariables must use local scope');
+    }
+    const edges = structuredClone(operation.substory.edges) as SourceEdge[];
+    const chapter: StorySourceDocument['chapters'][number] = {
+      id: operation.substory.id,
+      name: operation.substory.name,
+      displayName: operation.substory.displayName,
+      parameters: structuredClone(operation.substory.parameters).map((variable) => ({ variable, direction: 'input' as const })),
+      outputs: structuredClone(operation.substory.outputs).map((variable) => ({ variable, direction: 'output' as const })),
+      localVariables: structuredClone(operation.substory.localVariables),
+      graph: { nodes, edges },
+    };
+    story.chapters.push(chapter as MutableChapter);
+    return undefined;
+  }
   if (operation.kind === 'add-variable') {
     if (story.variables.some((variable) => variable.id === operation.variable.id)) {
       return operationDiagnostic(
@@ -1074,6 +1212,70 @@ function applyOperation(
         ...structuredClone(operation.node.data),
       },
     } as unknown as SourceNode);
+    return undefined;
+  }
+  if (operation.kind === 'add-variable-adjustment') {
+    const duplicate = allGraphs(story).some((candidate) =>
+      candidate.nodes.some((node) => node.id === operation.node.id),
+    );
+    if (duplicate) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'DUPLICATE_NODE_ID',
+        `Node already exists: ${operation.node.id}`,
+      );
+    }
+    const chapterId = operation.graph.kind === 'chapter' ? operation.graph.chapterId : undefined;
+    const chapter = chapterId
+      ? story.chapters.find((candidate) => candidate.id === chapterId)
+      : undefined;
+    const graphVariables = [
+      ...story.variables,
+      ...(chapter?.parameters.map((parameter) => parameter.variable) ?? []),
+      ...(chapter?.localVariables ?? []),
+    ];
+    const variable = graphVariables.find((candidate) => candidate.id === operation.variableId);
+    const characterField = story.characters.flatMap((character) =>
+      (character.fields ?? []).map((field) => ({ character, field })),
+    ).find(({ field }) => field.id === operation.variableId);
+    const target = variable ?? characterField?.field;
+    if (!target) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_VARIABLE',
+        `Variable does not exist in the target graph: ${operation.variableId}`,
+      );
+    }
+    if (target.valueType.kind !== 'number') {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Relative adjustment requires a number variable: ${target.name}`,
+      );
+    }
+    const symbol = characterField
+      ? `${characterField.character.name}.${characterField.field.name}`
+      : target.name;
+    const operator = operation.delta < 0 ? '-' : '+';
+    const amount = Math.abs(operation.delta);
+    const definition = commandRegistry.get(StoryNodeType.SetVariable)!;
+    graph.nodes.push({
+      id: operation.node.id,
+      type: StoryNodeType.SetVariable,
+      name: operation.node.name,
+      definitionVersion: definition.version,
+      position: nextPosition(graph),
+      data: {
+        variableId: target.id,
+        value: {
+          source: `${symbol} ${operator} ${amount}`,
+          bindings: { [symbol]: target.id },
+        },
+      },
+    });
     return undefined;
   }
   if (operation.kind === 'layout-selection' || operation.kind === 'layout-neighborhood') {

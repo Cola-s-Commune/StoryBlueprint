@@ -117,6 +117,46 @@ function insertionTransaction(baseRevision: string): BlueprintCommandTransaction
 }
 
 describe('AI semantic editing foundation', () => {
+  it('creates a Substory through one validated transaction', () => {
+    const source = story();
+    const revision = createStorySemanticSnapshot(source).revision;
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'add-substory',
+          kind: 'add-substory',
+          substory: {
+            id: 'ch_intro',
+            name: 'intro',
+            displayName: 'Intro',
+            parameters: [],
+            outputs: [],
+            localVariables: [],
+            nodes: [
+              { id: 'n_sub_start', type: StoryNodeType.Start, data: { title: 'Entry' } },
+              { id: 'n_sub_return', type: StoryNodeType.Return, data: { values: {} } },
+            ],
+            edges: [
+              {
+                from: { nodeId: 'n_sub_start', portId: 'out' },
+                to: { nodeId: 'n_sub_return', portId: 'in' },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    expect(validateBlueprintCommandTransaction(transaction)).toEqual([]);
+    const result = executeBlueprintCommandTransaction(source, transaction, { dryRun: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.chapters).toHaveLength(1);
+    expect(result.document.chapters[0]?.graph.nodes).toHaveLength(2);
+  });
+
   it('creates a stable semantic view without editor layout fields', () => {
     const snapshot = createStorySemanticSnapshot(story());
     const json = JSON.stringify(snapshot);
@@ -895,5 +935,48 @@ describe('AI semantic editing foundation', () => {
     expect(dataById.get('n_setvar')).toMatchObject({ value: { source: 'total + 1' } });
     expect(dataById.get('n_event')).toMatchObject({ arguments: { amount: { source: 'total' } } });
     expect(dataById.get('n_signal')).toMatchObject({ matches: {} });
+  });
+
+  it('adds a relative numeric adjustment with a stable self binding', () => {
+    const source = story();
+    source.variables = [
+      {
+        id: 'v_affinity',
+        name: 'tianzhu_affinity',
+        displayName: 'Tianzhu Affinity',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'increase-affinity',
+          kind: 'add-variable-adjustment',
+          graph: { kind: 'root' },
+          node: { id: 'n_affinity' },
+          variableId: 'v_affinity',
+          delta: 1,
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.root.nodes.at(-1)).toMatchObject({
+      id: 'n_affinity',
+      type: StoryNodeType.SetVariable,
+      data: {
+        variableId: 'v_affinity',
+        value: {
+          source: 'tianzhu_affinity + 1',
+          bindings: { tianzhu_affinity: 'v_affinity' },
+        },
+      },
+    });
   });
 });

@@ -52,7 +52,7 @@ describe('automatic graph layout', () => {
     };
     const result = autoLayoutGraph(graph);
     expect(result.nodes.map((candidate) => candidate.position)).toEqual([
-      { x: 0, y: 0 },
+      { x: 0, y: 4 },
       { x: 310, y: 0 },
       { x: 620, y: 0 },
     ]);
@@ -172,6 +172,60 @@ describe('automatic graph layout', () => {
     expect(result.nodes.find((candidate) => candidate.id === 'n_first')!.position.x).toBeLessThan(
       result.nodes.find((candidate) => candidate.id === 'n_second')!.position.x,
     );
+  });
+
+  it('centers a convergence node between branches instead of favoring the first branch', () => {
+    const choice = { ...node('n_choice', StoryNodeType.Dialogue, 0, 0), measured: { width: 220, height: 120 } };
+    const upper = { ...node('n_upper', StoryNodeType.Dialogue, 300, 0), measured: { width: 220, height: 120 } };
+    const lower = { ...node('n_lower', StoryNodeType.Dialogue, 300, 300), measured: { width: 220, height: 120 } };
+    const join = { ...node('n_joinxx', StoryNodeType.End, 600, 0), measured: { width: 220, height: 120 } };
+    const result = autoLayoutGraph({
+      nodes: [choice, upper, lower, join],
+      edges: [
+        edge('e_upper', 'n_choice', 'n_upper'),
+        edge('e_lower', 'n_choice', 'n_lower'),
+        edge('e_joinup', 'n_upper', 'n_joinxx'),
+        edge('e_joinlo', 'n_lower', 'n_joinxx'),
+      ],
+    });
+    const arranged = new Map(result.nodes.map((candidate) => [candidate.id, candidate]));
+    const center = (id: string) => {
+      const candidate = arranged.get(id as `n_${string}`)!;
+      return candidate.position.y + (candidate.measured?.height ?? 120) / 2;
+    };
+    const branchMiddle = (center('n_upper') + center('n_lower')) / 2;
+
+    expect(Math.abs(center('n_joinxx') - branchMiddle)).toBeLessThanOrEqual(2);
+    expect(Math.abs(center('n_choice') - branchMiddle)).toBeLessThanOrEqual(2);
+  });
+
+  it('places a convergence after the longest incoming branch', () => {
+    const graph: EditorGraphState = {
+      nodes: [
+        node('n_choice', StoryNodeType.Dialogue, 0, 0),
+        node('n_shortx', StoryNodeType.Dialogue, 300, 300),
+        node('n_long01', StoryNodeType.Dialogue, 300, 0),
+        node('n_long02', StoryNodeType.Dialogue, 600, 0),
+        node('n_joinxx', StoryNodeType.Dialogue, 600, 300),
+        node('n_endxx', StoryNodeType.End, 900, 0),
+      ],
+      edges: [
+        edge('e_shortx', 'n_choice', 'n_shortx'),
+        edge('e_long01', 'n_choice', 'n_long01'),
+        edge('e_long02', 'n_long01', 'n_long02'),
+        edge('e_joinsh', 'n_shortx', 'n_joinxx'),
+        edge('e_joinlo', 'n_long02', 'n_joinxx'),
+        edge('e_finish', 'n_joinxx', 'n_endxx'),
+      ],
+    };
+
+    const result = autoLayoutGraph(graph);
+    const x = (id: string) =>
+      result.nodes.find((candidate) => candidate.id === id)?.position.x ?? -1;
+
+    expect(x('n_joinxx')).toBeGreaterThan(x('n_long02'));
+    expect(x('n_shortx')).toBe(x('n_long02'));
+    expect(x('n_endxx')).toBeGreaterThan(x('n_joinxx'));
   });
 
   it('applies AI neighborhood layout to one direct step without crossing a Reroute', () => {
