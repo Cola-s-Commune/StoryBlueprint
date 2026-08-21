@@ -277,7 +277,7 @@
 .lineHeader {
   display: flex;
   min-height: 26px;
-  align-items: center;
+  align-items: flex-start;
   gap: 7px;
   margin-bottom: 9px;
   color: #b9c4d1;
@@ -347,9 +347,9 @@
 
 .lineSummary strong,
 .lineSummary span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .lineSummary strong {
@@ -360,6 +360,7 @@
 .lineSummary span {
   color: #c2cad4;
   font-size: 11px;
+  line-height: 1.45;
 }
 
 .lineSummary:hover span {
@@ -369,6 +370,7 @@
 .lineActions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px;
 }

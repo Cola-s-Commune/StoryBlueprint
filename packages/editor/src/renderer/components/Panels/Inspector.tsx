@@ -1353,6 +1353,26 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                   >
                     Ink
                   </button>
+                  {index < data.lines.length - 1 && (
+                    <button
+                      type="button"
+                      title={`Split Dialogue after line ${index + 1}`}
+                      onClick={() => {
+                        const suffixLineIds = data.lines
+                          .slice(index + 1)
+                          .map((candidate) => candidate.id);
+                        const result = splitDialogueLines(nodeId, suffixLineIds);
+                        if (!result.ok) {
+                          setLineOperationError(result.message);
+                          return;
+                        }
+                        setSelectedLineIds(new Set());
+                        setLineOperationError(undefined);
+                      }}
+                    >
+                      Split after
+                    </button>
+                  )}
                   {isExpanded && (
                     <>
                       <button
