@@ -218,6 +218,9 @@ export interface UpdateProjectSettingsRequest {
 export type AIStructuredOutputMode = 'json-schema' | 'json-object';
 export type AIThinkingMode = 'auto' | 'enabled' | 'disabled';
 export type AIReasoningEffort = 'high' | 'max';
+export type AIStreamingMode = 'auto' | 'required' | 'disabled';
+export type AIToolsMode = 'enabled' | 'disabled';
+export type AIContextMode = 'full' | 'compact' | 'manifest-first';
 
 export interface AIProviderSettings {
   provider: 'openai-compatible';
@@ -227,6 +230,9 @@ export interface AIProviderSettings {
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;
+  streaming: AIStreamingMode;
+  tools: AIToolsMode;
+  contextMode: AIContextMode;
   hasApiKey: boolean;
 }
 
@@ -250,6 +256,9 @@ export interface SaveAIProviderProfileRequest {
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;
+  streaming: AIStreamingMode;
+  tools: AIToolsMode;
+  contextMode: AIContextMode;
   /** Omitted keeps the existing key; an empty string removes it. */
   apiKey?: string;
 }

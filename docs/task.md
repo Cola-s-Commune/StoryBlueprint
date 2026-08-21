@@ -795,6 +795,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 内置 OpenAI-compatible Provider、系统安全凭据、取消 / 诊断重试与生成后自动 Dry Run
 - [x] SSE 流式 AI 请求；不支持 SSE 但返回标准 Chat Completion JSON 的 Provider 使用兼容回退
 - [x] 大型 Story 的 AI 上下文预算裁剪：完整快照、压缩快照和节点 Manifest 三级降级
+- [x] Provider 无关的只读 AI 工具循环：Story 搜索、节点/角色/Graph 查询与 validate_command，最多 3 次且不允许直接 Apply
 - [x] Provider 思考模式与会话级 reasoning 展示（默认折叠、可复制、不进入项目数据）
 - [x] 会话式 Story Assistant：理解最新 Story 状态、回答 / 追问、可选命令提案与会话隔离
 - [x] Codex 风格 chat-first 交互：底部 Composer、键盘发送、自动滚动、上下文与工作状态、提案审核卡片
@@ -802,7 +803,10 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 项目级 `AGENTS.md`：新建项目自动生成、AI 请求由主进程读取并作为可版本控制的协作契约
 - [x] AI 参考文件附件：作者显式选择文本文件，数量和大小受限，仅附着于当前请求且不写入 Story 或聊天历史
 - [x] AI 会话标题独立可编辑：首次消息仅用于默认命名，后续重命名持久化且不被新消息覆盖
-- [ ] 流式命令生成与更多 Provider Adapter
+- [x] SSE 流式命令生成与标准 Chat Completion 兼容回退
+- [x] Provider 能力配置：流式策略、只读工具开关、Full / Compact / Manifest-first 上下文策略
+- [x] Manifest-first 只读工具循环：按需读取节点、角色、Graph，并限制工具结果大小
+- [x] AI 工具调用轨迹可展开查看，便于诊断上下文读取与 token 消耗
 
 ---
 

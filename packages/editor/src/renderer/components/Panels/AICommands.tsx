@@ -14,13 +14,16 @@ import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import type {
   AIChatSession,
   AIConversationMessage,
+  AIContextMode,
   AIFileAttachment,
   AIProviderProfile,
   AIProviderRegistry,
   AIReasoningEffort,
   AIStructuredOutputMode,
   AIThinkingMode,
+  AIStreamingMode,
   AIStreamProgress,
+  AIToolsMode,
 } from '../../../shared/electronApi';
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
 import { CopyButton } from './CopyButton';
@@ -49,6 +52,9 @@ interface AIProviderDraft {
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;
+  streaming: AIStreamingMode;
+  tools: AIToolsMode;
+  contextMode: AIContextMode;
 }
 
 function draftFromProvider(profile: AIProviderProfile): AIProviderDraft {
@@ -61,6 +67,9 @@ function draftFromProvider(profile: AIProviderProfile): AIProviderDraft {
     structuredOutput: profile.structuredOutput,
     thinkingMode: profile.thinkingMode,
     reasoningEffort: profile.reasoningEffort,
+    streaming: profile.streaming,
+    tools: profile.tools,
+    contextMode: profile.contextMode,
   };
 }
 
@@ -73,6 +82,9 @@ function createProviderDraft(): AIProviderDraft {
     structuredOutput: 'json-schema',
     thinkingMode: 'auto',
     reasoningEffort: 'high',
+    streaming: 'auto',
+    tools: 'enabled',
+    contextMode: 'full',
   };
 }
 
@@ -91,7 +103,7 @@ const AI_ASSISTANT_RESPONSE_SCHEMA = {
       type: ['object', 'null'],
       additionalProperties: false,
       properties: {
-        name: { enum: ['story.search', 'story.get_nodes', 'story.get_characters', 'story.get_graph'] },
+        name: { enum: ['story.search', 'story.get_nodes', 'story.get_characters', 'story.get_graph', 'story.validate_command'] },
         arguments: { type: 'object' },
       },
       required: ['name', 'arguments'],
@@ -100,6 +112,7 @@ const AI_ASSISTANT_RESPONSE_SCHEMA = {
 } as const;
 
 const AI_CONTEXT_CHAR_BUDGET = 1_800_000;
+const AI_TOOL_RESULT_CHAR_BUDGET = 180_000;
 
 function compactAIValue(value: string, limit = 480): string {
   return value.length > limit ? `${value.slice(0, limit)}…` : value;
@@ -352,6 +365,8 @@ function scopedSnapshot(
 function aiContext(
   snapshot: StorySemanticSnapshot,
   scope?: { kind: AIContextScope; activeGraphId: string; selectedNodeIds: readonly string[] },
+  mode: AIContextMode = 'full',
+  toolsEnabled = true,
 ): string {
   const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
   const build = (contextSnapshot: StorySemanticSnapshot, compacted: boolean) => [
@@ -366,7 +381,9 @@ function aiContext(
     'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
     'DIALOGUE SEMANTICS: A line with speakerId is only that character\'s spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.',
     'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
-    'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}. After receiving a tool result, answer the original request. Tools never modify the Story.',
+    toolsEnabled
+      ? 'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}, story.validate_command {command}. After receiving a tool result, answer the original request. Tools never modify the Story.'
+      : 'READ-ONLY CONTEXT TOOLS are disabled for this Provider. Do not return toolRequest; use only the supplied context or ask the author a clarification question.',
     'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
     'Preserve stable IDs unless explicitly adding or removing an object.',
     `Set baseRevision to ${snapshot.revision}.`,
@@ -394,7 +411,13 @@ function aiContext(
       : 'CURRENT SEMANTIC SNAPSHOT:',
     JSON.stringify(contextSnapshot, null, 2),
   ].join('\n');
+  if (mode === 'manifest-first') {
+    return `${build(manifestAISnapshot(snapshot), true)}\n\nCONTEXT MODE: manifest-first. The manifest intentionally omits node data. Use the read-only context tools to retrieve exact content before proposing an edit.`;
+  }
   const full = build(snapshot, false);
+  if (mode === 'compact') {
+    return `${build(compactAISnapshot(snapshot), true)}\n\nCONTEXT MODE: compact. Long text may be truncated; use read-only tools for exact content.`;
+  }
   if (full.length <= AI_CONTEXT_CHAR_BUDGET) return full;
   const compacted = compactAISnapshot(snapshot);
   const compactedText = build(compacted, true);
@@ -427,6 +450,7 @@ function diagnosticText(result: BlueprintTransactionResult | undefined): string 
 function runAIContextTool(
   snapshot: StorySemanticSnapshot,
   request: { name: string; arguments: Record<string, unknown> },
+  validateCommand: (command: unknown) => BlueprintTransactionResult,
 ): unknown {
   const args = request.arguments;
   if (request.name === 'story.search') {
@@ -465,7 +489,40 @@ function runAIContextTool(
     );
     return graph ? { graph } : { error: `Unknown graph: ${graphId}` };
   }
+  if (request.name === 'story.validate_command') {
+    if (!('command' in args)) return { error: 'story.validate_command requires command' };
+    const result = validateCommand(args.command);
+    return result.ok
+      ? { valid: true, diagnostics: [] }
+      : {
+          valid: false,
+          diagnostics: result.diagnostics.map((diagnostic) => ({
+            code: diagnostic.code,
+            message: diagnostic.message,
+            operationId: diagnostic.operationId,
+            operationIndex: diagnostic.operationIndex,
+            path: diagnostic.path,
+          })),
+        };
+  }
   return { error: `Unknown read-only AI tool: ${request.name}` };
+}
+
+function boundedToolResult(value: unknown): { text: string; truncated: boolean } {
+  const text = JSON.stringify(value, null, 2);
+  if (text.length <= AI_TOOL_RESULT_CHAR_BUDGET) return { text, truncated: false };
+  return {
+    text: JSON.stringify(
+      {
+        truncated: true,
+        message: `Tool result exceeded ${AI_TOOL_RESULT_CHAR_BUDGET.toLocaleString()} characters. Narrow the request with story.search or story.get_nodes.`,
+        preview: text.slice(0, AI_TOOL_RESULT_CHAR_BUDGET),
+      },
+      null,
+      2,
+    ),
+    truncated: true,
+  };
 }
 
 export function AICommands() {
@@ -500,6 +557,7 @@ export function AICommands() {
   const [modelReasoning, setModelReasoning] = useState<string>();
   const [streamedContent, setStreamedContent] = useState('');
   const [rawAIResponse, setRawAIResponse] = useState<string>();
+  const [toolTrace, setToolTrace] = useState<Array<{ name: string; arguments: Record<string, unknown>; result: string }>>([]);
   const [conversation, setConversation] = useState<AIConversationMessage[]>([]);
   const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
   const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
@@ -539,8 +597,15 @@ export function AICommands() {
   );
   const snapshotText = useMemo(() => JSON.stringify(semanticSnapshot, null, 2), [semanticSnapshot]);
   const contextText = useMemo(
-    () => aiContext(scopedSemanticSnapshot, { kind: contextScope, activeGraphId, selectedNodeIds }),
-    [activeGraphId, contextScope, scopedSemanticSnapshot, selectedNodeIds],
+    () => aiContext(
+      scopedSemanticSnapshot,
+      { kind: contextScope, activeGraphId, selectedNodeIds },
+      activeProvider?.tools === 'disabled' && activeProvider.contextMode === 'manifest-first'
+        ? 'compact'
+        : activeProvider?.contextMode ?? 'full',
+      activeProvider?.tools !== 'disabled',
+    ),
+    [activeGraphId, activeProvider?.contextMode, activeProvider?.tools, contextScope, scopedSemanticSnapshot, selectedNodeIds],
   );
   const schemaText = useMemo(() => JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2), []);
   const chatScopeKey = activeStoryId
@@ -781,6 +846,9 @@ export function AICommands() {
         structuredOutput: providerDraft.structuredOutput,
         thinkingMode: providerDraft.thinkingMode,
         reasoningEffort: providerDraft.reasoningEffort,
+        streaming: providerDraft.streaming,
+        tools: providerDraft.tools,
+        contextMode: providerDraft.contextMode,
         ...(apiKey === undefined ? {} : { apiKey }),
       });
       const saved = registry.providers.find((profile) => profile.id === registry.activeProviderId);
@@ -862,6 +930,7 @@ export function AICommands() {
     setModelReasoning(undefined);
     setStreamedContent('');
     setRawAIResponse(undefined);
+    setToolTrace([]);
     setProviderError(undefined);
     setProviderStatus(retry ? 'Retrying with validation diagnostics…' : 'Working…');
     if (!retry) setLastUserRequest(requestInstruction);
@@ -883,10 +952,23 @@ export function AICommands() {
           attachments,
         });
         assistant = parseAIAssistantResponse(response.content, semanticSnapshot.revision);
-        if (!assistant.toolRequest) break;
+        if (!assistant.toolRequest || activeProvider.tools === 'disabled') break;
         if (toolRound === 3) throw new Error('AI requested too many context tool calls');
-        const toolResult = runAIContextTool(semanticSnapshot, assistant.toolRequest);
-        toolContext += `\n\nREAD-ONLY TOOL RESULT (${assistant.toolRequest.name}):\n${JSON.stringify(toolResult, null, 2)}\n\nUse this result to answer the original request. Do not request another tool unless essential.`;
+        const toolResult = runAIContextTool(
+          semanticSnapshot,
+          assistant.toolRequest,
+          (command) => executeBlueprintCommands(command, { dryRun: true }),
+        );
+        const boundedResult = boundedToolResult(toolResult);
+        setToolTrace((trace) => [
+          ...trace,
+          {
+            name: assistant!.toolRequest!.name,
+            arguments: assistant!.toolRequest!.arguments,
+            result: boundedResult.text,
+          },
+        ]);
+        toolContext += `\n\nREAD-ONLY TOOL RESULT (${assistant.toolRequest.name})${boundedResult.truncated ? ' · truncated' : ''}:\n${boundedResult.text}\n\nUse this result to answer the original request. Do not request another tool unless essential.`;
       }
       if (!response || !assistant) throw new Error('AI provider returned no final response');
       setRawAIResponse(response.content);
@@ -970,6 +1052,7 @@ export function AICommands() {
     setRawAIResponse(undefined);
     setProviderStatus(undefined);
     setLocalError(undefined);
+    setToolTrace([]);
   };
 
   const activateChatSession = (session: AIChatSession) => {
@@ -1220,6 +1303,47 @@ export function AICommands() {
                 <option value="max">Max</option>
               </select>
             </label>
+            <label>
+              <span>Streaming</span>
+              <select
+                value={providerDraft.streaming}
+                disabled={generating}
+                onChange={(event) =>
+                  setProviderDraft({ ...providerDraft, streaming: event.target.value as AIStreamingMode })
+                }
+              >
+                <option value="auto">Auto</option>
+                <option value="required">Required</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+            <label>
+              <span>Context loading</span>
+              <select
+                value={providerDraft.contextMode}
+                disabled={generating}
+                onChange={(event) =>
+                  setProviderDraft({ ...providerDraft, contextMode: event.target.value as AIContextMode })
+                }
+              >
+                <option value="full">Full snapshot</option>
+                <option value="compact">Compact snapshot</option>
+                <option value="manifest-first">Manifest first</option>
+              </select>
+            </label>
+            <label>
+              <span>Read-only tools</span>
+              <select
+                value={providerDraft.tools}
+                disabled={generating}
+                onChange={(event) =>
+                  setProviderDraft({ ...providerDraft, tools: event.target.value as AIToolsMode })
+                }
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
             <label className={styles.apiKeyField}>
               <span>
                 API Key {editingProvider?.hasApiKey ? '· securely saved' : '· optional locally'}
@@ -1414,6 +1538,26 @@ export function AICommands() {
           </summary>
           <p>Provider-supplied reasoning for reference; Dry Run remains the source of truth.</p>
           <pre>{modelReasoning}</pre>
+        </details>
+      )}
+
+      {toolTrace.length > 0 && (
+        <details className={styles.toolTracePane}>
+          <summary>Story context tools · {toolTrace.length} call{toolTrace.length === 1 ? '' : 's'}</summary>
+          <p>Read-only context retrieved for this response. Tool results never modify the Story.</p>
+          {toolTrace.map((entry, index) => (
+            <details key={`${entry.name}-${index}`} className={styles.toolTraceEntry}>
+              <summary>{entry.name}</summary>
+              <label>
+                <span>Arguments</span>
+                <textarea readOnly spellCheck={false} value={JSON.stringify(entry.arguments, null, 2)} />
+              </label>
+              <label>
+                <span>Result · {entry.result.length.toLocaleString()} characters</span>
+                <textarea readOnly spellCheck={false} value={entry.result} />
+              </label>
+            </details>
+          ))}
         </details>
       )}
 

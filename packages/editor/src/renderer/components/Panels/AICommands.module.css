@@ -449,6 +449,66 @@
   user-select: text;
 }
 
+.toolTracePane {
+  flex: none;
+  max-height: 34%;
+  overflow: auto;
+  border-bottom: 1px solid #30343a;
+  background: #181b20;
+}
+
+.toolTracePane > summary,
+.toolTraceEntry > summary {
+  cursor: pointer;
+  color: #b9cadc;
+  user-select: none;
+}
+
+.toolTracePane > summary {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.toolTracePane > p {
+  margin: 0;
+  padding: 0 10px 7px;
+  color: #7f8a96;
+  font-size: 10px;
+}
+
+.toolTraceEntry {
+  margin: 0 8px 7px;
+  padding: 6px;
+  border: 1px solid #343c45;
+  border-radius: 4px;
+  background: #1d2126;
+}
+
+.toolTraceEntry > summary {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+}
+
+.toolTraceEntry label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  color: #8e9aaa;
+  font-size: 10px;
+}
+
+.toolTraceEntry textarea {
+  min-height: 58px;
+  resize: vertical;
+  border: 1px solid #343c45;
+  border-radius: 3px;
+  padding: 5px;
+  color: #c7d0dc;
+  background: #14171b;
+  font: 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .technicalPane {
   display: flex;
   flex: none;
