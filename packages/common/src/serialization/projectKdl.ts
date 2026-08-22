@@ -64,7 +64,13 @@ function assertChildren(node: Node, path: string, allowed: readonly string[]): v
 function validateProject(project: StoryProjectDocument): void {
   if (!isStableId(project.id, 'project')) throw new StoryFormatError('Invalid project ID');
   const engineTypeNames = new Set<string>();
+  const engineTypeIds = new Set<string>();
+  const engineFieldIds = new Set<string>();
   for (const engineType of project.engineTypes ?? []) {
+    if (!isStableId(engineType.id, 'engineType') || engineTypeIds.has(engineType.id)) {
+      throw new StoryFormatError(`Invalid or duplicate Engine Type ID ${engineType.id}`);
+    }
+    engineTypeIds.add(engineType.id);
     if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(engineType.name)) {
       throw new StoryFormatError(`Invalid Engine Type name ${engineType.name}`);
     }
@@ -74,6 +80,10 @@ function validateProject(project: StoryProjectDocument): void {
     engineTypeNames.add(engineType.name);
     const fieldNames = new Set<string>();
     for (const field of engineType.fields) {
+      if (!isStableId(field.id, 'engineField') || engineFieldIds.has(field.id)) {
+        throw new StoryFormatError(`Invalid or duplicate Engine Field ID ${field.id}`);
+      }
+      engineFieldIds.add(field.id);
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field.name)) {
         throw new StoryFormatError(`Invalid field ${engineType.name}.${field.name}`);
       }
@@ -223,6 +233,43 @@ function validateProject(project: StoryProjectDocument): void {
       }
     }
   }
+  const validateEngineResourceValue = (
+    value: RuntimeValue,
+    type: EngineFieldType,
+    path: string,
+  ): void => {
+    if (value === null) return;
+    if (type.kind === 'character-ref' && !characterIds.has(value as string)) {
+      throw new StoryFormatError(`${path} references missing Character ${String(value)}`);
+    }
+    if (type.kind === 'asset-ref' && !assetIds.has(value as string)) {
+      throw new StoryFormatError(`${path} references missing Asset ${String(value)}`);
+    }
+    if (type.kind === 'array' && Array.isArray(value)) {
+      value.forEach((item, index) =>
+        validateEngineResourceValue(item, type.elementType, `${path}[${index}]`),
+      );
+    }
+    if (type.kind === 'object' && !Array.isArray(value) && typeof value === 'object') {
+      const definition = engineTypesByName.get(type.typeName);
+      const record = value as Readonly<Record<string, RuntimeValue>>;
+      for (const field of definition?.fields ?? []) {
+        const fieldValue = record[field.name];
+        if (fieldValue !== undefined) {
+          validateEngineResourceValue(fieldValue, field.type, `${path}.${field.name}`);
+        }
+      }
+    }
+  };
+  for (const engineType of project.engineTypes ?? []) {
+    for (const field of engineType.fields) {
+      validateEngineResourceValue(
+        field.defaultValue,
+        field.type,
+        `${engineType.name}.${field.name}.default`,
+      );
+    }
+  }
   const variableIds = new Set<string>();
   const variableNames = new Set<string>();
   for (const variable of project.variables ?? []) {
@@ -258,6 +305,13 @@ function validateProject(project: StoryProjectDocument): void {
     ) {
       throw new StoryFormatError(
         `Project variable ${variable.name} does not match Engine Type ${variable.valueType.name}`,
+      );
+    }
+    if (variable.valueType.kind === 'json' && engineTypeNames.has(variable.valueType.name)) {
+      validateEngineResourceValue(
+        variable.defaultValue,
+        { kind: 'object', typeName: variable.valueType.name },
+        `Project variable ${variable.name}`,
       );
     }
     variableIds.add(variable.id);
@@ -336,6 +390,8 @@ function engineFieldTypeName(type: EngineFieldType): string {
     case 'boolean':
     case 'number':
     case 'string':
+    case 'character-ref':
+    case 'asset-ref':
       return type.kind;
     case 'enum':
       return `enum:${JSON.stringify(type.values)}`;
@@ -347,7 +403,14 @@ function engineFieldTypeName(type: EngineFieldType): string {
 }
 
 function parseEngineFieldType(value: string, path: string): EngineFieldType {
-  if (value === 'boolean' || value === 'number' || value === 'string') return { kind: value };
+  if (
+    value === 'boolean' ||
+    value === 'number' ||
+    value === 'string' ||
+    value === 'character-ref' ||
+    value === 'asset-ref'
+  )
+    return { kind: value };
   if (value.startsWith('object:') && value.slice(7)) {
     return { kind: 'object', typeName: value.slice(7) };
   }
@@ -450,6 +513,7 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
     )) {
       const typeNode = Node.create('engine-type');
       typeNode.addArgument(engineType.name);
+      typeNode.setProperty('id', engineType.id);
       if (engineType.displayName !== engineType.name) {
         typeNode.setProperty('display-name', engineType.displayName);
       }
@@ -457,6 +521,7 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       for (const field of engineType.fields) {
         const fieldNode = Node.create('field');
         fieldNode.addArgument(field.name);
+        fieldNode.setProperty('id', field.id);
         if (field.displayName !== field.name)
           fieldNode.setProperty('display-name', field.displayName);
         if (field.description) fieldNode.setProperty('description', field.description);
@@ -699,10 +764,11 @@ export function parseStoryProject(text: string): StoryProjectDocument {
   ).map((node, index) => {
     const path = `engine-types[${index}]`;
     assertArguments(node, path, 1);
-    assertProperties(node, path, ['display-name', 'description']);
+    assertProperties(node, path, ['id', 'display-name', 'description']);
     assertChildren(node, path, ['field']);
     const name = requiredString(node.getArgument(0), `${path}.name`);
     return {
+      id: requiredId(node.getProperty('id'), 'engineType', `${path}.id`),
       name,
       displayName: (node.getProperty('display-name') as string | undefined) ?? name,
       description:
@@ -714,6 +780,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
         assertArguments(fieldNode, fieldPath, 1);
         assertProperties(fieldNode, fieldPath, [
           'display-name',
+          'id',
           'description',
           'type',
           'nullable',
@@ -736,6 +803,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
           throw new StoryFormatError(`${fieldPath}.nullable must be a boolean`);
         }
         return {
+          id: requiredId(fieldNode.getProperty('id'), 'engineField', `${fieldPath}.id`),
           name: fieldName,
           displayName: (fieldNode.getProperty('display-name') as string | undefined) ?? fieldName,
           description:

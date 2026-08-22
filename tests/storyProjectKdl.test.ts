@@ -43,21 +43,40 @@ function projectDocument(): StoryProjectDocument {
     ],
     engineTypes: [
       {
+        id: 'et_rewardpayload',
         name: 'RewardPayload',
         displayName: 'Reward Payload',
         description: 'Inventory reward passed to the game Adapter.',
         fields: [
           {
+            id: 'ef_itemid',
             name: 'itemId',
             displayName: 'Item ID',
             type: { kind: 'string' },
             defaultValue: '',
           },
           {
+            id: 'ef_tags',
             name: 'tags',
             displayName: 'Tags',
             type: { kind: 'array', elementType: { kind: 'string' } },
             defaultValue: [],
+          },
+          {
+            id: 'ef_owner',
+            name: 'owner',
+            displayName: 'Owner',
+            type: { kind: 'character-ref' },
+            nullable: true,
+            defaultValue: 'c_trader',
+          },
+          {
+            id: 'ef_icon',
+            name: 'icon',
+            displayName: 'Icon',
+            type: { kind: 'asset-ref' },
+            nullable: true,
+            defaultValue: 'a_voice',
           },
         ],
       },
@@ -113,8 +132,12 @@ describe('story project KDL', () => {
     expect(serialized).toContain('path="Characters/trader.character"');
     expect(serialized).toContain('variable v_reputation name=reputation');
     expect(serialized).toContain('engine-type RewardPayload');
+    expect(serialized).toContain('id=et_rewardpayload');
     expect(serialized).toContain('field tags');
+    expect(serialized).toContain('id=ef_tags');
     expect(serialized).toContain('type=array:string');
+    expect(serialized).toContain('type=character-ref');
+    expect(serialized).toContain('type=asset-ref');
     expect(serialized).toContain('type=number default=0');
     expect(serialized).toContain('event ev_reward');
     expect(serialized).toContain('parameter amount type=number');
@@ -149,10 +172,12 @@ describe('story project KDL', () => {
         ...project,
         engineTypes: [
           {
+            id: 'et_broken',
             name: 'Broken',
             displayName: 'Broken',
             fields: [
               {
+                id: 'ef_target',
                 name: 'target',
                 displayName: 'Target',
                 type: { kind: 'object', typeName: 'Missing' },
@@ -168,10 +193,12 @@ describe('story project KDL', () => {
         ...project,
         engineTypes: [
           {
+            id: 'et_recursive',
             name: 'Recursive',
             displayName: 'Recursive',
             fields: [
               {
+                id: 'ef_children',
                 name: 'children',
                 displayName: 'Children',
                 type: {
@@ -185,5 +212,36 @@ describe('story project KDL', () => {
         ],
       }),
     ).toThrow(/Cyclic Engine Type/);
+  });
+
+  it('rejects dangling Character and Asset references in Engine JSON', () => {
+    const project = projectDocument();
+    const reward = project.engineTypes![0]!;
+    expect(() =>
+      serializeStoryProject({
+        ...project,
+        engineTypes: [
+          {
+            ...reward,
+            fields: reward.fields.map((field) =>
+              field.name === 'owner' ? { ...field, defaultValue: 'c_missing' } : field,
+            ),
+          },
+        ],
+      }),
+    ).toThrow(/missing Character c_missing/);
+    expect(() =>
+      serializeStoryProject({
+        ...project,
+        engineTypes: [
+          {
+            ...reward,
+            fields: reward.fields.map((field) =>
+              field.name === 'icon' ? { ...field, defaultValue: 'a_missing' } : field,
+            ),
+          },
+        ],
+      }),
+    ).toThrow(/missing Asset a_missing/);
   });
 });

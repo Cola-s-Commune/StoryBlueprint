@@ -34,6 +34,8 @@ import {
   STORY_SOURCE_VERSION,
   StoryNodeType,
   createStableId,
+  migrateEngineJsonValue,
+  summarizeEngineSchemaMigration,
   nodeRegistry,
   type NodeId,
   type BlueprintCommandTransaction,
@@ -43,6 +45,7 @@ import {
   type ChapterSource,
   type VariableId,
   type VariableDefinition,
+  type RuntimeValue,
   type CharacterId,
   type CharacterSource,
   type CharacterTemplateSource,
@@ -51,6 +54,7 @@ import {
   type EventId,
   type EventSource,
   type EngineTypeDefinition,
+  type EngineSchemaMigrationSummary,
   type SignalId,
   type SignalSource,
   type DialogueNodeData,
@@ -230,6 +234,13 @@ export type StoryDataSelection =
   | { kind: 'event'; id: EventId }
   | { kind: 'signal'; id: SignalId }
   | { kind: 'engine-type'; name: string };
+
+export interface EngineTypeMigrationPreview {
+  typeName: string;
+  summary: EngineSchemaMigrationSummary;
+  affectedValues: number;
+  affectedLocations: readonly string[];
+}
 
 function engineFieldTypeReferences(
   type: import('@story-blueprint/common').EngineFieldType,
@@ -517,6 +528,9 @@ interface StoryGraphStoreValue {
   addEngineType: () => string | undefined;
   updateEngineType: (name: string, update: EngineTypeDefinition) => boolean;
   removeEngineType: (name: string) => void;
+  engineTypeMigrationPreview?: EngineTypeMigrationPreview;
+  confirmEngineTypeMigration: () => void;
+  cancelEngineTypeMigration: () => void;
   markDirty: () => void;
   newStory: () => void;
   openStory: () => Promise<void>;
@@ -613,6 +627,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   }>();
   const [workspaceStories, setWorkspaceStories] = useState<EditorStoryWorkspaceItem[]>([]);
   const [storyDataSelection, setStoryDataSelection] = useState<StoryDataSelection>();
+  const [engineTypeMigrationPreview, setEngineTypeMigrationPreview] =
+    useState<EngineTypeMigrationPreview>();
+  const engineTypeMigrationApplyRef = useRef<(() => void) | undefined>(undefined);
   const [projectVariableReferenceScan, setProjectVariableReferenceScan] = useState<{
     variableId?: VariableId;
     loading: boolean;
@@ -3255,15 +3272,28 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const writeEngineTypes = useCallback(
-    (nextEngineTypes: readonly EngineTypeDefinition[]) => {
+    (
+      nextEngineTypes: readonly EngineTypeDefinition[],
+      nextProjectVariables?: readonly VariableDefinition[],
+    ) => {
       if (!workspace?.project || !window.electronAPI) return;
       setWorkspace((current) =>
         current?.project
-          ? { ...current, project: { ...current.project, engineTypes: nextEngineTypes } }
+          ? {
+              ...current,
+              project: {
+                ...current.project,
+                engineTypes: nextEngineTypes,
+                ...(nextProjectVariables ? { variables: nextProjectVariables } : {}),
+              },
+            }
           : current,
       );
       queueProjectResourceWrite(() =>
-        window.electronAPI!.updateProjectSettings({ engineTypes: nextEngineTypes }),
+        window.electronAPI!.updateProjectSettings({
+          engineTypes: nextEngineTypes,
+          ...(nextProjectVariables ? { variables: nextProjectVariables } : {}),
+        }),
       );
     },
     [queueProjectResourceWrite, workspace?.project],
@@ -3279,7 +3309,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     let name = `EngineType${index}`;
     while (used.has(name)) name = `EngineType${++index}`;
     checkpoint(undefined, 'Add Engine Type');
-    writeEngineTypes([...engineTypes, { name, displayName: name, fields: [] }]);
+    writeEngineTypes([
+      ...engineTypes,
+      { id: createStableId('engineType'), name, displayName: name, fields: [] },
+    ]);
     return name;
   }, [checkpoint, engineTypes, workspace?.project, writeEngineTypes]);
 
@@ -3317,24 +3350,362 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           return false;
         }
       }
-      checkpoint(undefined, 'Edit Engine Type');
-      writeEngineTypes(engineTypes.map((item) => (item.name === name ? update : item)));
-      if (update.name !== name) {
-        setStoryDataSelection({ kind: 'engine-type', name: update.name });
+      const summary = summarizeEngineSchemaMigration(previous, update);
+      const structuralChanges =
+        summary.addedFields.length +
+        summary.removedFields.length +
+        summary.renamedFields.length +
+        summary.changedTypeFields.length;
+      if (structuralChanges === 0) {
+        checkpoint(undefined, 'Edit Engine Type');
+        writeEngineTypes(engineTypes.map((item) => (item.name === name ? update : item)));
+        if (update.name !== name) {
+          setStoryDataSelection({ kind: 'engine-type', name: update.name });
+        }
+        return true;
       }
-      return true;
+      const nextEngineTypes = engineTypes.map((item) => (item.name === name ? update : item));
+      const affectedTypeNames = new Set([name]);
+      let discoveredParent = true;
+      while (discoveredParent) {
+        discoveredParent = false;
+        for (const candidate of engineTypes) {
+          if (
+            !affectedTypeNames.has(candidate.name) &&
+            candidate.fields.some((field) =>
+              [...affectedTypeNames].some((affectedName) =>
+                engineFieldTypeReferences(field.type, affectedName),
+              ),
+            )
+          ) {
+            affectedTypeNames.add(candidate.name);
+            discoveredParent = true;
+          }
+        }
+      }
+      const migrateVariable = (variable: VariableDefinition): VariableDefinition => {
+        if (variable.valueType.kind !== 'json' || !affectedTypeNames.has(variable.valueType.name)) {
+          return variable;
+        }
+        const valueTypeName = variable.valueType.name;
+        const previousDefinition = engineTypes.find((item) => item.name === valueTypeName);
+        const nextDefinition = nextEngineTypes.find((item) => item.name === valueTypeName);
+        if (!previousDefinition || !nextDefinition) return variable;
+        const defaultValue = migrateEngineJsonValue(
+          variable.defaultValue,
+          previousDefinition,
+          nextDefinition,
+          engineTypes,
+          nextEngineTypes,
+        );
+        return JSON.stringify(defaultValue) === JSON.stringify(variable.defaultValue)
+          ? variable
+          : { ...variable, defaultValue };
+      };
+      const nextVariables = variables.map(migrateVariable);
+      const nextProjectVariables = projectVariables.map(migrateVariable);
+      const nextChapters = chapters.map((chapter) => ({
+        ...chapter,
+        parameters: chapter.parameters.map((parameter) => ({
+          ...parameter,
+          variable: migrateVariable(parameter.variable),
+        })),
+        outputs: chapter.outputs.map((output) => ({
+          ...output,
+          variable: migrateVariable(output.variable),
+        })),
+        localVariables: chapter.localVariables.map(migrateVariable),
+      }));
+      const affectedLocations = new Set<string>();
+      let migratedNodeValues = 0;
+      const migrateJsonSource = (
+        expression: { source: string; bindings?: Readonly<Record<string, VariableId>> },
+        valueType: VariableDefinition['valueType'] | undefined,
+        location: string,
+      ) => {
+        if (valueType?.kind !== 'json' || !affectedTypeNames.has(valueType.name)) return expression;
+        const previousDefinition = engineTypes.find((item) => item.name === valueType.name);
+        const nextDefinition = nextEngineTypes.find((item) => item.name === valueType.name);
+        if (!previousDefinition || !nextDefinition) return expression;
+        let value: RuntimeValue;
+        try {
+          value = JSON.parse(expression.source) as RuntimeValue;
+        } catch {
+          return expression;
+        }
+        const migrated = migrateEngineJsonValue(
+          value,
+          previousDefinition,
+          nextDefinition,
+          engineTypes,
+          nextEngineTypes,
+        );
+        if (JSON.stringify(migrated) === JSON.stringify(value)) return expression;
+        const source = JSON.stringify(migrated);
+        migratedNodeValues += 1;
+        affectedLocations.add(location);
+        return { ...expression, source };
+      };
+      const migrateGraph = (
+        candidate: EditorGraphState,
+        ownerChapter?: EditorChapter,
+      ): EditorGraphState => {
+        const visibleVariables = [
+          ...variables,
+          ...projectVariables,
+          ...(ownerChapter?.parameters.map((parameter) => parameter.variable) ?? []),
+          ...(ownerChapter?.outputs.map((output) => output.variable) ?? []),
+          ...(ownerChapter?.localVariables ?? []),
+        ];
+        return {
+          ...candidate,
+          nodes: candidate.nodes.map((node) => {
+            if (node.type === StoryNodeType.SetVariable) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.SetVariable];
+              const variable = visibleVariables.find((item) => item.id === data.variableId);
+              const value = migrateJsonSource(
+                data.value,
+                variable?.valueType,
+                `Node ${node.id} · Set Variable`,
+              );
+              return value === data.value ? node : { ...node, data: { ...data, value } };
+            }
+            if (node.type === StoryNodeType.CallEvent) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.CallEvent];
+              const event = events.find((item) => item.id === data.eventId);
+              if (!event) return node;
+              const argumentsByName = Object.fromEntries(
+                Object.entries(data.arguments).map(([argumentName, expression]) => [
+                  argumentName,
+                  migrateJsonSource(
+                    expression,
+                    event.parameters.find((parameter) => parameter.name === argumentName)
+                      ?.valueType,
+                    `Node ${node.id} · Event ${argumentName}`,
+                  ),
+                ]),
+              );
+              return JSON.stringify(argumentsByName) === JSON.stringify(data.arguments)
+                ? node
+                : { ...node, data: { ...data, arguments: argumentsByName } };
+            }
+            if (node.type === StoryNodeType.WaitSignal) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.WaitSignal];
+              const signal = signals.find((item) => item.id === data.signalId);
+              if (!signal) return node;
+              const matches = Object.fromEntries(
+                Object.entries(data.matches).map(([parameterName, expression]) => [
+                  parameterName,
+                  migrateJsonSource(
+                    expression,
+                    signal.parameters.find((parameter) => parameter.name === parameterName)
+                      ?.valueType,
+                    `Node ${node.id} · Signal ${parameterName}`,
+                  ),
+                ]),
+              );
+              return JSON.stringify(matches) === JSON.stringify(data.matches)
+                ? node
+                : { ...node, data: { ...data, matches } };
+            }
+            if (node.type === StoryNodeType.CallSubstory) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+              const called = chapters.find((item) => item.id === data.chapterId);
+              if (!called) return node;
+              const argumentsById = Object.fromEntries(
+                Object.entries(data.arguments ?? {}).map(([parameterId, expression]) => [
+                  parameterId,
+                  migrateJsonSource(
+                    expression,
+                    called.parameters.find((parameter) => parameter.variable.id === parameterId)
+                      ?.variable.valueType,
+                    `Node ${node.id} · Substory input`,
+                  ),
+                ]),
+              );
+              return JSON.stringify(argumentsById) === JSON.stringify(data.arguments ?? {})
+                ? node
+                : { ...node, data: { ...data, arguments: argumentsById } };
+            }
+            if (node.type === StoryNodeType.Return && ownerChapter) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.Return];
+              const values = Object.fromEntries(
+                Object.entries(data.values ?? {}).map(([outputId, expression]) => [
+                  outputId,
+                  migrateJsonSource(
+                    expression,
+                    ownerChapter.outputs.find((output) => output.variable.id === outputId)?.variable
+                      .valueType,
+                    `Node ${node.id} · Return output`,
+                  ),
+                ]),
+              );
+              return JSON.stringify(values) === JSON.stringify(data.values ?? {})
+                ? node
+                : { ...node, data: { ...data, values } };
+            }
+            return node;
+          }),
+        };
+      };
+      const activeOwner =
+        activeGraphId === 'root'
+          ? undefined
+          : chapters.find((chapter) => chapter.id === activeGraphId);
+      const migratedActiveGraph = migrateGraph({ nodes, edges }, activeOwner);
+      const migratedRootGraph =
+        activeGraphId === 'root' ? migratedActiveGraph : migrateGraph(rootGraphRef.current);
+      const migratedChapters = nextChapters.map((chapter) => ({
+        ...chapter,
+        graph:
+          chapter.id === activeGraphId
+            ? chapter.graph
+            : migrateGraph(
+                chapter.graph,
+                chapters.find((item) => item.id === chapter.id),
+              ),
+      }));
+      const migratedWorkspaceStories = workspaceStories.map((story) => {
+        const storyVariables = story.variables.map(migrateVariable);
+        const storyChapters = story.chapters.map((chapter) => ({
+          ...chapter,
+          parameters: chapter.parameters.map((parameter) => ({
+            ...parameter,
+            variable: migrateVariable(parameter.variable),
+          })),
+          outputs: chapter.outputs.map((output) => ({
+            ...output,
+            variable: migrateVariable(output.variable),
+          })),
+          localVariables: chapter.localVariables.map(migrateVariable),
+          graph: migrateGraph(chapter.graph, chapter),
+        }));
+        const rootGraph = migrateGraph(story.rootGraph);
+        const changed =
+          JSON.stringify(storyVariables) !== JSON.stringify(story.variables) ||
+          JSON.stringify(storyChapters) !== JSON.stringify(story.chapters) ||
+          JSON.stringify(rootGraph) !== JSON.stringify(story.rootGraph);
+        return {
+          ...story,
+          variables: storyVariables,
+          chapters: storyChapters,
+          rootGraph,
+          document: changed ? { ...story.document, dirty: true } : story.document,
+          revision: changed ? story.revision + 1 : story.revision,
+        };
+      });
+      const characterChanges = resolvedCharacters.flatMap((character) => {
+        const fields = character.fields?.map(migrateVariable);
+        return fields && JSON.stringify(fields) !== JSON.stringify(character.fields)
+          ? [{ character, fields }]
+          : [];
+      });
+      nextVariables.forEach((variable, index) => {
+        if (variable !== variables[index]) affectedLocations.add(`Story variable ${variable.name}`);
+      });
+      nextProjectVariables.forEach((variable, index) => {
+        if (variable !== projectVariables[index]) {
+          affectedLocations.add(`Project variable ${variable.name}`);
+        }
+      });
+      nextChapters.forEach((chapter, chapterIndex) => {
+        const previousChapter = chapters[chapterIndex];
+        const before = [
+          ...(previousChapter?.parameters.map((item) => item.variable) ?? []),
+          ...(previousChapter?.outputs.map((item) => item.variable) ?? []),
+          ...(previousChapter?.localVariables ?? []),
+        ];
+        const after = [
+          ...chapter.parameters.map((item) => item.variable),
+          ...chapter.outputs.map((item) => item.variable),
+          ...chapter.localVariables,
+        ];
+        after.forEach((variable, index) => {
+          if (JSON.stringify(variable) !== JSON.stringify(before[index])) {
+            affectedLocations.add(`Substory ${chapter.displayName} · ${variable.name}`);
+          }
+        });
+      });
+      characterChanges.forEach(({ character }) =>
+        affectedLocations.add(`Character ${character.displayName}`),
+      );
+      const affectedValues =
+        nextVariables.filter((variable, index) => variable !== variables[index]).length +
+        nextProjectVariables.filter((variable, index) => variable !== projectVariables[index])
+          .length +
+        nextChapters.reduce(
+          (count, chapter, index) =>
+            count +
+            (JSON.stringify(chapter.parameters) !== JSON.stringify(chapters[index]?.parameters)
+              ? 1
+              : 0) +
+            (JSON.stringify(chapter.outputs) !== JSON.stringify(chapters[index]?.outputs) ? 1 : 0) +
+            (JSON.stringify(chapter.localVariables) !==
+            JSON.stringify(chapters[index]?.localVariables)
+              ? 1
+              : 0),
+          0,
+        ) +
+        characterChanges.length +
+        migratedWorkspaceStories.filter(
+          (story, index) => story.revision !== workspaceStories[index]?.revision,
+        ).length +
+        migratedNodeValues;
+      engineTypeMigrationApplyRef.current = () => {
+        checkpoint(undefined, 'Edit Engine Type');
+        setVariables(nextVariables);
+        setNodes(migratedActiveGraph.nodes);
+        setEdges(migratedActiveGraph.edges);
+        rootGraphRef.current = migratedRootGraph;
+        setChapters(migratedChapters);
+        setWorkspaceStories(migratedWorkspaceStories);
+        for (const { character, fields } of characterChanges) {
+          updateCharacter(character.id, { fields }, { recordHistory: false });
+        }
+        if (affectedValues > 0) markDirty();
+        writeEngineTypes(nextEngineTypes, nextProjectVariables);
+        if (update.name !== name) {
+          setStoryDataSelection({ kind: 'engine-type', name: update.name });
+        }
+      };
+      setEngineTypeMigrationPreview({
+        typeName: previous.displayName,
+        summary,
+        affectedValues,
+        affectedLocations: [...affectedLocations],
+      });
+      return false;
     },
     [
+      activeGraphId,
       checkpoint,
+      chapters,
+      edges,
       engineTypes,
       events,
+      markDirty,
+      nodes,
       projectVariables,
       resolvedCharacters,
       signals,
+      updateCharacter,
       variables,
+      workspaceStories,
       writeEngineTypes,
     ],
   );
+
+  const confirmEngineTypeMigration = useCallback(() => {
+    const apply = engineTypeMigrationApplyRef.current;
+    engineTypeMigrationApplyRef.current = undefined;
+    setEngineTypeMigrationPreview(undefined);
+    apply?.();
+  }, []);
+
+  const cancelEngineTypeMigration = useCallback(() => {
+    engineTypeMigrationApplyRef.current = undefined;
+    setEngineTypeMigrationPreview(undefined);
+  }, []);
 
   const removeEngineType = useCallback(
     (name: string) => {
@@ -5074,6 +5445,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addEngineType,
       updateEngineType,
       removeEngineType,
+      engineTypeMigrationPreview,
+      confirmEngineTypeMigration,
+      cancelEngineTypeMigration,
       document,
       stories,
       hasActiveStory,
@@ -5167,6 +5541,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addEvent,
       addSignal,
       addEngineType,
+      cancelEngineTypeMigration,
       addSubstory,
       checkpoint,
       characters,
@@ -5287,8 +5662,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets,
       events,
       engineTypes,
+      engineTypeMigrationPreview,
       signals,
       removeEngineType,
+      confirmEngineTypeMigration,
       updateEngineType,
       semanticSnapshot,
       executeBlueprintCommands,

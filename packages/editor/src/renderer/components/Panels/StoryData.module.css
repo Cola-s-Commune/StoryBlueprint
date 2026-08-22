@@ -760,6 +760,17 @@
   font-size: 9px;
 }
 
+.engineTypeBinding {
+  display: grid;
+  gap: 6px;
+}
+
+.engineTypeBindingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
 .structuredObject,
 .structuredArray,
 .engineFields {
@@ -840,6 +851,81 @@
 
 .checkboxRow input {
   width: auto;
+}
+
+.schemaMigrationBackdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(7 10 13 / 72%);
+}
+
+.schemaMigrationDialog {
+  display: grid;
+  width: min(560px, 90vw);
+  max-height: min(680px, 85vh);
+  gap: 12px;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid #536678;
+  border-radius: 7px;
+  background: #1d252c;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 55%);
+}
+
+.schemaMigrationDialog p {
+  margin: 0;
+  color: #aebdca;
+}
+
+.schemaMigrationSummary {
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid #3d4b57;
+  border-radius: 4px;
+  background: #20282f;
+}
+
+.schemaMigrationSummary > div {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+}
+
+.schemaMigrationLocations {
+  display: grid;
+  gap: 3px;
+  max-height: 260px;
+  padding: 7px;
+  overflow: auto;
+  border: 1px solid #35414c;
+  color: #9eacb8;
+  font-size: 10px;
+}
+
+.schemaMigrationActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.schemaMigrationActions button {
+  padding: 6px 12px;
+  border: 1px solid #4b5a67;
+  border-radius: 4px;
+  background: #27313a;
+  color: #c5d1da;
+  cursor: pointer;
+}
+
+.schemaMigrationActions .primaryButton {
+  border-color: #3978a6;
+  background: #285f87;
+  color: white;
 }
 
 .secondaryButton {

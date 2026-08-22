@@ -324,10 +324,12 @@
 - [x] Engine Type Schema Designer：图形化增删、改名、排序字段并修改 Boolean / Number / String / Enum / Object / Array 类型
 - [x] Object 字段引用其他 Engine Type；Array 配置元素类型，并检测直接或间接循环引用
 - [x] Schema 驱动 JSON Value Inspector：嵌套字段、数组项增删、默认值、可空与 Raw JSON 双向切换
-- [ ] Schema 变更影响预览与安全迁移：类型更改、字段改名或删除均可撤销，并列出全部受影响变量和节点
+- [x] Schema 变更影响预览与安全迁移：新增字段填默认值、字段改名保留值、删除字段清理值、类型不兼容重置默认值；列出受影响变量和节点并作为单次事务撤销
+- [x] Engine Type 与字段使用稳定 ID；改名和排序不改变身份，新增/删除不会被误判为改名
+- [x] Schema 迁移预览使用编辑器内对话框，不依赖系统 confirm；嵌套类型变更递归迁移所有父类型值
 - [x] Schema 只用于作者表单、校验、文档和引擎契约；编译产物仍是普通 JSON，不生成成员访问或数据处理逻辑
 - [x] Match Expression 到达 Wait 时求值并进入 PendingInteraction；未匹配 Payload 继续缓存
-- [ ] CharacterRef / AssetRef 专用引用类型（Engine JSON 已独立支持完整结构匹配）
+- [x] CharacterRef / AssetRef 专用引用类型：图形化资源选择、稳定 ID 存储与缺失引用校验
 
 ---
 

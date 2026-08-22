@@ -124,6 +124,8 @@ export {
   type AssetId,
   type EventId,
   type SignalId,
+  type EngineTypeId,
+  type EngineFieldId,
   type DialogueLineId,
   type TextId,
   type OptionId,
@@ -198,6 +200,11 @@ export {
   parseCharacterTemplate,
   serializeCharacterTemplate,
 } from './serialization/characterTemplateKdl';
+export {
+  migrateEngineJsonValue,
+  summarizeEngineSchemaMigration,
+  type EngineSchemaMigrationSummary,
+} from './engineSchema';
 
 export {
   STORY_PROJECT_FORMAT,

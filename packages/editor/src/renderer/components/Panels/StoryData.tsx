@@ -43,6 +43,7 @@ function defaultForEngineFieldType(
   if (type.kind === 'boolean') return false;
   if (type.kind === 'number') return 0;
   if (type.kind === 'string') return '';
+  if (type.kind === 'character-ref' || type.kind === 'asset-ref') return null;
   if (type.kind === 'enum') return type.values[0] ?? '';
   if (type.kind === 'array') return [];
   const definition = engineTypes.find((item) => item.name === type.typeName);
@@ -55,11 +56,15 @@ function StructuredJsonFields({
   type,
   value,
   engineTypes,
+  characters,
+  assets,
   onChange,
 }: {
   type: EngineFieldType;
   value: RuntimeValue;
   engineTypes: readonly EngineTypeDefinition[];
+  characters: readonly CharacterSource[];
+  assets: readonly AssetSource[];
   onChange: (value: RuntimeValue) => void;
 }) {
   if (type.kind === 'boolean') {
@@ -87,6 +92,36 @@ function StructuredJsonFields({
       />
     );
   }
+  if (type.kind === 'character-ref') {
+    return (
+      <select
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value || null)}
+      >
+        <option value="">None</option>
+        {characters.map((character) => (
+          <option key={character.id} value={character.id}>
+            {character.displayName}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (type.kind === 'asset-ref') {
+    return (
+      <select
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value || null)}
+      >
+        <option value="">None</option>
+        {assets.map((asset) => (
+          <option key={asset.id} value={asset.id}>
+            {asset.displayName} · {asset.kind}
+          </option>
+        ))}
+      </select>
+    );
+  }
   if (type.kind === 'enum') {
     return (
       <select
@@ -111,6 +146,8 @@ function StructuredJsonFields({
               type={type.elementType}
               value={item}
               engineTypes={engineTypes}
+              characters={characters}
+              assets={assets}
               onChange={(next) => {
                 const updated = [...items];
                 updated[index] = next;
@@ -157,6 +194,8 @@ function StructuredJsonFields({
             type={field.type}
             value={record[field.name] ?? field.defaultValue}
             engineTypes={engineTypes}
+            characters={characters}
+            assets={assets}
             onChange={(next) => onChange({ ...record, [field.name]: next })}
           />
         </label>
@@ -179,6 +218,7 @@ export function JsonValueInput({
   fieldType?: EngineFieldType;
   engineTypes?: readonly EngineTypeDefinition[];
 }) {
+  const { characters, assets } = useStoryGraphStore();
   const canonical = JSON.stringify(value, null, 2);
   const [draft, setDraft] = useState(canonical);
   const [error, setError] = useState<string>();
@@ -218,6 +258,8 @@ export function JsonValueInput({
           type={fieldType ?? { kind: 'object', typeName: schema!.name }}
           value={value}
           engineTypes={engineTypes}
+          characters={characters}
+          assets={assets}
           onChange={onCommit}
         />
       ) : (
@@ -406,6 +448,8 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     updateVariable,
     removeVariable,
     engineTypes,
+    addEngineType,
+    selectStoryData,
   } = useStoryGraphStore();
   const substory = chapters.find((chapter) =>
     [
@@ -435,6 +479,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     ...(substory?.localVariables ?? []),
   ].some((candidate) => candidate.id !== variable.id && candidate.name === variable.name);
   const kind = variable.valueType.kind as EditableKind;
+  const selectedEngineTypeName = engineTypeName(variable.valueType);
   const projectIndexUnavailable =
     variable.scope === 'project' &&
     (variableReferencesLoading || variableReferencesError !== undefined);
@@ -471,12 +516,21 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           value={kind}
           onChange={(event) => {
             const nextKind = event.target.value as EditableKind;
+            const nextEngineTypeName =
+              nextKind === 'json' ? (engineTypes[0]?.name ?? addEngineType()) : undefined;
+            if (nextKind === 'json' && !nextEngineTypeName) return;
             updateVariable(variable.id, {
               valueType:
                 nextKind === 'json'
-                  ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                  ? { kind: 'json', name: nextEngineTypeName! }
                   : ({ kind: nextKind } as ValueType),
-              defaultValue: nextKind === 'json' ? {} : defaultForType(nextKind),
+              defaultValue:
+                nextKind === 'json'
+                  ? defaultForEngineFieldType(
+                      { kind: 'object', typeName: nextEngineTypeName! },
+                      engineTypes,
+                    )
+                  : defaultForType(nextKind),
             });
           }}
         >
@@ -487,32 +541,63 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
         </select>
       </label>
       {variable.valueType.kind === 'json' && (
-        <label>
-          <span>Engine Type</span>
-          <select
-            value={variable.valueType.name}
-            onChange={(event) =>
-              updateVariable(variable.id, {
-                valueType: { kind: 'json', name: event.target.value },
-                defaultValue: defaultForEngineFieldType(
-                  { kind: 'object', typeName: event.target.value },
-                  engineTypes,
-                ),
-              })
-            }
-          >
-            {!engineTypes.some((item) => item.name === engineTypeName(variable.valueType)) && (
-              <option value={engineTypeName(variable.valueType)}>
-                {engineTypeName(variable.valueType)} (undefined)
-              </option>
+        <div className={styles.engineTypeBinding}>
+          <label>
+            <span>Engine Type</span>
+            <select
+              value={variable.valueType.name}
+              onChange={(event) =>
+                updateVariable(variable.id, {
+                  valueType: { kind: 'json', name: event.target.value },
+                  defaultValue: defaultForEngineFieldType(
+                    { kind: 'object', typeName: event.target.value },
+                    engineTypes,
+                  ),
+                })
+              }
+            >
+              {!engineTypes.some((item) => item.name === engineTypeName(variable.valueType)) && (
+                <option value={engineTypeName(variable.valueType)} disabled>
+                  Missing: {engineTypeName(variable.valueType)}
+                </option>
+              )}
+              {engineTypes.map((item) => (
+                <option key={item.id} value={item.name}>
+                  {item.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.engineTypeBindingActions}>
+            {engineTypes.some((item) => item.name === selectedEngineTypeName) ? (
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={() =>
+                  selectStoryData({ kind: 'engine-type', name: selectedEngineTypeName })
+                }
+              >
+                Edit Type Fields…
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={() => {
+                  const name = addEngineType();
+                  if (!name) return;
+                  updateVariable(variable.id, {
+                    valueType: { kind: 'json', name },
+                    defaultValue: {},
+                  });
+                  selectStoryData({ kind: 'engine-type', name });
+                }}
+              >
+                Create Type and Edit Fields…
+              </button>
             )}
-            {engineTypes.map((item) => (
-              <option key={item.name} value={item.name}>
-                {item.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
+          </div>
+        </div>
       )}
       <label>
         <span>Scope</span>
@@ -1308,6 +1393,8 @@ function EngineFieldTypeEditor({
         <option value="boolean">Boolean</option>
         <option value="number">Number</option>
         <option value="string">String</option>
+        <option value="character-ref">Character Reference</option>
+        <option value="asset-ref">Asset Reference</option>
         <option value="enum">Enum</option>
         <option value="object" disabled={!engineTypes.some((item) => item.name !== ownerName)}>
           Object
@@ -1363,7 +1450,14 @@ function EngineFieldTypeEditor({
 }
 
 function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) {
-  const { engineTypes, updateEngineType, removeEngineType } = useStoryGraphStore();
+  const {
+    engineTypes,
+    updateEngineType,
+    removeEngineType,
+    engineTypeMigrationPreview,
+    confirmEngineTypeMigration,
+    cancelEngineTypeMigration,
+  } = useStoryGraphStore();
   const update = (next: EngineTypeDefinition) => updateEngineType(definition.name, next);
   const updateField = (index: number, next: EngineTypeDefinition['fields'][number]) =>
     update({
@@ -1375,6 +1469,8 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
     updateField(index, {
       ...field,
       type,
+      nullable:
+        type.kind === 'character-ref' || type.kind === 'asset-ref' ? true : field.nullable,
       defaultValue: defaultForEngineFieldType(type, engineTypes),
     });
   };
@@ -1387,147 +1483,217 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
       ...definition,
       fields: [
         ...definition.fields,
-        { name, displayName: name, type: { kind: 'string' }, defaultValue: '' },
+        {
+          id: createStableId('engineField'),
+          name,
+          displayName: name,
+          type: { kind: 'string' },
+          defaultValue: '',
+        },
       ],
     });
   };
   return (
-    <div className={styles.details}>
-      <div className={styles.detailsTitle}>Engine Type</div>
-      <label>
-        <span>Internal Name</span>
-        <ScriptNameInput
-          value={definition.name}
-          onCommit={(name) =>
-            update({
-              ...definition,
-              name,
-              displayName:
-                definition.displayName === definition.name ? name : definition.displayName,
-            })
+    <>
+      <div className={styles.details}>
+        <div className={styles.detailsTitle}>Engine Type</div>
+        <label>
+          <span>Internal Name</span>
+          <ScriptNameInput
+            value={definition.name}
+            onCommit={(name) =>
+              update({
+                ...definition,
+                name,
+                displayName:
+                  definition.displayName === definition.name ? name : definition.displayName,
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Display Name</span>
+          <CommitInput
+            value={definition.displayName}
+            onCommit={(displayName) => update({ ...definition, displayName })}
+          />
+        </label>
+        <CommitTextarea
+          label="Description"
+          rows={3}
+          value={definition.description ?? ''}
+          onCommit={(description) =>
+            update({ ...definition, description: description || undefined })
           }
         />
-      </label>
-      <label>
-        <span>Display Name</span>
-        <CommitInput
-          value={definition.displayName}
-          onCommit={(displayName) => update({ ...definition, displayName })}
-        />
-      </label>
-      <CommitTextarea
-        label="Description"
-        rows={3}
-        value={definition.description ?? ''}
-        onCommit={(description) => update({ ...definition, description: description || undefined })}
-      />
-      <div className={styles.sectionHeader}>
-        <span>Serialized Fields</span>
-        <button type="button" onClick={addField}>
-          +
-        </button>
-      </div>
-      {definition.fields.length === 0 && <div className={styles.empty}>No fields</div>}
-      <div className={styles.engineFields}>
-        {definition.fields.map((field, index) => (
-          <div className={styles.engineFieldCard} key={`${field.name}-${index}`}>
-            <div className={styles.engineFieldHeader}>
-              <strong>{field.displayName}</strong>
-              <div>
-                <button
-                  type="button"
-                  disabled={index === 0}
-                  onClick={() => {
-                    const fields = [...definition.fields];
-                    [fields[index - 1], fields[index]] = [fields[index]!, fields[index - 1]!];
-                    update({ ...definition, fields });
-                  }}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  disabled={index === definition.fields.length - 1}
-                  onClick={() => {
-                    const fields = [...definition.fields];
-                    [fields[index], fields[index + 1]] = [fields[index + 1]!, fields[index]!];
-                    update({ ...definition, fields });
-                  }}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    update({
-                      ...definition,
-                      fields: definition.fields.filter((_, fieldIndex) => fieldIndex !== index),
+        <div className={styles.sectionHeader}>
+          <span>Serialized Fields</span>
+          <button type="button" onClick={addField}>
+            +
+          </button>
+        </div>
+        {definition.fields.length === 0 && <div className={styles.empty}>No fields</div>}
+        <div className={styles.engineFields}>
+          {definition.fields.map((field, index) => (
+            <div className={styles.engineFieldCard} key={field.id}>
+              <div className={styles.engineFieldHeader}>
+                <strong>{field.displayName}</strong>
+                <div>
+                  <button
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => {
+                      const fields = [...definition.fields];
+                      [fields[index - 1], fields[index]] = [fields[index]!, fields[index - 1]!];
+                      update({ ...definition, fields });
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === definition.fields.length - 1}
+                    onClick={() => {
+                      const fields = [...definition.fields];
+                      [fields[index], fields[index + 1]] = [fields[index + 1]!, fields[index]!];
+                      update({ ...definition, fields });
+                    }}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update({
+                        ...definition,
+                        fields: definition.fields.filter((_, fieldIndex) => fieldIndex !== index),
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              <label>
+                <span>Name</span>
+                <ScriptNameInput
+                  value={field.name}
+                  onCommit={(name) =>
+                    updateField(index, {
+                      ...field,
+                      name,
+                      displayName: field.displayName === field.name ? name : field.displayName,
                     })
                   }
-                >
-                  ×
-                </button>
-              </div>
+                />
+              </label>
+              <label>
+                <span>Display Name</span>
+                <CommitInput
+                  value={field.displayName}
+                  onCommit={(displayName) => updateField(index, { ...field, displayName })}
+                />
+              </label>
+              <label>
+                <span>Type</span>
+                <EngineFieldTypeEditor
+                  value={field.type}
+                  engineTypes={engineTypes}
+                  ownerName={definition.name}
+                  onChange={(type) => changeFieldType(index, type)}
+                />
+              </label>
+              <label className={styles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  disabled={
+                    field.type.kind === 'character-ref' || field.type.kind === 'asset-ref'
+                  }
+                  checked={field.nullable ?? false}
+                  onChange={(event) =>
+                    updateField(index, { ...field, nullable: event.target.checked || undefined })
+                  }
+                />
+                <span>Nullable</span>
+              </label>
+              <label>
+                <span>Default</span>
+                <JsonValueInput
+                  value={field.defaultValue}
+                  engineTypes={engineTypes}
+                  fieldType={field.type}
+                  onCommit={(defaultValue) => updateField(index, { ...field, defaultValue })}
+                />
+              </label>
             </div>
-            <label>
-              <span>Name</span>
-              <CommitInput
-                value={field.name}
-                onCommit={(name) =>
-                  updateField(index, {
-                    ...field,
-                    name,
-                    displayName: field.displayName === field.name ? name : field.displayName,
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Display Name</span>
-              <CommitInput
-                value={field.displayName}
-                onCommit={(displayName) => updateField(index, { ...field, displayName })}
-              />
-            </label>
-            <label>
-              <span>Type</span>
-              <EngineFieldTypeEditor
-                value={field.type}
-                engineTypes={engineTypes}
-                ownerName={definition.name}
-                onChange={(type) => changeFieldType(index, type)}
-              />
-            </label>
-            <label className={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={field.nullable ?? false}
-                onChange={(event) =>
-                  updateField(index, { ...field, nullable: event.target.checked || undefined })
-                }
-              />
-              <span>Nullable</span>
-            </label>
-            <label>
-              <span>Default</span>
-              <JsonValueInput
-                value={field.defaultValue}
-                engineTypes={engineTypes}
-                fieldType={field.type}
-                onCommit={(defaultValue) => updateField(index, { ...field, defaultValue })}
-              />
-            </label>
-          </div>
-        ))}
+          ))}
+        </div>
+        <button
+          type="button"
+          className={styles.dangerButton}
+          onClick={() => removeEngineType(definition.name)}
+        >
+          Delete Engine Type
+        </button>
       </div>
-      <button
-        type="button"
-        className={styles.dangerButton}
-        onClick={() => removeEngineType(definition.name)}
-      >
-        Delete Engine Type
-      </button>
-    </div>
+      {engineTypeMigrationPreview && (
+        <div className={styles.schemaMigrationBackdrop} role="presentation">
+          <div className={styles.schemaMigrationDialog} role="dialog" aria-modal="true">
+            <div className={styles.detailsTitle}>Migrate {engineTypeMigrationPreview.typeName}</div>
+            <p>{engineTypeMigrationPreview.affectedValues} stored JSON value(s) will change.</p>
+            <div className={styles.schemaMigrationSummary}>
+              {engineTypeMigrationPreview.summary.addedFields.length > 0 && (
+                <div>
+                  <strong>Added</strong>
+                  <span>{engineTypeMigrationPreview.summary.addedFields.join(', ')}</span>
+                </div>
+              )}
+              {engineTypeMigrationPreview.summary.removedFields.length > 0 && (
+                <div>
+                  <strong>Removed</strong>
+                  <span>{engineTypeMigrationPreview.summary.removedFields.join(', ')}</span>
+                </div>
+              )}
+              {engineTypeMigrationPreview.summary.renamedFields.length > 0 && (
+                <div>
+                  <strong>Renamed</strong>
+                  <span>
+                    {engineTypeMigrationPreview.summary.renamedFields
+                      .map((item) => `${item.from} → ${item.to}`)
+                      .join(', ')}
+                  </span>
+                </div>
+              )}
+              {engineTypeMigrationPreview.summary.changedTypeFields.length > 0 && (
+                <div>
+                  <strong>Type changed</strong>
+                  <span>{engineTypeMigrationPreview.summary.changedTypeFields.join(', ')}</span>
+                </div>
+              )}
+            </div>
+            {engineTypeMigrationPreview.affectedLocations.length > 0 && (
+              <div className={styles.schemaMigrationLocations}>
+                {engineTypeMigrationPreview.affectedLocations.map((location) => (
+                  <div key={location}>{location}</div>
+                ))}
+              </div>
+            )}
+            <div className={styles.schemaMigrationActions}>
+              <button type="button" onClick={cancelEngineTypeMigration}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.primaryButton}
+                onClick={confirmEngineTypeMigration}
+              >
+                Migrate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

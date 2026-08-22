@@ -1,4 +1,5 @@
-import type { AssetId, CharacterId, ProjectId, StoryId } from './ids';
+import { isStableId } from './ids';
+import type { AssetId, CharacterId, EngineFieldId, EngineTypeId, ProjectId, StoryId } from './ids';
 import type { EventSource, SignalSource } from './source';
 import type { VariableDefinition } from './values';
 
@@ -6,11 +7,14 @@ export type EngineFieldType =
   | { kind: 'boolean' }
   | { kind: 'number' }
   | { kind: 'string' }
+  | { kind: 'character-ref' }
+  | { kind: 'asset-ref' }
   | { kind: 'enum'; values: readonly string[] }
   | { kind: 'object'; typeName: string }
   | { kind: 'array'; elementType: EngineFieldType };
 
 export interface EngineTypeField {
+  id: EngineFieldId;
   name: string;
   displayName: string;
   description?: string;
@@ -20,6 +24,7 @@ export interface EngineTypeField {
 }
 
 export interface EngineTypeDefinition {
+  id: EngineTypeId;
   name: string;
   displayName: string;
   description?: string;
@@ -34,6 +39,9 @@ export function engineValueMatchesFieldType(
   if (type.kind === 'boolean') return typeof value === 'boolean';
   if (type.kind === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (type.kind === 'string') return typeof value === 'string';
+  if (type.kind === 'character-ref')
+    return typeof value === 'string' && isStableId(value, 'character');
+  if (type.kind === 'asset-ref') return typeof value === 'string' && isStableId(value, 'asset');
   if (type.kind === 'enum') return typeof value === 'string' && type.values.includes(value);
   if (type.kind === 'array') {
     return (
