@@ -1621,7 +1621,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       </div>
       <ResourceReferenceSection
         references={references}
-        emptyMessage="This character is not used by any Dialogue line."
+        emptyMessage="This character is not used by any Story, relationship, or Engine JSON value."
         onShow={focusStoryResourceReference}
       />
       {references.length > 0 && (

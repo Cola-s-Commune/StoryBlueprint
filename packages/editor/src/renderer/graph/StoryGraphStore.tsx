@@ -262,10 +262,14 @@ function resourceReferenceStories(
     id: story.document.id,
     label: story.document.displayName,
     rootGraph: story.rootGraph,
+    variables: story.variables,
     chapters: story.chapters.map((chapter) => ({
       id: chapter.id,
       label: chapter.displayName,
       graph: chapter.graph,
+      parameters: chapter.parameters.map((parameter) => parameter.variable),
+      outputs: chapter.outputs.map((output) => output.variable),
+      localVariables: chapter.localVariables,
     })),
   }));
 }
@@ -2784,7 +2788,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       ];
       if (references.length > 0) {
         setWorkspaceError(
-          'Character is used by Dialogue lines or Character fields. Remove its references first.',
+          'Character is used by Story data, relationships, or Engine JSON. Remove its references first.',
         );
         return;
       }
@@ -3856,8 +3860,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         items,
         workspace?.characterResources.map((candidate) => candidate.character) ?? [],
       ),
+      { engineTypes, projectVariables, events, signals },
     );
-  }, [currentStoryItems, storyDataSelection?.kind, workspace?.characterResources]);
+  }, [
+    currentStoryItems,
+    engineTypes,
+    events,
+    projectVariables,
+    signals,
+    storyDataSelection?.kind,
+    workspace?.characterResources,
+  ]);
   resourceReferenceIndexRef.current = resourceReferenceIndex;
 
   const findCharacterReferencesById = useCallback(
@@ -4043,6 +4056,22 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const focusStoryResourceReference = useCallback(
     (reference: StoryResourceReference): boolean => {
+      if (reference.target.kind === 'engine-type') {
+        setStoryDataSelection({ kind: 'engine-type', name: reference.target.name });
+        return true;
+      }
+      if (reference.target.kind === 'variable') {
+        const variableTarget = reference.target;
+        if (variableTarget.storyId && variableTarget.storyId !== document.id) {
+          const target = currentStoryItemsRef
+            .current()
+            .find((story) => story.document.id === variableTarget.storyId);
+          if (!target) return false;
+          loadStory(target);
+        }
+        setStoryDataSelection({ kind: 'variable', id: variableTarget.variableId });
+        return true;
+      }
       if (reference.target.kind === 'character') {
         const characterTarget = reference.target;
         if (characterTarget.storyId && characterTarget.storyId !== document.id) {

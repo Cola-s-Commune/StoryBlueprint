@@ -27,6 +27,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { is } from '@electron-toolkit/utils';
 import {
   createStableId,
+  collectEngineResourceValueReferences,
   parseStoryProject,
   parseStorySource,
   parseCharacterResource,
@@ -51,6 +52,9 @@ import {
   type CharacterSource,
   type CharacterTemplateSource,
   type DialogueNodeData,
+  type RuntimeValue,
+  type StoryNodeDataMap,
+  type ValueType,
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type StoryProjectDocument,
@@ -1459,6 +1463,36 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
   const addUsage = (reference: { storyIds: string[] }, storyId: string) => {
     if (!reference.storyIds.includes(storyId)) reference.storyIds.push(storyId);
   };
+  const addEngineValueUsage = (
+    value: RuntimeValue,
+    valueType: ValueType | undefined,
+    storyId: string,
+  ) => {
+    if (valueType?.kind !== 'json') return;
+    for (const reference of collectEngineResourceValueReferences(
+      value,
+      { kind: 'object', typeName: valueType.name },
+      current.engineTypes ?? [],
+    )) {
+      const target =
+        reference.kind === 'character'
+          ? characters.get(reference.id)
+          : assets.get(reference.id);
+      if (!target) {
+        throw new Error(
+          `Engine JSON ${reference.path} references missing ${reference.kind} ${reference.id}`,
+        );
+      }
+      addUsage(target, storyId);
+    }
+  };
+  const parseJsonExpression = (source: string): RuntimeValue | undefined => {
+    try {
+      return JSON.parse(source) as RuntimeValue;
+    } catch {
+      return undefined;
+    }
+  };
 
   for (const entry of storyEntries) {
     let source: StorySourceDocument;
@@ -1518,24 +1552,117 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
         });
       }
     }
+    for (const character of source.characters) {
+      for (const field of character.fields ?? []) {
+        addEngineValueUsage(field.defaultValue, field.valueType, source.id);
+      }
+    }
+    for (const variable of source.variables) {
+      addEngineValueUsage(variable.defaultValue, variable.valueType, source.id);
+    }
+    for (const chapter of source.chapters) {
+      for (const variable of [
+        ...chapter.parameters.map((parameter) => parameter.variable),
+        ...chapter.outputs.map((output) => output.variable),
+        ...chapter.localVariables,
+      ]) {
+        addEngineValueUsage(variable.defaultValue, variable.valueType, source.id);
+      }
+    }
     const graphNodes = [
       ...source.root.nodes,
       ...source.chapters.flatMap((chapter) => chapter.graph.nodes),
     ];
     for (const node of graphNodes) {
-      if (node.type !== StoryNodeType.Dialogue) continue;
-      const data = node.data as unknown as DialogueNodeData;
-      const speakerIds = new Set(data.lines.map((line) => line.speakerId).filter(Boolean));
-      const voiceIds = new Set(data.lines.map((line) => line.voiceId).filter(Boolean));
-      for (const speakerId of speakerIds) {
-        const character = characters.get(speakerId!);
-        if (!character) throw new Error(`Dialogue references missing character ${speakerId}`);
-        addUsage(character, source.id);
+      if (node.type === StoryNodeType.Dialogue) {
+        const data = node.data as unknown as DialogueNodeData;
+        const speakerIds = new Set(data.lines.map((line) => line.speakerId).filter(Boolean));
+        const voiceIds = new Set(data.lines.map((line) => line.voiceId).filter(Boolean));
+        for (const speakerId of speakerIds) {
+          const character = characters.get(speakerId!);
+          if (!character) throw new Error(`Dialogue references missing character ${speakerId}`);
+          addUsage(character, source.id);
+        }
+        for (const voiceId of voiceIds) {
+          const asset = assets.get(voiceId!);
+          if (!asset) throw new Error(`Dialogue references missing asset ${voiceId}`);
+          addUsage(asset, source.id);
+        }
       }
-      for (const voiceId of voiceIds) {
-        const asset = assets.get(voiceId!);
-        if (!asset) throw new Error(`Dialogue references missing asset ${voiceId}`);
-        addUsage(asset, source.id);
+    }
+    const graphContexts = [
+      { graph: source.root, variables: source.variables, chapter: undefined },
+      ...source.chapters.map((chapter) => ({
+        graph: chapter.graph,
+        variables: [
+          ...chapter.parameters.map((parameter) => parameter.variable),
+          ...chapter.outputs.map((output) => output.variable),
+          ...chapter.localVariables,
+          ...source.variables,
+        ],
+        chapter,
+      })),
+    ];
+    const addExpressionUsage = (
+      expression: { source: string } | undefined,
+      valueType: ValueType | undefined,
+    ) => {
+      if (!expression || valueType?.kind !== 'json') return;
+      const value = parseJsonExpression(expression.source);
+      if (value !== undefined) addEngineValueUsage(value, valueType, source.id);
+    };
+    for (const graphContext of graphContexts) {
+      for (const node of graphContext.graph.nodes) {
+        if (node.type === StoryNodeType.SetVariable) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.SetVariable];
+          addExpressionUsage(
+            data.value,
+            [...graphContext.variables, ...(current.variables ?? [])].find(
+              (variable) => variable.id === data.variableId,
+            )?.valueType,
+          );
+        }
+        if (node.type === StoryNodeType.CallEvent) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+          const definition = current.events.find((event) => event.id === data.eventId);
+          for (const [name, expression] of Object.entries(data.arguments)) {
+            addExpressionUsage(
+              expression,
+              definition?.parameters.find((parameter) => parameter.name === name)?.valueType,
+            );
+          }
+        }
+        if (node.type === StoryNodeType.WaitSignal) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.WaitSignal];
+          const definition = current.signals.find((signal) => signal.id === data.signalId);
+          for (const [name, expression] of Object.entries(data.matches)) {
+            addExpressionUsage(
+              expression,
+              definition?.parameters.find((parameter) => parameter.name === name)?.valueType,
+            );
+          }
+        }
+        if (node.type === StoryNodeType.CallSubstory) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+          const definition = source.chapters.find((chapter) => chapter.id === data.chapterId);
+          for (const [id, expression] of Object.entries(data.arguments ?? {})) {
+            addExpressionUsage(
+              expression,
+              definition?.parameters.find((parameter) => parameter.variable.id === id)?.variable
+                .valueType,
+            );
+          }
+        }
+        if (node.type === StoryNodeType.Return && graphContext.chapter) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
+          for (const [id, expression] of Object.entries(data.values ?? {})) {
+            addExpressionUsage(
+              expression,
+              graphContext.chapter.outputs.find((output) => output.variable.id === id)?.variable
+                .valueType,
+            );
+          }
+        }
       }
     }
   }
@@ -1587,6 +1714,48 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
   };
   await writeFile(workspaceProjectFile, serializeStoryProject(next), 'utf8');
   return (await readWorkspace())!;
+}
+
+function findProjectEngineResourceReference(
+  project: StoryProjectDocument,
+  workspace: WorkspaceInfo | undefined,
+  kind: 'character' | 'asset',
+  id: string,
+): string | undefined {
+  const matches = (
+    value: RuntimeValue,
+    type: Parameters<typeof collectEngineResourceValueReferences>[1],
+  ) =>
+    collectEngineResourceValueReferences(value, type, project.engineTypes ?? []).find(
+      (reference) => reference.kind === kind && reference.id === id,
+    );
+  for (const definition of project.engineTypes ?? []) {
+    for (const field of definition.fields) {
+      const reference = matches(field.defaultValue, field.type);
+      if (reference) return `Engine Type ${definition.displayName}.${field.displayName}`;
+    }
+  }
+  for (const variable of project.variables ?? []) {
+    if (variable.valueType.kind !== 'json') continue;
+    const reference = matches(variable.defaultValue, {
+      kind: 'object',
+      typeName: variable.valueType.name,
+    });
+    if (reference) return `Project variable ${variable.displayName}.${reference.path}`;
+  }
+  for (const resource of workspace?.characterResources ?? []) {
+    for (const field of resource.character.fields ?? []) {
+      if (field.valueType.kind !== 'json') continue;
+      const reference = matches(field.defaultValue, {
+        kind: 'object',
+        typeName: field.valueType.name,
+      });
+      if (reference) {
+        return `Character ${resource.character.displayName}.${field.displayName}.${reference.path}`;
+      }
+    }
+  }
+  return undefined;
 }
 
 async function validateCharacterResourceWrite(
@@ -3194,6 +3363,10 @@ function registerStoryFileHandlers(): void {
       throw new Error(`Character is used by ${reference.storyIds.length} Story file(s)`);
     }
     const workspace = await readWorkspace();
+    const engineReference = reference
+      ? findProjectEngineResourceReference(project, workspace, 'character', reference.id)
+      : undefined;
+    if (engineReference) throw new Error(`Character is referenced by ${engineReference}`);
     const relationshipOwner = workspace?.characterResources.find(({ character }) =>
       Object.hasOwn(character.relationships ?? {}, reference?.id ?? ''),
     );
@@ -3257,6 +3430,10 @@ function registerStoryFileHandlers(): void {
       throw new Error(`Asset is used by ${reference.storyIds.length} Story file(s)`);
     }
     const workspace = await readWorkspace();
+    const engineReference = reference
+      ? findProjectEngineResourceReference(project, workspace, 'asset', reference.id)
+      : undefined;
+    if (engineReference) throw new Error(`Asset is referenced by ${engineReference}`);
     const character = reference
       ? workspace?.characterResources.find(({ character }) =>
           [

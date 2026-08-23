@@ -37,6 +37,51 @@ export interface EngineTypeDefinition {
   fields: readonly EngineTypeField[];
 }
 
+export interface EngineResourceValueReference {
+  kind: 'character' | 'asset';
+  id: string;
+  path: string;
+}
+
+export function collectEngineResourceValueReferences(
+  value: import('./values').RuntimeValue,
+  type: EngineFieldType,
+  definitions: readonly EngineTypeDefinition[],
+  path = '',
+): EngineResourceValueReference[] {
+  if (value === null) return [];
+  if (type.kind === 'character-ref' && typeof value === 'string') {
+    return [{ kind: 'character', id: value, path }];
+  }
+  if (type.kind === 'asset-ref' && typeof value === 'string') {
+    return [{ kind: 'asset', id: value, path }];
+  }
+  if (type.kind === 'array' && Array.isArray(value)) {
+    return value.flatMap((item, index) =>
+      collectEngineResourceValueReferences(item, type.elementType, definitions, `${path}[${index}]`),
+    );
+  }
+  if (type.kind === 'map' && !Array.isArray(value) && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, item]) =>
+      collectEngineResourceValueReferences(item, type.valueType, definitions, path ? `${path}.${key}` : key),
+    );
+  }
+  if (type.kind !== 'object' || Array.isArray(value) || typeof value !== 'object') return [];
+  const definition = definitions.find((candidate) => candidate.name === type.typeName);
+  const record = value as Readonly<Record<string, import('./values').RuntimeValue>>;
+  return (definition?.fields ?? []).flatMap((field) => {
+    const fieldValue = record[field.name];
+    return fieldValue === undefined
+      ? []
+      : collectEngineResourceValueReferences(
+          fieldValue,
+          field.type,
+          definitions,
+          path ? `${path}.${field.name}` : field.name,
+        );
+  });
+}
+
 export function engineValueMatchesFieldType(
   value: import('./values').RuntimeValue,
   type: EngineFieldType,

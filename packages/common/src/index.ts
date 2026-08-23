@@ -217,6 +217,8 @@ export {
   type EngineTypeField,
   type EngineTypeDefinition,
   engineValueMatchesFieldType,
+  collectEngineResourceValueReferences,
+  type EngineResourceValueReference,
   type StoryProjectDocument,
 } from './types/project';
 

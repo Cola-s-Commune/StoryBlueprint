@@ -1042,6 +1042,10 @@ Array 和 Map。Object 引用另一个 Engine Type，Array 单独声明元素类
 String、Number 或 Enum，Value 可递归使用其他 Engine Field Type。Map 编译为普通 JSON Object，
 仅用于图形化数据录入和 Adapter 契约，不提供成员访问或编程能力。编辑器必须拒绝无法有限展开的循环引用。
 
+CharacterRef 与 AssetRef 的引用索引必须使用同一 Schema 递归遍历 Object、Array 与 Map。索引覆盖
+Engine Type 默认值、Project / Story / Substory 变量、Character Field 和节点中的 JSON Literal；资源删除前
+必须同时检查内存中的未保存 Story 与磁盘上的项目 Story 使用索引，不能只检查 Dialogue 的直接引用。
+
 引用 Engine Type 的变量、Character Field、Substory 接口、Event 参数和 Signal 参数共享同一套 Schema
 驱动表单。表单编辑结果仍是一个完整 JSON 值，并允许切换到 Raw JSON；两种模式必须即时校验并双向同步。
 Schema 只承担作者体验、默认值、验证、接口文档和迁移，不赋予 Story 成员访问、比较、遍历或计算能力。

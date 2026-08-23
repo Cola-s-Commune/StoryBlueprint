@@ -203,4 +203,98 @@ describe('character and asset reference index', () => {
     expect(index.assets.get('a_voice')).toHaveLength(1_000);
     expect(index.assets.get('a_portrait')).toHaveLength(1);
   });
+
+  it('recursively indexes Engine JSON references in variables, nodes, Character Fields, and Maps', () => {
+    const payload = {
+      id: 'et_referencepayload' as const,
+      name: 'ReferencePayload',
+      displayName: 'Reference Payload',
+      fields: [
+        {
+          id: 'ef_owner' as const,
+          name: 'owner',
+          displayName: 'Owner',
+          type: { kind: 'character-ref' as const },
+          nullable: true,
+          defaultValue: 'c_alice',
+        },
+        {
+          id: 'ef_portraits' as const,
+          name: 'portraits',
+          displayName: 'Portraits',
+          type: { kind: 'array' as const, elementType: { kind: 'asset-ref' as const } },
+          defaultValue: ['a_portrait'],
+        },
+        {
+          id: 'ef_bykey' as const,
+          name: 'byKey',
+          displayName: 'By Key',
+          type: {
+            kind: 'map' as const,
+            keyType: { kind: 'string' as const },
+            valueType: { kind: 'asset-ref' as const },
+          },
+          defaultValue: { happy: 'a_happy' },
+        },
+      ],
+    };
+    const jsonVariable = {
+      id: 'v_payload' as const,
+      name: 'payload',
+      displayName: 'Payload',
+      scope: 'story' as const,
+      valueType: { kind: 'json' as const, name: payload.name },
+      defaultValue: {
+        owner: 'c_alice',
+        portraits: ['a_portrait'],
+        byKey: { happy: 'a_happy' },
+      },
+    };
+    const story: ResourceReferenceStory = {
+      id: 's_jsonrefs',
+      label: 'JSON Story',
+      variables: [jsonVariable],
+      rootGraph: graph([
+        {
+          id: 'n_setpayload',
+          type: StoryNodeType.SetVariable,
+          definitionVersion: 1,
+          position: { x: 0, y: 0 },
+          data: {
+            variableId: jsonVariable.id,
+            value: {
+              source: JSON.stringify(jsonVariable.defaultValue),
+              bindings: {},
+            },
+          },
+        },
+      ]),
+      chapters: [],
+    };
+    const characterWithJson: CharacterSource = {
+      ...character,
+      fields: [
+        ...(character.fields ?? []),
+        { ...jsonVariable, id: 'v_characterpayload', scope: 'character' },
+      ],
+    };
+    const index = buildStoryResourceReferenceIndex(
+      [story],
+      [{ character: characterWithJson }],
+      { engineTypes: [payload], projectVariables: [], events: [], signals: [] },
+    );
+    expect(index.characters.get('c_alice')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Default.owner', target: { kind: 'variable', variableId: 'v_payload', storyId: 's_jsonrefs' } }),
+        expect.objectContaining({ field: 'Set Variable.owner', target: expect.objectContaining({ kind: 'node', nodeId: 'n_setpayload' }) }),
+      ]),
+    );
+    expect(index.assets.get('a_happy')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'Default.byKey.happy' }),
+        expect.objectContaining({ field: 'Set Variable.byKey.happy' }),
+        expect.objectContaining({ field: 'Payload.Default.byKey.happy', target: expect.objectContaining({ kind: 'character' }) }),
+      ]),
+    );
+  });
 });
