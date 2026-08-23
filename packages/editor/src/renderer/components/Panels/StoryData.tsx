@@ -6,6 +6,7 @@ import type {
   CharacterId,
   EventSource,
   EngineFieldType,
+  EngineMapKeyType,
   EngineTypeDefinition,
   SignalSource,
   AssetId,
@@ -47,9 +48,71 @@ function defaultForEngineFieldType(
   if (type.kind === 'character-ref' || type.kind === 'asset-ref') return null;
   if (type.kind === 'enum') return type.values[0] ?? '';
   if (type.kind === 'array') return [];
+  if (type.kind === 'map') return {};
   const definition = engineTypes.find((item) => item.name === type.typeName);
   return Object.fromEntries(
     (definition?.fields ?? []).map((field) => [field.name, structuredClone(field.defaultValue)]),
+  );
+}
+
+function mapKeyMatchesType(key: string, type: EngineMapKeyType): boolean {
+  if (!key) return false;
+  if (type.kind === 'string') return true;
+  if (type.kind === 'number') return Number.isFinite(Number(key));
+  return type.values.includes(key);
+}
+
+function MapKeyInput({
+  value,
+  type,
+  usedKeys,
+  onCommit,
+}: {
+  value: string;
+  type: EngineMapKeyType;
+  usedKeys: readonly string[];
+  onCommit: (key: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  if (type.kind === 'enum') {
+    return (
+      <select value={value} onChange={(event) => onCommit(event.target.value)}>
+        {type.values.map((option) => (
+          <option key={option} value={option} disabled={option !== value && usedKeys.includes(option)}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  const finish = () => {
+    if (
+      draft !== value &&
+      mapKeyMatchesType(draft, type) &&
+      !usedKeys.some((key) => key !== value && key === draft)
+    ) {
+      onCommit(draft);
+    } else {
+      setDraft(value);
+    }
+  };
+  return (
+    <input
+      type={type.kind === 'number' ? 'number' : 'text'}
+      value={draft}
+      aria-label="Map key"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={finish}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          setDraft(value);
+          event.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -171,6 +234,79 @@ function StructuredJsonFields({
           }
         >
           + Add Item
+        </button>
+      </div>
+    );
+  }
+  if (type.kind === 'map') {
+    const record =
+      !Array.isArray(value) && typeof value === 'object' && value !== null
+        ? ({ ...value } as Record<string, RuntimeValue>)
+        : {};
+    const keys = Object.keys(record);
+    const nextKey = (() => {
+      if (type.keyType.kind === 'enum') {
+        return type.keyType.values.find((candidate) => !keys.includes(candidate));
+      }
+      if (type.keyType.kind === 'number') {
+        let index = 0;
+        while (keys.includes(String(index))) index += 1;
+        return String(index);
+      }
+      let index = keys.length + 1;
+      let candidate = `key${index}`;
+      while (keys.includes(candidate)) candidate = `key${++index}`;
+      return candidate;
+    })();
+    return (
+      <div className={styles.structuredMap}>
+        {keys.map((key) => (
+          <div className={styles.structuredMapItem} key={key}>
+            <MapKeyInput
+              value={key}
+              type={type.keyType}
+              usedKeys={keys}
+              onCommit={(nextKey) =>
+                onChange(
+                  Object.fromEntries(
+                    Object.entries(record).map(([candidate, item]) => [
+                      candidate === key ? nextKey : candidate,
+                      item,
+                    ]),
+                  ),
+                )
+              }
+            />
+            <StructuredJsonFields
+              type={type.valueType}
+              value={record[key]!}
+              engineTypes={engineTypes}
+              characters={characters}
+              assets={assets}
+              onChange={(next) => onChange({ ...record, [key]: next })}
+            />
+            <button
+              type="button"
+              aria-label={`Remove Map item ${key}`}
+              onClick={() => onChange(Object.fromEntries(Object.entries(record).filter(([candidate]) => candidate !== key)))}
+            >
+              −
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          disabled={!nextKey}
+          onClick={() =>
+            nextKey &&
+            onChange({
+              ...record,
+              [nextKey]: defaultForEngineFieldType(type.valueType, engineTypes),
+            })
+          }
+        >
+          + Add Entry
         </button>
       </div>
     );
@@ -1525,6 +1661,48 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
   );
 }
 
+function EngineMapKeyTypeEditor({
+  value,
+  onChange,
+}: {
+  value: EngineMapKeyType;
+  onChange: (value: EngineMapKeyType) => void;
+}) {
+  return (
+    <div className={styles.engineFieldType}>
+      <select
+        value={value.kind}
+        onChange={(event) => {
+          const kind = event.target.value as EngineMapKeyType['kind'];
+          onChange(kind === 'enum' ? { kind, values: ['Key'] } : { kind });
+        }}
+      >
+        <option value="string">String</option>
+        <option value="number">Number</option>
+        <option value="enum">Enum</option>
+      </select>
+      {value.kind === 'enum' && (
+        <CommitInput
+          value={value.values.join(', ')}
+          onCommit={(text) =>
+            onChange({
+              kind: 'enum',
+              values: [
+                ...new Set(
+                  text
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                ),
+              ],
+            })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
 function EngineFieldTypeEditor({
   value,
   engineTypes,
@@ -1547,6 +1725,9 @@ function EngineFieldTypeEditor({
         typeName: engineTypes.find((item) => item.name !== ownerName)?.name ?? ownerName,
       });
     } else if (nextKind === 'array') onChange({ kind: 'array', elementType: { kind: 'string' } });
+    else if (nextKind === 'map') {
+      onChange({ kind: 'map', keyType: { kind: 'string' }, valueType: { kind: 'string' } });
+    }
     else onChange({ kind: nextKind });
   };
   return (
@@ -1565,6 +1746,7 @@ function EngineFieldTypeEditor({
           Object
         </option>
         <option value="array">Array</option>
+        <option value="map">Map / Dictionary</option>
       </select>
       {value.kind === 'enum' && (
         <CommitInput
@@ -1608,6 +1790,27 @@ function EngineFieldTypeEditor({
             depth={depth + 1}
             onChange={(elementType) => onChange({ kind: 'array', elementType })}
           />
+        </div>
+      )}
+      {value.kind === 'map' && depth < 3 && (
+        <div className={styles.mapTypeEditor}>
+          <label>
+            <span>Key</span>
+            <EngineMapKeyTypeEditor
+              value={value.keyType}
+              onChange={(keyType) => onChange({ ...value, keyType })}
+            />
+          </label>
+          <label>
+            <span>Value</span>
+            <EngineFieldTypeEditor
+              value={value.valueType}
+              engineTypes={engineTypes}
+              ownerName={ownerName}
+              depth={depth + 1}
+              onChange={(valueType) => onChange({ ...value, valueType })}
+            />
+          </label>
         </div>
       )}
     </div>

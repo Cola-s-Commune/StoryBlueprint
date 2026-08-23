@@ -1038,7 +1038,9 @@ Diff Preview → Transaction → Undo / Redo
 
 复杂引擎值由项目级 `Engine Type Schema` 描述。Schema 本身使用图形化编辑器维护，作者不需要手写
 JSON Schema：可以增删、改名和排序字段，并将字段设为 Boolean、Number、String、Enum、Object 或
-Array。Object 引用另一个 Engine Type，Array 单独声明元素类型；编辑器必须拒绝无法有限展开的循环引用。
+Array 和 Map。Object 引用另一个 Engine Type，Array 单独声明元素类型；Map 的 Key 仅允许
+String、Number 或 Enum，Value 可递归使用其他 Engine Field Type。Map 编译为普通 JSON Object，
+仅用于图形化数据录入和 Adapter 契约，不提供成员访问或编程能力。编辑器必须拒绝无法有限展开的循环引用。
 
 引用 Engine Type 的变量、Character Field、Substory 接口、Event 参数和 Signal 参数共享同一套 Schema
 驱动表单。表单编辑结果仍是一个完整 JSON 值，并允许切换到 Raw JSON；两种模式必须即时校验并双向同步。

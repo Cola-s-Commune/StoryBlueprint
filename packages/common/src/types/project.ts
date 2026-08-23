@@ -11,7 +11,13 @@ export type EngineFieldType =
   | { kind: 'asset-ref' }
   | { kind: 'enum'; values: readonly string[] }
   | { kind: 'object'; typeName: string }
-  | { kind: 'array'; elementType: EngineFieldType };
+  | { kind: 'array'; elementType: EngineFieldType }
+  | { kind: 'map'; keyType: EngineMapKeyType; valueType: EngineFieldType };
+
+export type EngineMapKeyType =
+  | { kind: 'string' }
+  | { kind: 'number' }
+  | { kind: 'enum'; values: readonly string[] };
 
 export interface EngineTypeField {
   id: EngineFieldId;
@@ -47,6 +53,19 @@ export function engineValueMatchesFieldType(
     return (
       Array.isArray(value) &&
       value.every((item) => engineValueMatchesFieldType(item, type.elementType, definitions))
+    );
+  }
+  if (type.kind === 'map') {
+    if (Array.isArray(value) || typeof value !== 'object' || value === null) return false;
+    const keyMatches = (key: string) =>
+      type.keyType.kind === 'string'
+        ? key.length > 0
+        : type.keyType.kind === 'number'
+          ? key.trim() !== '' && Number.isFinite(Number(key))
+          : type.keyType.values.includes(key);
+    return Object.entries(value).every(
+      ([key, item]) =>
+        keyMatches(key) && engineValueMatchesFieldType(item, type.valueType, definitions),
     );
   }
   if (Array.isArray(value) || typeof value !== 'object' || value === null) return false;

@@ -78,6 +78,17 @@ function projectDocument(): StoryProjectDocument {
             nullable: true,
             defaultValue: 'a_voice',
           },
+          {
+            id: 'ef_voicebylocale',
+            name: 'voiceByLocale',
+            displayName: 'Voice by Locale',
+            type: {
+              kind: 'map',
+              keyType: { kind: 'string' },
+              valueType: { kind: 'asset-ref' },
+            },
+            defaultValue: { default: 'a_voice' },
+          },
         ],
       },
     ],
@@ -138,6 +149,7 @@ describe('story project KDL', () => {
     expect(serialized).toContain('type=array:string');
     expect(serialized).toContain('type=character-ref');
     expect(serialized).toContain('type=asset-ref');
+    expect(serialized).toContain('type="map:');
     expect(serialized).toContain('type=number default=0');
     expect(serialized).toContain('event ev_reward');
     expect(serialized).toContain('parameter amount type=number');
@@ -243,5 +255,33 @@ describe('story project KDL', () => {
         ],
       }),
     ).toThrow(/missing Asset a_missing/);
+  });
+
+  it('rejects Map entries whose keys do not match the configured key type', () => {
+    const project = projectDocument();
+    const reward = project.engineTypes![0]!;
+    expect(() =>
+      serializeStoryProject({
+        ...project,
+        engineTypes: [
+          {
+            ...reward,
+            fields: reward.fields.map((field) =>
+              field.name === 'voiceByLocale'
+                ? {
+                    ...field,
+                    type: {
+                      kind: 'map' as const,
+                      keyType: { kind: 'enum' as const, values: ['zh-CN', 'en'] },
+                      valueType: { kind: 'asset-ref' as const },
+                    },
+                    defaultValue: { jp: 'a_voice' },
+                  }
+                : field,
+            ),
+          },
+        ],
+      }),
+    ).toThrow(/does not match its Engine Field type/);
   });
 });

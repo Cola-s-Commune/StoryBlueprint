@@ -213,6 +213,7 @@ export {
   type ProjectCharacterReference,
   type ProjectAssetReference,
   type EngineFieldType,
+  type EngineMapKeyType,
   type EngineTypeField,
   type EngineTypeDefinition,
   engineValueMatchesFieldType,

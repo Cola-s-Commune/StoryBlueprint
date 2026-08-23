@@ -321,7 +321,7 @@
 - [x] Engine JSON Signal Payload 支持 Any 或完整结构深比较，不把复杂对象拆成表达式逻辑
 - [x] Engine JSON 可作为 Variable、Character Field 与 Substory Input / Output / Local 整值存储和传递；同名引擎类型才能连接或赋值，不提供成员访问和运算
 - [x] 项目级 Engine Type Schema 资源：Name、Display Name、Description 与图形化字段定义
-- [x] Engine Type Schema Designer：图形化增删、改名、排序字段并修改 Boolean / Number / String / Enum / Object / Array 类型
+- [x] Engine Type Schema Designer：图形化增删、改名、排序字段并修改 Boolean / Number / String / Enum / Object / Array / Map 类型
 - [x] Object 字段引用其他 Engine Type；Array 配置元素类型，并检测直接或间接循环引用
 - [x] Schema 驱动 JSON Value Inspector：嵌套字段、数组项增删、默认值、可空与 Raw JSON 双向切换
 - [x] Schema 变更影响预览与安全迁移：新增字段填默认值、字段改名保留值、删除字段清理值、类型不兼容重置默认值；列出受影响变量和节点并作为单次事务撤销
@@ -331,6 +331,7 @@
 - [x] Match Expression 到达 Wait 时求值并进入 PendingInteraction；未匹配 Payload 继续缓存
 - [x] CharacterRef / AssetRef 专用引用类型：图形化资源选择、稳定 ID 存储与缺失引用校验
 - [x] 结构化 JSON Value 支持复制、Schema 校验粘贴与一键恢复类型默认值
+- [x] Map / Dictionary 图形化 Schema 与值编辑：String / Number / Enum Key、递归 Value、重复 Key 防护、序列化和迁移
 - [x] 资源与字段统一使用命名后创建：输入期间允许为空，Enter 确认、Escape 取消，并在创建前检查名称格式和重复
 
 ---

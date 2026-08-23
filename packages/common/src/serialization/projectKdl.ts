@@ -7,6 +7,7 @@ import {
   type ProjectCharacterReference,
   type ProjectStoryReference,
   type EngineFieldType,
+  type EngineMapKeyType,
   type EngineTypeDefinition,
   engineValueMatchesFieldType,
   type StoryProjectDocument,
@@ -98,6 +99,7 @@ function validateProject(project: StoryProjectDocument): void {
       throw new StoryFormatError(`${path} references missing Engine Type ${fieldType.typeName}`);
     }
     if (fieldType.kind === 'array') validateFieldReferences(fieldType.elementType, `${path}[]`);
+    if (fieldType.kind === 'map') validateFieldReferences(fieldType.valueType, `${path}{value}`);
   };
   for (const engineType of project.engineTypes ?? []) {
     for (const field of engineType.fields) {
@@ -117,6 +119,8 @@ function validateProject(project: StoryProjectDocument): void {
       ? [fieldType.typeName]
       : fieldType.kind === 'array'
         ? referencedTypeNames(fieldType.elementType)
+        : fieldType.kind === 'map'
+          ? referencedTypeNames(fieldType.valueType)
         : [];
   const engineTypesByName = new Map(
     (project.engineTypes ?? []).map((engineType) => [engineType.name, engineType]),
@@ -249,6 +253,11 @@ function validateProject(project: StoryProjectDocument): void {
       value.forEach((item, index) =>
         validateEngineResourceValue(item, type.elementType, `${path}[${index}]`),
       );
+    }
+    if (type.kind === 'map' && !Array.isArray(value) && typeof value === 'object') {
+      for (const [key, item] of Object.entries(value)) {
+        validateEngineResourceValue(item, type.valueType, `${path}.${key}`);
+      }
     }
     if (type.kind === 'object' && !Array.isArray(value) && typeof value === 'object') {
       const definition = engineTypesByName.get(type.typeName);
@@ -399,7 +408,63 @@ function engineFieldTypeName(type: EngineFieldType): string {
       return `object:${type.typeName}`;
     case 'array':
       return `array:${engineFieldTypeName(type.elementType)}`;
+    case 'map':
+      return `map:${JSON.stringify({ keyType: type.keyType, valueType: type.valueType })}`;
   }
+}
+
+function parseEngineMapKeyType(value: unknown, path: string): EngineMapKeyType {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new StoryFormatError(`${path} contains invalid Map key type`);
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind === 'string' || candidate.kind === 'number') return { kind: candidate.kind };
+  if (
+    candidate.kind === 'enum' &&
+    Array.isArray(candidate.values) &&
+    candidate.values.length > 0 &&
+    candidate.values.every((item) => typeof item === 'string')
+  ) {
+    return { kind: 'enum', values: candidate.values as string[] };
+  }
+  throw new StoryFormatError(`${path} contains invalid Map key type`);
+}
+
+function parseEngineFieldTypeObject(value: unknown, path: string): EngineFieldType {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new StoryFormatError(`${path} contains invalid Engine Field type`);
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.kind === 'boolean' ||
+    candidate.kind === 'number' ||
+    candidate.kind === 'string' ||
+    candidate.kind === 'character-ref' ||
+    candidate.kind === 'asset-ref'
+  ) {
+    return { kind: candidate.kind };
+  }
+  if (candidate.kind === 'enum' && Array.isArray(candidate.values)) {
+    const values = candidate.values;
+    if (values.every((item) => typeof item === 'string')) return { kind: 'enum', values };
+  }
+  if (candidate.kind === 'object' && typeof candidate.typeName === 'string') {
+    return { kind: 'object', typeName: candidate.typeName };
+  }
+  if (candidate.kind === 'array') {
+    return {
+      kind: 'array',
+      elementType: parseEngineFieldTypeObject(candidate.elementType, `${path}.elementType`),
+    };
+  }
+  if (candidate.kind === 'map') {
+    return {
+      kind: 'map',
+      keyType: parseEngineMapKeyType(candidate.keyType, `${path}.keyType`),
+      valueType: parseEngineFieldTypeObject(candidate.valueType, `${path}.valueType`),
+    };
+  }
+  throw new StoryFormatError(`${path} contains invalid Engine Field type`);
 }
 
 function parseEngineFieldType(value: string, path: string): EngineFieldType {
@@ -416,6 +481,17 @@ function parseEngineFieldType(value: string, path: string): EngineFieldType {
   }
   if (value.startsWith('array:')) {
     return { kind: 'array', elementType: parseEngineFieldType(value.slice(6), `${path}.element`) };
+  }
+  if (value.startsWith('map:')) {
+    try {
+      const parsed = JSON.parse(value.slice(4)) as unknown;
+      return parseEngineFieldTypeObject(
+        { kind: 'map', ...(parsed as Record<string, unknown>) },
+        path,
+      );
+    } catch (reason) {
+      if (reason instanceof StoryFormatError) throw reason;
+    }
   }
   if (value.startsWith('enum:')) {
     try {

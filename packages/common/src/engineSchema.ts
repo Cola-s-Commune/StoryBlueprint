@@ -18,6 +18,12 @@ function sameFieldType(left: EngineFieldType, right: EngineFieldType): boolean {
   if (left.kind === 'array' && right.kind === 'array') {
     return sameFieldType(left.elementType, right.elementType);
   }
+  if (left.kind === 'map' && right.kind === 'map') {
+    return (
+      JSON.stringify(left.keyType) === JSON.stringify(right.keyType) &&
+      sameFieldType(left.valueType, right.valueType)
+    );
+  }
   return true;
 }
 
@@ -85,6 +91,27 @@ function migrateFieldValue(
         previousDefinitions,
         nextDefinitions,
       ),
+    );
+  }
+  if (
+    previousType.kind === 'map' &&
+    nextType.kind === 'map' &&
+    JSON.stringify(previousType.keyType) === JSON.stringify(nextType.keyType) &&
+    !Array.isArray(value) &&
+    typeof value === 'object' &&
+    value !== null
+  ) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        migrateFieldValue(
+          item,
+          previousType.valueType,
+          { ...nextField, type: nextType.valueType },
+          previousDefinitions,
+          nextDefinitions,
+        ),
+      ]),
     );
   }
   if (previousType.kind === 'object' && nextType.kind === 'object') {

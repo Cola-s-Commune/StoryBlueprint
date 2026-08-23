@@ -158,4 +158,49 @@ describe('Engine Type Schema migration', () => {
       ),
     ).toMatchObject({ assetId: 'fallback' });
   });
+
+  it('recursively migrates Engine Type values stored inside Maps', () => {
+    const oldItem: EngineTypeDefinition = {
+      id: 'et_mapitem',
+      name: 'MapItem',
+      displayName: 'Map Item',
+      fields: [
+        { id: 'ef_label', name: 'label', displayName: 'Label', type: { kind: 'string' }, defaultValue: '' },
+      ],
+    };
+    const newItem: EngineTypeDefinition = {
+      ...oldItem,
+      fields: [
+        { id: 'ef_label', name: 'title', displayName: 'Title', type: { kind: 'string' }, defaultValue: '' },
+      ],
+    };
+    const oldMap: EngineTypeDefinition = {
+      id: 'et_mapcontainer',
+      name: 'MapContainer',
+      displayName: 'Map Container',
+      fields: [
+        {
+          id: 'ef_entries',
+          name: 'entries',
+          displayName: 'Entries',
+          type: {
+            kind: 'map',
+            keyType: { kind: 'string' },
+            valueType: { kind: 'object', typeName: 'MapItem' },
+          },
+          defaultValue: {},
+        },
+      ],
+    };
+    const newMap: EngineTypeDefinition = { ...oldMap };
+    expect(
+      migrateEngineJsonValue(
+        { entries: { first: { label: 'One' } } },
+        oldMap,
+        newMap,
+        [oldMap, oldItem],
+        [newMap, newItem],
+      ),
+    ).toEqual({ entries: { first: { title: 'One' } } });
+  });
 });

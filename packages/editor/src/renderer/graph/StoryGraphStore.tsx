@@ -250,6 +250,8 @@ function engineFieldTypeReferences(
     ? type.typeName === name
     : type.kind === 'array'
       ? engineFieldTypeReferences(type.elementType, name)
+      : type.kind === 'map'
+        ? engineFieldTypeReferences(type.valueType, name)
       : false;
 }
 
