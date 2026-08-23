@@ -42,7 +42,7 @@ import {
   stringValueModeText,
   switchStringValueMode,
 } from './expressionAuthoring';
-import { JsonValueInput, StoryDataInspector } from './StoryData';
+import { JsonValueInput, NamedCreateControl, StoryDataInspector } from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -1872,11 +1872,6 @@ function SubstoryInterfaceEditor() {
     ...chapter.outputs.map((output) => output.variable.name),
     ...chapter.localVariables.map((variable) => variable.name),
   ]);
-  const nextName = (base: string) => {
-    let index = 1;
-    while (usedNames.has(`${base}${index}`)) index += 1;
-    return `${base}${index}`;
-  };
   const replaceParameter = (id: VariableId, variable: VariableDefinition) =>
     updateSubstory(chapter.id, {
       parameters: chapter.parameters.map((parameter) =>
@@ -1913,10 +1908,12 @@ function SubstoryInterfaceEditor() {
           </div>
           <div className={styles.groupHeader}>
             <div className={styles.groupLabel}>Input Parameters</div>
-            <button
-              type="button"
-              onClick={() => {
-                const name = nextName('input');
+            <NamedCreateControl
+              title="Add input parameter"
+              placeholder="Input name"
+              buttonLabel="Add Parameter"
+              existingNames={[...usedNames]}
+              onCreate={(name) => {
                 const variable: VariableDefinition = {
                   id: createStableId('variable'),
                   name,
@@ -1928,9 +1925,7 @@ function SubstoryInterfaceEditor() {
                 const parameter: ChapterParameter = { direction: 'input', variable };
                 updateSubstory(chapter.id, { parameters: [...chapter.parameters, parameter] });
               }}
-            >
-              Add Parameter
-            </button>
+            />
           </div>
           {chapter.parameters.length === 0 && <div className={styles.info}>No inputs.</div>}
           {chapter.parameters.map((parameter, index) => (
@@ -1950,10 +1945,12 @@ function SubstoryInterfaceEditor() {
           ))}
           <div className={styles.groupHeader}>
             <div className={styles.groupLabel}>Output Parameters</div>
-            <button
-              type="button"
-              onClick={() => {
-                const name = nextName('output');
+            <NamedCreateControl
+              title="Add output parameter"
+              placeholder="Output name"
+              buttonLabel="Add Output"
+              existingNames={[...usedNames]}
+              onCreate={(name) => {
                 const variable: VariableDefinition = {
                   id: createStableId('variable'),
                   name,
@@ -1966,9 +1963,7 @@ function SubstoryInterfaceEditor() {
                   outputs: [...chapter.outputs, { direction: 'output', variable }],
                 });
               }}
-            >
-              Add Output
-            </button>
+            />
           </div>
           {chapter.outputs.length === 0 && <div className={styles.info}>No outputs.</div>}
           {chapter.outputs.map((output, index) => (
@@ -1989,10 +1984,12 @@ function SubstoryInterfaceEditor() {
           ))}
           <div className={styles.groupHeader}>
             <div className={styles.groupLabel}>Local Variables</div>
-            <button
-              type="button"
-              onClick={() => {
-                const name = nextName('local');
+            <NamedCreateControl
+              title="Add local variable"
+              placeholder="Local name"
+              buttonLabel="Add Local"
+              existingNames={[...usedNames]}
+              onCreate={(name) => {
                 updateSubstory(chapter.id, {
                   localVariables: [
                     ...chapter.localVariables,
@@ -2007,9 +2004,7 @@ function SubstoryInterfaceEditor() {
                   ],
                 });
               }}
-            >
-              Add Local
-            </button>
+            />
           </div>
           {chapter.localVariables.length === 0 && <div className={styles.info}>No locals.</div>}
           {chapter.localVariables.map((variable, index) => (
@@ -2495,17 +2490,16 @@ export function Inspector() {
           <>
             <div className={styles.groupHeader}>
               <div className={styles.groupLabel}>Function Outputs</div>
-              <button
-                type="button"
-                onClick={() => {
-                  const used = new Set([
-                    ...chapter.parameters.map((parameter) => parameter.variable.name),
-                    ...chapter.outputs.map((output) => output.variable.name),
-                    ...chapter.localVariables.map((variable) => variable.name),
-                  ]);
-                  let index = chapter.outputs.length + 1;
-                  let name = `output${index}`;
-                  while (used.has(name)) name = `output${++index}`;
+              <NamedCreateControl
+                title="Add function output"
+                placeholder="Output name"
+                buttonLabel="Add Output"
+                existingNames={[
+                  ...chapter.parameters.map((parameter) => parameter.variable.name),
+                  ...chapter.outputs.map((output) => output.variable.name),
+                  ...chapter.localVariables.map((variable) => variable.name),
+                ]}
+                onCreate={(name) => {
                   updateSubstory(chapter.id, {
                     outputs: [
                       ...chapter.outputs,
@@ -2523,9 +2517,7 @@ export function Inspector() {
                     ],
                   });
                 }}
-              >
-                Add Output
-              </button>
+              />
             </div>
             {chapter.outputs.length === 0 && (
               <div className={styles.info}>No outputs. This returns execution only.</div>

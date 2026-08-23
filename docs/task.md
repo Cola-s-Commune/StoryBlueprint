@@ -330,6 +330,8 @@
 - [x] Schema 只用于作者表单、校验、文档和引擎契约；编译产物仍是普通 JSON，不生成成员访问或数据处理逻辑
 - [x] Match Expression 到达 Wait 时求值并进入 PendingInteraction；未匹配 Payload 继续缓存
 - [x] CharacterRef / AssetRef 专用引用类型：图形化资源选择、稳定 ID 存储与缺失引用校验
+- [x] 结构化 JSON Value 支持复制、Schema 校验粘贴与一键恢复类型默认值
+- [x] 资源与字段统一使用命名后创建：输入期间允许为空，Enter 确认、Escape 取消，并在创建前检查名称格式和重复
 
 ---
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createStableId, engineValueMatchesFieldType } from '@story-blueprint/common';
 import type {
   CharacterSource,
@@ -210,12 +211,14 @@ export function JsonValueInput({
   onCommit,
   schema,
   fieldType,
+  nullable = false,
   engineTypes = [],
 }: {
   value: RuntimeValue;
   onCommit: (value: RuntimeValue) => void;
   schema?: EngineTypeDefinition;
   fieldType?: EngineFieldType;
+  nullable?: boolean;
   engineTypes?: readonly EngineTypeDefinition[];
 }) {
   const { characters, assets } = useStoryGraphStore();
@@ -223,6 +226,7 @@ export function JsonValueInput({
   const [draft, setDraft] = useState(canonical);
   const [error, setError] = useState<string>();
   const [raw, setRaw] = useState(false);
+  const [pasteStatus, setPasteStatus] = useState<'idle' | 'pasting'>('idle');
   useEffect(() => {
     setDraft(canonical);
     setError(undefined);
@@ -232,7 +236,11 @@ export function JsonValueInput({
       const parsed = JSON.parse(draft) as RuntimeValue;
       const expectedType =
         fieldType ?? (schema ? { kind: 'object' as const, typeName: schema.name } : undefined);
-      if (expectedType && !engineValueMatchesFieldType(parsed, expectedType, engineTypes)) {
+      if (
+        expectedType &&
+        !(parsed === null && nullable) &&
+        !engineValueMatchesFieldType(parsed, expectedType, engineTypes)
+      ) {
         setError('Value does not match the Engine Type Schema.');
         return;
       }
@@ -242,16 +250,62 @@ export function JsonValueInput({
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
+  const expectedType =
+    fieldType ?? (schema ? { kind: 'object' as const, typeName: schema.name } : undefined);
+  const resetValue = expectedType
+    ? defaultForEngineFieldType(expectedType, engineTypes)
+    : structuredClone(value);
+  const paste = async () => {
+    setPasteStatus('pasting');
+    try {
+      const text = window.electronAPI?.readClipboardText
+        ? await window.electronAPI.readClipboardText()
+        : await navigator.clipboard?.readText?.();
+      if (!text) throw new Error('Clipboard does not contain JSON.');
+      const parsed = JSON.parse(text) as RuntimeValue;
+      if (
+        expectedType &&
+        !(parsed === null && nullable) &&
+        !engineValueMatchesFieldType(parsed, expectedType, engineTypes)
+      ) {
+        throw new Error('Clipboard JSON does not match the Engine Type Schema.');
+      }
+      onCommit(parsed);
+      setError(undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPasteStatus('idle');
+    }
+  };
   return (
     <>
       {(schema || fieldType) && (
-        <button
-          type="button"
-          className={styles.rawToggle}
-          onClick={() => setRaw((current) => !current)}
-        >
-          {raw ? 'Structured Fields' : 'Raw JSON'}
-        </button>
+        <div className={styles.jsonValueToolbar}>
+          <button
+            type="button"
+            className={styles.rawToggle}
+            onClick={() => setRaw((current) => !current)}
+          >
+            {raw ? 'Structured Fields' : 'Raw JSON'}
+          </button>
+          <CopyButton text={canonical} label="Copy JSON" />
+          <button
+            type="button"
+            className={styles.rawToggle}
+            disabled={pasteStatus === 'pasting'}
+            onClick={() => void paste()}
+          >
+            {pasteStatus === 'pasting' ? 'Pasting…' : 'Paste JSON'}
+          </button>
+          <button
+            type="button"
+            className={styles.rawToggle}
+            onClick={() => onCommit(structuredClone(resetValue))}
+          >
+            Reset
+          </button>
+        </div>
       )}
       {(schema || fieldType) && !raw ? (
         <StructuredJsonFields
@@ -333,6 +387,119 @@ function ScriptNameInput({
         }
       }}
     />
+  );
+}
+
+export function NamedCreateControl({
+  title,
+  placeholder = 'Name',
+  existingNames,
+  onCreate,
+  buttonLabel = '+',
+}: {
+  title: string;
+  placeholder?: string;
+  existingNames: readonly string[];
+  onCreate: (name: string) => void;
+  buttonLabel?: string;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState('');
+  const duplicate = existingNames.includes(draft);
+  const validFormat = /^[A-Za-z_][A-Za-z0-9_]*$/.test(draft);
+  const valid = validFormat && !duplicate;
+  const confirm = () => {
+    if (!valid) return;
+    onCreate(draft);
+    setDraft('');
+    setCreating(false);
+  };
+  return (
+    <>
+      <button type="button" title={title} onClick={() => setCreating(true)}>
+        {buttonLabel}
+      </button>
+      {creating &&
+        createPortal(
+          <div
+            className={styles.namedCreateBackdrop}
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              setDraft('');
+              setCreating(false);
+            }}
+          >
+            <div
+              className={styles.namedCreateDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="named-create-title"
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === 'Escape') {
+                  setDraft('');
+                  setCreating(false);
+                }
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div id="named-create-title" className={styles.namedCreateTitle}>
+                {title}
+              </div>
+              <label>
+                <span>Name</span>
+                <input
+                  autoFocus
+                  value={draft}
+                  placeholder={placeholder}
+                  aria-label={title}
+                  onChange={(event) =>
+                    setDraft(event.target.value.replace(/[^A-Za-z0-9_]/g, ''))
+                  }
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Enter') confirm();
+                    if (event.key === 'Escape') {
+                      setDraft('');
+                      setCreating(false);
+                    }
+                  }}
+                />
+              </label>
+              <div className={styles.namedCreateHint}>
+                {!draft
+                  ? 'Enter a name to create this item.'
+                  : duplicate
+                    ? 'This name already exists.'
+                    : !validFormat
+                      ? 'Use letters, numbers, and underscores; the first character cannot be a number.'
+                      : 'The display name will initially use the same value.'}
+              </div>
+              <div className={styles.namedCreateActions}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft('');
+                    setCreating(false);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  disabled={!valid}
+                  onClick={confirm}
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -763,14 +930,11 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           ? (next as NonNullable<CharacterSource['relationships']>)
           : undefined,
     });
-  const addEmotion = () => {
-    let index = Object.keys(character.emotions).length + 1;
-    let key = `emotion${index}`;
-    while (character.emotions[key]) key = `emotion${++index}`;
+  const addEmotion = (key: string) => {
     updateCharacter(character.id, {
       emotions: {
         ...character.emotions,
-        [key]: { displayName: `Emotion ${index}` },
+        [key]: { displayName: key },
       },
     });
   };
@@ -779,17 +943,14 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     updateCharacter(character.id, {
       fields: fields.map((field) => (field.id === id ? { ...field, ...patch } : field)),
     });
-  const addField = () => {
-    let index = fields.length + 1;
-    let name = `field${index}`;
-    while (fields.some((field) => field.name === name)) name = `field${++index}`;
+  const addField = (name: string) => {
     updateCharacter(character.id, {
       fields: [
         ...fields,
         {
           id: createStableId('variable'),
           name,
-          displayName: `Field ${index}`,
+          displayName: name,
           scope: 'character',
           valueType: { kind: 'string' },
           defaultValue: '',
@@ -854,17 +1015,13 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       </div>
       <div className={styles.parameterHeader}>
         <span>Metadata</span>
-        <button
-          type="button"
-          onClick={() => {
-            let index = Object.keys(metadata).length + 1;
-            let key = `key${index}`;
-            while (Object.hasOwn(metadata, key)) key = `key${++index}`;
-            updateMetadata({ ...metadata, [key]: '' });
-          }}
-        >
-          Add Metadata
-        </button>
+        <NamedCreateControl
+          title="Add metadata"
+          placeholder="Metadata name"
+          buttonLabel="Add Metadata"
+          existingNames={Object.keys(metadata)}
+          onCreate={(key) => updateMetadata({ ...metadata, [key]: '' })}
+        />
       </div>
       <div className={styles.relationshipList}>
         {Object.entries(metadata).map(([key, value]) => {
@@ -1085,9 +1242,13 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       </div>
       <div className={styles.parameterHeader}>
         <span>Fields</span>
-        <button type="button" onClick={addField}>
-          Add Field
-        </button>
+        <NamedCreateControl
+          title="Add character field"
+          placeholder="Field name"
+          buttonLabel="Add Field"
+          existingNames={fields.map((field) => field.name)}
+          onCreate={addField}
+        />
       </div>
       <div className={styles.emotionList}>
         {fields.map((field) => {
@@ -1226,9 +1387,13 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       </div>
       <div className={styles.parameterHeader}>
         <span>Emotions</span>
-        <button type="button" onClick={addEmotion}>
-          Add Emotion
-        </button>
+        <NamedCreateControl
+          title="Add emotion"
+          placeholder="Emotion name"
+          buttonLabel="Add Emotion"
+          existingNames={Object.keys(character.emotions)}
+          onCreate={addEmotion}
+        />
       </div>
       <div className={styles.emotionList}>
         {Object.entries(character.emotions).map(([key, emotion]) => {
@@ -1474,11 +1639,7 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
       defaultValue: defaultForEngineFieldType(type, engineTypes),
     });
   };
-  const addField = () => {
-    const used = new Set(definition.fields.map((field) => field.name));
-    let index = definition.fields.length + 1;
-    let name = `field${index}`;
-    while (used.has(name)) name = `field${++index}`;
+  const addField = (name: string) => {
     update({
       ...definition,
       fields: [
@@ -1528,9 +1689,12 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
         />
         <div className={styles.sectionHeader}>
           <span>Serialized Fields</span>
-          <button type="button" onClick={addField}>
-            +
-          </button>
+          <NamedCreateControl
+            title="Add serialized field"
+            placeholder="Field name"
+            existingNames={definition.fields.map((field) => field.name)}
+            onCreate={addField}
+          />
         </div>
         {definition.fields.length === 0 && <div className={styles.empty}>No fields</div>}
         <div className={styles.engineFields}>
@@ -1622,6 +1786,7 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
                   value={field.defaultValue}
                   engineTypes={engineTypes}
                   fieldType={field.type}
+                  nullable={field.nullable}
                   onCommit={(defaultValue) => updateField(index, { ...field, defaultValue })}
                 />
               </label>
@@ -1828,20 +1993,17 @@ function EventEditor({ event }: { event: EventSource }) {
       />
       <div className={styles.parameterHeader}>
         <span>Parameters</span>
-        <button
-          type="button"
-          onClick={() => {
-            const used = new Set(event.parameters.map((parameter) => parameter.name));
-            let index = event.parameters.length + 1;
-            let name = `argument${index}`;
-            while (used.has(name)) name = `argument${++index}`;
+        <NamedCreateControl
+          title="Add event parameter"
+          placeholder="Parameter name"
+          buttonLabel="Add"
+          existingNames={event.parameters.map((parameter) => parameter.name)}
+          onCreate={(name) => {
             updateEvent(event.id, {
               parameters: [...event.parameters, { name, valueType: { kind: 'string' } }],
             });
           }}
-        >
-          Add
-        </button>
+        />
       </div>
       {event.parameters.length === 0 && <div className={styles.empty}>No parameters</div>}
       {event.parameters.map((parameter, index) => (
@@ -1965,20 +2127,17 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
       />
       <div className={styles.parameterHeader}>
         <span>Parameters</span>
-        <button
-          type="button"
-          onClick={() => {
-            const used = new Set(signal.parameters.map((parameter) => parameter.name));
-            let index = signal.parameters.length + 1;
-            let name = `value${index}`;
-            while (used.has(name)) name = `value${++index}`;
+        <NamedCreateControl
+          title="Add signal parameter"
+          placeholder="Parameter name"
+          buttonLabel="Add"
+          existingNames={signal.parameters.map((parameter) => parameter.name)}
+          onCreate={(name) => {
             updateSignal(signal.id, {
               parameters: [...signal.parameters, { name, valueType: { kind: 'string' } }],
             });
           }}
-        >
-          Add
-        </button>
+        />
       </div>
       {signal.parameters.length === 0 && <div className={styles.empty}>No parameters</div>}
       {signal.parameters.map((parameter, index) => (
@@ -2266,7 +2425,7 @@ export function StoryData() {
     selectStoryData,
   } = useStoryGraphStore();
   const activeChapter = chapters.find((chapter) => chapter.id === activeGraphId);
-  const addSubstoryVariable = (kind: 'parameter' | 'local') => {
+  const addSubstoryVariable = (kind: 'parameter' | 'local', name: string) => {
     if (!activeChapter) return;
     const used = new Set(
       [
@@ -2277,10 +2436,7 @@ export function StoryData() {
         ...activeChapter.localVariables,
       ].map((variable) => variable.name),
     );
-    const base = kind === 'parameter' ? 'input' : 'local';
-    let index = 1;
-    let name = `${base}${index}`;
-    while (used.has(name)) name = `${base}${++index}`;
+    if (used.has(name)) return;
     const variable: VariableDefinition = {
       id: createStableId('variable'),
       name,
@@ -2412,13 +2568,18 @@ export function StoryData() {
             <section className={styles.section}>
               <div className={styles.sectionHeader}>
                 <span>Substory Inputs</span>
-                <button
-                  type="button"
+                <NamedCreateControl
                   title="Add input parameter"
-                  onClick={() => addSubstoryVariable('parameter')}
-                >
-                  +
-                </button>
+                  placeholder="Input name"
+                  existingNames={[
+                    ...variables,
+                    ...projectVariables,
+                    ...activeChapter.parameters.map((item) => item.variable),
+                    ...activeChapter.outputs.map((item) => item.variable),
+                    ...activeChapter.localVariables,
+                  ].map((variable) => variable.name)}
+                  onCreate={(name) => addSubstoryVariable('parameter', name)}
+                />
               </div>
               {activeChapter.parameters.length === 0 && (
                 <div className={styles.empty}>No input parameters</div>
@@ -2458,13 +2619,18 @@ export function StoryData() {
             <section className={styles.section}>
               <div className={styles.sectionHeader}>
                 <span>Substory Locals</span>
-                <button
-                  type="button"
+                <NamedCreateControl
                   title="Add local variable"
-                  onClick={() => addSubstoryVariable('local')}
-                >
-                  +
-                </button>
+                  placeholder="Local name"
+                  existingNames={[
+                    ...variables,
+                    ...projectVariables,
+                    ...activeChapter.parameters.map((item) => item.variable),
+                    ...activeChapter.outputs.map((item) => item.variable),
+                    ...activeChapter.localVariables,
+                  ].map((variable) => variable.name)}
+                  onCreate={(name) => addSubstoryVariable('local', name)}
+                />
               </div>
               {activeChapter.localVariables.length === 0 && (
                 <div className={styles.empty}>No local variables</div>
@@ -2507,13 +2673,14 @@ export function StoryData() {
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <span>Variables</span>
-              <button
-                type="button"
+              <NamedCreateControl
                 title="Add variable"
-                onClick={() => selectStoryData({ kind: 'variable', id: addVariable() })}
-              >
-                +
-              </button>
+                placeholder="Variable name"
+                existingNames={variables.map((variable) => variable.name)}
+                onCreate={(name) =>
+                  selectStoryData({ kind: 'variable', id: addVariable(name) })
+                }
+              />
             </div>
             {variables.length === 0 && <div className={styles.empty}>No variables</div>}
             {variables.map((variable) => (
@@ -2550,16 +2717,15 @@ export function StoryData() {
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <span>Engine Types</span>
-              <button
-                type="button"
+              <NamedCreateControl
                 title="Add Engine Type"
-                onClick={() => {
-                  const name = addEngineType();
+                placeholder="Type name"
+                existingNames={engineTypes.map((item) => item.name)}
+                onCreate={(requestedName) => {
+                  const name = addEngineType(requestedName);
                   if (name) selectStoryData({ kind: 'engine-type', name });
                 }}
-              >
-                +
-              </button>
+              />
             </div>
             {engineTypes.length === 0 && <div className={styles.empty}>No Engine Types</div>}
             {engineTypes.map((engineType) => (
@@ -2580,16 +2746,15 @@ export function StoryData() {
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <span>Project Variables</span>
-              <button
-                type="button"
+              <NamedCreateControl
                 title="Add project variable"
-                onClick={() => {
-                  const id = addProjectVariable();
+                placeholder="Variable name"
+                existingNames={[...variables, ...projectVariables].map((item) => item.name)}
+                onCreate={(name) => {
+                  const id = addProjectVariable(name);
                   if (id) selectStoryData({ kind: 'variable', id });
                 }}
-              >
-                +
-              </button>
+              />
             </div>
             {projectVariables.length === 0 && (
               <div className={styles.empty}>No project variables</div>
@@ -2636,16 +2801,15 @@ export function StoryData() {
                 >
                   ≡
                 </button>
-                <button
-                  type="button"
+                <NamedCreateControl
                   title="Add event"
-                  onClick={() => {
-                    const id = addEvent();
+                  placeholder="Event name"
+                  existingNames={events.map((item) => item.name)}
+                  onCreate={(name) => {
+                    const id = addEvent(name);
                     if (id) selectStoryData({ kind: 'event', id });
                   }}
-                >
-                  +
-                </button>
+                />
               </div>
             </div>
             {events.length === 0 && <div className={styles.empty}>No events</div>}
@@ -2686,16 +2850,15 @@ export function StoryData() {
                 >
                   ≡
                 </button>
-                <button
-                  type="button"
+                <NamedCreateControl
                   title="Add signal"
-                  onClick={() => {
-                    const id = addSignal();
+                  placeholder="Signal name"
+                  existingNames={signals.map((item) => item.name)}
+                  onCreate={(name) => {
+                    const id = addSignal(name);
                     if (id) selectStoryData({ kind: 'signal', id });
                   }}
-                >
-                  +
-                </button>
+                />
               </div>
             </div>
             {signals.length === 0 && <div className={styles.empty}>No signals</div>}
@@ -2721,13 +2884,12 @@ export function StoryData() {
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <span>{workspace?.project ? 'Project Assets' : 'Assets'}</span>
-            <button
-              type="button"
+            <NamedCreateControl
               title="Add asset"
-              onClick={() => selectStoryData({ kind: 'asset', id: addAsset() })}
-            >
-              +
-            </button>
+              placeholder="Asset name"
+              existingNames={assets.map((item) => item.name)}
+              onCreate={(name) => selectStoryData({ kind: 'asset', id: addAsset(name) })}
+            />
           </div>
           {assets.length === 0 && <div className={styles.empty}>No assets</div>}
           {filteredAssets.map((asset) => (
@@ -2761,22 +2923,21 @@ export function StoryData() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
+              <NamedCreateControl
                 title="Add character"
-                onClick={() => {
+                placeholder="Character name"
+                existingNames={characters.map((item) => item.name)}
+                onCreate={(name) => {
                   const selected = characterTemplates.find(
                     ({ template, source }) =>
                       `${source}:${template.name}` === characterTemplateName,
                   );
                   const id = selected
-                    ? addCharacterFromTemplate(selected.template)
-                    : addCharacter();
+                    ? addCharacterFromTemplate(selected.template, name)
+                    : addCharacter(name);
                   selectStoryData({ kind: 'character', id });
                 }}
-              >
-                +
-              </button>
+              />
             </div>
           </div>
           {characterTags.length > 0 && (
