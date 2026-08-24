@@ -11,7 +11,9 @@ function summary(source: string): string {
 
 export function InkBlockNode({ data }: NodeProps) {
   const ink = data as unknown as InkBlockNodeData;
-  const lineCount = ink.source ? ink.source.split(/\r?\n/).length : 0;
+  const lineCount =
+    ink.sourceMode === 'embedded' && ink.source ? ink.source.split(/\r?\n/).length : '↗';
+  const sourceSummary = ink.sourceMode === 'embedded' ? summary(ink.source) : ink.path;
   return (
     <div
       className={styles.node}
@@ -28,7 +30,7 @@ export function InkBlockNode({ data }: NodeProps) {
       </div>
       <div className={styles.body}>
         {ink.entryKnot && <label>Entry: {ink.entryKnot}</label>}
-        <div className={styles.field}>{summary(ink.source)}</div>
+        <div className={styles.field}>{sourceSummary}</div>
       </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}

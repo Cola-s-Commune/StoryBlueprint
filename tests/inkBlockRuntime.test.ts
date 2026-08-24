@@ -58,6 +58,34 @@ function inkBlockStory(): StorySourceDocument {
 }
 
 describe('Ink Block runtime', () => {
+  it('stores linked Ink by project-relative path and resolves it at compile time', () => {
+    const source = inkBlockStory();
+    source.root.nodes[1]!.data = {
+      sourceMode: 'linked',
+      path: 'Ink/chapter-one.ink',
+      entryKnot: 'opening',
+    };
+
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('source-mode=linked');
+    expect(serialized).toContain('path="Ink/chapter-one.ink"');
+    expect(serialized).not.toContain('Before the choice.');
+    expect(parseStorySource(serialized).root.nodes[1]?.data).toEqual(source.root.nodes[1]?.data);
+
+    const unavailable = compileStory(source);
+    expect(unavailable.ok).toBe(false);
+    expect(
+      unavailable.diagnostics.some((item) =>
+        item.message.includes('Linked Ink source is unavailable'),
+      ),
+    ).toBe(true);
+
+    const compiled = compileStory(source, {
+      inkSources: { 'Ink/chapter-one.ink': '=== opening ===\nLinked line.' },
+    });
+    expect(compiled.ok).toBe(true);
+  });
+
   it('serializes, compiles, resumes choices, and returns to Blueprint flow', () => {
     const source = inkBlockStory();
     const roundTrip = parseStorySource(serializeStorySource(source));
@@ -91,6 +119,68 @@ describe('Ink Block runtime', () => {
     });
 
     expect(runtime.continueDialogue().kind).toBe('completed');
+  });
+
+  it('bridges scalar Story variables into Ink and writes them back on completion', () => {
+    const source = inkBlockStory();
+    source.variables = [
+      {
+        id: 'v_score',
+        name: 'score',
+        displayName: 'Score',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 5,
+      },
+    ];
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source: ['VAR ink_score = 0', '~ ink_score = ink_score + 2', 'Score: {ink_score}'].join('\n'),
+      variableBindings: [{ inkName: 'ink_score', variableId: 'v_score', direction: 'two-way' }],
+    };
+
+    const roundTrip = parseStorySource(serializeStorySource(source));
+    expect(roundTrip.root.nodes[1]?.data).toEqual(source.root.nodes[1]?.data);
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    const runtime = new StoryRuntime(compiled.program);
+    expect(runtime.runUntilPause()).toMatchObject({
+      kind: 'waiting',
+      interaction: { kind: 'dialogue', request: { defaultText: 'Score: 7' } },
+    });
+    const completed = runtime.continueDialogue();
+    expect(completed.kind).toBe('completed');
+    expect(completed.state.storyVariables.v_score).toBe(7);
+  });
+
+  it('rejects missing Ink globals and non-scalar Story variable mappings', () => {
+    const source = inkBlockStory();
+    source.variables = [
+      {
+        id: 'v_payload',
+        name: 'payload',
+        displayName: 'Payload',
+        scope: 'story',
+        valueType: { kind: 'json', name: 'Payload' },
+        defaultValue: {},
+      },
+    ];
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source: 'VAR existing = 0\nDone.',
+      variableBindings: [{ inkName: 'missing', variableId: 'v_payload', direction: 'two-way' }],
+    };
+
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(false);
+    expect(compiled.diagnostics.map((item) => item.message)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('no global variable named missing'),
+        expect.stringContaining('cannot map to json variable Payload'),
+      ]),
+    );
   });
 
   it('restores pending Ink dialogue and choice from serializable runtime state', () => {
@@ -154,6 +244,65 @@ describe('Ink Block runtime', () => {
       interaction: { kind: 'dialogue', request: { defaultText: 'Last Ink line.' } },
     });
     expect(runtime.continueDialogue().kind).toBe('completed');
+  });
+
+  it('bridges Ink dialogue metadata into the native dialogue request', () => {
+    const source = inkBlockStory();
+    source.characters = [
+      {
+        id: 'c_alice',
+        name: 'alice',
+        displayName: 'Alice',
+        emotions: { happy: { displayName: 'Happy' } },
+      },
+    ];
+    source.assets = [
+      {
+        id: 'a_voice',
+        name: 'voice',
+        displayName: 'Voice',
+        kind: 'audio',
+        locales: { default: 'voice.wav' },
+      },
+    ];
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source:
+        'Hello. # speaker:c_alice # voice:a_voice # emotion:happy # text-id:t_ink_hello # cinematic',
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const result = new StoryRuntime(compiled.program).runUntilPause();
+    expect(result).toMatchObject({
+      kind: 'waiting',
+      interaction: {
+        kind: 'dialogue',
+        request: {
+          speakerId: 'c_alice',
+          textId: 't_ink_hello',
+          voice: { default: 'a_voice' },
+          emotion: 'happy',
+          tags: ['cinematic'],
+        },
+      },
+    });
+  });
+
+  it('reports invalid Ink metadata during compilation', () => {
+    const source = inkBlockStory();
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source: 'Hello. # speaker:c_missing # emotion:happy # voice:a_missing',
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(false);
+    expect(compiled.diagnostics.map((item) => item.message)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('missing character c_missing'),
+        expect.stringContaining('missing voice asset a_missing'),
+      ]),
+    );
   });
 
   it('reports Ink syntax failures at compile time', () => {

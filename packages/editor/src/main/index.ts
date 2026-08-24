@@ -178,7 +178,7 @@ const WORKSPACE_GIT_POLL_INTERVAL_MS = 1_500;
 const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 const canceledAIRequests = new Set<string>();
-const AI_INSTRUCTIONS_VERSION = 2;
+const AI_INSTRUCTIONS_VERSION = 3;
 const DEFAULT_PROJECT_AGENTS = `# Story Blueprint AI Instructions
 
 Story Blueprint is an authoring tool for executable, graph-based interactive narrative. A Story is not a prose synopsis: it is a directed control-flow graph that compiles to runtime logic.
@@ -188,6 +188,7 @@ Story Blueprint is an authoring tool for executable, graph-based interactive nar
 - Preserve stable IDs and connections unless the author explicitly asks to change them.
 - Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external behavior as Events, and waits as Signals.
 - Values with valueType.kind json are opaque engine payloads, including Variables, Character Fields, Substory interface/locals, and Event or Signal parameters. The type name identifies the engine-side contract. They may be stored, assigned, or passed only as one complete value, and both sides must use the same type name. Preserve them intact; never access members, interpolate them into text, perform arithmetic or comparisons, use them in Branch logic, or create data-processing nodes. The game Adapter owns their behavior.
+- Ink Block variables never bind implicitly by name. Use variableBindings with an existing stable Story variableId, an Ink global inkName, and direction story-to-ink, ink-to-story, or two-way. Only Boolean, Number, String, and Enum-backed string variables are bridgeable; never map JSON, Struct, or other engine-owned values into Ink.
 - When the semantic snapshot includes Engine Type Schemas, construct JSON values only from their declared fields, nested object references, arrays, and enum choices. Do not invent undeclared fields or incompatible values. Schemas assist authoring and describe the engine contract; they are not Story code.
 - A Dialogue Line with speakerId contains only that character's spoken words. Never include quotation marks, narration, actions, or scene description in a spoken line. Put narration/actions/environment in separate lines without speakerId; split mixed prose such as I entered. 「Hello.」 into two lines.
 - When direct speech has no source speaker, bind an existing Character only if its identity is unambiguous from surrounding text. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction that adds a minimal Character with a stable c_ ID, optionally tagged temporary, and then binds the line to it. If identity remains ambiguous, ask the author. Never silently classify unassigned direct speech as Narrator; omit speakerId only for genuine narration, action, inner thought, or scene description.
@@ -251,6 +252,7 @@ function workspaceFileKind(filePath: string): WorkspaceFileKind | undefined {
   if (lower.endsWith('.character')) return 'character';
   if (lower.endsWith('.asset')) return 'asset';
   if (lower.endsWith('.storyloc')) return 'localization';
+  if (lower.endsWith('.ink')) return 'ink';
   return undefined;
 }
 
@@ -267,6 +269,7 @@ async function scanWorkspaceFileFingerprints(
     ...collectEntries(entries, 'character-template'),
     ...collectEntries(entries, 'asset'),
     ...collectEntries(entries, 'localization'),
+    ...collectEntries(entries, 'ink'),
   ];
   await Promise.all(
     files.map(async (entry) => {
@@ -455,17 +458,30 @@ interface StoredProjectTransaction extends Omit<ProjectTransactionRecovery, 'fil
 async function readProjectTransactionJournal(): Promise<StoredProjectTransaction[]> {
   const value = await readJsonFile(projectTransactionJournalFile());
   if (!Array.isArray(value)) return [];
-  return value.filter((candidate): candidate is StoredProjectTransaction => {
-    if (!candidate || typeof candidate !== 'object') return false;
-    const entry = candidate as Partial<StoredProjectTransaction>;
-    return typeof entry.id === 'string' && typeof entry.label === 'string' &&
-      typeof entry.createdAt === 'string' && typeof entry.projectFile === 'string' &&
-      (entry.status === 'pending' || entry.status === 'committed') && Array.isArray(entry.files) &&
-      entry.files.every((file) => file && typeof file.relativePath === 'string' &&
-        (file.change === 'modified' || file.change === 'deleted' || file.change === 'created') &&
-        (file.before === undefined || typeof file.before === 'string') &&
-        (file.after === undefined || typeof file.after === 'string'));
-  }).slice(0, 5);
+  return value
+    .filter((candidate): candidate is StoredProjectTransaction => {
+      if (!candidate || typeof candidate !== 'object') return false;
+      const entry = candidate as Partial<StoredProjectTransaction>;
+      return (
+        typeof entry.id === 'string' &&
+        typeof entry.label === 'string' &&
+        typeof entry.createdAt === 'string' &&
+        typeof entry.projectFile === 'string' &&
+        (entry.status === 'pending' || entry.status === 'committed') &&
+        Array.isArray(entry.files) &&
+        entry.files.every(
+          (file) =>
+            file &&
+            typeof file.relativePath === 'string' &&
+            (file.change === 'modified' ||
+              file.change === 'deleted' ||
+              file.change === 'created') &&
+            (file.before === undefined || typeof file.before === 'string') &&
+            (file.after === undefined || typeof file.after === 'string'),
+        )
+      );
+    })
+    .slice(0, 5);
 }
 
 async function writeProjectTransactionJournal(entries: StoredProjectTransaction[]): Promise<void> {
@@ -1060,6 +1076,14 @@ async function scanWorkspaceDirectory(
         name: entry.name,
         relativePath: toWorkspaceRelative(entryPath),
       });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.ink')) {
+      if (++budget.count > MAX_WORKSPACE_ENTRIES)
+        throw new Error('Workspace contains too many entries');
+      result.push({
+        kind: 'ink',
+        name: entry.name,
+        relativePath: toWorkspaceRelative(entryPath),
+      });
     }
   }
   return result;
@@ -1516,9 +1540,7 @@ async function syncWorkspaceProject(): Promise<WorkspaceInfo> {
       current.engineTypes ?? [],
     )) {
       const target =
-        reference.kind === 'character'
-          ? characters.get(reference.id)
-          : assets.get(reference.id);
+        reference.kind === 'character' ? characters.get(reference.id) : assets.get(reference.id);
       if (!target) {
         throw new Error(
           `Engine JSON ${reference.path} references missing ${reference.kind} ${reference.id}`,
@@ -3239,7 +3261,8 @@ function registerStoryFileHandlers(): void {
       (request.action !== 'replace' && request.action !== 'clear') ||
       (request.action === 'replace' && typeof request.toId !== 'string') ||
       (request.action === 'replace' && request.fromId === request.toId) ||
-      (request.deleteRelativePath !== undefined && typeof request.deleteRelativePath !== 'string') ||
+      (request.deleteRelativePath !== undefined &&
+        typeof request.deleteRelativePath !== 'string') ||
       typeof request.dryRun !== 'boolean'
     ) {
       throw new Error('Invalid resource reference replacement');
@@ -3251,10 +3274,16 @@ function registerStoryFileHandlers(): void {
     if (!sourceResource) {
       throw new Error(`Source ${request.kind} does not exist`);
     }
-    if (request.deleteRelativePath !== undefined && sourceResource.path !== request.deleteRelativePath) {
+    if (
+      request.deleteRelativePath !== undefined &&
+      sourceResource.path !== request.deleteRelativePath
+    ) {
       throw new Error(`Delete path does not match source ${request.kind}`);
     }
-    if (request.action === 'replace' && !resources.some((resource) => resource.id === request.toId)) {
+    if (
+      request.action === 'replace' &&
+      !resources.some((resource) => resource.id === request.toId)
+    ) {
       throw new Error(`Replacement ${request.kind} does not exist`);
     }
     const locations: string[] = [];
@@ -3262,7 +3291,8 @@ function registerStoryFileHandlers(): void {
     let count = 0;
     let blocked = 0;
     const writes: ProjectStoryBatchWrite[] = [];
-    const deletions: Array<{ filePath: string; displayPath: string; expectedRevision: string }> = [];
+    const deletions: Array<{ filePath: string; displayPath: string; expectedRevision: string }> =
+      [];
     if (request.deleteRelativePath) {
       const filePath = await resolveExistingWorkspacePath(request.deleteRelativePath);
       const content = await readFile(filePath, 'utf8');
@@ -3282,9 +3312,16 @@ function registerStoryFileHandlers(): void {
       const filePath = await resolveExistingWorkspacePath(story.path);
       const content = await readFile(filePath, 'utf8');
       const source = parseStorySource(content);
-      const replaced = request.action === 'replace'
-        ? replaceStoryResourceReferences(source, context, request.kind, request.fromId, request.toId!)
-        : clearStoryResourceReferences(source, context, request.kind, request.fromId);
+      const replaced =
+        request.action === 'replace'
+          ? replaceStoryResourceReferences(
+              source,
+              context,
+              request.kind,
+              request.fromId,
+              request.toId!,
+            )
+          : clearStoryResourceReferences(source, context, request.kind, request.fromId);
       blocked += replaced.blocked;
       if (replaced.blocked) blockedLocations.push(`${story.displayName} · ${replaced.blocked}`);
       if (replaced.count === 0) continue;
@@ -3299,13 +3336,28 @@ function registerStoryFileHandlers(): void {
     }
     const replaceVariable = (variable: VariableDefinition): VariableDefinition => {
       if (variable.valueType.kind !== 'json') return variable;
-      const replaced = request.action === 'replace'
-        ? replaceEngineResourceValueReferences(variable.defaultValue, { kind: 'object', typeName: variable.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!, request.toId!)
-        : clearEngineResourceValueReferences(variable.defaultValue, { kind: 'object', typeName: variable.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!);
+      const replaced =
+        request.action === 'replace'
+          ? replaceEngineResourceValueReferences(
+              variable.defaultValue,
+              { kind: 'object', typeName: variable.valueType.name },
+              project.engineTypes ?? [],
+              request.kind!,
+              request.fromId!,
+              request.toId!,
+            )
+          : clearEngineResourceValueReferences(
+              variable.defaultValue,
+              { kind: 'object', typeName: variable.valueType.name },
+              project.engineTypes ?? [],
+              request.kind!,
+              request.fromId!,
+            );
       count += replaced.count;
       const variableBlocked = (replaced as { blocked?: number }).blocked ?? 0;
       blocked += variableBlocked;
-      if (variableBlocked) blockedLocations.push(`Project variable ${variable.displayName} · ${variableBlocked}`);
+      if (variableBlocked)
+        blockedLocations.push(`Project variable ${variable.displayName} · ${variableBlocked}`);
       if (replaced.count) locations.push(`Project variable ${variable.displayName}`);
       return replaced.count ? { ...variable, defaultValue: replaced.value } : variable;
     };
@@ -3313,14 +3365,33 @@ function registerStoryFileHandlers(): void {
     const nextEngineTypes = (project.engineTypes ?? []).map((definition) => ({
       ...definition,
       fields: definition.fields.map((field) => {
-        const replaced = request.action === 'replace'
-          ? replaceEngineResourceValueReferences(field.defaultValue, field.type, project.engineTypes ?? [], request.kind!, request.fromId!, request.toId!)
-          : clearEngineResourceValueReferences(field.defaultValue, field.type, project.engineTypes ?? [], request.kind!, request.fromId!, field.nullable === true);
+        const replaced =
+          request.action === 'replace'
+            ? replaceEngineResourceValueReferences(
+                field.defaultValue,
+                field.type,
+                project.engineTypes ?? [],
+                request.kind!,
+                request.fromId!,
+                request.toId!,
+              )
+            : clearEngineResourceValueReferences(
+                field.defaultValue,
+                field.type,
+                project.engineTypes ?? [],
+                request.kind!,
+                request.fromId!,
+                field.nullable === true,
+              );
         count += replaced.count;
         const fieldBlocked = (replaced as { blocked?: number }).blocked ?? 0;
         blocked += fieldBlocked;
-        if (fieldBlocked) blockedLocations.push(`Engine Type ${definition.displayName}.${field.displayName} · ${fieldBlocked}`);
-        if (replaced.count) locations.push(`Engine Type ${definition.displayName}.${field.displayName}`);
+        if (fieldBlocked)
+          blockedLocations.push(
+            `Engine Type ${definition.displayName}.${field.displayName} · ${fieldBlocked}`,
+          );
+        if (replaced.count)
+          locations.push(`Engine Type ${definition.displayName}.${field.displayName}`);
         return replaced.count ? { ...field, defaultValue: replaced.value } : field;
       }),
     }));
@@ -3329,38 +3400,69 @@ function registerStoryFileHandlers(): void {
       if (request.deleteRelativePath === resource.relativePath) continue;
       let character = resource.character;
       let characterCount = 0;
-      if (request.kind === 'character' && character.relationships?.[request.fromId as keyof typeof character.relationships]) {
+      if (
+        request.kind === 'character' &&
+        character.relationships?.[request.fromId as keyof typeof character.relationships]
+      ) {
         const relationships = { ...character.relationships };
         const relationship = relationships[request.fromId as keyof typeof relationships]!;
         delete relationships[request.fromId as keyof typeof relationships];
-        if (request.action === 'replace') relationships[request.toId as keyof typeof relationships] = relationship;
+        if (request.action === 'replace')
+          relationships[request.toId as keyof typeof relationships] = relationship;
         character = { ...character, relationships };
         characterCount += 1;
       }
       if (request.kind === 'asset') {
-        const defaultPortraitId = character.defaultPortraitId === request.fromId
-          ? (request.action === 'replace' ? request.toId : undefined)
-          : character.defaultPortraitId;
+        const defaultPortraitId =
+          character.defaultPortraitId === request.fromId
+            ? request.action === 'replace'
+              ? request.toId
+              : undefined
+            : character.defaultPortraitId;
         if (defaultPortraitId !== character.defaultPortraitId) characterCount += 1;
-        const emotions = Object.fromEntries(Object.entries(character.emotions).map(([name, emotion]) => {
-          if (emotion.portraitId !== request.fromId) return [name, emotion];
-          characterCount += 1;
-          if (request.action === 'replace') return [name, { ...emotion, portraitId: request.toId }];
-          const cleared = { ...emotion };
-          delete cleared.portraitId;
-          return [name, cleared];
-        }));
-        character = { ...character, defaultPortraitId: defaultPortraitId as CharacterSource['defaultPortraitId'], emotions };
+        const emotions = Object.fromEntries(
+          Object.entries(character.emotions).map(([name, emotion]) => {
+            if (emotion.portraitId !== request.fromId) return [name, emotion];
+            characterCount += 1;
+            if (request.action === 'replace')
+              return [name, { ...emotion, portraitId: request.toId }];
+            const cleared = { ...emotion };
+            delete cleared.portraitId;
+            return [name, cleared];
+          }),
+        );
+        character = {
+          ...character,
+          defaultPortraitId: defaultPortraitId as CharacterSource['defaultPortraitId'],
+          emotions,
+        };
       }
       const fields = character.fields?.map((field) => {
         if (field.valueType.kind !== 'json') return field;
-        const replaced = request.action === 'replace'
-          ? replaceEngineResourceValueReferences(field.defaultValue, { kind: 'object', typeName: field.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!, request.toId!)
-          : clearEngineResourceValueReferences(field.defaultValue, { kind: 'object', typeName: field.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!);
+        const replaced =
+          request.action === 'replace'
+            ? replaceEngineResourceValueReferences(
+                field.defaultValue,
+                { kind: 'object', typeName: field.valueType.name },
+                project.engineTypes ?? [],
+                request.kind!,
+                request.fromId!,
+                request.toId!,
+              )
+            : clearEngineResourceValueReferences(
+                field.defaultValue,
+                { kind: 'object', typeName: field.valueType.name },
+                project.engineTypes ?? [],
+                request.kind!,
+                request.fromId!,
+              );
         characterCount += replaced.count;
         const fieldBlocked = (replaced as { blocked?: number }).blocked ?? 0;
         blocked += fieldBlocked;
-        if (fieldBlocked) blockedLocations.push(`Character ${character.displayName}.${field.displayName} · ${fieldBlocked}`);
+        if (fieldBlocked)
+          blockedLocations.push(
+            `Character ${character.displayName}.${field.displayName} · ${fieldBlocked}`,
+          );
         return replaced.count ? { ...field, defaultValue: replaced.value } : field;
       });
       if (!characterCount) continue;
@@ -3404,7 +3506,9 @@ function registerStoryFileHandlers(): void {
       return { count, blocked, locations, blockedLocations };
     }
     if (request.action === 'clear' && blocked > 0 && deletions.length > 0) {
-      throw new Error(`${blocked} required reference(s) must be replaced before deleting this resource`);
+      throw new Error(
+        `${blocked} required reference(s) must be replaced before deleting this resource`,
+      );
     }
     const transactionId = randomUUID();
     const transaction: StoredProjectTransaction = {
@@ -3418,18 +3522,22 @@ function registerStoryFileHandlers(): void {
       status: 'pending',
       projectFile: workspaceProjectFile,
       files: [
-        ...await Promise.all(writes.map(async (write) => ({
-          relativePath: toWorkspaceRelative(write.filePath),
-          change: 'modified' as const,
-          before: await readFile(write.filePath, 'utf8'),
-          after: write.content,
-        }))),
-        ...await Promise.all(deletions.map(async (deletion) => ({
-          relativePath: toWorkspaceRelative(deletion.filePath),
-          change: 'deleted' as const,
-          before: await readFile(deletion.filePath, 'utf8'),
-          after: undefined,
-        }))),
+        ...(await Promise.all(
+          writes.map(async (write) => ({
+            relativePath: toWorkspaceRelative(write.filePath),
+            change: 'modified' as const,
+            before: await readFile(write.filePath, 'utf8'),
+            after: write.content,
+          })),
+        )),
+        ...(await Promise.all(
+          deletions.map(async (deletion) => ({
+            relativePath: toWorkspaceRelative(deletion.filePath),
+            change: 'deleted' as const,
+            before: await readFile(deletion.filePath, 'utf8'),
+            after: undefined,
+          })),
+        )),
       ],
     };
     await writeProjectTransactionJournal([
@@ -3437,9 +3545,11 @@ function registerStoryFileHandlers(): void {
       ...(await readProjectTransactionJournal()).filter((entry) => entry.id !== transactionId),
     ]);
     await replaceProjectStoriesAtomically(writes, deletions);
-    await writeProjectTransactionJournal((await readProjectTransactionJournal()).map((entry) =>
-      entry.id === transactionId ? { ...entry, status: 'committed' as const } : entry,
-    ));
+    await writeProjectTransactionJournal(
+      (await readProjectTransactionJournal()).map((entry) =>
+        entry.id === transactionId ? { ...entry, status: 'committed' as const } : entry,
+      ),
+    );
     return { count, blocked, locations, blockedLocations, workspace: await syncWorkspaceProject() };
   });
 
@@ -3447,27 +3557,34 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || !workspaceProjectFile) return [];
     return (await readProjectTransactionJournal())
       .filter((entry) => entry.projectFile === workspaceProjectFile)
-      .map(({ id, label, createdAt, status, files }) => ({
-        id,
-        label,
-        createdAt,
-        status,
-        files: files.map(({ relativePath, change, before, after }) => ({
-          relativePath,
-          change,
-          beforeBytes: Buffer.byteLength(before ?? '', 'utf8'),
-          afterBytes: Buffer.byteLength(after ?? '', 'utf8'),
-          changedLines: Math.max(
-            before?.split(/\r?\n/).length ?? 0,
-            after?.split(/\r?\n/).length ?? 0,
-          ),
-        })),
-      } satisfies ProjectTransactionRecovery));
+      .map(
+        ({ id, label, createdAt, status, files }) =>
+          ({
+            id,
+            label,
+            createdAt,
+            status,
+            files: files.map(({ relativePath, change, before, after }) => ({
+              relativePath,
+              change,
+              beforeBytes: Buffer.byteLength(before ?? '', 'utf8'),
+              afterBytes: Buffer.byteLength(after ?? '', 'utf8'),
+              changedLines: Math.max(
+                before?.split(/\r?\n/).length ?? 0,
+                after?.split(/\r?\n/).length ?? 0,
+              ),
+            })),
+          }) satisfies ProjectTransactionRecovery,
+      );
   });
 
   ipcMain.handle('workspace:restore-transaction', async (event, id: unknown, target: unknown) => {
-    if (!isTrustedSender(event) || !workspaceProjectFile || typeof id !== 'string' ||
-      (target !== 'before' && target !== 'after')) {
+    if (
+      !isTrustedSender(event) ||
+      !workspaceProjectFile ||
+      typeof id !== 'string' ||
+      (target !== 'before' && target !== 'after')
+    ) {
       throw new Error('Invalid project transaction recovery');
     }
     const entry = (await readProjectTransactionJournal()).find(
@@ -3512,7 +3629,11 @@ function registerStoryFileHandlers(): void {
     } catch (error) {
       for (const [filePath, content] of previous) {
         if (content === undefined) {
-          try { await unlink(filePath); } catch { /* best-effort rollback */ }
+          try {
+            await unlink(filePath);
+          } catch {
+            /* best-effort rollback */
+          }
         } else {
           await mkdir(dirname(filePath), { recursive: true });
           await writeFile(filePath, content, 'utf8');
@@ -3531,24 +3652,27 @@ function registerStoryFileHandlers(): void {
       (entry) => entry.id !== id || entry.projectFile !== workspaceProjectFile,
     );
     await writeProjectTransactionJournal(next);
-    return next.filter((entry) => entry.projectFile === workspaceProjectFile).map(
-      ({ id: entryId, label, createdAt, status, files }) => ({
-        id: entryId,
-        label,
-        createdAt,
-        status,
-        files: files.map(({ relativePath, change, before, after }) => ({
-          relativePath,
-          change,
-          beforeBytes: Buffer.byteLength(before ?? '', 'utf8'),
-          afterBytes: Buffer.byteLength(after ?? '', 'utf8'),
-          changedLines: Math.max(
-            before?.split(/\r?\n/).length ?? 0,
-            after?.split(/\r?\n/).length ?? 0,
-          ),
-        })),
-      } satisfies ProjectTransactionRecovery),
-    );
+    return next
+      .filter((entry) => entry.projectFile === workspaceProjectFile)
+      .map(
+        ({ id: entryId, label, createdAt, status, files }) =>
+          ({
+            id: entryId,
+            label,
+            createdAt,
+            status,
+            files: files.map(({ relativePath, change, before, after }) => ({
+              relativePath,
+              change,
+              beforeBytes: Buffer.byteLength(before ?? '', 'utf8'),
+              afterBytes: Buffer.byteLength(after ?? '', 'utf8'),
+              changedLines: Math.max(
+                before?.split(/\r?\n/).length ?? 0,
+                after?.split(/\r?\n/).length ?? 0,
+              ),
+            })),
+          }) satisfies ProjectTransactionRecovery,
+      );
   });
 
   ipcMain.handle('workspace:update-project-settings', async (event, value: unknown) => {
@@ -3712,51 +3836,57 @@ function registerStoryFileHandlers(): void {
     },
   );
 
-  ipcMain.handle('workspace:delete-character', async (event, relativePath: unknown, confirmed: unknown) => {
-    if (
-      !isTrustedSender(event) ||
-      !mainWindow ||
-      typeof relativePath !== 'string' ||
-      !workspaceProjectFile
-    ) {
-      throw new Error('Invalid character delete');
-    }
-    const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
-    const reference = project.characters.find((character) => character.path === relativePath);
-    if (reference?.storyIds.length) {
-      throw new Error(`Character is used by ${reference.storyIds.length} Story file(s)`);
-    }
-    const workspace = await readWorkspace();
-    const engineReference = reference
-      ? findProjectEngineResourceReference(project, workspace, 'character', reference.id)
-      : undefined;
-    if (engineReference) throw new Error(`Character is referenced by ${engineReference}`);
-    const relationshipOwner = workspace?.characterResources.find(({ character }) =>
-      Object.hasOwn(character.relationships ?? {}, reference?.id ?? ''),
-    );
-    if (relationshipOwner) {
-      throw new Error(
-        `Character is referenced by ${relationshipOwner.character.displayName}'s relationship`,
+  ipcMain.handle(
+    'workspace:delete-character',
+    async (event, relativePath: unknown, confirmed: unknown) => {
+      if (
+        !isTrustedSender(event) ||
+        !mainWindow ||
+        typeof relativePath !== 'string' ||
+        !workspaceProjectFile
+      ) {
+        throw new Error('Invalid character delete');
+      }
+      const project = parseStoryProject(await readFile(workspaceProjectFile, 'utf8'));
+      const reference = project.characters.find((character) => character.path === relativePath);
+      if (reference?.storyIds.length) {
+        throw new Error(`Character is used by ${reference.storyIds.length} Story file(s)`);
+      }
+      const workspace = await readWorkspace();
+      const engineReference = reference
+        ? findProjectEngineResourceReference(project, workspace, 'character', reference.id)
+        : undefined;
+      if (engineReference) throw new Error(`Character is referenced by ${engineReference}`);
+      const relationshipOwner = workspace?.characterResources.find(({ character }) =>
+        Object.hasOwn(character.relationships ?? {}, reference?.id ?? ''),
       );
-    }
-    const filePath = await resolveExistingWorkspacePath(relativePath);
-    if (!filePath.toLowerCase().endsWith('.character')) throw new Error('Not a character file');
-    const confirmation = confirmed === true ? { response: 0 } : await dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Delete Character',
-      message: `Delete character "${reference?.displayName ?? basename(filePath, extname(filePath))}"?`,
-      detail: 'The character file will be permanently deleted. This cannot be undone.',
-      buttons: ['Delete', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    });
-    if (confirmation.response !== 0) {
-      return { canceled: true, workspace: (await readWorkspace())! };
-    }
-    await unlink(filePath);
-    return { canceled: false, workspace: await syncWorkspaceProject() };
-  });
+      if (relationshipOwner) {
+        throw new Error(
+          `Character is referenced by ${relationshipOwner.character.displayName}'s relationship`,
+        );
+      }
+      const filePath = await resolveExistingWorkspacePath(relativePath);
+      if (!filePath.toLowerCase().endsWith('.character')) throw new Error('Not a character file');
+      const confirmation =
+        confirmed === true
+          ? { response: 0 }
+          : await dialog.showMessageBox(mainWindow, {
+              type: 'warning',
+              title: 'Delete Character',
+              message: `Delete character "${reference?.displayName ?? basename(filePath, extname(filePath))}"?`,
+              detail: 'The character file will be permanently deleted. This cannot be undone.',
+              buttons: ['Delete', 'Cancel'],
+              defaultId: 1,
+              cancelId: 1,
+              noLink: true,
+            });
+      if (confirmation.response !== 0) {
+        return { canceled: true, workspace: (await readWorkspace())! };
+      }
+      await unlink(filePath);
+      return { canceled: false, workspace: await syncWorkspaceProject() };
+    },
+  );
 
   ipcMain.handle('workspace:create-asset', async (event, value: unknown) => {
     if (!isTrustedSender(event) || !workspaceProjectFile) throw new Error('Open a project first');
@@ -3965,6 +4095,36 @@ function registerStoryFileHandlers(): void {
       throw new Error('Ink source is too large');
     }
     return { canceled: false, filePath, content };
+  });
+
+  ipcMain.handle('workspace:pick-ink', async (event) => {
+    if (!isTrustedSender(event) || !mainWindow || !workspaceRoot)
+      throw new Error('Open a project first');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Link Ink Source',
+      defaultPath: workspaceRoot,
+      properties: ['openFile'],
+      filters: [{ name: 'Ink Source', extensions: ['ink'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const filePath = ensureWithinWorkspace(await realpath(result.filePaths[0]));
+    if (extname(filePath).toLowerCase() !== '.ink') throw new Error('Choose an .ink file');
+    const content = await readFile(filePath, 'utf8');
+    if (Buffer.byteLength(content, 'utf8') > MAX_INK_SOURCE_BYTES)
+      throw new Error('Ink source is too large');
+    return { canceled: false, relativePath: toWorkspaceRelative(filePath), content };
+  });
+
+  ipcMain.handle('workspace:read-ink', async (event, relativePath: unknown) => {
+    if (!isTrustedSender(event) || typeof relativePath !== 'string')
+      throw new Error('Invalid Ink path');
+    const filePath = await resolveExistingWorkspacePath(relativePath);
+    if (extname(filePath).toLowerCase() !== '.ink')
+      throw new Error('Linked source must be an .ink file');
+    const content = await readFile(filePath, 'utf8');
+    if (Buffer.byteLength(content, 'utf8') > MAX_INK_SOURCE_BYTES)
+      throw new Error('Ink source is too large');
+    return { canceled: false, relativePath: toWorkspaceRelative(filePath), content };
   });
 }
 

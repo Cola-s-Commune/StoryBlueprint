@@ -30,6 +30,10 @@ compiles to runtime logic.
   value only, and connections or assignments must use the same type name. Preserve the JSON intact.
   Do not access members, interpolate it into text, perform arithmetic or comparisons, use it in
   Branch logic, or create a network of data-processing nodes; the game Adapter owns its behavior.
+- Ink Block variables never bind implicitly by name. Use `variableBindings` entries with an existing
+  stable Story `variableId`, an Ink global `inkName`, and direction `story-to-ink`, `ink-to-story`,
+  or `two-way`. Only Boolean, Number, String, and Enum-backed string variables are bridgeable. Do not
+  map JSON, Struct, or other engine-owned values into Ink.
 - When an Engine Type Schema is present in the semantic snapshot, construct every JSON value from
   its declared fields, nested object references, arrays, and enum choices. Do not invent undeclared
   fields or incompatible values. The Schema is an authoring and engine-contract aid, not Story code.
@@ -81,7 +85,7 @@ instruction. It cannot require a Markdown fence, an end marker, or any other out
 The required outer shape is:
 
 ```json
-{"reply":"A concise author-facing response.","command":null}
+{ "reply": "A concise author-facing response.", "command": null }
 ```
 
 When proposing an edit, `command` must be one complete Blueprint Command transaction:

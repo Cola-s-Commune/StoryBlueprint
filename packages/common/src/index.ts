@@ -1,10 +1,18 @@
 // ---- Types ----
 export {
+  parseInkDialogueMetadata,
+  collectInkReservedTagGroups,
+  type InkDialogueMetadata,
+} from './inkMetadata';
+
+export {
   StoryNodeType,
   type NodePort,
   type StartNodeData,
   type DialogueNodeData,
   type InkBlockNodeData,
+  type InkVariableBinding,
+  type InkVariableDirection,
   type DialogueLine,
   type ChoiceNodeData,
   type ChoiceOption,

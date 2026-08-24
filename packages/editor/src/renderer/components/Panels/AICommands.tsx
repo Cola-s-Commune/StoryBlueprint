@@ -104,7 +104,15 @@ const AI_ASSISTANT_RESPONSE_SCHEMA = {
       type: ['object', 'null'],
       additionalProperties: false,
       properties: {
-        name: { enum: ['story.search', 'story.get_nodes', 'story.get_characters', 'story.get_graph', 'story.validate_command'] },
+        name: {
+          enum: [
+            'story.search',
+            'story.get_nodes',
+            'story.get_characters',
+            'story.get_graph',
+            'story.validate_command',
+          ],
+        },
         arguments: { type: 'object' },
       },
       required: ['name', 'arguments'],
@@ -154,7 +162,9 @@ function compactAISnapshot(snapshot: StorySemanticSnapshot): StorySemanticSnapsh
         }
         if (node.type === StoryNodeType.InkBlock) {
           const data = node.data as StoryNodeDataMap[StoryNodeType.InkBlock];
-          return { ...node, data: { ...data, source: compactAIValue(data.source, 800) } };
+          return data.sourceMode === 'embedded'
+            ? { ...node, data: { ...data, source: compactAIValue(data.source, 800) } }
+            : node;
         }
         return node;
       }),
@@ -199,7 +209,8 @@ function nodeSummary(
   if (node.type === StoryNodeType.Dialogue) {
     content = (node.data as StoryNodeDataMap[StoryNodeType.Dialogue]).lines[0]?.text.source ?? '';
   } else if (node.type === StoryNodeType.InkBlock) {
-    content = (node.data as StoryNodeDataMap[StoryNodeType.InkBlock]).source;
+    const ink = node.data as StoryNodeDataMap[StoryNodeType.InkBlock];
+    content = ink.sourceMode === 'embedded' ? ink.source : `[Linked Ink: ${ink.path}]`;
   } else if (node.type === StoryNodeType.Choice) {
     content = (node.data as StoryNodeDataMap[StoryNodeType.Choice]).prompt.source;
   } else if (node.type === StoryNodeType.SetVariable) {
@@ -406,50 +417,51 @@ function aiContext(
   toolsEnabled = true,
 ): string {
   const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
-  const build = (contextSnapshot: StorySemanticSnapshot, compacted: boolean) => [
-    'Use this semantic Story Blueprint state to answer the author or propose an edit.',
-    'Answer questions normally. Ask for clarification instead of guessing important story intent.',
-    `Any proposed command MUST validate against the ${BLUEPRINT_COMMAND_FORMAT}@${BLUEPRINT_COMMAND_VERSION} JSON Schema below.`,
-    'The top-level array is named operations, never commands.',
-    'A graph is an object such as { "kind": "root" }, never the string "root".',
-    'Never emit ports, positions, definitionVersion, UI state, or fields not allowed by the schema.',
-    'Use the Node Catalog for add-node data and port IDs; ports are always derived by the editor.',
-    'IMPORTANT TEXT SHAPES: add-node data uses { "source": "text" } as shown in the Node Catalog, but add-dialogue-line, update-dialogue-line, add-choice-option, and update-choice-option use a plain string for text.',
-    'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
-    'DIALOGUE SEMANTICS: A line with speakerId is only that character\'s spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.',
-    'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
-    'NOVEL ADAPTATION: When the author supplies a novel or long-form prose and asks for a Galgame adaptation, preserve the source rather than summarizing it. Keep every scene beat, spoken line, narration, action, thought, pause, description, order, and pacing. Do not invent choices or gameplay actions, and do not reduce operation count by collapsing content. If the source is too large, propose explicit sequential batches with a covered range and continuation point; never silently omit or summarize the unprocessed range.',
-    toolsEnabled
-      ? 'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}, story.validate_command {command}. After receiving a tool result, answer the original request. Tools never modify the Story.'
-      : 'READ-ONLY CONTEXT TOOLS are disabled for this Provider. Do not return toolRequest; use only the supplied context or ask the author a clarification question.',
-    'SUBSTORY CREATION: To create a Substory, use one add-substory operation. Include a stable ch_ ID, unique name/displayName, chapter-scope parameters and outputs, local-scope localVariables, and an initial graph containing exactly one story-entry node and usually one return node. Do not use add-node with a chapter graph to simulate a Substory. The operation creates the Substory itself; it does not automatically add a Call Substory node.',
-    'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
-    'Preserve stable IDs unless explicitly adding or removing an object.',
-    `Set baseRevision to ${snapshot.revision}.`,
-    ...(scope
-      ? [
-          `The provided context scope is ${scope.kind}.`,
-          `All graph-scoped operations MUST target the active graph: ${scope.activeGraphId === 'root' ? '{ "kind": "root" }' : `{ "kind": "chapter", "chapterId": "${scope.activeGraphId}" }`}. Other graphs are read-only context. Resource-level add-substory does not have a graph field and is allowed when explicitly requested.`,
-          scope.kind === 'selection'
-            ? `The explicitly selected node IDs are: ${scope.selectedNodeIds.join(', ')}. Neighbor nodes are included only to show connection boundaries.`
-            : '',
-        ].filter(Boolean)
-      : []),
-    '',
-    'BLUEPRINT COMMAND JSON SCHEMA:',
-    JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2),
-    '',
-    'BUILT-IN NODE CATALOG:',
-    JSON.stringify(BLUEPRINT_NODE_CATALOG, null, 2),
-    '',
-    'VALID TRANSACTION EXAMPLE:',
-    JSON.stringify(example, null, 2),
-    '',
-    compacted
-      ? 'CURRENT SEMANTIC SNAPSHOT (COMPACTED): Long text was truncated for context budget. Stable IDs, types, speakers, and structure are preserved; ask for the exact node text when needed.'
-      : 'CURRENT SEMANTIC SNAPSHOT:',
-    JSON.stringify(contextSnapshot, null, 2),
-  ].join('\n');
+  const build = (contextSnapshot: StorySemanticSnapshot, compacted: boolean) =>
+    [
+      'Use this semantic Story Blueprint state to answer the author or propose an edit.',
+      'Answer questions normally. Ask for clarification instead of guessing important story intent.',
+      `Any proposed command MUST validate against the ${BLUEPRINT_COMMAND_FORMAT}@${BLUEPRINT_COMMAND_VERSION} JSON Schema below.`,
+      'The top-level array is named operations, never commands.',
+      'A graph is an object such as { "kind": "root" }, never the string "root".',
+      'Never emit ports, positions, definitionVersion, UI state, or fields not allowed by the schema.',
+      'Use the Node Catalog for add-node data and port IDs; ports are always derived by the editor.',
+      'IMPORTANT TEXT SHAPES: add-node data uses { "source": "text" } as shown in the Node Catalog, but add-dialogue-line, update-dialogue-line, add-choice-option, and update-choice-option use a plain string for text.',
+      'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
+      "DIALOGUE SEMANTICS: A line with speakerId is only that character's spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.",
+      'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
+      'NOVEL ADAPTATION: When the author supplies a novel or long-form prose and asks for a Galgame adaptation, preserve the source rather than summarizing it. Keep every scene beat, spoken line, narration, action, thought, pause, description, order, and pacing. Do not invent choices or gameplay actions, and do not reduce operation count by collapsing content. If the source is too large, propose explicit sequential batches with a covered range and continuation point; never silently omit or summarize the unprocessed range.',
+      toolsEnabled
+        ? 'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}, story.validate_command {command}. After receiving a tool result, answer the original request. Tools never modify the Story.'
+        : 'READ-ONLY CONTEXT TOOLS are disabled for this Provider. Do not return toolRequest; use only the supplied context or ask the author a clarification question.',
+      'SUBSTORY CREATION: To create a Substory, use one add-substory operation. Include a stable ch_ ID, unique name/displayName, chapter-scope parameters and outputs, local-scope localVariables, and an initial graph containing exactly one story-entry node and usually one return node. Do not use add-node with a chapter graph to simulate a Substory. The operation creates the Substory itself; it does not automatically add a Call Substory node.',
+      'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
+      'Preserve stable IDs unless explicitly adding or removing an object.',
+      `Set baseRevision to ${snapshot.revision}.`,
+      ...(scope
+        ? [
+            `The provided context scope is ${scope.kind}.`,
+            `All graph-scoped operations MUST target the active graph: ${scope.activeGraphId === 'root' ? '{ "kind": "root" }' : `{ "kind": "chapter", "chapterId": "${scope.activeGraphId}" }`}. Other graphs are read-only context. Resource-level add-substory does not have a graph field and is allowed when explicitly requested.`,
+            scope.kind === 'selection'
+              ? `The explicitly selected node IDs are: ${scope.selectedNodeIds.join(', ')}. Neighbor nodes are included only to show connection boundaries.`
+              : '',
+          ].filter(Boolean)
+        : []),
+      '',
+      'BLUEPRINT COMMAND JSON SCHEMA:',
+      JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2),
+      '',
+      'BUILT-IN NODE CATALOG:',
+      JSON.stringify(BLUEPRINT_NODE_CATALOG, null, 2),
+      '',
+      'VALID TRANSACTION EXAMPLE:',
+      JSON.stringify(example, null, 2),
+      '',
+      compacted
+        ? 'CURRENT SEMANTIC SNAPSHOT (COMPACTED): Long text was truncated for context budget. Stable IDs, types, speakers, and structure are preserved; ask for the exact node text when needed.'
+        : 'CURRENT SEMANTIC SNAPSHOT:',
+      JSON.stringify(contextSnapshot, null, 2),
+    ].join('\n');
   if (mode === 'manifest-first') {
     return `${build(manifestAISnapshot(snapshot), true)}\n\nCONTEXT MODE: manifest-first. The manifest intentionally omits node data. Use the read-only context tools to retrieve exact content before proposing an edit.`;
   }
@@ -498,33 +510,61 @@ function runAIContextTool(
     const results: Array<Record<string, unknown>> = [];
     for (const character of snapshot.characters) {
       const haystack = JSON.stringify(character).toLowerCase();
-      if (haystack.includes(query)) results.push({ kind: 'character', id: character.id, name: character.name, displayName: character.displayName });
+      if (haystack.includes(query))
+        results.push({
+          kind: 'character',
+          id: character.id,
+          name: character.name,
+          displayName: character.displayName,
+        });
     }
     for (const graph of snapshot.graphs) {
       for (const node of graph.nodes) {
         const haystack = JSON.stringify(node).toLowerCase();
-        if (haystack.includes(query)) results.push({ kind: 'node', graph: graph.kind === 'root' ? { kind: 'root' } : { kind: 'chapter', chapterId: graph.chapterId }, id: node.id, type: node.type, name: node.name });
+        if (haystack.includes(query))
+          results.push({
+            kind: 'node',
+            graph:
+              graph.kind === 'root'
+                ? { kind: 'root' }
+                : { kind: 'chapter', chapterId: graph.chapterId },
+            id: node.id,
+            type: node.type,
+            name: node.name,
+          });
       }
     }
     return { query, results: results.slice(0, 50) };
   }
   if (request.name === 'story.get_characters') {
-    const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === 'string') : [];
+    const ids = Array.isArray(args.ids)
+      ? args.ids.filter((id): id is string => typeof id === 'string')
+      : [];
     return { characters: snapshot.characters.filter((character) => ids.includes(character.id)) };
   }
   if (request.name === 'story.get_nodes') {
-    const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === 'string') : [];
+    const ids = Array.isArray(args.ids)
+      ? args.ids.filter((id): id is string => typeof id === 'string')
+      : [];
     const nodes = snapshot.graphs.flatMap((graph) =>
       graph.nodes
         .filter((node) => ids.includes(node.id))
-        .map((node) => ({ graph: graph.kind === 'root' ? { kind: 'root' } : { kind: 'chapter', chapterId: graph.chapterId }, node })),
+        .map((node) => ({
+          graph:
+            graph.kind === 'root'
+              ? { kind: 'root' }
+              : { kind: 'chapter', chapterId: graph.chapterId },
+          node,
+        })),
     );
     return { nodes };
   }
   if (request.name === 'story.get_graph') {
     const graphId = typeof args.graphId === 'string' ? args.graphId : 'root';
     const graph = snapshot.graphs.find((candidate) =>
-      graphId === 'root' ? candidate.kind === 'root' : candidate.kind === 'chapter' && candidate.chapterId === graphId,
+      graphId === 'root'
+        ? candidate.kind === 'root'
+        : candidate.kind === 'chapter' && candidate.chapterId === graphId,
     );
     return graph ? { graph } : { error: `Unknown graph: ${graphId}` };
   }
@@ -598,7 +638,9 @@ export function AICommands() {
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [streamedContent, setStreamedContent] = useState('');
   const [rawAIResponse, setRawAIResponse] = useState<string>();
-  const [toolTrace, setToolTrace] = useState<Array<{ name: string; arguments: Record<string, unknown>; result: string }>>([]);
+  const [toolTrace, setToolTrace] = useState<
+    Array<{ name: string; arguments: Record<string, unknown>; result: string }>
+  >([]);
   const [conversation, setConversation] = useState<AIConversationMessage[]>([]);
   const [conversationHistory, setConversationHistory] = useState<AIConversationMessage[]>([]);
   const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
@@ -638,15 +680,23 @@ export function AICommands() {
   );
   const snapshotText = useMemo(() => JSON.stringify(semanticSnapshot, null, 2), [semanticSnapshot]);
   const contextText = useMemo(
-    () => aiContext(
+    () =>
+      aiContext(
+        scopedSemanticSnapshot,
+        { kind: contextScope, activeGraphId, selectedNodeIds },
+        activeProvider?.tools === 'disabled' && activeProvider.contextMode === 'manifest-first'
+          ? 'compact'
+          : (activeProvider?.contextMode ?? 'full'),
+        activeProvider?.tools !== 'disabled',
+      ),
+    [
+      activeGraphId,
+      activeProvider?.contextMode,
+      activeProvider?.tools,
+      contextScope,
       scopedSemanticSnapshot,
-      { kind: contextScope, activeGraphId, selectedNodeIds },
-      activeProvider?.tools === 'disabled' && activeProvider.contextMode === 'manifest-first'
-        ? 'compact'
-        : activeProvider?.contextMode ?? 'full',
-      activeProvider?.tools !== 'disabled',
-    ),
-    [activeGraphId, activeProvider?.contextMode, activeProvider?.tools, contextScope, scopedSemanticSnapshot, selectedNodeIds],
+      selectedNodeIds,
+    ],
   );
   const schemaText = useMemo(() => JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2), []);
   const chatScopeKey = activeStoryId
@@ -839,8 +889,7 @@ export function AICommands() {
       else if (progress.phase === 'writing') {
         setReasoningOpen(false);
         setProviderStatus('Writing response…');
-      }
-      else if (progress.phase === 'completed') setProviderStatus('Finalizing response…');
+      } else if (progress.phase === 'completed') setProviderStatus('Finalizing response…');
     });
   }, []);
 
@@ -941,7 +990,11 @@ export function AICommands() {
 
   const deleteProvider = async () => {
     if (!providerDraft?.id || !window.electronAPI) return;
-    if (!window.confirm(`Delete AI provider "${providerDraft.name}"? Its saved API key will also be removed.`)) {
+    if (
+      !window.confirm(
+        `Delete AI provider "${providerDraft.name}"? Its saved API key will also be removed.`,
+      )
+    ) {
       return;
     }
     try {
@@ -1018,10 +1071,8 @@ export function AICommands() {
         assistant = parseAIAssistantResponse(response.content, semanticSnapshot.revision);
         if (!assistant.toolRequest || activeProvider.tools === 'disabled') break;
         if (toolRound === 3) throw new Error('AI requested too many context tool calls');
-        const toolResult = runAIContextTool(
-          semanticSnapshot,
-          assistant.toolRequest,
-          (command) => executeBlueprintCommands(command, { dryRun: true }),
+        const toolResult = runAIContextTool(semanticSnapshot, assistant.toolRequest, (command) =>
+          executeBlueprintCommands(command, { dryRun: true }),
         );
         const boundedResult = boundedToolResult(toolResult);
         setToolTrace((trace) => [
@@ -1076,8 +1127,8 @@ export function AICommands() {
           assistant.needsClarification
             ? 'Clarification needed before proposing an edit'
             : assistant.unstructured
-            ? `Response from ${response.model || 'provider'} was not a Blueprint JSON command`
-            : `Answered${response.model ? ` by ${response.model}` : ''}`,
+              ? `Response from ${response.model || 'provider'} was not a Blueprint JSON command`
+              : `Answered${response.model ? ` by ${response.model}` : ''}`,
         );
       }
     } catch (error) {
@@ -1277,7 +1328,9 @@ export function AICommands() {
                 value={providerDraft.name}
                 disabled={generating}
                 maxLength={120}
-                onChange={(event) => setProviderDraft({ ...providerDraft, name: event.target.value })}
+                onChange={(event) =>
+                  setProviderDraft({ ...providerDraft, name: event.target.value })
+                }
                 placeholder="e.g. DeepSeek"
               />
             </label>
@@ -1374,7 +1427,10 @@ export function AICommands() {
                 value={providerDraft.streaming}
                 disabled={generating}
                 onChange={(event) =>
-                  setProviderDraft({ ...providerDraft, streaming: event.target.value as AIStreamingMode })
+                  setProviderDraft({
+                    ...providerDraft,
+                    streaming: event.target.value as AIStreamingMode,
+                  })
                 }
               >
                 <option value="auto">Auto</option>
@@ -1388,7 +1444,10 @@ export function AICommands() {
                 value={providerDraft.contextMode}
                 disabled={generating}
                 onChange={(event) =>
-                  setProviderDraft({ ...providerDraft, contextMode: event.target.value as AIContextMode })
+                  setProviderDraft({
+                    ...providerDraft,
+                    contextMode: event.target.value as AIContextMode,
+                  })
                 }
               >
                 <option value="full">Full snapshot</option>
@@ -1433,7 +1492,11 @@ export function AICommands() {
                 New Provider
               </button>
               {editingProvider?.hasApiKey && (
-                <button type="button" onClick={() => void saveProviderSettings('')} disabled={generating}>
+                <button
+                  type="button"
+                  onClick={() => void saveProviderSettings('')}
+                  disabled={generating}
+                >
                   Remove Key
                 </button>
               )}
@@ -1456,10 +1519,9 @@ export function AICommands() {
                   : `${selectedNodeIds.length} selected`}
             </strong>
             {instructionsStatus && (
-              <span
-                title={instructionsStatus.projectAgentsPath}
-              >
-                Rules v{instructionsStatus.builtInVersion} · AGENTS {instructionsStatus.projectAgents}
+              <span title={instructionsStatus.projectAgentsPath}>
+                Rules v{instructionsStatus.builtInVersion} · AGENTS{' '}
+                {instructionsStatus.projectAgents}
               </span>
             )}
           </div>
@@ -1630,21 +1692,29 @@ export function AICommands() {
           <pre>{modelReasoning}</pre>
         ) : (
           <div className={styles.reasoningPlaceholder}>
-            {generating ? 'Waiting for provider reasoning…' : 'This provider did not return a reasoning trace.'}
+            {generating
+              ? 'Waiting for provider reasoning…'
+              : 'This provider did not return a reasoning trace.'}
           </div>
         )}
       </details>
 
       {toolTrace.length > 0 && (
         <details className={styles.toolTracePane}>
-          <summary>Story context tools · {toolTrace.length} call{toolTrace.length === 1 ? '' : 's'}</summary>
+          <summary>
+            Story context tools · {toolTrace.length} call{toolTrace.length === 1 ? '' : 's'}
+          </summary>
           <p>Read-only context retrieved for this response. Tool results never modify the Story.</p>
           {toolTrace.map((entry, index) => (
             <details key={`${entry.name}-${index}`} className={styles.toolTraceEntry}>
               <summary>{entry.name}</summary>
               <label>
                 <span>Arguments</span>
-                <textarea readOnly spellCheck={false} value={JSON.stringify(entry.arguments, null, 2)} />
+                <textarea
+                  readOnly
+                  spellCheck={false}
+                  value={JSON.stringify(entry.arguments, null, 2)}
+                />
               </label>
               <label>
                 <span>Result · {entry.result.length.toLocaleString()} characters</span>

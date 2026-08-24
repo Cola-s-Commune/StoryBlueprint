@@ -1434,6 +1434,7 @@ SHA-512 后才原子改名；取消、网络错误或校验失败会删除临时
 11. 实现 `.story` 保存、打开、稳定点存档与 Runtime Preview。
 12. 实现 AI 语义视图、风险分级确认和结构化 Diagnostics。
 13. 实现版本化 Ink Profile、受支持子集的语义导入导出和 Ink Block 降级。
+
 ### Resource reference cleanup
 
 Character and Asset references can be previewed and cleared across the whole project. Direct optional
@@ -1454,11 +1455,27 @@ The editor also keeps a bounded, user-data transaction journal for the five most
 reference transactions. A `pending` entry is written before disk mutation and marked `committed` only
 after the atomic batch succeeds. On a later launch, Recovery shows affected paths and size/line spans,
 and can restore the complete before or after side. Choosing Keep Current discards that journal entry.
+
 ### Ink Block runtime lifecycle
 
-An embedded Ink Block owns a serialized `inkjs` state while its runtime instruction is active. Each
+An Embedded or Linked Ink Block owns a serialized `inkjs` state while its runtime instruction is active. Each
 dialogue or choice pause receives a monotonically increasing request ID scoped to that instruction;
 choice IDs also include that interaction ID, so a response from an older choice cannot be accepted by
 a later pause. Runtime save/load preserves the Ink state, interaction index, pending dialogue or choice,
 and original Ink choice index. Ink `END` returns normally to Blueprint flow, while adapter cancellation
-uses the runtime's structured `ABORTED` diagnostic. This state-contract change uses runtime format v5.
+uses the runtime's structured `ABORTED` diagnostic.
+
+Ink variables are shared only through explicit node mappings. `Story → Ink` copies a Story scalar
+when the block starts, `Ink → Story` copies an Ink global back when the block completes, and `Two-way`
+does both. Boolean, Number, String, and Enum-backed strings are supported; JSON, Struct, List, and
+implicit name matching are rejected. Missing Ink globals, missing Story variables, duplicate mappings,
+and incompatible runtime values produce structured diagnostics. This contract uses runtime format v6.
+
+### Ink dialogue metadata tags
+
+Embedded Ink uses same-line tags with stable project IDs: `# speaker:c_id`, `# voice:a_id`,
+`# emotion:happy`, and `# text-id:t_id`. `emotion` requires `speaker`; Character, emotion, and Asset
+references are checked while compiling. Duplicate reserved tags and duplicate explicit Text IDs are
+errors. Tags outside this reserved set remain ordinary Ink tags and are forwarded through
+`DialogueRequest.tags`. If `text-id` is omitted, Runtime creates a deterministic ID from the Ink
+instruction and interaction index; explicit IDs are recommended for localization.

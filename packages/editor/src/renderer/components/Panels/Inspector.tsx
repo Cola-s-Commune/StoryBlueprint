@@ -10,6 +10,7 @@ import {
   type ChoiceOption,
   type DialogueNodeData,
   type InkBlockNodeData,
+  type InkVariableDirection,
   type DialogueLine,
   type DialogueLineId,
   type EndNodeData,
@@ -219,12 +220,14 @@ function VariableSelect({
   label,
   value,
   valueType,
+  allowedKinds,
   onBeginEdit,
   onChange,
 }: {
   label: string;
   value?: VariableId;
   valueType?: ValueType;
+  allowedKinds?: readonly ValueType['kind'][];
   onBeginEdit: () => void;
   onChange: (value: VariableId | undefined) => void;
 }) {
@@ -236,13 +239,14 @@ function VariableSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const accepts = (variable: VariableDefinition) =>
-    !valueType ||
-    valueType.kind === 'any' ||
-    variable.valueType.kind === 'any' ||
-    (variable.valueType.kind === valueType.kind &&
-      (valueType.kind !== 'json' ||
-        variable.valueType.kind !== 'json' ||
-        variable.valueType.name === valueType.name));
+    (!allowedKinds || allowedKinds.includes(variable.valueType.kind)) &&
+    (!valueType ||
+      valueType.kind === 'any' ||
+      variable.valueType.kind === 'any' ||
+      (variable.valueType.kind === valueType.kind &&
+        (valueType.kind !== 'json' ||
+          variable.valueType.kind !== 'json' ||
+          variable.valueType.name === valueType.name)));
 
   const selected = useMemo(() => {
     if (!value) return undefined;
@@ -308,6 +312,7 @@ function VariableSelect({
     return { results: options.slice(0, resultLimit), totalMatches: options.length };
   }, [
     availableVariables,
+    allowedKinds,
     characters,
     inputIds,
     localIds,
@@ -2032,6 +2037,8 @@ export function Inspector() {
     document,
     nodes,
     availableVariables,
+    projectVariables,
+    characters,
     events,
     signals,
     chapters,
@@ -2043,11 +2050,16 @@ export function Inspector() {
     updateStory,
     mergeSelectedDialogues,
     storyDataSelection,
+    revealWorkspaceItem,
   } = useStoryGraphStore();
   const [multiNodeError, setMultiNodeError] = useState<string>();
+  const [inkSourceError, setInkSourceError] = useState<string>();
   const selected = nodes.filter((node) => node.selected);
   const selectedNodeKey = selected.map((node) => node.id).join('|');
-  useEffect(() => setMultiNodeError(undefined), [selectedNodeKey]);
+  useEffect(() => {
+    setMultiNodeError(undefined);
+    setInkSourceError(undefined);
+  }, [selectedNodeKey]);
 
   if (selected.length !== 1) {
     const canMergeDialogues =
@@ -2163,11 +2175,83 @@ export function Inspector() {
       }
       case StoryNodeType.InkBlock: {
         const data = node.data as InkBlockNodeData;
+        const scalarKinds: readonly ValueType['kind'][] = ['boolean', 'number', 'string', 'enum'];
+        const scalarVariables = [
+          ...availableVariables,
+          ...projectVariables,
+          ...characters.flatMap((character) => character.fields ?? []),
+        ].filter((variable) => scalarKinds.includes(variable.valueType.kind));
+        const variableBindings = [...(data.variableBindings ?? [])];
+        const setVariableBindings = (next: typeof variableBindings) => {
+          checkpoint();
+          updateNodeData(node.id, StoryNodeType.InkBlock, { variableBindings: next });
+        };
+        const addVariableBinding = () => {
+          const variable = scalarVariables[0];
+          if (!variable) {
+            setInkSourceError('Create a Boolean, Number, String, or Enum variable first.');
+            return;
+          }
+          const baseName = variable.name.replace(/[^A-Za-z0-9_]/g, '_') || 'ink_variable';
+          let inkName = /^[A-Za-z_]/.test(baseName) ? baseName : `_${baseName}`;
+          let suffix = 2;
+          while (variableBindings.some((binding) => binding.inkName === inkName)) {
+            inkName = `${baseName}_${suffix++}`;
+          }
+          setVariableBindings([
+            ...variableBindings,
+            { inkName, variableId: variable.id, direction: 'two-way' },
+          ]);
+        };
+        const changeInkSourceMode = async (sourceMode: InkBlockNodeData['sourceMode']) => {
+          if ((sourceMode === data.sourceMode && sourceMode !== 'linked') || !window.electronAPI)
+            return;
+          setInkSourceError(undefined);
+          try {
+            if (sourceMode === 'linked') {
+              const picked = await window.electronAPI.pickWorkspaceInkFile();
+              if (picked.canceled) return;
+              checkpoint();
+              updateNodeData(node.id, StoryNodeType.InkBlock, {
+                sourceMode: 'linked',
+                path: picked.relativePath,
+                entryKnot: data.entryKnot,
+              });
+            } else {
+              if (data.sourceMode !== 'linked') return;
+              const loaded = await window.electronAPI.readWorkspaceInkFile(data.path);
+              if (loaded.canceled) return;
+              checkpoint();
+              updateNodeData(node.id, StoryNodeType.InkBlock, {
+                sourceMode: 'embedded',
+                source: loaded.content,
+                entryKnot: data.entryKnot,
+              });
+            }
+          } catch (error) {
+            setInkSourceError(error instanceof Error ? error.message : String(error));
+          }
+        };
         return (
           <>
             <div className={styles.info}>
-              Embedded Ink runs as one resumable block. Its choices stay inside the block.
+              Ink runs as one resumable block. Embed it in the Story or link a project .ink file.
+              Its choices stay inside the block. Dialogue metadata uses stable IDs on the same
+              output line: # speaker:c_id # voice:a_id # emotion:happy # text-id:t_id. Other Ink
+              tags are forwarded to the adapter unchanged.
             </div>
+            <label className={styles.field}>
+              <span>Source Mode</span>
+              <select
+                value={data.sourceMode}
+                onChange={(event) =>
+                  void changeInkSourceMode(event.target.value as InkBlockNodeData['sourceMode'])
+                }
+              >
+                <option value="embedded">Embedded</option>
+                <option value="linked">Linked .ink file</option>
+              </select>
+            </label>
             <PropertyField
               label="Entry knot (optional)"
               value={data.entryKnot ?? ''}
@@ -2178,13 +2262,113 @@ export function Inspector() {
                 })
               }
             />
-            <PropertyField
-              label="Ink Source"
-              value={data.source}
-              multiline
-              onBeginEdit={checkpoint}
-              onChange={(source) => updateNodeData(node.id, StoryNodeType.InkBlock, { source })}
-            />
+            <div className={styles.groupHeader}>
+              <div className={styles.groupLabel}>Variable Bridge</div>
+              <button type="button" onClick={addVariableBinding}>
+                + Add Mapping
+              </button>
+            </div>
+            {variableBindings.length === 0 && (
+              <div className={styles.info}>
+                No variables are shared. Add an explicit mapping to pass scalar values between Story
+                and Ink.
+              </div>
+            )}
+            {variableBindings.map((binding, index) => (
+              <div className={styles.inkVariableBinding} key={`${binding.inkName}:${index}`}>
+                <PropertyField
+                  label="Ink Variable"
+                  value={binding.inkName}
+                  onBeginEdit={checkpoint}
+                  onChange={(inkName) =>
+                    updateNodeData(node.id, StoryNodeType.InkBlock, {
+                      variableBindings: variableBindings.map((candidate, candidateIndex) =>
+                        candidateIndex === index ? { ...candidate, inkName } : candidate,
+                      ),
+                    })
+                  }
+                />
+                <VariableSelect
+                  label="Story Variable"
+                  value={binding.variableId}
+                  allowedKinds={scalarKinds}
+                  onBeginEdit={checkpoint}
+                  onChange={(variableId) => {
+                    if (!variableId) return;
+                    updateNodeData(node.id, StoryNodeType.InkBlock, {
+                      variableBindings: variableBindings.map((candidate, candidateIndex) =>
+                        candidateIndex === index ? { ...candidate, variableId } : candidate,
+                      ),
+                    });
+                  }}
+                />
+                <label className={styles.field}>
+                  <span>Direction</span>
+                  <select
+                    value={binding.direction}
+                    onFocus={() => checkpoint()}
+                    onChange={(event) =>
+                      updateNodeData(node.id, StoryNodeType.InkBlock, {
+                        variableBindings: variableBindings.map((candidate, candidateIndex) =>
+                          candidateIndex === index
+                            ? {
+                                ...candidate,
+                                direction: event.target.value as InkVariableDirection,
+                              }
+                            : candidate,
+                        ),
+                      })
+                    }
+                  >
+                    <option value="story-to-ink">Story → Ink</option>
+                    <option value="ink-to-story">Ink → Story</option>
+                    <option value="two-way">Two-way</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className={styles.removeInkVariableBinding}
+                  onClick={() =>
+                    setVariableBindings(variableBindings.filter((_, item) => item !== index))
+                  }
+                >
+                  Remove Mapping
+                </button>
+              </div>
+            ))}
+            {data.sourceMode === 'embedded' ? (
+              <PropertyField
+                label="Ink Source"
+                value={data.source}
+                multiline
+                onBeginEdit={checkpoint}
+                onChange={(source) =>
+                  updateNodeData(node.id, StoryNodeType.InkBlock, {
+                    sourceMode: 'embedded',
+                    source,
+                  })
+                }
+              />
+            ) : (
+              <>
+                <div className={styles.readonlyField}>
+                  <span>Linked File</span>
+                  <code title={data.path}>{data.path}</code>
+                </div>
+                <div className={styles.linkedInkActions}>
+                  <button type="button" onClick={() => void changeInkSourceMode('linked')}>
+                    Relink…
+                  </button>
+                  <button type="button" onClick={() => void revealWorkspaceItem(data.path)}>
+                    Show in Explorer
+                  </button>
+                  <button type="button" onClick={() => void changeInkSourceMode('embedded')}>
+                    Embed Copy
+                  </button>
+                </div>
+              </>
+            )}
+            {inkSourceError && <div className={styles.warning}>{inkSourceError}</div>}
           </>
         );
       }

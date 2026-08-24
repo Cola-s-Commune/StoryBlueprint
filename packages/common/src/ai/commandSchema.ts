@@ -327,7 +327,15 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
                   },
                   edges: {
                     type: 'array',
-                    items: { type: 'object', additionalProperties: false, required: ['from', 'to'], properties: { from: { $ref: '#/$defs/endpoint' }, to: { $ref: '#/$defs/endpoint' } } },
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['from', 'to'],
+                      properties: {
+                        from: { $ref: '#/$defs/endpoint' },
+                        to: { $ref: '#/$defs/endpoint' },
+                      },
+                    },
                   },
                 },
               },
@@ -555,7 +563,11 @@ export const BLUEPRINT_NODE_CATALOG = [
   },
   {
     type: StoryNodeType.InkBlock,
-    data: { sourceMode: 'embedded', source: 'Hello.' },
+    data: {
+      sourceMode: 'embedded',
+      source: 'VAR affinity = 0\nHello.',
+      variableBindings: [{ inkName: 'affinity', variableId: 'v_existing', direction: 'two-way' }],
+    },
     inputPorts: ['in'],
     outputPorts: ['out'],
   },

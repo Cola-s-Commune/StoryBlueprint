@@ -66,6 +66,8 @@ const electronAPI = {
   exportCompiledProject: (content) => ipcRenderer.invoke('workspace:export-compiled', content),
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
   openInkFile: () => ipcRenderer.invoke('workspace:open-ink'),
+  pickWorkspaceInkFile: () => ipcRenderer.invoke('workspace:pick-ink'),
+  readWorkspaceInkFile: (relativePath) => ipcRenderer.invoke('workspace:read-ink', relativePath),
   updateProjectSettings: (settings) =>
     ipcRenderer.invoke('workspace:update-project-settings', settings),
   extractProjectLocalization: (sourceLocale) =>
@@ -109,8 +111,7 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:list-transaction-recoveries'),
   restoreProjectTransaction: (id, target) =>
     ipcRenderer.invoke('workspace:restore-transaction', id, target),
-  discardProjectTransaction: (id) =>
-    ipcRenderer.invoke('workspace:discard-transaction', id),
+  discardProjectTransaction: (id) => ipcRenderer.invoke('workspace:discard-transaction', id),
   restoreWorkspaceStory: (relativePath, content) =>
     ipcRenderer.invoke('workspace:restore-story', relativePath, content),
   refreshWorkspace: () => ipcRenderer.invoke('workspace:refresh'),

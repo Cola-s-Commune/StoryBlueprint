@@ -26,6 +26,17 @@ function targetBlocks(instruction: RuntimeInstruction): readonly BlockId[] {
 export function validateRuntimeProgram(program: RuntimeProgram): readonly CompilerDiagnostic[] {
   const diagnostics: CompilerDiagnostic[] = [];
   const blocks = program.blocks;
+  const variableTypes = new Map(
+    program.variables.map((variable) => [variable.id, variable.valueType] as const),
+  );
+  for (const chapter of Object.values(program.chapters)) {
+    for (const parameter of chapter.parameters) {
+      variableTypes.set(parameter.variableId, parameter.valueType);
+    }
+    for (const variable of chapter.localVariables) {
+      variableTypes.set(variable.id, variable.valueType);
+    }
+  }
 
   if (!blocks[program.entryBlockId]) {
     diagnostics.push({
@@ -101,6 +112,37 @@ export function validateRuntimeProgram(program: RuntimeProgram): readonly Compil
             });
           }
           optionIds.add(option.id);
+        }
+      }
+
+      if (instruction.op === 'ink-block') {
+        const inkNames = new Set<string>();
+        for (const binding of instruction.variableBindings) {
+          const valueType = variableTypes.get(binding.variableId);
+          if (inkNames.has(binding.inkName)) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Ink instruction ${instruction.id} repeats variable ${binding.inkName}`,
+              path: instructionPath,
+            });
+          }
+          inkNames.add(binding.inkName);
+          if (!valueType) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Ink instruction ${instruction.id} references missing variable ${binding.variableId}`,
+              path: instructionPath,
+            });
+          } else if (!['boolean', 'number', 'string', 'enum'].includes(valueType.kind)) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Ink instruction ${instruction.id} cannot bridge ${valueType.kind}`,
+              path: instructionPath,
+            });
+          }
         }
       }
 

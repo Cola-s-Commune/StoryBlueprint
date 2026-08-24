@@ -8,6 +8,7 @@ const kindLabels = {
   'character-template': 'Character Template',
   asset: 'Asset',
   localization: 'Localization',
+  ink: 'Ink',
 } as const;
 
 const changeLabels = {

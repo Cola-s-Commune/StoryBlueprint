@@ -91,8 +91,8 @@ export function buildStorySearchIndex(snapshot: StorySemanticSnapshot): StorySea
         addNodeEntry(
           'source',
           ink.entryKnot || 'Ink Block',
-          'Ink Block · Embedded source',
-          ink.source,
+          ink.sourceMode === 'embedded' ? 'Ink Block · Embedded source' : 'Ink Block · Linked file',
+          ink.sourceMode === 'embedded' ? ink.source : ink.path,
         );
       } else if (node.type === StoryNodeType.Choice) {
         const choice = node.data as ChoiceNodeData;

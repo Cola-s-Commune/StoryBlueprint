@@ -59,6 +59,7 @@ import {
   type SignalSource,
   type DialogueNodeData,
   type DialogueLineId,
+  type InkBlockNodeData,
   type StoryNodeDataMap,
   type StoryId,
   type StorySourceDocument,
@@ -254,7 +255,7 @@ function engineFieldTypeReferences(
       ? engineFieldTypeReferences(type.elementType, name)
       : type.kind === 'map'
         ? engineFieldTypeReferences(type.valueType, name)
-      : false;
+        : false;
 }
 
 function resourceReferenceStories(
@@ -375,6 +376,7 @@ export interface ExternalStoryMergeRequest {
 
 interface StoryGraphStoreValue {
   source: StorySourceDocument;
+  inkSources: Readonly<Record<string, string>>;
   graph: EditorGraphState;
   nodes: EditorGraphNode[];
   edges: EditorGraphEdge[];
@@ -587,6 +589,38 @@ interface StoryGraphStoreValue {
 
 const StoryGraphStoreContext = createContext<StoryGraphStoreValue | null>(null);
 
+function linkedInkPaths(source: StorySourceDocument): string[] {
+  const paths = new Set<string>();
+  for (const graph of [source.root, ...source.chapters.map((chapter) => chapter.graph)]) {
+    for (const node of graph.nodes) {
+      if (node.type !== StoryNodeType.InkBlock) continue;
+      const ink = node.data as unknown as InkBlockNodeData;
+      if (ink.sourceMode === 'linked') paths.add(ink.path);
+    }
+  }
+  return [...paths];
+}
+
+async function loadLinkedInkSources(
+  sources: readonly StorySourceDocument[],
+): Promise<Record<string, string>> {
+  const api = window.electronAPI;
+  if (!api) return {};
+  const paths = new Set(sources.flatMap(linkedInkPaths));
+  const loaded: Record<string, string> = {};
+  await Promise.all(
+    [...paths].map(async (path) => {
+      try {
+        const result = await api.readWorkspaceInkFile(path);
+        if (!result.canceled) loaded[path] = result.content;
+      } catch {
+        // The compiler reports a precise diagnostic for an unavailable linked source.
+      }
+    }),
+  );
+  return loaded;
+}
+
 export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const initialGraph = useMemo<EditorGraphState>(() => ({ nodes: [], edges: [] }), []);
   const initialDocument = useMemo<StoryDocumentInfo>(
@@ -712,6 +746,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
     ],
   );
+  const [inkSources, setInkSources] = useState<Readonly<Record<string, string>>>({});
+  useEffect(() => {
+    let canceled = false;
+    void loadLinkedInkSources([source]).then((loaded) => {
+      if (!canceled) setInkSources(loaded);
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [source]);
   const resolvedCharacters = useMemo(() => {
     const external = workspace?.characterResources.map((resource) => resource.character) ?? [];
     const externalIds = new Set(external.map((character) => character.id));
@@ -1347,7 +1391,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           })
           .catch((error: unknown) => {
             setWorkspaceError(error instanceof Error ? error.message : String(error));
-            void window.electronAPI?.refreshWorkspace().then(setWorkspace).catch(() => undefined);
+            void window.electronAPI
+              ?.refreshWorkspace()
+              .then(setWorkspace)
+              .catch(() => undefined);
           });
       } else {
         restoreProjectResourcesFromHistory(next.projectResources);
@@ -1478,13 +1525,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const resultCharacters = hasCharacterOperations
         ? result.document.characters
         : resolvedCharacters;
-      const compiled = compileStory({
-        ...result.document,
-        characters: resultCharacters,
-        assets: resolvedAssets,
-        events,
-        signals,
-      });
+      const compiled = compileStory(
+        {
+          ...result.document,
+          characters: resultCharacters,
+          assets: resolvedAssets,
+          events,
+          signals,
+        },
+        { inkSources },
+      );
       const compileErrors = compiled.diagnostics.filter(
         (diagnostic) => diagnostic.severity === 'error',
       );
@@ -1646,6 +1696,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       checkpoint,
       events,
       graph,
+      inkSources,
       markDirty,
       projectVariables,
       resolvedAssets,
@@ -2034,14 +2085,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
-      const compiled = compileStory({
-        ...merged,
-        variables: [...merged.variables, ...projectVariables],
-        characters: resolvedCharacters,
-        assets: resolvedAssets,
-        events,
-        signals,
-      });
+      const compiled = compileStory(
+        {
+          ...merged,
+          variables: [...merged.variables, ...projectVariables],
+          characters: resolvedCharacters,
+          assets: resolvedAssets,
+          events,
+          signals,
+        },
+        { inkSources },
+      );
       const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
       if (errors.length > 0) {
         return {
@@ -2051,7 +2105,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       return { ok: true };
     },
-    [events, projectVariables, resolvedAssets, resolvedCharacters, signals, source.id],
+    [events, inkSources, projectVariables, resolvedAssets, resolvedCharacters, signals, source.id],
   );
 
   const applyStoryMerge = useCallback(
@@ -2123,53 +2177,59 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
 
-  const addVariable = useCallback((requestedName?: string): VariableId => {
-    const id = createStableId('variable');
-    checkpoint(undefined, 'Add Variable');
-    setVariables((current) => {
-      const used = new Set(current.map((variable) => variable.name));
-      let index = current.length + 1;
-      let name = requestedName?.trim() || `variable${index}`;
-      if (used.has(name)) name = `variable${index}`;
-      while (used.has(name)) name = `variable${++index}`;
-      return [
-        ...current,
+  const addVariable = useCallback(
+    (requestedName?: string): VariableId => {
+      const id = createStableId('variable');
+      checkpoint(undefined, 'Add Variable');
+      setVariables((current) => {
+        const used = new Set(current.map((variable) => variable.name));
+        let index = current.length + 1;
+        let name = requestedName?.trim() || `variable${index}`;
+        if (used.has(name)) name = `variable${index}`;
+        while (used.has(name)) name = `variable${++index}`;
+        return [
+          ...current,
+          {
+            id,
+            name,
+            displayName: name,
+            scope: 'story',
+            valueType: { kind: 'string' },
+            defaultValue: '',
+          },
+        ];
+      });
+      markDirty();
+      return id;
+    },
+    [checkpoint, markDirty],
+  );
+
+  const addProjectVariable = useCallback(
+    (requestedName?: string): VariableId | undefined => {
+      if (!workspace?.project) return undefined;
+      const id = createStableId('variable');
+      const used = new Set([...variables, ...projectVariables].map((variable) => variable.name));
+      let index = projectVariables.length + 1;
+      let name = requestedName?.trim() || `projectVariable${index}`;
+      if (used.has(name)) name = `projectVariable${index}`;
+      while (used.has(name)) name = `projectVariable${++index}`;
+      checkpoint(undefined, 'Add Project Variable');
+      writeProjectVariables([
+        ...projectVariables,
         {
           id,
           name,
           displayName: name,
-          scope: 'story',
+          scope: 'project',
           valueType: { kind: 'string' },
           defaultValue: '',
         },
-      ];
-    });
-    markDirty();
-    return id;
-  }, [checkpoint, markDirty]);
-
-  const addProjectVariable = useCallback((requestedName?: string): VariableId | undefined => {
-    if (!workspace?.project) return undefined;
-    const id = createStableId('variable');
-    const used = new Set([...variables, ...projectVariables].map((variable) => variable.name));
-    let index = projectVariables.length + 1;
-    let name = requestedName?.trim() || `projectVariable${index}`;
-    if (used.has(name)) name = `projectVariable${index}`;
-    while (used.has(name)) name = `projectVariable${++index}`;
-    checkpoint(undefined, 'Add Project Variable');
-    writeProjectVariables([
-      ...projectVariables,
-      {
-        id,
-        name,
-        displayName: name,
-        scope: 'project',
-        valueType: { kind: 'string' },
-        defaultValue: '',
-      },
-    ]);
-    return id;
-  }, [checkpoint, projectVariables, variables, workspace?.project, writeProjectVariables]);
+      ]);
+      return id;
+    },
+    [checkpoint, projectVariables, variables, workspace?.project, writeProjectVariables],
+  );
 
   const variableReferenceGraphs = useCallback((): VariableReferenceGraph[] => {
     const root = activeGraphId === 'root' ? graph : rootGraphRef.current;
@@ -2514,37 +2574,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
 
-  const addCharacter = useCallback((requestedName?: string): CharacterId => {
-    const id = createStableId('character');
-    const index = resolvedCharacters.length + 1;
-    const usedNames = new Set(resolvedCharacters.map((character) => character.name));
-    let name = requestedName?.trim() || `character${index}`;
-    let suffix = index;
-    while (usedNames.has(name)) name = `character${++suffix}`;
-    const character: CharacterSource = {
-      id,
-      name,
-      displayName: name,
-      emotions: { neutral: { displayName: 'Neutral' } },
-    };
-    if (workspace?.project && window.electronAPI) {
+  const addCharacter = useCallback(
+    (requestedName?: string): CharacterId => {
+      const id = createStableId('character');
+      const index = resolvedCharacters.length + 1;
+      const usedNames = new Set(resolvedCharacters.map((character) => character.name));
+      let name = requestedName?.trim() || `character${index}`;
+      let suffix = index;
+      while (usedNames.has(name)) name = `character${++suffix}`;
+      const character: CharacterSource = {
+        id,
+        name,
+        displayName: name,
+        emotions: { neutral: { displayName: 'Neutral' } },
+      };
+      if (workspace?.project && window.electronAPI) {
+        checkpoint(undefined, 'Add Character');
+        queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
+        return id;
+      }
       checkpoint(undefined, 'Add Character');
-      queueProjectResourceWrite(() => window.electronAPI!.createProjectCharacter(character));
+      setCharacters((current) => {
+        return [...current, character];
+      });
+      markDirty();
       return id;
-    }
-    checkpoint(undefined, 'Add Character');
-    setCharacters((current) => {
-      return [...current, character];
-    });
-    markDirty();
-    return id;
-  }, [
-    checkpoint,
-    markDirty,
-    queueProjectResourceWrite,
-    resolvedCharacters,
-    workspace?.project,
-  ]);
+    },
+    [checkpoint, markDirty, queueProjectResourceWrite, resolvedCharacters, workspace?.project],
+  );
 
   const duplicateCharacter = useCallback(
     (id: CharacterId): CharacterId | undefined => {
@@ -2578,12 +2635,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       let name = requestedName?.trim() || `character${index}`;
       let suffix = index;
       while (usedNames.has(name)) name = `character${++suffix}`;
-      const character = characterFromTemplate(
-        template,
-        id,
-        name,
-        name,
-        () => createStableId('variable'),
+      const character = characterFromTemplate(template, id, name, name, () =>
+        createStableId('variable'),
       );
       if (workspace?.project && window.electronAPI) {
         checkpoint(undefined, 'Add Character from Template');
@@ -2595,13 +2648,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       return id;
     },
-    [
-      checkpoint,
-      markDirty,
-      queueProjectResourceWrite,
-      resolvedCharacters,
-      workspace?.project,
-    ],
+    [checkpoint, markDirty, queueProjectResourceWrite, resolvedCharacters, workspace?.project],
   );
 
   const saveCharacterAsTemplate = useCallback(
@@ -2921,32 +2968,35 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
 
-  const addAsset = useCallback((requestedName?: string): AssetId => {
-    const id = createStableId('asset');
-    const index = resolvedAssets.length + 1;
-    const usedNames = new Set(resolvedAssets.map((asset) => asset.name));
-    let name = requestedName?.trim() || `voice${index}`;
-    let suffix = index;
-    while (usedNames.has(name)) name = `voice${++suffix}`;
-    const asset: AssetSource = {
-      id,
-      name,
-      displayName: name,
-      kind: 'audio',
-      locales: { default: '' },
-    };
-    if (workspace?.project && window.electronAPI) {
+  const addAsset = useCallback(
+    (requestedName?: string): AssetId => {
+      const id = createStableId('asset');
+      const index = resolvedAssets.length + 1;
+      const usedNames = new Set(resolvedAssets.map((asset) => asset.name));
+      let name = requestedName?.trim() || `voice${index}`;
+      let suffix = index;
+      while (usedNames.has(name)) name = `voice${++suffix}`;
+      const asset: AssetSource = {
+        id,
+        name,
+        displayName: name,
+        kind: 'audio',
+        locales: { default: '' },
+      };
+      if (workspace?.project && window.electronAPI) {
+        checkpoint(undefined, 'Add Asset');
+        queueProjectResourceWrite(() => window.electronAPI!.createProjectAsset(asset));
+        return id;
+      }
       checkpoint(undefined, 'Add Asset');
-      queueProjectResourceWrite(() => window.electronAPI!.createProjectAsset(asset));
+      setAssets((current) => {
+        return [...current, asset];
+      });
+      markDirty();
       return id;
-    }
-    checkpoint(undefined, 'Add Asset');
-    setAssets((current) => {
-      return [...current, asset];
-    });
-    markDirty();
-    return id;
-  }, [checkpoint, markDirty, queueProjectResourceWrite, resolvedAssets, workspace?.project]);
+    },
+    [checkpoint, markDirty, queueProjectResourceWrite, resolvedAssets, workspace?.project],
+  );
 
   const updateAsset = useCallback(
     (id: AssetId, update: Partial<AssetSource>) => {
@@ -3091,31 +3141,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [queueProjectResourceWrite, workspace?.project],
   );
 
-  const addEvent = useCallback((requestedName?: string): EventId | undefined => {
-    if (!workspace?.project) {
-      setWorkspaceError('Open or create a Story project before adding events.');
-      return undefined;
-    }
-    const id = createStableId('event');
-    const used = new Set(events.map((event) => event.name));
-    let index = events.length + 1;
-    let name = requestedName?.trim() || `event${index}`;
-    if (used.has(name)) name = `event${index}`;
-    while (used.has(name)) name = `event${++index}`;
-    checkpoint(undefined, 'Add Event');
-    writeProjectEvents([
-      ...events,
-      {
-        id,
-        name,
-        displayName: name,
-        parameters: [],
-        resumable: true,
-        sideEffect: 'write',
-      },
-    ]);
-    return id;
-  }, [checkpoint, events, workspace?.project, writeProjectEvents]);
+  const addEvent = useCallback(
+    (requestedName?: string): EventId | undefined => {
+      if (!workspace?.project) {
+        setWorkspaceError('Open or create a Story project before adding events.');
+        return undefined;
+      }
+      const id = createStableId('event');
+      const used = new Set(events.map((event) => event.name));
+      let index = events.length + 1;
+      let name = requestedName?.trim() || `event${index}`;
+      if (used.has(name)) name = `event${index}`;
+      while (used.has(name)) name = `event${++index}`;
+      checkpoint(undefined, 'Add Event');
+      writeProjectEvents([
+        ...events,
+        {
+          id,
+          name,
+          displayName: name,
+          parameters: [],
+          resumable: true,
+          sideEffect: 'write',
+        },
+      ]);
+      return id;
+    },
+    [checkpoint, events, workspace?.project, writeProjectEvents],
+  );
 
   const updateEvent = useCallback(
     (id: EventId, update: Partial<EventSource>) => {
@@ -3239,21 +3292,24 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [queueProjectResourceWrite, workspace?.project],
   );
 
-  const addSignal = useCallback((requestedName?: string): SignalId | undefined => {
-    if (!workspace?.project) {
-      setWorkspaceError('Open or create a Story project before adding signals.');
-      return undefined;
-    }
-    const id = createStableId('signal');
-    const used = new Set(signals.map((signal) => signal.name));
-    let index = signals.length + 1;
-    let name = requestedName?.trim() || `signal${index}`;
-    if (used.has(name)) name = `signal${index}`;
-    while (used.has(name)) name = `signal${++index}`;
-    checkpoint(undefined, 'Add Signal');
-    writeProjectSignals([...signals, { id, name, displayName: name, parameters: [] }]);
-    return id;
-  }, [checkpoint, signals, workspace?.project, writeProjectSignals]);
+  const addSignal = useCallback(
+    (requestedName?: string): SignalId | undefined => {
+      if (!workspace?.project) {
+        setWorkspaceError('Open or create a Story project before adding signals.');
+        return undefined;
+      }
+      const id = createStableId('signal');
+      const used = new Set(signals.map((signal) => signal.name));
+      let index = signals.length + 1;
+      let name = requestedName?.trim() || `signal${index}`;
+      if (used.has(name)) name = `signal${index}`;
+      while (used.has(name)) name = `signal${++index}`;
+      checkpoint(undefined, 'Add Signal');
+      writeProjectSignals([...signals, { id, name, displayName: name, parameters: [] }]);
+      return id;
+    },
+    [checkpoint, signals, workspace?.project, writeProjectSignals],
+  );
 
   const updateSignal = useCallback(
     (id: SignalId, update: Partial<SignalSource>) => {
@@ -3377,23 +3433,26 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [queueProjectResourceWrite, workspace?.project],
   );
 
-  const addEngineType = useCallback((requestedName?: string): string | undefined => {
-    if (!workspace?.project) {
-      setWorkspaceError('Open or create a Story project before adding Engine Types.');
-      return undefined;
-    }
-    const used = new Set(engineTypes.map((item) => item.name));
-    let index = engineTypes.length + 1;
-    let name = requestedName?.trim() || `EngineType${index}`;
-    if (used.has(name)) name = `EngineType${index}`;
-    while (used.has(name)) name = `EngineType${++index}`;
-    checkpoint(undefined, 'Add Engine Type');
-    writeEngineTypes([
-      ...engineTypes,
-      { id: createStableId('engineType'), name, displayName: name, fields: [] },
-    ]);
-    return name;
-  }, [checkpoint, engineTypes, workspace?.project, writeEngineTypes]);
+  const addEngineType = useCallback(
+    (requestedName?: string): string | undefined => {
+      if (!workspace?.project) {
+        setWorkspaceError('Open or create a Story project before adding Engine Types.');
+        return undefined;
+      }
+      const used = new Set(engineTypes.map((item) => item.name));
+      let index = engineTypes.length + 1;
+      let name = requestedName?.trim() || `EngineType${index}`;
+      if (used.has(name)) name = `EngineType${index}`;
+      while (used.has(name)) name = `EngineType${++index}`;
+      checkpoint(undefined, 'Add Engine Type');
+      writeEngineTypes([
+        ...engineTypes,
+        { id: createStableId('engineType'), name, displayName: name, fields: [] },
+      ]);
+      return name;
+    },
+    [checkpoint, engineTypes, workspace?.project, writeEngineTypes],
+  );
 
   const updateEngineType = useCallback(
     (name: string, update: EngineTypeDefinition): boolean => {
@@ -4062,9 +4121,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     async (nextWorkspace: WorkspaceInfo) => {
       clearStorySession();
       setWorkspace(nextWorkspace);
-      setProjectTransactionRecoveries(
-        await window.electronAPI!.listProjectTransactionRecoveries(),
-      );
+      setProjectTransactionRecoveries(await window.electronAPI!.listProjectTransactionRecoveries());
       setWorkspaceError(undefined);
       setRecentProjects(await window.electronAPI!.getRecentProjects());
     },
@@ -4632,6 +4689,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           const pending: ExternalWorkspaceFileChange[] = [];
           let refreshResources = false;
           for (const change of changes) {
+            if (change.kind === 'ink') {
+              setInkSources((current) => {
+                const next = { ...current };
+                if (change.change === 'deleted' || change.content === undefined) {
+                  delete next[change.relativePath];
+                } else {
+                  next[change.relativePath] = change.content;
+                }
+                return next;
+              });
+              continue;
+            }
             if (change.kind !== 'story') {
               const currentContent =
                 change.kind === 'project' && workspace?.project
@@ -5269,6 +5338,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       });
       const result = compileProject(nextWorkspace.project, projectSources, {
         localization: nextWorkspace.localization?.document,
+        inkSources: await loadLinkedInkSources(projectSources.map((item) => item.source)),
       });
       setProblems(result.diagnostics);
       if (!result.ok) return;
@@ -5505,9 +5575,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         setRecoveries(restored.recoveries);
         setRecoveryError(restored.recoveryError);
         setProjectTransactionRecoveries(
-          restored.workspace
-            ? await window.electronAPI!.listProjectTransactionRecoveries()
-            : [],
+          restored.workspace ? await window.electronAPI!.listProjectTransactionRecoveries() : [],
         );
         setRecentProjects(await window.electronAPI!.getRecentProjects());
         setWorkspaceError(undefined);
@@ -5575,6 +5643,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const value = useMemo<StoryGraphStoreValue>(
     () => ({
       source,
+      inkSources,
       graph,
       nodes,
       edges,
@@ -5863,6 +5932,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       extractProjectLocalization,
       updateProjectLocalization,
       source,
+      inkSources,
       switchGraph,
       focusGraphNode,
       undo,

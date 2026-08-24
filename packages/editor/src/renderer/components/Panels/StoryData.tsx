@@ -79,7 +79,11 @@ function MapKeyInput({
     return (
       <select value={value} onChange={(event) => onCommit(event.target.value)}>
         {type.values.map((option) => (
-          <option key={option} value={option} disabled={option !== value && usedKeys.includes(option)}>
+          <option
+            key={option}
+            value={option}
+            disabled={option !== value && usedKeys.includes(option)}
+          >
             {option}
           </option>
         ))}
@@ -288,7 +292,13 @@ function StructuredJsonFields({
             <button
               type="button"
               aria-label={`Remove Map item ${key}`}
-              onClick={() => onChange(Object.fromEntries(Object.entries(record).filter(([candidate]) => candidate !== key)))}
+              onClick={() =>
+                onChange(
+                  Object.fromEntries(
+                    Object.entries(record).filter(([candidate]) => candidate !== key),
+                  ),
+                )
+              }
             >
               −
             </button>
@@ -532,27 +542,39 @@ export function NamedCreateControl({
   existingNames,
   onCreate,
   buttonLabel = '+',
+  typeOptions,
+  defaultType,
 }: {
   title: string;
   placeholder?: string;
   existingNames: readonly string[];
-  onCreate: (name: string) => void;
+  onCreate: (name: string, type?: string) => void;
   buttonLabel?: string;
+  typeOptions?: readonly { value: string; label: string }[];
+  defaultType?: string;
 }) {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState('');
+  const [selectedType, setSelectedType] = useState(defaultType ?? typeOptions?.[0]?.value ?? '');
   const duplicate = existingNames.includes(draft);
   const validFormat = /^[A-Za-z_][A-Za-z0-9_]*$/.test(draft);
   const valid = validFormat && !duplicate;
   const confirm = () => {
     if (!valid) return;
-    onCreate(draft);
+    onCreate(draft, selectedType || undefined);
     setDraft('');
     setCreating(false);
   };
   return (
     <>
-      <button type="button" title={title} onClick={() => setCreating(true)}>
+      <button
+        type="button"
+        title={title}
+        onClick={() => {
+          setSelectedType(defaultType ?? typeOptions?.[0]?.value ?? '');
+          setCreating(true);
+        }}
+      >
         {buttonLabel}
       </button>
       {creating &&
@@ -590,9 +612,7 @@ export function NamedCreateControl({
                   value={draft}
                   placeholder={placeholder}
                   aria-label={title}
-                  onChange={(event) =>
-                    setDraft(event.target.value.replace(/[^A-Za-z0-9_]/g, ''))
-                  }
+                  onChange={(event) => setDraft(event.target.value.replace(/[^A-Za-z0-9_]/g, ''))}
                   onKeyDown={(event) => {
                     event.stopPropagation();
                     if (event.key === 'Enter') confirm();
@@ -603,6 +623,21 @@ export function NamedCreateControl({
                   }}
                 />
               </label>
+              {typeOptions && typeOptions.length > 0 && (
+                <label>
+                  <span>Type</span>
+                  <select
+                    value={selectedType}
+                    onChange={(event) => setSelectedType(event.target.value)}
+                  >
+                    {typeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div className={styles.namedCreateHint}>
                 {!draft
                   ? 'Enter a name to create this item.'
@@ -772,11 +807,7 @@ function ReplaceResourceReferencesButton({
   };
   return (
     <>
-      <button
-        type="button"
-        className={styles.secondaryButton}
-        onClick={() => setOpen(true)}
-      >
+      <button type="button" className={styles.secondaryButton} onClick={() => setOpen(true)}>
         Manage References…
       </button>
       {open &&
@@ -793,26 +824,36 @@ function ReplaceResourceReferencesButton({
                     setPreview(undefined);
                   }}
                 >
-                  <option value="replace" disabled={options.length === 0}>Replace with another {kind}</option>
+                  <option value="replace" disabled={options.length === 0}>
+                    Replace with another {kind}
+                  </option>
                   <option value="clear">Clear safe references</option>
                 </select>
               </label>
               {action === 'replace' && (
                 <label>
                   <span>Replacement {kind}</span>
-                  <select value={replacementId} onChange={(event) => {
-                    setReplacementId(event.target.value);
-                    setPreview(undefined);
-                  }}>
+                  <select
+                    value={replacementId}
+                    onChange={(event) => {
+                      setReplacementId(event.target.value);
+                      setPreview(undefined);
+                    }}
+                  >
                     {options.map((option) => (
-                      <option key={option.id} value={option.id}>{option.label}</option>
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
                     ))}
                   </select>
                 </label>
               )}
               {preview ? (
                 <>
-                  <p>{preview.count} reference(s) will be {action === 'clear' ? 'cleared' : 'replaced'}.</p>
+                  <p>
+                    {preview.count} reference(s) will be{' '}
+                    {action === 'clear' ? 'cleared' : 'replaced'}.
+                  </p>
                   <div className={styles.schemaMigrationLocations}>
                     {preview.locations.map((location, index) => (
                       <div key={`${location}:${index}`}>{location}</div>
@@ -820,7 +861,10 @@ function ReplaceResourceReferencesButton({
                   </div>
                   {preview.blocked > 0 && (
                     <>
-                      <p>{preview.blocked} required reference(s) cannot be cleared and will remain unchanged.</p>
+                      <p>
+                        {preview.blocked} required reference(s) cannot be cleared and will remain
+                        unchanged.
+                      </p>
                       <div className={styles.schemaMigrationLocations}>
                         {preview.blockedLocations.map((location, index) => (
                           <div key={`${location}:blocked:${index}`}>{location}</div>
@@ -876,7 +920,11 @@ function ReplaceResourceReferencesButton({
                       });
                     }}
                   >
-                    {loading ? 'Applying…' : action === 'clear' ? 'Clear Safe References' : 'Replace All'}
+                    {loading
+                      ? 'Applying…'
+                      : action === 'clear'
+                        ? 'Clear Safe References'
+                        : 'Replace All'}
                   </button>
                 )}
               </div>
@@ -949,82 +997,121 @@ function DeleteResourceButton({
   };
   return (
     <>
-      <button className={styles.dangerButton} type="button" onClick={() => {
-        if (referenceCount === 0) {
-          if (!window.confirm(`Delete ${kind} ${sourceLabel}? This cannot be undone.`)) return;
-          setLoading(true);
-          void replaceProjectResourceReferences(
-            kind,
-            sourceId,
-            'clear',
-            undefined,
-            false,
-            resourcePath,
-          ).then(() => setLoading(false));
-          return;
-        }
-        setOpen(true);
-      }}>
+      <button
+        className={styles.dangerButton}
+        type="button"
+        onClick={() => {
+          if (referenceCount === 0) {
+            if (!window.confirm(`Delete ${kind} ${sourceLabel}? This cannot be undone.`)) return;
+            setLoading(true);
+            void replaceProjectResourceReferences(
+              kind,
+              sourceId,
+              'clear',
+              undefined,
+              false,
+              resourcePath,
+            ).then(() => setLoading(false));
+            return;
+          }
+          setOpen(true);
+        }}
+      >
         Delete {kind === 'character' ? 'Character' : 'Asset'}
       </button>
-      {open && createPortal(
-        <div className={styles.namedCreateBackdrop} role="presentation">
-          <div className={styles.schemaMigrationDialog} role="dialog" aria-modal="true">
-            <div className={styles.detailsTitle}>Delete {sourceLabel}</div>
-            <p>{referenceCount} indexed reference(s) must be handled before deletion.</p>
-            <label>
-              <span>Reference handling</span>
-              <select value={action} onChange={(event) => {
-                setAction(event.target.value as 'replace' | 'clear');
-                setPreview(undefined);
-              }}>
-                <option value="replace" disabled={!options.length}>Replace, then delete</option>
-                <option value="clear">Clear safe references, then delete</option>
-              </select>
-            </label>
-            {action === 'replace' && (
+      {open &&
+        createPortal(
+          <div className={styles.namedCreateBackdrop} role="presentation">
+            <div className={styles.schemaMigrationDialog} role="dialog" aria-modal="true">
+              <div className={styles.detailsTitle}>Delete {sourceLabel}</div>
+              <p>{referenceCount} indexed reference(s) must be handled before deletion.</p>
               <label>
-                <span>Replacement {kind}</span>
-                <select value={replacementId} onChange={(event) => {
-                  setReplacementId(event.target.value);
-                  setPreview(undefined);
-                }}>
-                  {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                <span>Reference handling</span>
+                <select
+                  value={action}
+                  onChange={(event) => {
+                    setAction(event.target.value as 'replace' | 'clear');
+                    setPreview(undefined);
+                  }}
+                >
+                  <option value="replace" disabled={!options.length}>
+                    Replace, then delete
+                  </option>
+                  <option value="clear">Clear safe references, then delete</option>
                 </select>
               </label>
-            )}
-            {preview ? (
-              <>
-                <p>{preview.count} reference(s) can be handled.</p>
-                <div className={styles.schemaMigrationLocations}>
-                  {preview.locations.map((location, index) => <div key={`${location}:${index}`}>{location}</div>)}
-                </div>
-                {preview.blocked > 0 && (
-                  <>
-                    <p>{preview.blocked} required reference(s) block deletion.</p>
-                    <div className={styles.schemaMigrationLocations}>
-                      {preview.blockedLocations.map((location, index) => <div key={`${location}:blocked:${index}`}>{location}</div>)}
-                    </div>
-                  </>
-                )}
-              </>
-            ) : <p>Preview the complete project before deleting anything.</p>}
-            <div className={styles.schemaMigrationActions}>
-              <button type="button" disabled={loading} onClick={close}>Cancel</button>
-              {!preview ? (
-                <button type="button" className={styles.primaryButton} disabled={loading || (action === 'replace' && !replacementId)} onClick={() => void scan()}>
-                  {loading ? 'Scanning…' : 'Preview'}
-                </button>
-              ) : (
-                <button type="button" className={styles.dangerButton} disabled={loading || (action === 'clear' && preview.blocked > 0)} onClick={() => void applyAndDelete()}>
-                  {loading ? 'Applying…' : action === 'replace' ? 'Replace and Delete' : 'Clear and Delete'}
-                </button>
+              {action === 'replace' && (
+                <label>
+                  <span>Replacement {kind}</span>
+                  <select
+                    value={replacementId}
+                    onChange={(event) => {
+                      setReplacementId(event.target.value);
+                      setPreview(undefined);
+                    }}
+                  >
+                    {options.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
+              {preview ? (
+                <>
+                  <p>{preview.count} reference(s) can be handled.</p>
+                  <div className={styles.schemaMigrationLocations}>
+                    {preview.locations.map((location, index) => (
+                      <div key={`${location}:${index}`}>{location}</div>
+                    ))}
+                  </div>
+                  {preview.blocked > 0 && (
+                    <>
+                      <p>{preview.blocked} required reference(s) block deletion.</p>
+                      <div className={styles.schemaMigrationLocations}>
+                        {preview.blockedLocations.map((location, index) => (
+                          <div key={`${location}:blocked:${index}`}>{location}</div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <p>Preview the complete project before deleting anything.</p>
+              )}
+              <div className={styles.schemaMigrationActions}>
+                <button type="button" disabled={loading} onClick={close}>
+                  Cancel
+                </button>
+                {!preview ? (
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    disabled={loading || (action === 'replace' && !replacementId)}
+                    onClick={() => void scan()}
+                  >
+                    {loading ? 'Scanning…' : 'Preview'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.dangerButton}
+                    disabled={loading || (action === 'clear' && preview.blocked > 0)}
+                    onClick={() => void applyAndDelete()}
+                  >
+                    {loading
+                      ? 'Applying…'
+                      : action === 'replace'
+                        ? 'Replace and Delete'
+                        : 'Clear and Delete'}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
@@ -1214,7 +1301,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           </select>
         )}
       </label>
-      <label>
+      <div className={styles.fieldGroup}>
         <span>Default</span>
         {kind === 'json' ? (
           <JsonValueInput
@@ -1244,7 +1331,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
             }
           />
         )}
-      </label>
+      </div>
       <div className={styles.referenceSection}>
         <div className={styles.referenceHeader}>
           <span>References</span>
@@ -1370,7 +1457,8 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     updateCharacter(character.id, {
       fields: fields.map((field) => (field.id === id ? { ...field, ...patch } : field)),
     });
-  const addField = (name: string) => {
+  const addField = (name: string, requestedKind?: string) => {
+    const kind = (requestedKind ?? 'string') as EditableKind;
     updateCharacter(character.id, {
       fields: [
         ...fields,
@@ -1379,8 +1467,11 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           name,
           displayName: name,
           scope: 'character',
-          valueType: { kind: 'string' },
-          defaultValue: '',
+          valueType:
+            kind === 'json'
+              ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+              : { kind },
+          defaultValue: kind === 'json' ? {} : defaultForType(kind),
         },
       ],
     });
@@ -1675,6 +1766,13 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           buttonLabel="Add Field"
           existingNames={fields.map((field) => field.name)}
           onCreate={addField}
+          defaultType="string"
+          typeOptions={[
+            { value: 'boolean', label: 'Boolean' },
+            { value: 'number', label: 'Number' },
+            { value: 'string', label: 'String' },
+            ...(engineTypes.length > 0 ? [{ value: 'json', label: 'Engine JSON' }] : []),
+          ]}
         />
       </div>
       <div className={styles.emotionList}>
@@ -1756,7 +1854,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                     </select>
                   </label>
                 )}
-                <label>
+                <div className={styles.fieldGroup}>
                   <span>Default</span>
                   {kind === 'json' ? (
                     <JsonValueInput
@@ -1788,7 +1886,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                       }
                     />
                   )}
-                </label>
+                </div>
                 <button
                   className={styles.emotionRemoveButton}
                   type="button"
@@ -1961,7 +2059,11 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
             resourcePath={resourcePath}
           />
         ) : (
-          <button className={styles.dangerButton} type="button" onClick={() => removeCharacter(character.id)}>
+          <button
+            className={styles.dangerButton}
+            type="button"
+            onClick={() => removeCharacter(character.id)}
+          >
             Delete Character
           </button>
         )}
@@ -2012,6 +2114,25 @@ function EngineMapKeyTypeEditor({
   );
 }
 
+function engineFieldTypeForKind(
+  kind: EngineFieldType['kind'],
+  engineTypes: readonly EngineTypeDefinition[],
+  ownerName: string,
+): EngineFieldType {
+  if (kind === 'enum') return { kind: 'enum', values: ['Value'] };
+  if (kind === 'object') {
+    return {
+      kind: 'object',
+      typeName: engineTypes.find((item) => item.name !== ownerName)?.name ?? ownerName,
+    };
+  }
+  if (kind === 'array') return { kind: 'array', elementType: { kind: 'string' } };
+  if (kind === 'map') {
+    return { kind: 'map', keyType: { kind: 'string' }, valueType: { kind: 'string' } };
+  }
+  return { kind };
+}
+
 function EngineFieldTypeEditor({
   value,
   engineTypes,
@@ -2026,19 +2147,8 @@ function EngineFieldTypeEditor({
   depth?: number;
 }) {
   const kind = value.kind;
-  const changeKind = (nextKind: EngineFieldType['kind']) => {
-    if (nextKind === 'enum') onChange({ kind: 'enum', values: ['Value'] });
-    else if (nextKind === 'object') {
-      onChange({
-        kind: 'object',
-        typeName: engineTypes.find((item) => item.name !== ownerName)?.name ?? ownerName,
-      });
-    } else if (nextKind === 'array') onChange({ kind: 'array', elementType: { kind: 'string' } });
-    else if (nextKind === 'map') {
-      onChange({ kind: 'map', keyType: { kind: 'string' }, valueType: { kind: 'string' } });
-    }
-    else onChange({ kind: nextKind });
-  };
+  const changeKind = (nextKind: EngineFieldType['kind']) =>
+    onChange(engineFieldTypeForKind(nextKind, engineTypes, ownerName));
   return (
     <div className={styles.engineFieldType}>
       <select
@@ -2146,12 +2256,16 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
     updateField(index, {
       ...field,
       type,
-      nullable:
-        type.kind === 'character-ref' || type.kind === 'asset-ref' ? true : field.nullable,
+      nullable: type.kind === 'character-ref' || type.kind === 'asset-ref' ? true : field.nullable,
       defaultValue: defaultForEngineFieldType(type, engineTypes),
     });
   };
-  const addField = (name: string) => {
+  const addField = (name: string, requestedKind?: string) => {
+    const type = engineFieldTypeForKind(
+      (requestedKind ?? 'string') as EngineFieldType['kind'],
+      engineTypes,
+      definition.name,
+    );
     update({
       ...definition,
       fields: [
@@ -2160,8 +2274,9 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
           id: createStableId('engineField'),
           name,
           displayName: name,
-          type: { kind: 'string' },
-          defaultValue: '',
+          type,
+          nullable: type.kind === 'character-ref' || type.kind === 'asset-ref' ? true : undefined,
+          defaultValue: defaultForEngineFieldType(type, engineTypes),
         },
       ],
     });
@@ -2206,6 +2321,20 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
             placeholder="Field name"
             existingNames={definition.fields.map((field) => field.name)}
             onCreate={addField}
+            defaultType="string"
+            typeOptions={[
+              { value: 'boolean', label: 'Boolean' },
+              { value: 'number', label: 'Number' },
+              { value: 'string', label: 'String' },
+              { value: 'character-ref', label: 'Character Reference' },
+              { value: 'asset-ref', label: 'Asset Reference' },
+              { value: 'enum', label: 'Enum' },
+              ...(engineTypes.some((item) => item.name !== definition.name)
+                ? [{ value: 'object', label: 'Object' }]
+                : []),
+              { value: 'array', label: 'Array' },
+              { value: 'map', label: 'Map / Dictionary' },
+            ]}
           />
         </div>
         {definition.fields.length === 0 && <div className={styles.empty}>No fields</div>}
@@ -2282,9 +2411,7 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
               <label className={styles.checkboxRow}>
                 <input
                   type="checkbox"
-                  disabled={
-                    field.type.kind === 'character-ref' || field.type.kind === 'asset-ref'
-                  }
+                  disabled={field.type.kind === 'character-ref' || field.type.kind === 'asset-ref'}
                   checked={field.nullable ?? false}
                   onChange={(event) =>
                     updateField(index, { ...field, nullable: event.target.checked || undefined })
@@ -2292,7 +2419,7 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
                 />
                 <span>Nullable</span>
               </label>
-              <label>
+              <div className={styles.fieldGroup}>
                 <span>Default</span>
                 <JsonValueInput
                   value={field.defaultValue}
@@ -2301,7 +2428,7 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
                   nullable={field.nullable}
                   onCommit={(defaultValue) => updateField(index, { ...field, defaultValue })}
                 />
-              </label>
+              </div>
             </div>
           ))}
         </div>
@@ -2479,7 +2606,11 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
             resourcePath={resourcePath}
           />
         ) : (
-          <button className={styles.dangerButton} type="button" onClick={() => removeAsset(asset.id)}>
+          <button
+            className={styles.dangerButton}
+            type="button"
+            onClick={() => removeAsset(asset.id)}
+          >
             Delete Asset
           </button>
         )}
@@ -3205,9 +3336,7 @@ export function StoryData() {
                 title="Add variable"
                 placeholder="Variable name"
                 existingNames={variables.map((variable) => variable.name)}
-                onCreate={(name) =>
-                  selectStoryData({ kind: 'variable', id: addVariable(name) })
-                }
+                onCreate={(name) => selectStoryData({ kind: 'variable', id: addVariable(name) })}
               />
             </div>
             {variables.length === 0 && <div className={styles.empty}>No variables</div>}

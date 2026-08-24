@@ -80,12 +80,23 @@ export interface DialogueNodeData {
   lines: DialogueLine[];
 }
 
-/** Embedded Ink source executed as one resumable runtime block. */
-export interface InkBlockNodeData {
-  sourceMode: 'embedded';
-  source: string;
-  entryKnot?: string;
+/** Ink source executed as one resumable runtime block. Linked paths are project-relative. */
+export type InkVariableDirection = 'story-to-ink' | 'ink-to-story' | 'two-way';
+
+export interface InkVariableBinding {
+  inkName: string;
+  variableId: VariableId;
+  direction: InkVariableDirection;
 }
+
+interface InkBlockNodeDataBase {
+  entryKnot?: string;
+  variableBindings?: readonly InkVariableBinding[];
+}
+
+export type InkBlockNodeData =
+  | (InkBlockNodeDataBase & { sourceMode: 'embedded'; source: string })
+  | (InkBlockNodeDataBase & { sourceMode: 'linked'; path: string });
 
 /** Data for Choice node — presents options to the player */
 export interface ChoiceNodeData {

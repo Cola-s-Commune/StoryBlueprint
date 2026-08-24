@@ -123,6 +123,29 @@ function WorkspaceTree({
       );
     }
 
+    if (entry.kind === 'ink') {
+      return (
+        <div
+          key={entry.relativePath}
+          className={styles.fileRow}
+          style={{ paddingLeft: 26 + depth * 13 }}
+          title="Linked Ink source"
+        >
+          <span className={styles.projectFileIcon}>I</span>
+          <span className={styles.fileName}>{entry.name}</span>
+          <span className={styles.fileActions}>
+            <button
+              type="button"
+              title="Show in File Explorer"
+              onClick={() => onReveal(entry.relativePath)}
+            >
+              ◎
+            </button>
+          </span>
+        </div>
+      );
+    }
+
     if (
       entry.kind === 'character' ||
       entry.kind === 'character-template' ||

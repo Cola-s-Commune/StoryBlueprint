@@ -190,11 +190,22 @@ function serializeSourceNode(source: SourceNode): Node {
     }
     case StoryNodeType.InkBlock: {
       const ink = data as StoryNodeDataMap[StoryNodeType.InkBlock];
-      if (ink.sourceMode !== 'embedded') {
-        throw new StoryFormatError(`${source.id}.sourceMode must be embedded`);
+      target.setProperty('source-mode', ink.sourceMode);
+      if (ink.sourceMode === 'embedded') {
+        target.setProperty('source', requiredString(ink.source, `${source.id}.source`));
+      } else {
+        target.setProperty('path', requiredString(ink.path, `${source.id}.path`));
       }
-      target.setProperty('source', requiredString(ink.source, `${source.id}.source`));
       if (ink.entryKnot) target.setProperty('entry-knot', ink.entryKnot);
+      for (const binding of ink.variableBindings ?? []) {
+        const bindingNode = Node.create('variable-binding');
+        bindingNode.addArgument(
+          requiredString(binding.inkName, `${source.id}.variable-binding.ink-name`),
+        );
+        bindingNode.addArgument(binding.variableId);
+        bindingNode.setProperty('direction', binding.direction);
+        target.appendNode(bindingNode);
+      }
       break;
     }
     case StoryNodeType.Choice: {
@@ -361,7 +372,8 @@ function serializeVariableDefault(variable: VariableDefinition): null | boolean 
     typeof variable.defaultValue === 'boolean' ||
     typeof variable.defaultValue === 'number' ||
     typeof variable.defaultValue === 'string'
-  ) return variable.defaultValue;
+  )
+    return variable.defaultValue;
   throw new StoryFormatError(`${variable.id}.default must match ${variable.valueType.kind}`);
 }
 
@@ -620,7 +632,7 @@ function parseSourceNode(
   const typeProperties: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Start]: ['title'],
     [StoryNodeType.Dialogue]: [],
-    [StoryNodeType.InkBlock]: ['source', 'entry-knot'],
+    [StoryNodeType.InkBlock]: ['source-mode', 'source', 'path', 'entry-knot'],
     [StoryNodeType.Choice]: ['prompt'],
     [StoryNodeType.Branch]: ['condition'],
     [StoryNodeType.GetVariable]: ['variable'],
@@ -636,7 +648,7 @@ function parseSourceNode(
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Dialogue]: ['line'],
-    [StoryNodeType.InkBlock]: [],
+    [StoryNodeType.InkBlock]: ['variable-binding'],
     [StoryNodeType.Choice]: ['option', 'binding'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: ['binding'],
@@ -698,13 +710,59 @@ function parseSourceNode(
       data = { lines };
       break;
     }
-    case StoryNodeType.InkBlock:
-      data = {
-        sourceMode: 'embedded',
-        source: requiredString(node.getProperty('source'), `${id}.source`),
-        entryKnot: optionalString(node.getProperty('entry-knot'), `${id}.entry-knot`),
-      };
+    case StoryNodeType.InkBlock: {
+      const sourceMode =
+        optionalString(node.getProperty('source-mode'), `${id}.source-mode`) ?? 'embedded';
+      if (sourceMode !== 'embedded' && sourceMode !== 'linked') {
+        throw new StoryFormatError(`${id}.source-mode must be embedded or linked`);
+      }
+      const variableBindings = node
+        .findNodesByName('variable-binding')
+        .map((bindingNode, index) => {
+          assertShape(bindingNode, `${id}.variable-binding[${index}]`, {
+            arguments: 2,
+            properties: ['direction'],
+          });
+          const direction = requiredString(
+            bindingNode.getProperty('direction'),
+            `${id}.variable-binding[${index}].direction`,
+          );
+          if (
+            direction !== 'story-to-ink' &&
+            direction !== 'ink-to-story' &&
+            direction !== 'two-way'
+          ) {
+            throw new StoryFormatError(`${id}.variable-binding[${index}].direction is invalid`);
+          }
+          return {
+            inkName: requiredString(
+              bindingNode.getArgument(0),
+              `${id}.variable-binding[${index}].ink-name`,
+            ),
+            variableId: requiredId(
+              bindingNode.getArgument(1),
+              'variable',
+              `${id}.variable-binding[${index}].variable-id`,
+            ),
+            direction,
+          };
+        });
+      data =
+        sourceMode === 'embedded'
+          ? {
+              sourceMode,
+              source: requiredString(node.getProperty('source'), `${id}.source`),
+              entryKnot: optionalString(node.getProperty('entry-knot'), `${id}.entry-knot`),
+              ...(variableBindings.length > 0 ? { variableBindings } : {}),
+            }
+          : {
+              sourceMode,
+              path: requiredString(node.getProperty('path'), `${id}.path`),
+              entryKnot: optionalString(node.getProperty('entry-knot'), `${id}.entry-knot`),
+              ...(variableBindings.length > 0 ? { variableBindings } : {}),
+            };
       break;
+    }
     case StoryNodeType.Choice: {
       const optionIds = new Set<string>();
       const options = node.findNodesByName('option').map((optionNode): ChoiceOption => {
@@ -975,7 +1033,8 @@ function parseGraph(graph: Node, legacyOutputId?: VariableDefinition['id']): Sou
 function parseValueType(value: unknown, path: string): ValueType {
   const kind = requiredString(value, path);
   if (kind === 'boolean' || kind === 'number' || kind === 'string') return { kind };
-  if (kind.startsWith('json:') && kind.slice(5).trim()) return { kind: 'json', name: kind.slice(5) };
+  if (kind.startsWith('json:') && kind.slice(5).trim())
+    return { kind: 'json', name: kind.slice(5) };
   throw new StoryFormatError(`${path} contains unsupported type ${kind}`);
 }
 
@@ -988,7 +1047,12 @@ function parseVariableDefault(valueType: ValueType, value: unknown, path: string
       throw new StoryFormatError(`${path} contains invalid JSON`);
     }
   }
-  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+  if (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string'
+  ) {
     return value;
   }
   throw new StoryFormatError(`${path} must be a scalar`);
@@ -1015,7 +1079,11 @@ function parseVariables(container: Node | undefined): VariableDefinition[] {
     if (!['story', 'chapter', 'local'].includes(scopeValue)) {
       throw new StoryFormatError(`${id}.scope is unsupported`);
     }
-    const defaultValue = parseVariableDefault(valueType, node.getProperty('default'), `${id}.default`);
+    const defaultValue = parseVariableDefault(
+      valueType,
+      node.getProperty('default'),
+      `${id}.default`,
+    );
     return {
       id,
       name,

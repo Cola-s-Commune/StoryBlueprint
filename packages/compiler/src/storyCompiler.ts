@@ -6,6 +6,8 @@ import {
   StoryNodeType,
   choiceOptionTextId,
   choicePromptTextId,
+  collectInkReservedTagGroups,
+  parseInkDialogueMetadata,
   type BlockId,
   type BranchNodeData,
   type CallSubstoryNodeData,
@@ -61,7 +63,10 @@ function programId(id: string): ProgramId {
   return `p_${suffix(id)}` as ProgramId;
 }
 
-function compileOpaqueJson(source: string, valueType: Extract<ValueType, { kind: 'json' }>): TypedExpression {
+function compileOpaqueJson(
+  source: string,
+  valueType: Extract<ValueType, { kind: 'json' }>,
+): TypedExpression {
   let value: RuntimeValue;
   try {
     value = JSON.parse(source) as RuntimeValue;
@@ -93,10 +98,7 @@ function compileAuthoredValue(
     try {
       const compiled = compileExpression(expression, variables, characters);
       if (!valueTypesMatch(compiled.valueType, expectedType)) {
-        throw new ExpressionCompileError(
-          `Engine JSON value must be ${expectedType.name}`,
-          0,
-        );
+        throw new ExpressionCompileError(`Engine JSON value must be ${expectedType.name}`, 0);
       }
       return compiled;
     } catch (expressionError) {
@@ -113,6 +115,19 @@ function jump(node: SourceNode, target: BlockId): RuntimeInstruction {
 export class DefaultStoryCompiler implements StoryCompiler {
   compile(source: StorySourceDocument, options: CompileOptions = {}): CompileResult {
     const diagnostics: CompilerDiagnostic[] = [];
+    const usedTextIds = new Set<string>();
+    for (const graph of [source.root, ...source.chapters.map((chapter) => chapter.graph)]) {
+      for (const node of graph.nodes) {
+        if (node.type === StoryNodeType.Dialogue) {
+          for (const line of (node.data as unknown as DialogueNodeData).lines)
+            usedTextIds.add(line.textId);
+        } else if (node.type === StoryNodeType.Choice) {
+          const choice = node.data as unknown as ChoiceNodeData;
+          if (choice.prompt) usedTextIds.add(choicePromptTextId(node.id));
+          for (const option of choice.options) usedTextIds.add(choiceOptionTextId(option.id));
+        }
+      }
+    }
     const translationsFor = (id: TextId): Record<string, string> =>
       Object.fromEntries(
         Object.entries(options.translations ?? {}).flatMap(([locale, entries]) =>
@@ -400,17 +415,88 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.InkBlock: {
             const data = node.data as unknown as InkBlockNodeData;
-            if (data.sourceMode !== 'embedded') {
+            const inkSource =
+              data.sourceMode === 'embedded' ? data.source : options.inkSources?.[data.path];
+            if (inkSource === undefined) {
               diagnostics.push({
                 code: 'INVALID_NODE',
                 severity: 'error',
-                message: 'Ink Block source mode must be embedded',
+                message: `Linked Ink source is unavailable: ${data.sourceMode === 'linked' ? data.path : 'unknown'}`,
                 sourceNodeId: node.id,
               });
               break;
             }
+            let invalidMetadata = false;
+            for (const tagGroup of collectInkReservedTagGroups(inkSource)) {
+              const metadata = parseInkDialogueMetadata(tagGroup);
+              for (const message of metadata.errors) {
+                invalidMetadata = true;
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Ink Block: ${message}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              if (metadata.speakerId) {
+                const speaker = source.characters.find(
+                  (character) => character.id === metadata.speakerId,
+                );
+                if (!speaker) {
+                  invalidMetadata = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink Block references missing character ${metadata.speakerId}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (metadata.emotion && !speaker.emotions[metadata.emotion]) {
+                  invalidMetadata = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Character ${speaker.displayName} has no ${metadata.emotion} emotion`,
+                    sourceNodeId: node.id,
+                  });
+                }
+              } else if (metadata.emotion) {
+                invalidMetadata = true;
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: 'Ink Block emotion tag requires a speaker tag on the same output line',
+                  sourceNodeId: node.id,
+                });
+              }
+              if (
+                metadata.voiceId &&
+                !source.assets.some((asset) => asset.id === metadata.voiceId)
+              ) {
+                invalidMetadata = true;
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Ink Block references missing voice asset ${metadata.voiceId}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              if (metadata.textId) {
+                if (usedTextIds.has(metadata.textId)) {
+                  invalidMetadata = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Duplicate Ink text ID ${metadata.textId}`,
+                    sourceNodeId: node.id,
+                  });
+                } else {
+                  usedTextIds.add(metadata.textId);
+                }
+              }
+            }
+            if (invalidMetadata) break;
             try {
-              const compiler = new InkCompiler(data.source);
+              const compiler = new InkCompiler(inkSource);
               const compiledInk = compiler.Compile();
               if (compiler.errors.length > 0) {
                 diagnostics.push({
@@ -431,6 +517,62 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 });
                 break;
               }
+              const variableBindings = data.variableBindings ?? [];
+              const seenInkNames = new Set<string>();
+              let invalidBinding = false;
+              for (const binding of variableBindings) {
+                const variable = allVariables.find(
+                  (candidate) => candidate.id === binding.variableId,
+                );
+                if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding.inkName)) {
+                  invalidBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink variable name is invalid: ${binding.inkName}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (seenInkNames.has(binding.inkName)) {
+                  invalidBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink variable is mapped more than once: ${binding.inkName}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (
+                  !compiledInk.variablesState.GlobalVariableExistsWithName(binding.inkName)
+                ) {
+                  invalidBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink Block has no global variable named ${binding.inkName}`,
+                    sourceNodeId: node.id,
+                  });
+                }
+                seenInkNames.add(binding.inkName);
+                if (!variable) {
+                  invalidBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink Block references missing variable ${binding.variableId}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (
+                  !['boolean', 'number', 'string', 'enum'].includes(variable.valueType.kind)
+                ) {
+                  invalidBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink variable ${binding.inkName} cannot map to ${variable.valueType.kind} variable ${variable.displayName}`,
+                    sourceNodeId: node.id,
+                  });
+                }
+              }
+              if (invalidBinding) break;
               for (const warning of compiler.warnings) {
                 diagnostics.push({
                   code: 'INVALID_NODE',
@@ -444,6 +586,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 op: 'ink-block',
                 inkJson: compiledInk.ToJson() as string,
                 entryKnot,
+                variableBindings,
               });
               const target = resolveTarget(node.id, 'out');
               if (target) instructions.push(jump(node, target));
@@ -533,10 +676,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                     source.characters,
                   ),
                 );
-                if (
-                  compiled &&
-                  !valueTypesMatch(compiled.valueType, parameter.valueType)
-                ) {
+                if (compiled && !valueTypesMatch(compiled.valueType, parameter.valueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
                     severity: 'error',
@@ -594,10 +734,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                     source.characters,
                   ),
                 );
-                if (
-                  compiled &&
-                  !valueTypesMatch(compiled.valueType, parameter.valueType)
-                ) {
+                if (compiled && !valueTypesMatch(compiled.valueType, parameter.valueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
                     severity: 'error',
@@ -719,9 +856,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   ),
                 );
                 if (!compiled) continue;
-                if (
-                  !valueTypesMatch(compiled.valueType, parameter.variable.valueType)
-                ) {
+                if (!valueTypesMatch(compiled.valueType, parameter.variable.valueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
                     severity: 'error',
@@ -768,9 +903,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                     message: `Substory output ${output.variable.name} references a missing variable`,
                     sourceNodeId: node.id,
                   });
-                } else if (
-                  !valueTypesMatch(output.variable.valueType, resultVariable.valueType)
-                ) {
+                } else if (!valueTypesMatch(output.variable.valueType, resultVariable.valueType)) {
                   diagnostics.push({
                     code: 'INVALID_NODE',
                     severity: 'error',
@@ -838,9 +971,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   ),
                 );
                 if (!value) continue;
-                if (
-                  !valueTypesMatch(value.valueType, output.variable.valueType)
-                ) {
+                if (!valueTypesMatch(value.valueType, output.variable.valueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
                     severity: 'error',

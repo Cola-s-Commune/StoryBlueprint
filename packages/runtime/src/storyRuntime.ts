@@ -1,5 +1,7 @@
 import {
   runtimeValueMatchesType,
+  parseInkDialogueMetadata,
+  isStableId,
   STORY_RUNTIME_FORMAT,
   STORY_RUNTIME_VERSION,
   type BlockId,
@@ -59,7 +61,12 @@ function cloneState(state: RuntimeState): RuntimeState {
               ...state.pending,
               options: state.pending.options.map((option) => ({ ...option })),
             }
-          : { ...state.pending }
+          : state.pending.kind === 'ink-dialogue'
+            ? {
+                ...state.pending,
+                tags: state.pending.tags ? [...state.pending.tags] : undefined,
+              }
+            : { ...state.pending }
       : undefined,
     ink: state.ink ? { ...state.ink } : undefined,
   };
@@ -594,8 +601,14 @@ export class StoryRuntime {
         kind: 'dialogue',
         request: {
           requestId: this.currentState.pending.requestId,
-          textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
+          speakerId: this.currentState.pending.speakerId,
+          textId: this.currentState.pending.textId,
           defaultText: this.currentState.pending.defaultText,
+          voice: this.currentState.pending.voiceId
+            ? { default: this.currentState.pending.voiceId }
+            : undefined,
+          emotion: this.currentState.pending.emotion,
+          tags: this.currentState.pending.tags,
         },
       };
     }
@@ -764,6 +777,19 @@ export class StoryRuntime {
         ) {
           throw new TypeError('Runtime pending Ink interaction does not match its snapshot');
         }
+        if (
+          state.pending.kind === 'ink-dialogue' &&
+          (typeof state.pending.defaultText !== 'string' ||
+            !isStableId(state.pending.textId, 'text') ||
+            (state.pending.speakerId !== undefined &&
+              !isStableId(state.pending.speakerId, 'character')) ||
+            (state.pending.voiceId !== undefined && !isStableId(state.pending.voiceId, 'asset')) ||
+            (state.pending.emotion !== undefined && typeof state.pending.emotion !== 'string') ||
+            (state.pending.tags !== undefined &&
+              !state.pending.tags.every((tag) => typeof tag === 'string')))
+        ) {
+          throw new TypeError('Runtime pending Ink dialogue metadata is invalid');
+        }
       }
     } else if (state.pending?.kind === 'ink-dialogue' || state.pending?.kind === 'ink-choice') {
       throw new TypeError('Runtime pending Ink interaction is missing its snapshot');
@@ -775,19 +801,54 @@ export class StoryRuntime {
     const story = new InkStory(instruction.inkJson);
     if (this.currentState.ink?.instructionId === instruction.id) {
       story.state.LoadJson(this.currentState.ink.stateJson);
-    } else if (instruction.entryKnot) {
-      story.ChoosePathString(instruction.entryKnot);
+    } else {
+      this.syncStoryVariablesToInk(instruction, story);
+      if (instruction.entryKnot) story.ChoosePathString(instruction.entryKnot);
     }
     return story;
+  }
+
+  private syncStoryVariablesToInk(
+    instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
+    story: InkStory,
+  ): void {
+    for (const binding of instruction.variableBindings) {
+      if (binding.direction === 'ink-to-story') continue;
+      const value = this.readVariable(binding.variableId);
+      if (typeof value !== 'boolean' && typeof value !== 'number' && typeof value !== 'string') {
+        throw new TypeError(`Story variable ${binding.variableId} cannot be passed to Ink`);
+      }
+      story.variablesState.$(binding.inkName, value);
+    }
+  }
+
+  private syncInkVariablesToStory(
+    instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
+    story: InkStory,
+  ): void {
+    for (const binding of instruction.variableBindings) {
+      if (binding.direction === 'story-to-ink') continue;
+      const value = story.variablesState.$(binding.inkName);
+      if (
+        value !== null &&
+        typeof value !== 'boolean' &&
+        typeof value !== 'number' &&
+        typeof value !== 'string'
+      ) {
+        throw new TypeError(`Ink variable ${binding.inkName} is not a scalar value`);
+      }
+      this.writeVariable(binding.variableId, value);
+    }
   }
 
   private saveInkState(
     instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
     story: InkStory,
   ): string {
-    const previousIndex = this.currentState.ink?.instructionId === instruction.id
-      ? this.currentState.ink.interactionIndex
-      : 0;
+    const previousIndex =
+      this.currentState.ink?.instructionId === instruction.id
+        ? this.currentState.ink.interactionIndex
+        : 0;
     const interactionIndex = previousIndex + 1;
     this.currentState.ink = {
       instructionId: instruction.id,
@@ -801,26 +862,60 @@ export class StoryRuntime {
     instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
     existingStory?: InkStory,
   ): RuntimeRunResult | undefined {
-    const story = existingStory ?? this.inkStory(instruction);
+    let story: InkStory;
+    try {
+      story = existingStory ?? this.inkStory(instruction);
+    } catch (cause) {
+      return this.fail({
+        code: 'INK_VARIABLE_ERROR',
+        severity: 'error',
+        message: cause instanceof Error ? cause.message : String(cause),
+        location: this.location(),
+        instructionId: instruction.id,
+        cause,
+      });
+    }
     while (story.canContinue) {
       const text = story.Continue();
       if (!text) continue;
       const normalizedText = text.replace(/[\r\n]+$/g, '');
       if (!normalizedText) continue;
       const requestId = this.saveInkState(instruction, story);
+      const metadata = parseInkDialogueMetadata(story.currentTags ?? []);
+      if (metadata.errors.length > 0) {
+        return this.fail({
+          code: 'INK_METADATA_ERROR',
+          severity: 'error',
+          message: metadata.errors.join('; '),
+          location: this.location(),
+          instructionId: instruction.id,
+        });
+      }
+      const textId =
+        metadata.textId ??
+        (`t_ink_${instruction.id.replace(/[^a-z0-9_-]/gi, '_')}_${this.currentState.ink!.interactionIndex}` as import('@story-blueprint/common').TextId);
       this.currentState.pending = {
         kind: 'ink-dialogue',
         requestId,
         instructionId: instruction.id,
         defaultText: normalizedText,
+        textId,
+        speakerId: metadata.speakerId,
+        voiceId: metadata.voiceId,
+        emotion: metadata.emotion,
+        tags: metadata.tags.length > 0 ? metadata.tags : undefined,
       };
       this.currentState.status = 'waiting';
       return this.waiting({
         kind: 'dialogue',
         request: {
           requestId,
-          textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
+          speakerId: metadata.speakerId,
+          textId,
           defaultText: normalizedText,
+          voice: metadata.voiceId ? { default: metadata.voiceId } : undefined,
+          emotion: metadata.emotion,
+          tags: metadata.tags.length > 0 ? metadata.tags : undefined,
         },
       });
     }
@@ -849,6 +944,18 @@ export class StoryRuntime {
             enabled: true,
           })),
         },
+      });
+    }
+    try {
+      this.syncInkVariablesToStory(instruction, story);
+    } catch (cause) {
+      return this.fail({
+        code: 'INK_VARIABLE_ERROR',
+        severity: 'error',
+        message: cause instanceof Error ? cause.message : String(cause),
+        location: this.location(),
+        instructionId: instruction.id,
+        cause,
       });
     }
     this.currentState.ink = undefined;

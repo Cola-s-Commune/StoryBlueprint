@@ -391,12 +391,13 @@
 
 ## Ink Block Node
 
-- [ ] Embedded Ink：完整 Ink 文本保存在 `.story` 中
-- [ ] Linked Ink：引用项目内 `.ink` 文件，外部文件作为权威来源
-- [ ] 接入完整 Ink Runtime，不要求先转换成原生节点
-- [ ] Ink Block 的入口、完成出口、变量桥接与 Event Adapter 桥接
-- [ ] Ink Runtime 暂停、选择、继续、错误和取消状态接入 Story Runtime
-- [ ] Linked / Embedded 模式明确单一权威来源，不自动双向同步文本与节点
+- [x] Embedded Ink：完整 Ink 文本保存在 `.story` 中
+- [x] Linked Ink：引用项目内 `.ink` 文件，外部文件作为权威来源；支持 Inspector 切换、外部变更刷新、Preview 与 Build 解析
+- [x] 接入完整 Ink Runtime，不要求先转换成原生节点
+- [x] Ink Block 的入口、完成出口与 Story Typed Variable 显式桥接
+- [ ] Ink External Function 与 Event Adapter 桥接
+- [x] Ink Runtime 暂停、选择、继续、错误和取消状态接入 Story Runtime
+- [x] Linked / Embedded 模式明确单一权威来源，不自动双向同步文本与节点
 - [ ] Convert to Nodes / Convert to Ink Block 使用显式操作和 Diff Preview
 
 ---
@@ -842,12 +843,12 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 ## Ink Block Runtime
 
-- [ ] 集成 Ink Runtime，执行完整 Ink 语言而非仅支持子集
-- [ ] Linked `.ink` 与 Embedded Ink Source 加载、编译和诊断
-- [ ] Ink Variable 与 Story Typed Variable 显式桥接
+- [x] 集成 Ink Runtime，执行完整 Ink 语言而非仅支持子集
+- [x] Linked `.ink` 与 Embedded Ink Source 加载、编译和诊断
+- [x] Ink Variable 与 Story Typed Variable 显式桥接（Story → Ink、Ink → Story、Two-way）
 - [ ] Ink External Function 与项目 Event Definition 映射
-- [ ] Ink Choice / Continue 与 Story Runtime PendingInteraction 桥接
-- [ ] Ink Block 运行状态参与 Save / Load、Abort 和结构化 Diagnostics
+- [x] Ink Choice / Continue 与 Story Runtime PendingInteraction 桥接
+- [x] Ink Block 运行状态参与 Save / Load、Abort 和结构化 Diagnostics
 
 ---
 
@@ -855,7 +856,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 - [x] 定义第一版可转换为原生节点的版本化 Ink Profile
 - [ ] 建立完整 Ink 语法与原生节点类型的覆盖矩阵（已覆盖对白、Choice、Knot/Divert、变量和简单条件）
-- [ ] Speaker / Voice / Emotion / Text ID Tag 规范
+- [x] Speaker / Voice / Emotion / Text ID Tag 规范：同一 Ink 输出行使用稳定 ID 标签，编译期资源校验，Runtime 映射到 DialogueRequest，普通标签透传 Adapter
 - [ ] Tag 转义与稳定 ID 规则
 - [x] Ink `VAR` / 赋值与 Boolean、Number、String Story Variable 映射
 - [x] 连续 Ink 台词合并为多 Line Dialogue，控制流边界处自动拆分

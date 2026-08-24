@@ -534,7 +534,8 @@
   text-transform: uppercase;
 }
 
-.details label {
+.details label,
+.details .fieldGroup {
   display: grid;
   gap: 4px;
   color: #858e9b;

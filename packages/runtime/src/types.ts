@@ -33,6 +33,11 @@ export type PendingInteraction =
       requestId: string;
       instructionId: InstructionId;
       defaultText: string;
+      textId: TextId;
+      speakerId?: CharacterId;
+      voiceId?: AssetId;
+      emotion?: string;
+      tags?: readonly string[];
     }
   | {
       kind: 'choice';
@@ -131,7 +136,9 @@ export type RuntimeDiagnosticCode =
   | 'ADAPTER_ERROR'
   | 'UNSUPPORTED_INSTRUCTION'
   | 'TIGHT_LOOP'
-  | 'ABORTED';
+  | 'ABORTED'
+  | 'INK_METADATA_ERROR'
+  | 'INK_VARIABLE_ERROR';
 
 export interface RuntimeDiagnostic {
   code: RuntimeDiagnosticCode;

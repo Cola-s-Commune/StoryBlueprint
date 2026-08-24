@@ -15,7 +15,7 @@ import type {
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_RUNTIME_FORMAT = 'story-runtime' as const;
-export const STORY_RUNTIME_VERSION = 5 as const;
+export const STORY_RUNTIME_VERSION = 6 as const;
 
 export interface ProgramLocation {
   blockId: BlockId;
@@ -61,6 +61,11 @@ export interface InkBlockInstruction extends RuntimeInstructionBase {
   /** Compiled Ink JSON, kept in the node-free runtime artifact. */
   inkJson: string;
   entryKnot?: string;
+  variableBindings: readonly {
+    inkName: string;
+    variableId: VariableId;
+    direction: 'story-to-ink' | 'ink-to-story' | 'two-way';
+  }[];
 }
 
 export interface NarrationInstruction extends RuntimeInstructionBase {

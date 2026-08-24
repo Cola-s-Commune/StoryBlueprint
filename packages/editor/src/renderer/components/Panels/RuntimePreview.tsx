@@ -65,6 +65,7 @@ export function RuntimePreview() {
   const {
     hasActiveStory,
     source,
+    inkSources,
     characters,
     assets,
     projectVariables,
@@ -146,12 +147,14 @@ export function RuntimePreview() {
           assets,
           events,
           signals,
+          inkSources,
         }),
         translations: localizationTranslationsForStory(
           workspace?.localization?.document,
           source.id,
         ),
         sourceLocale: workspace?.localization?.document.sourceLocale,
+        inkSources,
         localeFallbacks: Object.fromEntries(
           (workspace?.localization?.document.locales ?? []).flatMap((locale) =>
             locale.fallback ? [[locale.locale, locale.fallback]] : [],
@@ -179,7 +182,16 @@ export function RuntimePreview() {
       events,
       signals,
     });
-  }, [assets, characters, events, projectVariables, signals, source, workspace?.localization]);
+  }, [
+    assets,
+    characters,
+    events,
+    inkSources,
+    projectVariables,
+    signals,
+    source,
+    workspace?.localization,
+  ]);
 
   const openCompiled = useCallback(async () => {
     if (!window.electronAPI) return;

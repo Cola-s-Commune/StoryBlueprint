@@ -47,6 +47,8 @@ export interface CompileOptions {
   translations?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   sourceLocale?: string;
   localeFallbacks?: Readonly<Record<string, string>>;
+  /** Project-relative linked Ink sources resolved by the editor/build host. */
+  inkSources?: Readonly<Record<string, string>>;
 }
 
 export type CompileResult =

@@ -56,7 +56,8 @@ export interface WorkspaceEntry {
     | 'character'
     | 'character-template'
     | 'asset'
-    | 'localization';
+    | 'localization'
+    | 'ink';
   name: string;
   relativePath: string;
   children?: WorkspaceEntry[];
@@ -79,7 +80,7 @@ export interface ReloadWorkspaceAfterGitChangeResult {
 
 export interface ExternalWorkspaceFileChange {
   relativePath: string;
-  kind: 'story' | 'project' | 'character' | 'character-template' | 'asset' | 'localization';
+  kind: 'story' | 'project' | 'character' | 'character-template' | 'asset' | 'localization' | 'ink';
   change: 'created' | 'modified' | 'deleted';
   previousContent?: string;
   content?: string;
@@ -226,6 +227,8 @@ export type OpenCompiledProjectResult =
 
 export type OpenInkFileResult =
   { canceled: true } | { canceled: false; filePath: string; content: string };
+export type WorkspaceInkFileResult =
+  { canceled: true } | { canceled: false; relativePath: string; content: string };
 
 export interface CreateWorkspaceStoryRequest {
   directory: string;
@@ -492,6 +495,8 @@ export interface ElectronAPI {
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   openInkFile: () => Promise<OpenInkFileResult>;
+  pickWorkspaceInkFile: () => Promise<WorkspaceInkFileResult>;
+  readWorkspaceInkFile: (relativePath: string) => Promise<WorkspaceInkFileResult>;
   updateProjectSettings: (settings: UpdateProjectSettingsRequest) => Promise<WorkspaceInfo>;
   extractProjectLocalization: (sourceLocale: string) => Promise<WorkspaceInfo>;
   updateProjectLocalization: (document: StoryLocalizationDocument) => Promise<WorkspaceInfo>;
@@ -522,10 +527,7 @@ export interface ElectronAPI {
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   restoreProjectResources: (snapshot: ProjectResourceSnapshot) => Promise<WorkspaceInfo>;
   listProjectTransactionRecoveries: () => Promise<ProjectTransactionRecovery[]>;
-  restoreProjectTransaction: (
-    id: string,
-    target: 'before' | 'after',
-  ) => Promise<WorkspaceInfo>;
+  restoreProjectTransaction: (id: string, target: 'before' | 'after') => Promise<WorkspaceInfo>;
   discardProjectTransaction: (id: string) => Promise<ProjectTransactionRecovery[]>;
   restoreWorkspaceStory: (
     relativePath: string,
