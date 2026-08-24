@@ -1454,3 +1454,11 @@ The editor also keeps a bounded, user-data transaction journal for the five most
 reference transactions. A `pending` entry is written before disk mutation and marked `committed` only
 after the atomic batch succeeds. On a later launch, Recovery shows affected paths and size/line spans,
 and can restore the complete before or after side. Choosing Keep Current discards that journal entry.
+### Ink Block runtime lifecycle
+
+An embedded Ink Block owns a serialized `inkjs` state while its runtime instruction is active. Each
+dialogue or choice pause receives a monotonically increasing request ID scoped to that instruction;
+choice IDs also include that interaction ID, so a response from an older choice cannot be accepted by
+a later pause. Runtime save/load preserves the Ink state, interaction index, pending dialogue or choice,
+and original Ink choice index. Ink `END` returns normally to Blueprint flow, while adapter cancellation
+uses the runtime's structured `ABORTED` diagnostic. This state-contract change uses runtime format v5.

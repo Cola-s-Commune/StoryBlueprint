@@ -275,19 +275,9 @@ export class StoryRuntime {
           instructionId: instruction.id,
         });
       }
-      const choiceIndex = Number(optionId.slice('ink:'.length));
-      if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
-        return this.fail({
-          code: 'INVALID_OPTION',
-          severity: 'error',
-          message: `Ink choice option ${optionId} is invalid`,
-          location: this.location(),
-          instructionId: instruction.id,
-        });
-      }
       try {
         const story = this.inkStory(instruction);
-        story.ChooseChoiceIndex(choiceIndex);
+        story.ChooseChoiceIndex(choice.choiceIndex);
         this.currentState.pending = undefined;
         this.currentState.status = 'running';
         return this.advanceInk(instruction, story) ?? this.runUntilPause();
@@ -402,7 +392,7 @@ export class StoryRuntime {
         return this.waiting({
           kind: 'dialogue',
           request: {
-            requestId: instruction.id,
+            requestId: this.currentState.pending.requestId,
             speakerId: instruction.speakerId,
             textId: instruction.text.id,
             defaultText: renderTextTemplate(
@@ -603,7 +593,7 @@ export class StoryRuntime {
       return {
         kind: 'dialogue',
         request: {
-          requestId: instruction.id,
+          requestId: this.currentState.pending.requestId,
           textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
           defaultText: this.currentState.pending.defaultText,
         },
@@ -616,7 +606,7 @@ export class StoryRuntime {
       return {
         kind: 'choice',
         request: {
-          requestId: instruction.id,
+          requestId: this.currentState.pending.requestId,
           options: this.currentState.pending.options.map((option) => ({
             id: option.id,
             textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
@@ -754,6 +744,30 @@ export class StoryRuntime {
         this.assertValueType(frame.locals[id], definition, 'Runtime state local');
       }
     }
+    if (state.ink) {
+      if (
+        typeof state.ink.stateJson !== 'string' ||
+        !Number.isInteger(state.ink.interactionIndex) ||
+        state.ink.interactionIndex < 1
+      ) {
+        throw new TypeError('Runtime state contains an invalid Ink snapshot');
+      }
+      const instruction = this.program.blocks[state.blockId]?.instructions[state.instructionIndex];
+      if (instruction?.op !== 'ink-block' || instruction.id !== state.ink.instructionId) {
+        throw new TypeError('Runtime Ink snapshot does not match the current instruction');
+      }
+      if (state.pending?.kind === 'ink-dialogue' || state.pending?.kind === 'ink-choice') {
+        const expectedRequestId = `${state.ink.instructionId}:ink:${state.ink.interactionIndex}`;
+        if (
+          state.pending.instructionId !== state.ink.instructionId ||
+          state.pending.requestId !== expectedRequestId
+        ) {
+          throw new TypeError('Runtime pending Ink interaction does not match its snapshot');
+        }
+      }
+    } else if (state.pending?.kind === 'ink-dialogue' || state.pending?.kind === 'ink-choice') {
+      throw new TypeError('Runtime pending Ink interaction is missing its snapshot');
+    }
   }
 
   /** Rehydrates an Ink story only from serializable runtime state. */
@@ -770,8 +784,17 @@ export class StoryRuntime {
   private saveInkState(
     instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>,
     story: InkStory,
-  ): void {
-    this.currentState.ink = { instructionId: instruction.id, stateJson: story.state.ToJson() };
+  ): string {
+    const previousIndex = this.currentState.ink?.instructionId === instruction.id
+      ? this.currentState.ink.interactionIndex
+      : 0;
+    const interactionIndex = previousIndex + 1;
+    this.currentState.ink = {
+      instructionId: instruction.id,
+      stateJson: story.state.ToJson(),
+      interactionIndex,
+    };
+    return `${instruction.id}:ink:${interactionIndex}`;
   }
 
   private advanceInk(
@@ -784,10 +807,10 @@ export class StoryRuntime {
       if (!text) continue;
       const normalizedText = text.replace(/[\r\n]+$/g, '');
       if (!normalizedText) continue;
-      this.saveInkState(instruction, story);
+      const requestId = this.saveInkState(instruction, story);
       this.currentState.pending = {
         kind: 'ink-dialogue',
-        requestId: instruction.id,
+        requestId,
         instructionId: instruction.id,
         defaultText: normalizedText,
       };
@@ -795,21 +818,22 @@ export class StoryRuntime {
       return this.waiting({
         kind: 'dialogue',
         request: {
-          requestId: instruction.id,
+          requestId,
           textId: instruction.id as unknown as import('@story-blueprint/common').TextId,
           defaultText: normalizedText,
         },
       });
     }
     if (story.currentChoices.length > 0) {
+      const requestId = this.saveInkState(instruction, story);
       const options = story.currentChoices.map((choice, index) => ({
-        id: `ink:${index}` as OptionId,
+        id: `${requestId}:choice:${index}` as OptionId,
         text: choice.text,
+        choiceIndex: index,
       }));
-      this.saveInkState(instruction, story);
       this.currentState.pending = {
         kind: 'ink-choice',
-        requestId: instruction.id,
+        requestId,
         instructionId: instruction.id,
         options,
       };
@@ -817,7 +841,7 @@ export class StoryRuntime {
       return this.waiting({
         kind: 'choice',
         request: {
-          requestId: instruction.id,
+          requestId,
           options: options.map((option) => ({
             id: option.id,
             textId: instruction.id as unknown as import('@story-blueprint/common').TextId,

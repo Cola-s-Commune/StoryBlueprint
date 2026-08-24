@@ -15,7 +15,7 @@ import type {
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_RUNTIME_FORMAT = 'story-runtime' as const;
-export const STORY_RUNTIME_VERSION = 4 as const;
+export const STORY_RUNTIME_VERSION = 5 as const;
 
 export interface ProgramLocation {
   blockId: BlockId;

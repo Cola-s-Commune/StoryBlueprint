@@ -80,6 +80,7 @@ describe('Ink Block runtime', () => {
     expect(choice.kind).toBe('waiting');
     if (choice.kind !== 'waiting' || choice.interaction.kind !== 'choice') return;
     expect(choice.interaction.request.options[0]?.defaultText).toBe('Continue');
+    expect(choice.interaction.request.requestId).not.toBe(opening.interaction.request.requestId);
 
     const afterChoice = runtime.choose(choice.interaction.request.options[0]!.id);
     expect(afterChoice.kind).toBe('waiting');
@@ -89,6 +90,69 @@ describe('Ink Block runtime', () => {
       request: { defaultText: 'After the choice.' },
     });
 
+    expect(runtime.continueDialogue().kind).toBe('completed');
+  });
+
+  it('restores pending Ink dialogue and choice from serializable runtime state', () => {
+    const compiled = compileStory(inkBlockStory());
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    const firstRuntime = new StoryRuntime(compiled.program);
+    const opening = firstRuntime.runUntilPause();
+    expect(opening.kind).toBe('waiting');
+    if (opening.kind !== 'waiting') return;
+    const restoredDialogue = new StoryRuntime(
+      compiled.program,
+      JSON.parse(JSON.stringify(opening.state)),
+    );
+    const choice = restoredDialogue.continueDialogue();
+    expect(choice.kind).toBe('waiting');
+    if (choice.kind !== 'waiting' || choice.interaction.kind !== 'choice') return;
+
+    const restoredChoice = new StoryRuntime(
+      compiled.program,
+      JSON.parse(JSON.stringify(choice.state)),
+    );
+    const afterChoice = restoredChoice.choose(choice.interaction.request.options[0]!.id);
+    expect(afterChoice).toMatchObject({
+      kind: 'waiting',
+      interaction: { kind: 'dialogue', request: { defaultText: 'After the choice.' } },
+    });
+  });
+
+  it('rejects stale Ink choice IDs and supports explicit abort', () => {
+    const compiled = compileStory(inkBlockStory());
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    runtime.runUntilPause();
+    const choice = runtime.continueDialogue();
+    expect(choice.kind).toBe('waiting');
+    if (choice.kind !== 'waiting') return;
+    expect(runtime.choose('ink:0' as never)).toMatchObject({
+      kind: 'failed',
+      diagnostic: { code: 'INVALID_OPTION' },
+    });
+
+    const aborted = new StoryRuntime(compiled.program).abort();
+    expect(aborted).toMatchObject({ kind: 'failed', diagnostic: { code: 'ABORTED' } });
+  });
+
+  it('treats Ink END as normal block termination', () => {
+    const source = inkBlockStory();
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source: ['Last Ink line.', '-> END'].join('\n'),
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    expect(runtime.runUntilPause()).toMatchObject({
+      kind: 'waiting',
+      interaction: { kind: 'dialogue', request: { defaultText: 'Last Ink line.' } },
+    });
     expect(runtime.continueDialogue().kind).toBe('completed');
   });
 

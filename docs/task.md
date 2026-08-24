@@ -666,7 +666,7 @@
 - [x] End Story
 - [x] 稳定点 Save / Load（Preview 本地槽验证 RuntimeState 契约）
 - [x] Pending Dialogue / Choice / Signal 与 Signal Inbox JSON 往返恢复
-- [ ] Ink Block 子运行时的暂停、选择、恢复与终止
+- [x] Ink Block 子运行时的暂停、选择、恢复与终止（稳定交互 ID、可序列化 Ink 状态、陈旧 Choice 拒绝、END / Abort 验证）
 - [x] Program Format / Version / Content Version 检查
 - [x] 核心执行状态机结构化 Runtime Diagnostics
 

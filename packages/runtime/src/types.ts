@@ -44,7 +44,7 @@ export type PendingInteraction =
       kind: 'ink-choice';
       requestId: string;
       instructionId: InstructionId;
-      options: readonly { id: OptionId; text: string }[];
+      options: readonly { id: OptionId; text: string; choiceIndex: number }[];
     }
   | { kind: 'event'; requestId: string; instructionId: InstructionId; eventId: EventId }
   | {
@@ -68,7 +68,7 @@ export interface RuntimeState {
   /** Full payloads received before a matching Wait for Signal instruction. */
   signalInbox: Record<string, SignalPayload[]>;
   /** Serialized state for the currently executing embedded Ink Block. */
-  ink?: { instructionId: InstructionId; stateJson: string };
+  ink?: { instructionId: InstructionId; stateJson: string; interactionIndex: number };
   pending?: PendingInteraction;
   status: RuntimeStatus;
   randomSeed?: number;
