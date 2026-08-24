@@ -1434,3 +1434,23 @@ SHA-512 后才原子改名；取消、网络错误或校验失败会删除临时
 11. 实现 `.story` 保存、打开、稳定点存档与 Runtime Preview。
 12. 实现 AI 语义视图、风险分级确认和结构化 Diagnostics。
 13. 实现版本化 Ink Profile、受支持子集的语义导入导出和 Ink Block 降级。
+### Resource reference cleanup
+
+Character and Asset references can be previewed and cleared across the whole project. Direct optional
+Story references are removed, nullable Engine Type fields become `null`, and matching direct elements
+in arrays or entries in maps are removed. Required Engine Type fields are never made invalid: they are
+reported as blocked and remain unchanged. Applying the preview uses the same revision-checked atomic
+write path as Replace References.
+
+Deleting a referenced Character or Asset opens the same preview as a guided workflow. Authors can
+replace all references with a compatible resource or clear only safe references. A delete is blocked
+while required references remain. Reference updates, project-index removal, and resource-file removal
+are committed in one revision-checked transaction; a failure restores both rewritten and deleted files.
+Successful replace, clear, and guided-delete transactions also create one editor History entry. Its
+snapshots include every registered Story file and every external Character / Asset resource, so Undo
+restores the deleted file and original references together, while Redo restores the post-transaction
+files. Disk restoration is serialized to avoid racing resource restoration with Story validation.
+The editor also keeps a bounded, user-data transaction journal for the five most recent project-wide
+reference transactions. A `pending` entry is written before disk mutation and marked `committed` only
+after the atomic batch succeeds. On a later launch, Recovery shows affected paths and size/line spans,
+and can restore the complete before or after side. Choosing Keep Current discards that journal entry.

@@ -1,4 +1,8 @@
-import { replaceEngineResourceValueReferences, type EngineTypeDefinition } from './types/project';
+import {
+  clearEngineResourceValueReferences,
+  replaceEngineResourceValueReferences,
+  type EngineTypeDefinition,
+} from './types/project';
 import type { EventSource, SignalSource, StorySourceDocument } from './types/source';
 import type { RuntimeValue, ValueType, VariableDefinition } from './types/values';
 import { StoryNodeType, type StoryNodeDataMap } from './types/nodes';
@@ -16,19 +20,48 @@ export function replaceStoryResourceReferences(
   kind: 'character' | 'asset',
   fromId: string,
   toId: string,
-): { source: StorySourceDocument; count: number } {
+): { source: StorySourceDocument; count: number; blocked: number } {
+  return transformStoryResourceReferences(source, context, kind, fromId, toId);
+}
+
+export function clearStoryResourceReferences(
+  source: StorySourceDocument,
+  context: StoryResourceReplacementContext,
+  kind: 'character' | 'asset',
+  fromId: string,
+): { source: StorySourceDocument; count: number; blocked: number } {
+  return transformStoryResourceReferences(source, context, kind, fromId, undefined);
+}
+
+function transformStoryResourceReferences(
+  source: StorySourceDocument,
+  context: StoryResourceReplacementContext,
+  kind: 'character' | 'asset',
+  fromId: string,
+  toId: string | undefined,
+): { source: StorySourceDocument; count: number; blocked: number } {
   let count = 0;
+  let blocked = 0;
   const replaceValue = (value: RuntimeValue, valueType: ValueType | undefined): RuntimeValue => {
     if (valueType?.kind !== 'json') return value;
-    const replaced = replaceEngineResourceValueReferences(
-      value,
-      { kind: 'object', typeName: valueType.name },
-      context.engineTypes,
-      kind,
-      fromId,
-      toId,
-    );
+    const replaced = toId
+      ? replaceEngineResourceValueReferences(
+          value,
+          { kind: 'object', typeName: valueType.name },
+          context.engineTypes,
+          kind,
+          fromId,
+          toId,
+        )
+      : clearEngineResourceValueReferences(
+          value,
+          { kind: 'object', typeName: valueType.name },
+          context.engineTypes,
+          kind,
+          fromId,
+        );
     count += replaced.count;
+    blocked += (replaced as { blocked?: number }).blocked ?? 0;
     return replaced.value;
   };
   const replaceVariable = (variable: VariableDefinition): VariableDefinition => {
@@ -80,11 +113,15 @@ export function replaceStoryResourceReferences(
           const lines = data.lines.map((line) => {
             if (kind === 'character' && line.speakerId === fromId) {
               count += 1;
-              return { ...line, speakerId: toId as typeof line.speakerId };
+              if (toId) return { ...line, speakerId: toId as typeof line.speakerId };
+              const { speakerId: _speakerId, ...cleared } = line;
+              return cleared;
             }
             if (kind === 'asset' && line.voiceId === fromId) {
               count += 1;
-              return { ...line, voiceId: toId as typeof line.voiceId };
+              if (toId) return { ...line, voiceId: toId as typeof line.voiceId };
+              const { voiceId: _voiceId, ...cleared } = line;
+              return cleared;
             }
             return line;
           });
@@ -165,7 +202,7 @@ export function replaceStoryResourceReferences(
       const relationships = { ...character.relationships };
       const relationship = relationships[fromId as keyof typeof relationships]!;
       delete relationships[fromId as keyof typeof relationships];
-      relationships[toId as keyof typeof relationships] = relationship;
+      if (toId) relationships[toId as keyof typeof relationships] = relationship;
       count += 1;
       next = { ...next, relationships };
     }
@@ -176,7 +213,9 @@ export function replaceStoryResourceReferences(
         Object.entries(character.emotions).map(([name, emotion]) => {
           if (emotion.portraitId !== fromId) return [name, emotion];
           count += 1;
-          return [name, { ...emotion, portraitId: toId }];
+          if (toId) return [name, { ...emotion, portraitId: toId }];
+          const { portraitId: _portraitId, ...cleared } = emotion;
+          return [name, cleared];
         }),
       );
       next = { ...next, defaultPortraitId: defaultPortraitId as typeof character.defaultPortraitId, emotions };
@@ -192,5 +231,6 @@ export function replaceStoryResourceReferences(
   return {
     source: { ...source, variables, characters, root, chapters: nextChapters },
     count,
+    blocked,
   };
 }

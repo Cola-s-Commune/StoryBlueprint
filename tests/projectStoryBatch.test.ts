@@ -123,4 +123,57 @@ describe('project Story batch replacement', () => {
     await expect(readFile(storyPath, 'utf8')).resolves.toBe('story before');
     await expect(readFile(projectPath, 'utf8')).resolves.toBe('external project edit');
   });
+
+  it('updates references and deletes a resource in the same atomic batch', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'story-blueprint-batch-'));
+    temporaryDirectories.push(directory);
+    const storyPath = join(directory, 'main.story');
+    const resourcePath = join(directory, 'old.character');
+    await writeFile(storyPath, 'story before', 'utf8');
+    await writeFile(resourcePath, 'character before', 'utf8');
+
+    await replaceProjectStoriesAtomically(
+      [{
+        filePath: storyPath,
+        displayPath: 'main.story',
+        content: 'story after',
+        expectedRevision: storyContentRevision('story before'),
+      }],
+      [{
+        filePath: resourcePath,
+        displayPath: 'old.character',
+        expectedRevision: storyContentRevision('character before'),
+      }],
+    );
+
+    await expect(readFile(storyPath, 'utf8')).resolves.toBe('story after');
+    await expect(readFile(resourcePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readdir(directory)).toEqual(['main.story']);
+  });
+
+  it('does not update references when the resource deletion revision is stale', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'story-blueprint-batch-'));
+    temporaryDirectories.push(directory);
+    const storyPath = join(directory, 'main.story');
+    const resourcePath = join(directory, 'old.asset');
+    await writeFile(storyPath, 'story before', 'utf8');
+    await writeFile(resourcePath, 'external asset edit', 'utf8');
+
+    await expect(replaceProjectStoriesAtomically(
+      [{
+        filePath: storyPath,
+        displayPath: 'main.story',
+        content: 'story after',
+        expectedRevision: storyContentRevision('story before'),
+      }],
+      [{
+        filePath: resourcePath,
+        displayPath: 'old.asset',
+        expectedRevision: storyContentRevision('asset before'),
+      }],
+    )).rejects.toThrow('Project file changed on disk before it could be deleted: old.asset');
+
+    await expect(readFile(storyPath, 'utf8')).resolves.toBe('story before');
+    await expect(readFile(resourcePath, 'utf8')).resolves.toBe('external asset edit');
+  });
 });

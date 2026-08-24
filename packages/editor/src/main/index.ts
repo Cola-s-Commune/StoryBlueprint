@@ -28,6 +28,8 @@ import { is } from '@electron-toolkit/utils';
 import {
   createStableId,
   collectEngineResourceValueReferences,
+  clearEngineResourceValueReferences,
+  clearStoryResourceReferences,
   replaceEngineResourceValueReferences,
   replaceStoryResourceReferences,
   parseStoryProject,
@@ -90,6 +92,7 @@ import type {
   WorkspaceEntry,
   WorkspaceInfo,
   ProjectResourceSnapshot,
+  ProjectTransactionRecovery,
 } from '../shared/electronApi';
 import {
   markStoryGitConflictResolved,
@@ -433,6 +436,40 @@ function editorSessionFile(): string {
 
 function recoverySnapshotsFile(): string {
   return join(app.getPath('userData'), 'story-recovery.json');
+}
+
+function projectTransactionJournalFile(): string {
+  return join(app.getPath('userData'), 'project-transaction-recovery.json');
+}
+
+interface StoredProjectTransaction extends Omit<ProjectTransactionRecovery, 'files'> {
+  projectFile: string;
+  files: Array<{
+    relativePath: string;
+    change: 'modified' | 'deleted' | 'created';
+    before?: string;
+    after?: string;
+  }>;
+}
+
+async function readProjectTransactionJournal(): Promise<StoredProjectTransaction[]> {
+  const value = await readJsonFile(projectTransactionJournalFile());
+  if (!Array.isArray(value)) return [];
+  return value.filter((candidate): candidate is StoredProjectTransaction => {
+    if (!candidate || typeof candidate !== 'object') return false;
+    const entry = candidate as Partial<StoredProjectTransaction>;
+    return typeof entry.id === 'string' && typeof entry.label === 'string' &&
+      typeof entry.createdAt === 'string' && typeof entry.projectFile === 'string' &&
+      (entry.status === 'pending' || entry.status === 'committed') && Array.isArray(entry.files) &&
+      entry.files.every((file) => file && typeof file.relativePath === 'string' &&
+        (file.change === 'modified' || file.change === 'deleted' || file.change === 'created') &&
+        (file.before === undefined || typeof file.before === 'string') &&
+        (file.after === undefined || typeof file.after === 'string'));
+  }).slice(0, 5);
+}
+
+async function writeProjectTransactionJournal(entries: StoredProjectTransaction[]): Promise<void> {
+  await writeUserDataJson(projectTransactionJournalFile(), entries.slice(0, 5));
 }
 
 function aiProviderSettingsFile(): string {
@@ -3199,8 +3236,10 @@ function registerStoryFileHandlers(): void {
     if (
       (request.kind !== 'character' && request.kind !== 'asset') ||
       typeof request.fromId !== 'string' ||
-      typeof request.toId !== 'string' ||
-      request.fromId === request.toId ||
+      (request.action !== 'replace' && request.action !== 'clear') ||
+      (request.action === 'replace' && typeof request.toId !== 'string') ||
+      (request.action === 'replace' && request.fromId === request.toId) ||
+      (request.deleteRelativePath !== undefined && typeof request.deleteRelativePath !== 'string') ||
       typeof request.dryRun !== 'boolean'
     ) {
       throw new Error('Invalid resource reference replacement');
@@ -3208,15 +3247,31 @@ function registerStoryFileHandlers(): void {
     const projectContent = await readFile(workspaceProjectFile, 'utf8');
     const project = parseStoryProject(projectContent);
     const resources = request.kind === 'character' ? project.characters : project.assets;
-    if (!resources.some((resource) => resource.id === request.fromId)) {
+    const sourceResource = resources.find((resource) => resource.id === request.fromId);
+    if (!sourceResource) {
       throw new Error(`Source ${request.kind} does not exist`);
     }
-    if (!resources.some((resource) => resource.id === request.toId)) {
+    if (request.deleteRelativePath !== undefined && sourceResource.path !== request.deleteRelativePath) {
+      throw new Error(`Delete path does not match source ${request.kind}`);
+    }
+    if (request.action === 'replace' && !resources.some((resource) => resource.id === request.toId)) {
       throw new Error(`Replacement ${request.kind} does not exist`);
     }
     const locations: string[] = [];
+    const blockedLocations: string[] = [];
     let count = 0;
+    let blocked = 0;
     const writes: ProjectStoryBatchWrite[] = [];
+    const deletions: Array<{ filePath: string; displayPath: string; expectedRevision: string }> = [];
+    if (request.deleteRelativePath) {
+      const filePath = await resolveExistingWorkspacePath(request.deleteRelativePath);
+      const content = await readFile(filePath, 'utf8');
+      deletions.push({
+        filePath,
+        displayPath: request.deleteRelativePath,
+        expectedRevision: storyContentRevision(content),
+      });
+    }
     const context = {
       engineTypes: project.engineTypes ?? [],
       projectVariables: project.variables ?? [],
@@ -3227,13 +3282,11 @@ function registerStoryFileHandlers(): void {
       const filePath = await resolveExistingWorkspacePath(story.path);
       const content = await readFile(filePath, 'utf8');
       const source = parseStorySource(content);
-      const replaced = replaceStoryResourceReferences(
-        source,
-        context,
-        request.kind,
-        request.fromId,
-        request.toId,
-      );
+      const replaced = request.action === 'replace'
+        ? replaceStoryResourceReferences(source, context, request.kind, request.fromId, request.toId!)
+        : clearStoryResourceReferences(source, context, request.kind, request.fromId);
+      blocked += replaced.blocked;
+      if (replaced.blocked) blockedLocations.push(`${story.displayName} · ${replaced.blocked}`);
       if (replaced.count === 0) continue;
       count += replaced.count;
       locations.push(`${story.displayName} · ${replaced.count}`);
@@ -3246,15 +3299,13 @@ function registerStoryFileHandlers(): void {
     }
     const replaceVariable = (variable: VariableDefinition): VariableDefinition => {
       if (variable.valueType.kind !== 'json') return variable;
-      const replaced = replaceEngineResourceValueReferences(
-        variable.defaultValue,
-        { kind: 'object', typeName: variable.valueType.name },
-        project.engineTypes ?? [],
-        request.kind!,
-        request.fromId!,
-        request.toId!,
-      );
+      const replaced = request.action === 'replace'
+        ? replaceEngineResourceValueReferences(variable.defaultValue, { kind: 'object', typeName: variable.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!, request.toId!)
+        : clearEngineResourceValueReferences(variable.defaultValue, { kind: 'object', typeName: variable.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!);
       count += replaced.count;
+      const variableBlocked = (replaced as { blocked?: number }).blocked ?? 0;
+      blocked += variableBlocked;
+      if (variableBlocked) blockedLocations.push(`Project variable ${variable.displayName} · ${variableBlocked}`);
       if (replaced.count) locations.push(`Project variable ${variable.displayName}`);
       return replaced.count ? { ...variable, defaultValue: replaced.value } : variable;
     };
@@ -3262,52 +3313,54 @@ function registerStoryFileHandlers(): void {
     const nextEngineTypes = (project.engineTypes ?? []).map((definition) => ({
       ...definition,
       fields: definition.fields.map((field) => {
-        const replaced = replaceEngineResourceValueReferences(
-          field.defaultValue,
-          field.type,
-          project.engineTypes ?? [],
-          request.kind!,
-          request.fromId!,
-          request.toId!,
-        );
+        const replaced = request.action === 'replace'
+          ? replaceEngineResourceValueReferences(field.defaultValue, field.type, project.engineTypes ?? [], request.kind!, request.fromId!, request.toId!)
+          : clearEngineResourceValueReferences(field.defaultValue, field.type, project.engineTypes ?? [], request.kind!, request.fromId!, field.nullable === true);
         count += replaced.count;
+        const fieldBlocked = (replaced as { blocked?: number }).blocked ?? 0;
+        blocked += fieldBlocked;
+        if (fieldBlocked) blockedLocations.push(`Engine Type ${definition.displayName}.${field.displayName} · ${fieldBlocked}`);
         if (replaced.count) locations.push(`Engine Type ${definition.displayName}.${field.displayName}`);
         return replaced.count ? { ...field, defaultValue: replaced.value } : field;
       }),
     }));
     const workspace = await readWorkspace();
     for (const resource of workspace?.characterResources ?? []) {
+      if (request.deleteRelativePath === resource.relativePath) continue;
       let character = resource.character;
       let characterCount = 0;
       if (request.kind === 'character' && character.relationships?.[request.fromId as keyof typeof character.relationships]) {
         const relationships = { ...character.relationships };
         const relationship = relationships[request.fromId as keyof typeof relationships]!;
         delete relationships[request.fromId as keyof typeof relationships];
-        relationships[request.toId as keyof typeof relationships] = relationship;
+        if (request.action === 'replace') relationships[request.toId as keyof typeof relationships] = relationship;
         character = { ...character, relationships };
         characterCount += 1;
       }
       if (request.kind === 'asset') {
-        const defaultPortraitId = character.defaultPortraitId === request.fromId ? request.toId : character.defaultPortraitId;
+        const defaultPortraitId = character.defaultPortraitId === request.fromId
+          ? (request.action === 'replace' ? request.toId : undefined)
+          : character.defaultPortraitId;
         if (defaultPortraitId !== character.defaultPortraitId) characterCount += 1;
         const emotions = Object.fromEntries(Object.entries(character.emotions).map(([name, emotion]) => {
           if (emotion.portraitId !== request.fromId) return [name, emotion];
           characterCount += 1;
-          return [name, { ...emotion, portraitId: request.toId }];
+          if (request.action === 'replace') return [name, { ...emotion, portraitId: request.toId }];
+          const cleared = { ...emotion };
+          delete cleared.portraitId;
+          return [name, cleared];
         }));
         character = { ...character, defaultPortraitId: defaultPortraitId as CharacterSource['defaultPortraitId'], emotions };
       }
       const fields = character.fields?.map((field) => {
         if (field.valueType.kind !== 'json') return field;
-        const replaced = replaceEngineResourceValueReferences(
-          field.defaultValue,
-          { kind: 'object', typeName: field.valueType.name },
-          project.engineTypes ?? [],
-          request.kind!,
-          request.fromId!,
-          request.toId!,
-        );
+        const replaced = request.action === 'replace'
+          ? replaceEngineResourceValueReferences(field.defaultValue, { kind: 'object', typeName: field.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!, request.toId!)
+          : clearEngineResourceValueReferences(field.defaultValue, { kind: 'object', typeName: field.valueType.name }, project.engineTypes ?? [], request.kind!, request.fromId!);
         characterCount += replaced.count;
+        const fieldBlocked = (replaced as { blocked?: number }).blocked ?? 0;
+        blocked += fieldBlocked;
+        if (fieldBlocked) blockedLocations.push(`Character ${character.displayName}.${field.displayName} · ${fieldBlocked}`);
         return replaced.count ? { ...field, defaultValue: replaced.value } : field;
       });
       if (!characterCount) continue;
@@ -3324,6 +3377,7 @@ function registerStoryFileHandlers(): void {
       });
     }
     const projectChanged =
+      deletions.length > 0 ||
       JSON.stringify(nextVariables) !== JSON.stringify(project.variables ?? []) ||
       JSON.stringify(nextEngineTypes) !== JSON.stringify(project.engineTypes ?? []);
     if (projectChanged) {
@@ -3332,15 +3386,169 @@ function registerStoryFileHandlers(): void {
         displayPath: basename(workspaceProjectFile),
         content: serializeStoryProject({
           ...project,
+          characters:
+            request.deleteRelativePath && request.kind === 'character'
+              ? project.characters.filter((resource) => resource.id !== request.fromId)
+              : project.characters,
+          assets:
+            request.deleteRelativePath && request.kind === 'asset'
+              ? project.assets.filter((resource) => resource.id !== request.fromId)
+              : project.assets,
           variables: nextVariables,
           engineTypes: nextEngineTypes,
         }),
         expectedRevision: storyContentRevision(projectContent),
       });
     }
-    if (request.dryRun || count === 0) return { count, locations };
-    await replaceProjectStoriesAtomically(writes);
-    return { count, locations, workspace: await syncWorkspaceProject() };
+    if (request.dryRun || (count === 0 && deletions.length === 0)) {
+      return { count, blocked, locations, blockedLocations };
+    }
+    if (request.action === 'clear' && blocked > 0 && deletions.length > 0) {
+      throw new Error(`${blocked} required reference(s) must be replaced before deleting this resource`);
+    }
+    const transactionId = randomUUID();
+    const transaction: StoredProjectTransaction = {
+      id: transactionId,
+      label: request.deleteRelativePath
+        ? `Delete ${request.kind === 'character' ? 'Character' : 'Asset'}`
+        : request.action === 'replace'
+          ? 'Replace Resource References'
+          : 'Clear Resource References',
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      projectFile: workspaceProjectFile,
+      files: [
+        ...await Promise.all(writes.map(async (write) => ({
+          relativePath: toWorkspaceRelative(write.filePath),
+          change: 'modified' as const,
+          before: await readFile(write.filePath, 'utf8'),
+          after: write.content,
+        }))),
+        ...await Promise.all(deletions.map(async (deletion) => ({
+          relativePath: toWorkspaceRelative(deletion.filePath),
+          change: 'deleted' as const,
+          before: await readFile(deletion.filePath, 'utf8'),
+          after: undefined,
+        }))),
+      ],
+    };
+    await writeProjectTransactionJournal([
+      transaction,
+      ...(await readProjectTransactionJournal()).filter((entry) => entry.id !== transactionId),
+    ]);
+    await replaceProjectStoriesAtomically(writes, deletions);
+    await writeProjectTransactionJournal((await readProjectTransactionJournal()).map((entry) =>
+      entry.id === transactionId ? { ...entry, status: 'committed' as const } : entry,
+    ));
+    return { count, blocked, locations, blockedLocations, workspace: await syncWorkspaceProject() };
+  });
+
+  ipcMain.handle('workspace:list-transaction-recoveries', async (event) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile) return [];
+    return (await readProjectTransactionJournal())
+      .filter((entry) => entry.projectFile === workspaceProjectFile)
+      .map(({ id, label, createdAt, status, files }) => ({
+        id,
+        label,
+        createdAt,
+        status,
+        files: files.map(({ relativePath, change, before, after }) => ({
+          relativePath,
+          change,
+          beforeBytes: Buffer.byteLength(before ?? '', 'utf8'),
+          afterBytes: Buffer.byteLength(after ?? '', 'utf8'),
+          changedLines: Math.max(
+            before?.split(/\r?\n/).length ?? 0,
+            after?.split(/\r?\n/).length ?? 0,
+          ),
+        })),
+      } satisfies ProjectTransactionRecovery));
+  });
+
+  ipcMain.handle('workspace:restore-transaction', async (event, id: unknown, target: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile || typeof id !== 'string' ||
+      (target !== 'before' && target !== 'after')) {
+      throw new Error('Invalid project transaction recovery');
+    }
+    const entry = (await readProjectTransactionJournal()).find(
+      (candidate) => candidate.id === id && candidate.projectFile === workspaceProjectFile,
+    );
+    if (!entry) throw new Error('Project transaction recovery was not found');
+    const previous = new Map<string, string | undefined>();
+    const targets: Array<{ filePath: string; content?: string }> = [];
+    for (const file of entry.files) {
+      const filePath = resolveWorkspacePath(file.relativePath);
+      const content = target === 'before' ? file.before : file.after;
+      if (content !== undefined) {
+        const extension = extname(filePath).toLowerCase();
+        if (extension === '.story') parseStorySource(content);
+        else if (extension === '.character') parseCharacterResource(content);
+        else if (extension === '.asset') parseAssetResource(content);
+        else if (filePath === workspaceProjectFile) parseStoryProject(content);
+        else throw new Error(`Unsupported recovery file: ${file.relativePath}`);
+      }
+      try {
+        previous.set(filePath, await readFile(filePath, 'utf8'));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        previous.set(filePath, undefined);
+      }
+      targets.push({ filePath, content });
+    }
+    try {
+      for (const file of targets) {
+        if (file.content === undefined) {
+          try {
+            await unlink(file.filePath);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+        } else {
+          await mkdir(dirname(file.filePath), { recursive: true });
+          await writeFile(file.filePath, file.content, 'utf8');
+        }
+      }
+      return await syncWorkspaceProject();
+    } catch (error) {
+      for (const [filePath, content] of previous) {
+        if (content === undefined) {
+          try { await unlink(filePath); } catch { /* best-effort rollback */ }
+        } else {
+          await mkdir(dirname(filePath), { recursive: true });
+          await writeFile(filePath, content, 'utf8');
+        }
+      }
+      await syncWorkspaceProject();
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workspace:discard-transaction', async (event, id: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile || typeof id !== 'string') {
+      throw new Error('Invalid project transaction recovery discard');
+    }
+    const next = (await readProjectTransactionJournal()).filter(
+      (entry) => entry.id !== id || entry.projectFile !== workspaceProjectFile,
+    );
+    await writeProjectTransactionJournal(next);
+    return next.filter((entry) => entry.projectFile === workspaceProjectFile).map(
+      ({ id: entryId, label, createdAt, status, files }) => ({
+        id: entryId,
+        label,
+        createdAt,
+        status,
+        files: files.map(({ relativePath, change, before, after }) => ({
+          relativePath,
+          change,
+          beforeBytes: Buffer.byteLength(before ?? '', 'utf8'),
+          afterBytes: Buffer.byteLength(after ?? '', 'utf8'),
+          changedLines: Math.max(
+            before?.split(/\r?\n/).length ?? 0,
+            after?.split(/\r?\n/).length ?? 0,
+          ),
+        })),
+      } satisfies ProjectTransactionRecovery),
+    );
   });
 
   ipcMain.handle('workspace:update-project-settings', async (event, value: unknown) => {
@@ -3504,7 +3712,7 @@ function registerStoryFileHandlers(): void {
     },
   );
 
-  ipcMain.handle('workspace:delete-character', async (event, relativePath: unknown) => {
+  ipcMain.handle('workspace:delete-character', async (event, relativePath: unknown, confirmed: unknown) => {
     if (
       !isTrustedSender(event) ||
       !mainWindow ||
@@ -3533,7 +3741,7 @@ function registerStoryFileHandlers(): void {
     }
     const filePath = await resolveExistingWorkspacePath(relativePath);
     if (!filePath.toLowerCase().endsWith('.character')) throw new Error('Not a character file');
-    const confirmation = await dialog.showMessageBox(mainWindow, {
+    const confirmation = confirmed === true ? { response: 0 } : await dialog.showMessageBox(mainWindow, {
       type: 'warning',
       title: 'Delete Character',
       message: `Delete character "${reference?.displayName ?? basename(filePath, extname(filePath))}"?`,

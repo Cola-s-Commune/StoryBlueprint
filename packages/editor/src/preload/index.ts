@@ -97,14 +97,20 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:save-character-template', template),
   updateProjectCharacter: (relativePath, character) =>
     ipcRenderer.invoke('workspace:update-character', relativePath, character),
-  deleteProjectCharacter: (relativePath) =>
-    ipcRenderer.invoke('workspace:delete-character', relativePath),
+  deleteProjectCharacter: (relativePath, confirmed) =>
+    ipcRenderer.invoke('workspace:delete-character', relativePath, confirmed),
   createProjectAsset: (asset) => ipcRenderer.invoke('workspace:create-asset', asset),
   updateProjectAsset: (relativePath, asset) =>
     ipcRenderer.invoke('workspace:update-asset', relativePath, asset),
   deleteProjectAsset: (relativePath) => ipcRenderer.invoke('workspace:delete-asset', relativePath),
   restoreProjectResources: (snapshot) =>
     ipcRenderer.invoke('workspace:restore-project-resources', snapshot),
+  listProjectTransactionRecoveries: () =>
+    ipcRenderer.invoke('workspace:list-transaction-recoveries'),
+  restoreProjectTransaction: (id, target) =>
+    ipcRenderer.invoke('workspace:restore-transaction', id, target),
+  discardProjectTransaction: (id) =>
+    ipcRenderer.invoke('workspace:discard-transaction', id),
   restoreWorkspaceStory: (relativePath, content) =>
     ipcRenderer.invoke('workspace:restore-story', relativePath, content),
   refreshWorkspace: () => ipcRenderer.invoke('workspace:refresh'),

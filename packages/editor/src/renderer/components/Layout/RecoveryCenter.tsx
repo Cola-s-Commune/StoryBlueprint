@@ -23,6 +23,9 @@ export function RecoveryCenter() {
     discardRecovery,
     discardAllRecoveries,
     dismissRecoveryError,
+    projectTransactionRecoveries,
+    restoreProjectTransaction,
+    discardProjectTransaction,
   } = useStoryGraphStore();
   const newest = useMemo(
     () =>
@@ -34,7 +37,7 @@ export function RecoveryCenter() {
     [recoveries],
   );
 
-  if (recoveries.length === 0 && !recoveryError) return null;
+  if (recoveries.length === 0 && projectTransactionRecoveries.length === 0 && !recoveryError) return null;
 
   return (
     <div className={styles.backdrop}>
@@ -46,8 +49,8 @@ export function RecoveryCenter() {
       >
         <header className={styles.header}>
           <div>
-            <span className={styles.eyebrow}>CRASH RECOVERY</span>
-            <h1 id="recovery-title">Unsaved Story changes were found</h1>
+            <span className={styles.eyebrow}>RECOVERY</span>
+            <h1 id="recovery-title">Recoverable project changes were found</h1>
             <p>
               Choose what to do with each recovery copy. Nothing is applied until you choose Recover
               or Save As.
@@ -63,6 +66,43 @@ export function RecoveryCenter() {
         </header>
 
         {recoveryError && <div className={styles.warning}>{recoveryError}</div>}
+
+        {projectTransactionRecoveries.length > 0 && (
+          <div className={styles.list}>
+            {projectTransactionRecoveries.map((transaction) => (
+              <article key={transaction.id} className={styles.item}>
+                <div className={styles.itemMain}>
+                  <div className={styles.itemTitleRow}>
+                    <strong>{transaction.label}</strong>
+                    <span className={styles.status}>
+                      {transaction.status === 'pending' ? 'Interrupted' : 'Completed'}
+                    </span>
+                  </div>
+                  <div className={styles.meta}>{formatSavedAt(transaction.createdAt)}</div>
+                  <details>
+                    <summary>{transaction.files.length} changed file(s)</summary>
+                    {transaction.files.map((file) => (
+                      <div className={styles.path} key={file.relativePath}>
+                        {file.change} · {file.relativePath} · {file.beforeBytes} → {file.afterBytes} bytes · up to {file.changedLines} lines
+                      </div>
+                    ))}
+                  </details>
+                </div>
+                <div className={styles.actions}>
+                  <button type="button" className={styles.primary} onClick={() => void restoreProjectTransaction(transaction.id, 'before')}>
+                    Restore Before
+                  </button>
+                  <button type="button" onClick={() => void restoreProjectTransaction(transaction.id, 'after')}>
+                    Restore After
+                  </button>
+                  <button type="button" className={styles.danger} onClick={() => void discardProjectTransaction(transaction.id)}>
+                    Keep Current
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
 
         <div className={styles.list}>
           {recoveries.map((recovery) => (
@@ -110,7 +150,9 @@ export function RecoveryCenter() {
 
         <footer className={styles.footer}>
           <span>
-            {recoveries.length > 0
+            {projectTransactionRecoveries.length > 0
+              ? 'Transaction snapshots remain available until Keep Current is chosen.'
+              : recoveries.length > 0
               ? 'Recovery copies remain available until resolved.'
               : 'The damaged recovery file was left untouched for manual inspection.'}
           </span>

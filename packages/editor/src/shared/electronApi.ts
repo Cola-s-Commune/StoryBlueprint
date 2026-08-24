@@ -124,6 +124,20 @@ export interface ProjectResourceSnapshot {
   assets: { relativePath: string; asset: AssetSource }[];
 }
 
+export interface ProjectTransactionRecovery {
+  id: string;
+  label: string;
+  createdAt: string;
+  status: 'pending' | 'committed';
+  files: readonly {
+    relativePath: string;
+    change: 'modified' | 'deleted' | 'created';
+    beforeBytes: number;
+    afterBytes: number;
+    changedLines: number;
+  }[];
+}
+
 export interface RestoreWorkspaceStoryResult {
   workspace: WorkspaceInfo;
   story?: Exclude<OpenStoryResult, { canceled: true }>;
@@ -190,13 +204,17 @@ export interface UpdateProjectStoryFilesRequest {
 export interface ReplaceProjectResourceReferencesRequest {
   kind: 'character' | 'asset';
   fromId: string;
-  toId: string;
+  action: 'replace' | 'clear';
+  toId?: string;
+  deleteRelativePath?: string;
   dryRun: boolean;
 }
 
 export interface ReplaceProjectResourceReferencesResult {
   count: number;
+  blocked: number;
   locations: readonly string[];
+  blockedLocations: readonly string[];
   workspace?: WorkspaceInfo;
 }
 
@@ -495,11 +513,20 @@ export interface ElectronAPI {
     relativePath: string,
     character: CharacterSource,
   ) => Promise<WorkspaceInfo>;
-  deleteProjectCharacter: (relativePath: string) => Promise<DeleteProjectResourceResult>;
+  deleteProjectCharacter: (
+    relativePath: string,
+    confirmed?: boolean,
+  ) => Promise<DeleteProjectResourceResult>;
   createProjectAsset: (asset: AssetSource) => Promise<WorkspaceInfo>;
   updateProjectAsset: (relativePath: string, asset: AssetSource) => Promise<WorkspaceInfo>;
   deleteProjectAsset: (relativePath: string) => Promise<WorkspaceInfo>;
   restoreProjectResources: (snapshot: ProjectResourceSnapshot) => Promise<WorkspaceInfo>;
+  listProjectTransactionRecoveries: () => Promise<ProjectTransactionRecovery[]>;
+  restoreProjectTransaction: (
+    id: string,
+    target: 'before' | 'after',
+  ) => Promise<WorkspaceInfo>;
+  discardProjectTransaction: (id: string) => Promise<ProjectTransactionRecovery[]>;
   restoreWorkspaceStory: (
     relativePath: string,
     content?: string,

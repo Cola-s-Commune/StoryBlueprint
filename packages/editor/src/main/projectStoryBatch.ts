@@ -8,6 +8,12 @@ export interface ProjectStoryBatchWrite {
   expectedRevision: string;
 }
 
+export interface ProjectStoryBatchDelete {
+  filePath: string;
+  displayPath: string;
+  expectedRevision: string;
+}
+
 export function storyContentRevision(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
@@ -22,6 +28,7 @@ async function removeIfPresent(filePath: string): Promise<void> {
 
 export async function replaceProjectStoriesAtomically(
   writes: readonly ProjectStoryBatchWrite[],
+  deletes: readonly ProjectStoryBatchDelete[] = [],
 ): Promise<void> {
   const prepared: Array<
     ProjectStoryBatchWrite & {
@@ -31,6 +38,7 @@ export async function replaceProjectStoriesAtomically(
       replaced: boolean;
     }
   > = [];
+  const preparedDeletes: Array<ProjectStoryBatchDelete & { backupPath: string; backedUp: boolean }> = [];
   for (const write of writes) {
     const current = await readFile(write.filePath, 'utf8');
     if (storyContentRevision(current) !== write.expectedRevision) {
@@ -47,6 +55,20 @@ export async function replaceProjectStoriesAtomically(
       replaced: false,
     });
   }
+  for (const deletion of deletes) {
+    if (writes.some((write) => write.filePath === deletion.filePath)) {
+      throw new Error(`Project update cannot write and delete the same file: ${deletion.displayPath}`);
+    }
+    const current = await readFile(deletion.filePath, 'utf8');
+    if (storyContentRevision(current) !== deletion.expectedRevision) {
+      throw new Error(`Project file changed on disk before it could be deleted: ${deletion.displayPath}`);
+    }
+    preparedDeletes.push({
+      ...deletion,
+      backupPath: `${deletion.filePath}.${randomUUID()}.story-blueprint-backup`,
+      backedUp: false,
+    });
+  }
 
   try {
     for (const write of prepared) {
@@ -58,8 +80,21 @@ export async function replaceProjectStoriesAtomically(
       await rename(write.temporaryPath, write.filePath);
       write.replaced = true;
     }
+    for (const deletion of preparedDeletes) {
+      await rename(deletion.filePath, deletion.backupPath);
+      deletion.backedUp = true;
+    }
   } catch (error) {
     const rollbackErrors: unknown[] = [];
+    for (const deletion of [...preparedDeletes].reverse()) {
+      if (!deletion.backedUp) continue;
+      try {
+        await rename(deletion.backupPath, deletion.filePath);
+        deletion.backedUp = false;
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
     for (const write of [...prepared].reverse()) {
       try {
         if (write.backedUp) {
@@ -92,4 +127,5 @@ export async function replaceProjectStoriesAtomically(
       removeIfPresent(write.temporaryPath),
     ]),
   );
+  await Promise.allSettled(preparedDeletes.map((deletion) => removeIfPresent(deletion.backupPath)));
 }

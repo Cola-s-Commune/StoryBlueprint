@@ -334,6 +334,10 @@
 - [x] Map / Dictionary 图形化 Schema 与值编辑：String / Number / Enum Key、递归 Value、重复 Key 防护、序列化和迁移
 - [x] CharacterRef / AssetRef 递归引用索引：覆盖 Project / Story / Substory 变量、Character Field、Engine Type 默认值与节点 JSON，并支持精确路径跳转和删除保护
 - [x] Character / Asset 项目级 Replace References：全项目预览、同类资源替换、磁盘 revision 校验、Story / Character / Project 原子写入并重新载入当前 Story
+- [x] Character / Asset 项目级 Clear References：预览可安全清理与必填阻塞项；可选字段置空、数组元素和 Map 条目移除，非 nullable 字段保持不变
+- [x] 引导式删除 Character / Asset：可选择替换后删除或安全清理后删除，必填引用阻止误删，引用写入、项目索引更新和资源文件删除使用同一原子回滚事务
+- [x] 引用替换、清理与引导式删除接入 History：完整捕获所有 Story 和项目资源的前后快照，作为单个 Undo / Redo 条目顺序恢复
+- [x] 持久化项目事务恢复日志：保留最近 5 次事务的 before / after 文件快照与变更摘要，区分 interrupted / completed，重启后可恢复任一侧或保留当前状态
 - [x] 资源与字段统一使用命名后创建：输入期间允许为空，Enter 确认、Escape 取消，并在创建前检查名称格式和重复
 
 ---

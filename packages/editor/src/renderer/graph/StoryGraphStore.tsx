@@ -124,6 +124,7 @@ import type {
   ProjectResourceSnapshot,
   WorkspaceInfo,
   ReplaceProjectResourceReferencesResult,
+  ProjectTransactionRecovery,
 } from '../../shared/electronApi';
 import {
   buildInkImportTransaction,
@@ -411,6 +412,9 @@ interface StoryGraphStoreValue {
   workspaceError?: string;
   recoveries: readonly RecoveryCandidate[];
   recoveryError?: string;
+  projectTransactionRecoveries: readonly ProjectTransactionRecovery[];
+  restoreProjectTransaction: (id: string, target: 'before' | 'after') => Promise<void>;
+  discardProjectTransaction: (id: string) => Promise<void>;
   recoverStory: (storyId: string) => void;
   saveRecoveryAs: (storyId: string) => Promise<void>;
   discardRecovery: (storyId: string) => void;
@@ -522,10 +526,10 @@ interface StoryGraphStoreValue {
   ) => void;
   renameCharacterEmotion: (id: CharacterId, fromEmotion: string, toEmotion: string) => void;
   removeCharacterEmotion: (id: CharacterId, emotion: string) => void;
-  removeCharacter: (id: CharacterId) => void;
+  removeCharacter: (id: CharacterId, referencesHandled?: boolean) => void;
   addAsset: (name?: string) => AssetId;
   updateAsset: (id: AssetId, update: Partial<AssetSource>) => void;
-  removeAsset: (id: AssetId) => void;
+  removeAsset: (id: AssetId, referencesHandled?: boolean) => void;
   addEvent: (name?: string) => EventId | undefined;
   updateEvent: (id: EventId, update: Partial<EventSource>) => void;
   removeEvent: (id: EventId) => void;
@@ -557,8 +561,10 @@ interface StoryGraphStoreValue {
   replaceProjectResourceReferences: (
     kind: 'character' | 'asset',
     fromId: string,
-    toId: string,
+    action: 'replace' | 'clear',
+    toId: string | undefined,
     dryRun: boolean,
+    deleteRelativePath?: string,
   ) => Promise<ReplaceProjectResourceReferencesResult | undefined>;
   initializeWorkspaceGit: () => Promise<void>;
   revealWorkspaceItem: (relativePath: string) => Promise<void>;
@@ -661,6 +667,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [sessionReady, setSessionReady] = useState(false);
   const [recoveries, setRecoveries] = useState<RecoveryCandidate[]>([]);
   const [recoveryError, setRecoveryError] = useState<string>();
+  const [projectTransactionRecoveries, setProjectTransactionRecoveries] = useState<
+    ProjectTransactionRecovery[]
+  >([]);
   const [externalFileChanges, setExternalFileChanges] = useState<ExternalWorkspaceFileChange[]>([]);
   const [externalStoryMergeRequest, setExternalStoryMergeRequest] =
     useState<ExternalStoryMergeRequest>();
@@ -1305,10 +1314,46 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setVariables(next.variables);
       restoreCharactersFromHistory(next.characters, next.projectResources);
       setAssets(structuredClone(next.assets));
-      restoreProjectResourcesFromHistory(next.projectResources);
       setWorkspaceStories(structuredClone(next.workspaceStories));
-      restoreProjectSettingsFromHistory(next);
-      restoreStoryFilesFromHistory(next.storyFiles);
+      const targetStoryFiles = new Map(
+        next.storyFiles.map((file) => [file.relativePath, file.content]),
+      );
+      managedStoryFilesRef.current = new Map(targetStoryFiles);
+      if (workspace?.project && window.electronAPI) {
+        storyHistoryWriteRef.current = storyHistoryWriteRef.current
+          .catch(() => undefined)
+          .then(async () => {
+            let restoredWorkspace = await window.electronAPI!.restoreProjectResources(
+              structuredClone(next.projectResources),
+            );
+            restoredWorkspace = await window.electronAPI!.updateProjectSettings({
+              variables: structuredClone(next.projectVariables),
+              events: structuredClone(next.events),
+              signals: structuredClone(next.signals),
+              engineTypes: structuredClone(next.engineTypes),
+              ...structuredClone(next.projectSettings),
+            });
+            if (next.localization && restoredWorkspace.project?.localizationPath) {
+              restoredWorkspace = await window.electronAPI!.updateProjectLocalization(
+                structuredClone(next.localization),
+              );
+            }
+            for (const [relativePath, content] of targetStoryFiles) {
+              const result = await window.electronAPI!.restoreWorkspaceStory(relativePath, content);
+              restoredWorkspace = result.workspace;
+            }
+            setWorkspace(restoredWorkspace);
+            setWorkspaceError(undefined);
+          })
+          .catch((error: unknown) => {
+            setWorkspaceError(error instanceof Error ? error.message : String(error));
+            void window.electronAPI?.refreshWorkspace().then(setWorkspace).catch(() => undefined);
+          });
+      } else {
+        restoreProjectResourcesFromHistory(next.projectResources);
+        restoreProjectSettingsFromHistory(next);
+        restoreStoryFilesFromHistory(next.storyFiles);
+      }
       setAIChanges(undefined);
       setAIProposal(undefined);
       markDirty();
@@ -1320,6 +1365,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       restoreProjectResourcesFromHistory,
       restoreProjectSettingsFromHistory,
       restoreStoryFilesFromHistory,
+      workspace?.project,
     ],
   );
 
@@ -2776,7 +2822,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const removeCharacter = useCallback(
-    (id: CharacterId) => {
+    (id: CharacterId, referencesHandled = false) => {
       const characterDefinition = resolvedCharacters.find((candidate) => candidate.id === id);
       const referenceIndex =
         resourceReferenceIndexRef.current ??
@@ -2793,7 +2839,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           (field) => referenceIndex.characterFields.get(field.id) ?? [],
         ),
       ];
-      if (references.length > 0) {
+      if (!referencesHandled && references.length > 0) {
         setWorkspaceError(
           'Character is used by Story data, relationships, or Engine JSON. Remove its references first.',
         );
@@ -2804,7 +2850,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       );
       if (resource && window.electronAPI) {
         queueProjectResourceWrite(async () => {
-          const result = await window.electronAPI!.deleteProjectCharacter(resource.relativePath);
+          const result = await window.electronAPI!.deleteProjectCharacter(
+            resource.relativePath,
+            referencesHandled,
+          );
           if (!result.canceled) {
             checkpoint(undefined, 'Delete Character');
             setStoryDataSelection((current) =>
@@ -2933,7 +2982,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const removeAsset = useCallback(
-    (id: AssetId) => {
+    (id: AssetId, referencesHandled = false) => {
       const items = currentStoryItemsRef.current();
       const references =
         resourceReferenceIndexRef.current?.assets.get(id) ??
@@ -2945,7 +2994,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             workspace?.characterResources.map((candidate) => candidate.character) ?? [],
           ),
         );
-      if (references.length > 0) {
+      if (!referencesHandled && references.length > 0) {
         setWorkspaceError('Asset is used by a Story or Character. Remove its references first.');
         return;
       }
@@ -4013,6 +4062,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     async (nextWorkspace: WorkspaceInfo) => {
       clearStorySession();
       setWorkspace(nextWorkspace);
+      setProjectTransactionRecoveries(
+        await window.electronAPI!.listProjectTransactionRecoveries(),
+      );
       setWorkspaceError(undefined);
       setRecentProjects(await window.electronAPI!.getRecentProjects());
     },
@@ -4393,6 +4445,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const dismissRecoveryError = useCallback(() => setRecoveryError(undefined), []);
 
+  const restoreProjectTransaction = useCallback(
+    async (id: string, target: 'before' | 'after') => {
+      if (!window.electronAPI) return;
+      try {
+        const nextWorkspace = await window.electronAPI.restoreProjectTransaction(id, target);
+        setWorkspace(nextWorkspace);
+        const story = nextWorkspace.project?.stories.find((item) => item.id === document.id);
+        if (story) {
+          const opened = await window.electronAPI.openWorkspaceStory(story.path);
+          if (!opened.canceled) acceptOpenedStory(opened, {}, false, true);
+        }
+        setWorkspaceError(undefined);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [acceptOpenedStory, document.id],
+  );
+
+  const discardProjectTransaction = useCallback(async (id: string) => {
+    if (!window.electronAPI) return;
+    try {
+      setProjectTransactionRecoveries(await window.electronAPI.discardProjectTransaction(id));
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
   const absoluteWorkspacePath = useCallback(
     (relativePath: string) =>
       workspace
@@ -4752,24 +4832,54 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     async (
       kind: 'character' | 'asset',
       fromId: string,
-      toId: string,
+      action: 'replace' | 'clear',
+      toId: string | undefined,
       dryRun: boolean,
+      deleteRelativePath?: string,
     ): Promise<ReplaceProjectResourceReferencesResult | undefined> => {
       if (!window.electronAPI || !workspace?.project) return undefined;
       if (!(await saveAllDirtyStories())) return undefined;
       try {
+        const beforeStories = dryRun
+          ? undefined
+          : await window.electronAPI.readWorkspaceProjectStories();
+        const beforeState = beforeStories
+          ? {
+              ...currentHistoryState(),
+              storyFiles: beforeStories.stories.map((story) => ({
+                relativePath: story.path,
+                content: story.content,
+              })),
+            }
+          : undefined;
         const result = await window.electronAPI.replaceProjectResourceReferences({
           kind,
           fromId,
+          action,
           toId,
           dryRun,
+          deleteRelativePath,
         });
         if (!dryRun && result.workspace) {
           setWorkspace(result.workspace);
+          const afterStories = await window.electronAPI.readWorkspaceProjectStories();
+          managedStoryFilesRef.current = new Map(
+            afterStories.stories.map((story) => [story.path, story.content]),
+          );
           const story = result.workspace.project?.stories.find((item) => item.id === document.id);
           if (story) {
             const opened = await window.electronAPI.openWorkspaceStory(story.path);
-            if (!opened.canceled) acceptOpenedStory(opened);
+            if (!opened.canceled) acceptOpenedStory(opened, {}, false, true);
+          }
+          if (beforeState) {
+            history.checkpoint(
+              beforeState,
+              deleteRelativePath
+                ? `Delete ${kind === 'character' ? 'Character' : 'Asset'}`
+                : action === 'replace'
+                  ? 'Replace Resource References'
+                  : 'Clear Resource References',
+            );
           }
         }
         setWorkspaceError(undefined);
@@ -4779,7 +4889,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return undefined;
       }
     },
-    [acceptOpenedStory, document.id, saveAllDirtyStories, workspace?.project],
+    [
+      acceptOpenedStory,
+      currentHistoryState,
+      document.id,
+      history,
+      saveAllDirtyStories,
+      workspace?.project,
+    ],
   );
 
   const initializeWorkspaceGit = useCallback(async () => {
@@ -5387,6 +5504,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         for (const story of restored.stories) acceptOpenedStory(story);
         setRecoveries(restored.recoveries);
         setRecoveryError(restored.recoveryError);
+        setProjectTransactionRecoveries(
+          restored.workspace
+            ? await window.electronAPI!.listProjectTransactionRecoveries()
+            : [],
+        );
         setRecentProjects(await window.electronAPI!.getRecentProjects());
         setWorkspaceError(undefined);
       } catch (error) {
@@ -5545,6 +5667,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       workspaceError,
       recoveries,
       recoveryError,
+      projectTransactionRecoveries,
+      restoreProjectTransaction,
+      discardProjectTransaction,
       recoverStory,
       saveRecoveryAs,
       discardRecovery,
@@ -5647,6 +5772,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       workspaceError,
       recoveries,
       recoveryError,
+      projectTransactionRecoveries,
+      restoreProjectTransaction,
+      discardProjectTransaction,
       recoverStory,
       saveRecoveryAs,
       discardRecovery,

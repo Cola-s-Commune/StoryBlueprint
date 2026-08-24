@@ -231,6 +231,9 @@ export function ResourceBrowser() {
     updateStory,
     removeCharacter,
     removeAsset,
+    findCharacterReferences,
+    findAssetReferences,
+    selectStoryData,
     addSubstory,
     updateSubstory,
     removeSubstory,
@@ -352,7 +355,12 @@ export function ResourceBrowser() {
         (candidate) => candidate.relativePath === entry.relativePath,
       );
       if (resource) {
-        removeCharacter(resource.character.id);
+        if (findCharacterReferences(resource.character.id).length > 0) {
+          selectStoryData({ kind: 'character', id: resource.character.id });
+          setMessage('Choose Delete Character in Inspector to replace or clear its references.');
+        } else {
+          removeCharacter(resource.character.id);
+        }
       } else if (!resource && window.electronAPI) {
         void window.electronAPI
           .deleteProjectCharacter(entry.relativePath)
@@ -368,7 +376,12 @@ export function ResourceBrowser() {
         (candidate) => candidate.relativePath === entry.relativePath,
       );
       if (resource) {
-        removeAsset(resource.asset.id);
+        if (findAssetReferences(resource.asset.id).length > 0) {
+          selectStoryData({ kind: 'asset', id: resource.asset.id });
+          setMessage('Choose Delete Asset in Inspector to replace or clear its references.');
+        } else {
+          removeAsset(resource.asset.id);
+        }
       } else if (
         !resource &&
         window.confirm(`Delete asset file "${entry.name}"? This cannot be undone.`)

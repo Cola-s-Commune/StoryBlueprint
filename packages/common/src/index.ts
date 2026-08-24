@@ -207,6 +207,7 @@ export {
 } from './engineSchema';
 export {
   replaceStoryResourceReferences,
+  clearStoryResourceReferences,
   type StoryResourceReplacementContext,
 } from './resourceReplacement';
 
@@ -223,6 +224,7 @@ export {
   engineValueMatchesFieldType,
   collectEngineResourceValueReferences,
   replaceEngineResourceValueReferences,
+  clearEngineResourceValueReferences,
   type EngineResourceValueReference,
   type StoryProjectDocument,
 } from './types/project';

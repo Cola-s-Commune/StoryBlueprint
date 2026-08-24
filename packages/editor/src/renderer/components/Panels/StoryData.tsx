@@ -751,14 +751,21 @@ function ReplaceResourceReferencesButton({
 }) {
   const { replaceProjectResourceReferences } = useStoryGraphStore();
   const [open, setOpen] = useState(false);
+  const [action, setAction] = useState<'replace' | 'clear'>('replace');
   const [replacementId, setReplacementId] = useState(options[0]?.id ?? '');
-  const [preview, setPreview] = useState<{ count: number; locations: readonly string[] }>();
+  const [preview, setPreview] = useState<{
+    count: number;
+    blocked: number;
+    locations: readonly string[];
+    blockedLocations: readonly string[];
+  }>();
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!options.some((option) => option.id === replacementId)) {
       setReplacementId(options[0]?.id ?? '');
     }
-  }, [options, replacementId]);
+    if (options.length === 0 && action === 'replace') setAction('clear');
+  }, [action, options, replacementId]);
   const close = () => {
     setOpen(false);
     setPreview(undefined);
@@ -768,40 +775,59 @@ function ReplaceResourceReferencesButton({
       <button
         type="button"
         className={styles.secondaryButton}
-        disabled={options.length === 0}
         onClick={() => setOpen(true)}
       >
-        Replace References…
+        Manage References…
       </button>
       {open &&
         createPortal(
           <div className={styles.namedCreateBackdrop} role="presentation">
             <div className={styles.schemaMigrationDialog} role="dialog" aria-modal="true">
-              <div className={styles.detailsTitle}>Replace {sourceLabel}</div>
+              <div className={styles.detailsTitle}>Manage references to {sourceLabel}</div>
               <label>
-                <span>Replacement {kind}</span>
+                <span>Action</span>
                 <select
-                  value={replacementId}
+                  value={action}
                   onChange={(event) => {
-                    setReplacementId(event.target.value);
+                    setAction(event.target.value as 'replace' | 'clear');
                     setPreview(undefined);
                   }}
                 >
-                  {options.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
+                  <option value="replace" disabled={options.length === 0}>Replace with another {kind}</option>
+                  <option value="clear">Clear safe references</option>
                 </select>
               </label>
+              {action === 'replace' && (
+                <label>
+                  <span>Replacement {kind}</span>
+                  <select value={replacementId} onChange={(event) => {
+                    setReplacementId(event.target.value);
+                    setPreview(undefined);
+                  }}>
+                    {options.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {preview ? (
                 <>
-                  <p>{preview.count} reference(s) will be replaced.</p>
+                  <p>{preview.count} reference(s) will be {action === 'clear' ? 'cleared' : 'replaced'}.</p>
                   <div className={styles.schemaMigrationLocations}>
                     {preview.locations.map((location, index) => (
                       <div key={`${location}:${index}`}>{location}</div>
                     ))}
                   </div>
+                  {preview.blocked > 0 && (
+                    <>
+                      <p>{preview.blocked} required reference(s) cannot be cleared and will remain unchanged.</p>
+                      <div className={styles.schemaMigrationLocations}>
+                        {preview.blockedLocations.map((location, index) => (
+                          <div key={`${location}:blocked:${index}`}>{location}</div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <p>Preview scans saved and unopened Story files before any change is written.</p>
@@ -814,13 +840,14 @@ function ReplaceResourceReferencesButton({
                   <button
                     type="button"
                     className={styles.primaryButton}
-                    disabled={loading || !replacementId}
+                    disabled={loading || (action === 'replace' && !replacementId)}
                     onClick={() => {
                       setLoading(true);
                       void replaceProjectResourceReferences(
                         kind,
                         sourceId,
-                        replacementId,
+                        action,
+                        action === 'replace' ? replacementId : undefined,
                         true,
                       ).then((result) => {
                         if (result) setPreview(result);
@@ -840,7 +867,8 @@ function ReplaceResourceReferencesButton({
                       void replaceProjectResourceReferences(
                         kind,
                         sourceId,
-                        replacementId,
+                        action,
+                        action === 'replace' ? replacementId : undefined,
                         false,
                       ).then((result) => {
                         setLoading(false);
@@ -848,7 +876,7 @@ function ReplaceResourceReferencesButton({
                       });
                     }}
                   >
-                    {loading ? 'Replacing…' : 'Replace All'}
+                    {loading ? 'Applying…' : action === 'clear' ? 'Clear Safe References' : 'Replace All'}
                   </button>
                 )}
               </div>
@@ -856,6 +884,147 @@ function ReplaceResourceReferencesButton({
           </div>,
           document.body,
         )}
+    </>
+  );
+}
+
+function DeleteResourceButton({
+  kind,
+  sourceId,
+  sourceLabel,
+  options,
+  referenceCount,
+  resourcePath,
+}: {
+  kind: 'character' | 'asset';
+  sourceId: string;
+  sourceLabel: string;
+  options: readonly { id: string; label: string }[];
+  referenceCount: number;
+  resourcePath: string;
+}) {
+  const { replaceProjectResourceReferences } = useStoryGraphStore();
+  const [open, setOpen] = useState(false);
+  const [action, setAction] = useState<'replace' | 'clear'>(options.length ? 'replace' : 'clear');
+  const [replacementId, setReplacementId] = useState(options[0]?.id ?? '');
+  const [preview, setPreview] = useState<{
+    count: number;
+    blocked: number;
+    locations: readonly string[];
+    blockedLocations: readonly string[];
+  }>();
+  const [loading, setLoading] = useState(false);
+  const close = () => {
+    setOpen(false);
+    setPreview(undefined);
+  };
+  const scan = async () => {
+    setLoading(true);
+    const result = await replaceProjectResourceReferences(
+      kind,
+      sourceId,
+      action,
+      action === 'replace' ? replacementId : undefined,
+      true,
+    );
+    if (result) setPreview(result);
+    setLoading(false);
+  };
+  const applyAndDelete = async () => {
+    if (!preview || (action === 'clear' && preview.blocked > 0)) return;
+    setLoading(true);
+    const result = await replaceProjectResourceReferences(
+      kind,
+      sourceId,
+      action,
+      action === 'replace' ? replacementId : undefined,
+      false,
+      resourcePath,
+    );
+    if (!result) {
+      setLoading(false);
+      return;
+    }
+    close();
+  };
+  return (
+    <>
+      <button className={styles.dangerButton} type="button" onClick={() => {
+        if (referenceCount === 0) {
+          if (!window.confirm(`Delete ${kind} ${sourceLabel}? This cannot be undone.`)) return;
+          setLoading(true);
+          void replaceProjectResourceReferences(
+            kind,
+            sourceId,
+            'clear',
+            undefined,
+            false,
+            resourcePath,
+          ).then(() => setLoading(false));
+          return;
+        }
+        setOpen(true);
+      }}>
+        Delete {kind === 'character' ? 'Character' : 'Asset'}
+      </button>
+      {open && createPortal(
+        <div className={styles.namedCreateBackdrop} role="presentation">
+          <div className={styles.schemaMigrationDialog} role="dialog" aria-modal="true">
+            <div className={styles.detailsTitle}>Delete {sourceLabel}</div>
+            <p>{referenceCount} indexed reference(s) must be handled before deletion.</p>
+            <label>
+              <span>Reference handling</span>
+              <select value={action} onChange={(event) => {
+                setAction(event.target.value as 'replace' | 'clear');
+                setPreview(undefined);
+              }}>
+                <option value="replace" disabled={!options.length}>Replace, then delete</option>
+                <option value="clear">Clear safe references, then delete</option>
+              </select>
+            </label>
+            {action === 'replace' && (
+              <label>
+                <span>Replacement {kind}</span>
+                <select value={replacementId} onChange={(event) => {
+                  setReplacementId(event.target.value);
+                  setPreview(undefined);
+                }}>
+                  {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
+            )}
+            {preview ? (
+              <>
+                <p>{preview.count} reference(s) can be handled.</p>
+                <div className={styles.schemaMigrationLocations}>
+                  {preview.locations.map((location, index) => <div key={`${location}:${index}`}>{location}</div>)}
+                </div>
+                {preview.blocked > 0 && (
+                  <>
+                    <p>{preview.blocked} required reference(s) block deletion.</p>
+                    <div className={styles.schemaMigrationLocations}>
+                      {preview.blockedLocations.map((location, index) => <div key={`${location}:blocked:${index}`}>{location}</div>)}
+                    </div>
+                  </>
+                )}
+              </>
+            ) : <p>Preview the complete project before deleting anything.</p>}
+            <div className={styles.schemaMigrationActions}>
+              <button type="button" disabled={loading} onClick={close}>Cancel</button>
+              {!preview ? (
+                <button type="button" className={styles.primaryButton} disabled={loading || (action === 'replace' && !replacementId)} onClick={() => void scan()}>
+                  {loading ? 'Scanning…' : 'Preview'}
+                </button>
+              ) : (
+                <button type="button" className={styles.dangerButton} disabled={loading || (action === 'clear' && preview.blocked > 0)} onClick={() => void applyAndDelete()}>
+                  {loading ? 'Applying…' : action === 'replace' ? 'Replace and Delete' : 'Clear and Delete'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }
@@ -1748,7 +1917,7 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       />
       {references.length > 0 && (
         <div className={styles.warning}>
-          Remove these Dialogue references before deleting the character.
+          Deleting this character requires replacing or safely clearing these references.
         </div>
       )}
       <div className={styles.detailActions}>
@@ -1780,14 +1949,22 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
             Show in File Explorer
           </button>
         )}
-        <button
-          className={styles.dangerButton}
-          type="button"
-          disabled={references.length > 0}
-          onClick={() => removeCharacter(character.id)}
-        >
-          Delete Character
-        </button>
+        {workspace?.project && resourcePath ? (
+          <DeleteResourceButton
+            kind="character"
+            sourceId={character.id}
+            sourceLabel={character.displayName}
+            options={characters
+              .filter((candidate) => candidate.id !== character.id)
+              .map((candidate) => ({ id: candidate.id, label: candidate.displayName }))}
+            referenceCount={references.length}
+            resourcePath={resourcePath}
+          />
+        ) : (
+          <button className={styles.dangerButton} type="button" onClick={() => removeCharacter(character.id)}>
+            Delete Character
+          </button>
+        )}
       </div>
     </div>
   );
@@ -2267,7 +2444,7 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
       />
       {references.length > 0 && (
         <div className={styles.warning}>
-          Remove these Story or Character references before deleting the asset.
+          Deleting this asset requires replacing or safely clearing these references.
         </div>
       )}
       <div className={styles.detailActions}>
@@ -2290,16 +2467,22 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
             Show in File Explorer
           </button>
         )}
-        <button
-          className={styles.dangerButton}
-          type="button"
-          disabled={references.length > 0}
-          onClick={() => {
-            if (window.confirm(`Delete asset ${asset.displayName}?`)) removeAsset(asset.id);
-          }}
-        >
-          Delete Asset
-        </button>
+        {workspace?.project && resourcePath ? (
+          <DeleteResourceButton
+            kind="asset"
+            sourceId={asset.id}
+            sourceLabel={asset.displayName}
+            options={assets
+              .filter((candidate) => candidate.id !== asset.id && candidate.kind === asset.kind)
+              .map((candidate) => ({ id: candidate.id, label: candidate.displayName }))}
+            referenceCount={references.length}
+            resourcePath={resourcePath}
+          />
+        ) : (
+          <button className={styles.dangerButton} type="button" onClick={() => removeAsset(asset.id)}>
+            Delete Asset
+          </button>
+        )}
       </div>
     </div>
   );
