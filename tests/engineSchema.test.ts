@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   migrateEngineJsonValue,
+  migrateEmbeddedEngineObjects,
+  normalizeEngineTypeDefaults,
+  stripEngineObjectTypeMarkers,
+  engineValueMatchesFieldType,
   summarizeEngineSchemaMigration,
   type EngineTypeDefinition,
 } from '../packages/common/src';
@@ -35,6 +39,14 @@ const previous: EngineTypeDefinition = {
 };
 
 describe('Engine Type Schema migration', () => {
+  it('accepts heterogeneous JSON arrays only through explicit Any JSON items', () => {
+    const type = { kind: 'array' as const, elementType: { kind: 'any' as const } };
+    expect(
+      engineValueMatchesFieldType([null, true, 3, 'text', ['nested'], { field: false }], type, []),
+    ).toBe(true);
+    expect(engineValueMatchesFieldType([1, Number.NaN], type, [])).toBe(false);
+  });
+
   it('preserves renamed fields, adds defaults, removes fields, and resets incompatible values', () => {
     const next: EngineTypeDefinition = {
       ...previous,
@@ -165,13 +177,25 @@ describe('Engine Type Schema migration', () => {
       name: 'MapItem',
       displayName: 'Map Item',
       fields: [
-        { id: 'ef_label', name: 'label', displayName: 'Label', type: { kind: 'string' }, defaultValue: '' },
+        {
+          id: 'ef_label',
+          name: 'label',
+          displayName: 'Label',
+          type: { kind: 'string' },
+          defaultValue: '',
+        },
       ],
     };
     const newItem: EngineTypeDefinition = {
       ...oldItem,
       fields: [
-        { id: 'ef_label', name: 'title', displayName: 'Title', type: { kind: 'string' }, defaultValue: '' },
+        {
+          id: 'ef_label',
+          name: 'title',
+          displayName: 'Title',
+          type: { kind: 'string' },
+          defaultValue: '',
+        },
       ],
     };
     const oldMap: EngineTypeDefinition = {
@@ -202,5 +226,102 @@ describe('Engine Type Schema migration', () => {
         [newMap, newItem],
       ),
     ).toEqual({ entries: { first: { title: 'One' } } });
+  });
+
+  it('normalizes defaults in Object types that reference a changed Object', () => {
+    const oldChild: EngineTypeDefinition = {
+      id: 'et_child',
+      name: 'Child',
+      displayName: 'Child',
+      fields: [
+        {
+          id: 'ef_child_name',
+          name: 'oldName',
+          displayName: 'Old Name',
+          type: { kind: 'string' },
+          defaultValue: 'before',
+        },
+      ],
+    };
+    const newChild: EngineTypeDefinition = {
+      ...oldChild,
+      fields: [{ ...oldChild.fields[0]!, name: 'newName', displayName: 'New Name' }],
+    };
+    const parent: EngineTypeDefinition = {
+      id: 'et_parent',
+      name: 'Parent',
+      displayName: 'Parent',
+      fields: [
+        {
+          id: 'ef_parent_child',
+          name: 'child',
+          displayName: 'Child',
+          type: { kind: 'object', typeName: 'Child' },
+          defaultValue: { oldName: 'custom' },
+        },
+      ],
+    };
+
+    const normalized = normalizeEngineTypeDefaults(
+      [oldChild, parent],
+      [newChild, parent],
+    );
+    expect(normalized.find((item) => item.name === 'Parent')?.fields[0]?.defaultValue).toEqual({
+      newName: 'custom',
+    });
+  });
+
+  it('keeps a named Object recognizable when it is nested in Any JSON', () => {
+    const oldChild: EngineTypeDefinition = {
+      id: 'et_any_child',
+      name: 'AnyChild',
+      displayName: 'Any Child',
+      fields: [
+        {
+          id: 'ef_any_name',
+          name: 'oldName',
+          displayName: 'Old Name',
+          type: { kind: 'string' },
+          defaultValue: '',
+        },
+      ],
+    };
+    const newChild: EngineTypeDefinition = {
+      ...oldChild,
+      fields: [{ ...oldChild.fields[0]!, name: 'newName', displayName: 'New Name' }],
+    };
+    const container: EngineTypeDefinition = {
+      id: 'et_any_container',
+      name: 'AnyContainer',
+      displayName: 'Any Container',
+      fields: [
+        {
+          id: 'ef_any_payload',
+          name: 'payload',
+          displayName: 'Payload',
+          type: { kind: 'any' },
+          defaultValue: { oldName: 'kept' },
+        },
+      ],
+    };
+
+    expect(
+      migrateEmbeddedEngineObjects(
+        [{ oldName: 'kept' }],
+        [oldChild, container],
+        [newChild, container],
+      ),
+    ).toEqual([{ $storyBlueprintType: 'et_any_child', newName: 'kept' }]);
+    expect(
+      normalizeEngineTypeDefaults(
+        [oldChild, container],
+        [newChild, container],
+      ).find((item) => item.name === 'AnyContainer')?.fields[0]?.defaultValue,
+    ).toEqual({ $storyBlueprintType: 'et_any_child', newName: 'kept' });
+    expect(
+      stripEngineObjectTypeMarkers({
+        items: [{ $storyBlueprintType: 'et_any_child', newName: 'kept' }],
+      }),
+    ).toEqual({ items: [{ newName: 'kept' }] });
   });
 });

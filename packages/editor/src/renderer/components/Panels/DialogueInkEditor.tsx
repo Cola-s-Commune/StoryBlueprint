@@ -1,8 +1,6 @@
-import Editor, { loader, type BeforeMount, type Monaco, type OnMount } from '@monaco-editor/react';
-import * as monacoApi from 'monaco-editor/editor/editor.api';
-import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations';
-import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
+import Editor, { type BeforeMount, type Monaco, type OnMount } from '@monaco-editor/react';
 import { useEffect, useRef, useState } from 'react';
+import './monacoSetup';
 import type { DialogueInkDiagnostic } from '../../dialogue/dialogueInk';
 import styles from './Inspector.module.css';
 
@@ -19,13 +17,6 @@ function initialZoom(): number {
   const stored = Number.parseInt(localStorage.getItem(INK_ZOOM_STORAGE_KEY) ?? '', 10);
   return Number.isFinite(stored) ? clampZoom(stored) : 100;
 }
-
-loader.config({ monaco: monacoApi });
-(
-  globalThis as typeof globalThis & { MonacoEnvironment?: { getWorker(): Worker } }
-).MonacoEnvironment = {
-  getWorker: () => new EditorWorker(),
-};
 
 const registerLanguage: BeforeMount = (monaco) => {
   if (languageRegistered) return;

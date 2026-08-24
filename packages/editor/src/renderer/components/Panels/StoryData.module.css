@@ -869,6 +869,46 @@
   min-height: 23px;
 }
 
+.jsonStructuredEditor {
+  container-type: inline-size;
+  min-width: 0;
+  max-height: min(68vh, 760px);
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid #35424d;
+  border-radius: 5px;
+  background: #181e23;
+  scrollbar-color: #52606d #1a2026;
+  scrollbar-width: thin;
+}
+
+.jsonStructuredEditor > .structuredObject,
+.jsonStructuredEditor > .structuredArray,
+.jsonStructuredEditor > .structuredMap,
+.jsonStructuredEditor > .anyJsonValue {
+  width: 100%;
+}
+
+.jsonRawEditor {
+  position: relative;
+  min-height: 280px;
+  height: 360px;
+  max-height: 75vh;
+  overflow: hidden;
+  resize: vertical;
+  border: 1px solid #35424d;
+  border-radius: 5px;
+  background: #1e1e1e;
+}
+
+.jsonEditorLoading {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: #7f8b97;
+  font-size: 11px;
+}
+
 .engineTypeBinding {
   display: grid;
   gap: 6px;
@@ -888,39 +928,199 @@
   gap: 6px;
 }
 
+.structuredTreeGroup {
+  position: relative;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+
+.structuredTreeGroup > summary {
+  width: fit-content;
+  padding: 4px 3px;
+  color: #a9bac7;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  list-style-position: inside;
+  user-select: none;
+}
+
+.structuredTreeGroup > summary > button {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: -2px 0 -2px 6px;
+  padding: 0;
+  border: 1px solid #465867;
+  border-radius: 3px;
+  background: #26323b;
+  color: #a8c6da;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.structuredTreeGroup > summary > button:hover {
+  border-color: #6392b2;
+  background: #304453;
+}
+
+.structuredTreeGroup > summary > button[title='Clear All'] {
+  border-color: #6d4549;
+  color: #dc949a;
+}
+
+.structuredTreeGroup > summary > button[title='Clear All'] svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.structuredTreeGroup > summary > button[title='Clear All']:hover:not(:disabled) {
+  border-color: #a85c63;
+  background: #442a2e;
+  color: #ffc0c4;
+}
+
+.structuredTreeGroup > summary:hover {
+  border-radius: 3px;
+  background: #222b32;
+}
+
+.structuredTreeGroup[open] > summary {
+  border-bottom: 0;
+}
+
+.structuredTreeGroup > .structuredObject,
+.structuredTreeGroup > .structuredArray,
+.structuredTreeGroup > .structuredMap {
+  margin: 2px 0 4px 4px;
+}
+
+.structuredArray,
+.structuredMap {
+  min-width: 0;
+  padding-left: 12px;
+}
+
 .structuredObject {
-  padding: 7px;
-  border: 1px solid #394652;
-  border-radius: 4px;
-  background: #1d242a;
+  padding: 0 0 0 10px;
+  border: 0;
+  background: transparent;
 }
 
 .structuredObject > label {
   display: grid;
-  grid-template-columns: minmax(80px, 0.8fr) minmax(100px, 1.2fr);
-  align-items: center;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.structuredObject > label > span:first-child {
+  color: #8ea8ba;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .structuredArrayItem {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: start;
   gap: 5px;
+  padding: 2px 80px 4px 0;
+}
+
+.structuredArrayDropTarget[data-drop-side='before'] {
+  box-shadow: inset 0 2px 0 #58a6d6;
+}
+
+.structuredArrayDropTarget[data-drop-side='after'] {
+  box-shadow: inset 0 -2px 0 #58a6d6;
+}
+
+.structuredItemLabel {
+  padding-top: 7px;
+  color: #718695;
+  cursor: grab;
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.structuredItemLabel:active {
+  cursor: grabbing;
+  color: #a9c6d9;
+}
+
+.structuredEmpty {
+  padding: 7px 8px;
+  border-radius: 3px;
+  background: #1c242a;
+  color: #758591;
+  font-size: 10px;
+  font-style: italic;
 }
 
 .structuredMapItem {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(72px, 0.7fr) minmax(100px, 1.3fr) auto;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr);
   align-items: start;
   gap: 5px;
-  padding: 5px;
-  border: 1px solid #35424d;
-  border-radius: 4px;
-  background: #1c2329;
+  min-width: 0;
+  padding: 3px 34px 5px 0;
+  border: 0;
+  border-bottom: 1px solid #293640;
+  background: transparent;
+}
+
+.structuredMapItem:has(> .anyJsonValue > .structuredTreeGroup) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.structuredMapEntry {
+  grid-template-columns: 22px minmax(90px, 0.7fr) minmax(0, 1.3fr);
+}
+
+.structuredMapItem.structuredMapEntry:has(> .structuredTreeGroup) {
+  grid-template-columns: 22px minmax(90px, 0.7fr) minmax(0, 1.3fr);
+}
+
+.structuredMapDropTarget[data-drop-side='before'] {
+  box-shadow: inset 0 2px 0 #58a6d6;
+}
+
+.structuredMapDropTarget[data-drop-side='after'] {
+  box-shadow: inset 0 -2px 0 #58a6d6;
+}
+
+.mapDragHandle {
+  display: grid;
+  width: 22px;
+  height: 28px;
+  place-items: center;
+  color: #718695;
+  cursor: grab;
+  font-size: 14px;
+}
+
+.mapDragHandle:active {
+  color: #a9c6d9;
+  cursor: grabbing;
 }
 
 .structuredMapItem > button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 22px;
   border: 1px solid #4a5661;
   border-radius: 3px;
   background: #29323a;
@@ -928,13 +1128,91 @@
   cursor: pointer;
 }
 
-.structuredArrayItem > button,
+.anyJsonValue {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.65fr) minmax(0, 1.35fr);
+  align-items: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.jsonStructuredEditor .anyJsonValue {
+  grid-template-columns: minmax(120px, 0.65fr) minmax(0, 1.35fr);
+}
+
+.anyJsonValue:has(> .structuredTreeGroup) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.anyJsonValue > select:first-child {
+  width: min(220px, 100%);
+}
+
+@container (max-width: 520px) {
+  .structuredMapItem,
+  .anyJsonValue,
+  .jsonStructuredEditor .anyJsonValue {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .structuredMapEntry {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .structuredMapEntry > .mapDragHandle {
+    grid-row: 1 / span 2;
+  }
+}
+
+.anyJsonNull {
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px dashed #46515c;
+  border-radius: 4px;
+  color: #818d98;
+  font-family: monospace;
+}
+
+.structuredArrayActions button,
 .engineFieldHeader button {
   border: 1px solid #4a5661;
   border-radius: 3px;
   background: #29323a;
   color: #b9c6d0;
   cursor: pointer;
+}
+
+.structuredArrayActions {
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  display: flex;
+  gap: 2px;
+}
+
+.structuredArrayActions button {
+  width: 24px;
+  min-width: 24px;
+  height: 22px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  color: #8fbad2;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.structuredArrayActions button:hover:not(:disabled) {
+  color: #c1e2f5;
+}
+
+.structuredArrayActions button:last-child {
+  color: #e39a9f;
+}
+
+.structuredArrayActions button:last-child:hover:not(:disabled) {
+  color: #ffc0c4;
 }
 
 .engineFieldCard {

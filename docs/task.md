@@ -280,6 +280,13 @@
 - [x] Render
 - [x] Boolean Expression 文本编辑与变量拖入
 - [x] 固定 True / False 输出
+- [ ] Condition 资源：稳定 ID、Name / Display Name / Description、作用域与显式输入
+- [ ] Bool 输入支持 Inline Expression / Condition Reference 两种模式，并提供搜索与跳转编辑
+- [ ] Condition Tree 图形化编辑：All / Any / Not / Expression Leaf / Condition Leaf
+- [ ] Condition Tree 与 Bool Expression 在语义可保持时双向转换；无法无损转换时保留原表示并提示
+- [ ] Condition 引用循环检测、作用域校验、引用索引、重命名安全、Undo/Redo 与 Git Diff
+- [ ] Compiler 将 Condition / Condition Tree 降级为普通 Boolean Typed Expression AST，Runtime 不增加树解释器
+- [ ] AI Command 支持 Condition 的创建、更新和引用，并纳入 Dry Run 与语义快照
 
 ---
 
@@ -323,6 +330,7 @@
 - [x] 项目级 Engine Type Schema 资源：Name、Display Name、Description 与图形化字段定义
 - [x] Engine Type Schema Designer：图形化增删、改名、排序字段并修改 Boolean / Number / String / Enum / Object / Array / Map 类型
 - [x] Object 字段引用其他 Engine Type；Array 配置元素类型，并检测直接或间接循环引用
+- [x] Array Item 可显式选择 Any JSON；每个 Item 独立选择 null / Boolean / Number / String / Array / Object 并图形化编辑
 - [x] Schema 驱动 JSON Value Inspector：嵌套字段、数组项增删、默认值、可空与 Raw JSON 双向切换
 - [x] Schema 变更影响预览与安全迁移：新增字段填默认值、字段改名保留值、删除字段清理值、类型不兼容重置默认值；列出受影响变量和节点并作为单次事务撤销
 - [x] Engine Type 与字段使用稳定 ID；改名和排序不改变身份，新增/删除不会被误判为改名
@@ -331,7 +339,7 @@
 - [x] Match Expression 到达 Wait 时求值并进入 PendingInteraction；未匹配 Payload 继续缓存
 - [x] CharacterRef / AssetRef 专用引用类型：图形化资源选择、稳定 ID 存储与缺失引用校验
 - [x] 结构化 JSON Value 支持复制、Schema 校验粘贴与一键恢复类型默认值
-- [x] Map / Dictionary 图形化 Schema 与值编辑：String / Number / Enum Key、递归 Value、重复 Key 防护、序列化和迁移
+- [x] Map / Dictionary 图形化 Schema 与值编辑：String / Number / Enum / CharacterRef / AssetRef Key、递归 Value、重复 Key 防护、序列化和迁移
 - [x] CharacterRef / AssetRef 递归引用索引：覆盖 Project / Story / Substory 变量、Character Field、Engine Type 默认值与节点 JSON，并支持精确路径跳转和删除保护
 - [x] Character / Asset 项目级 Replace References：全项目预览、同类资源替换、磁盘 revision 校验、Story / Character / Project 原子写入并重新载入当前 Story
 - [x] Character / Asset 项目级 Clear References：预览可安全清理与必填阻塞项；可选字段置空、数组元素和 Map 条目移除，非 nullable 字段保持不变
@@ -661,6 +669,10 @@
 - [x] 多 Line Dialogue 的逐句暂停、继续、历史和恢复位置
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
+- [x] Story / Project Variable 可直接使用 Array 与 Map 容器类型；默认值图形化编辑并作为完整 JSON 值交给 Runtime / Adapter，不开放容器编程
+- [x] 复杂值边界固化：Array / Map / Engine Object 禁止成员访问、索引、增删改查、遍历、运算、Branch 与文本插值，只允许整值编辑、赋值和传递
+- [x] Engine Object 使用最新 Schema 动态投影；Schema 迁移确认集中递归规范化父 Object、Array / Map、变量和节点整值，Field ID 负责改名匹配
+- [x] Any JSON 内的命名 Object 使用稳定 Engine Type ID 标记，不再依赖结构猜测；编译产物递归移除编辑器类型标记
 - [x] Project / Story / Chapter / Character Variables 状态机集成
 - [x] Typed Return Value
 - [x] 无返回值 Substory Call Stack / Return

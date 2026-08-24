@@ -63,6 +63,13 @@ function projectDocument(): StoryProjectDocument {
             defaultValue: [],
           },
           {
+            id: 'ef_mixed',
+            name: 'mixed',
+            displayName: 'Mixed',
+            type: { kind: 'array', elementType: { kind: 'any' } },
+            defaultValue: [null, true, 2, 'text', { nested: [] }],
+          },
+          {
             id: 'ef_owner',
             name: 'owner',
             displayName: 'Owner',
@@ -89,6 +96,28 @@ function projectDocument(): StoryProjectDocument {
             },
             defaultValue: { default: 'a_voice' },
           },
+          {
+            id: 'ef_bycharacter',
+            name: 'byCharacter',
+            displayName: 'By Character',
+            type: {
+              kind: 'map',
+              keyType: { kind: 'character-ref' },
+              valueType: { kind: 'number' },
+            },
+            defaultValue: { c_trader: 10 },
+          },
+          {
+            id: 'ef_byasset',
+            name: 'byAsset',
+            displayName: 'By Asset',
+            type: {
+              kind: 'map',
+              keyType: { kind: 'asset-ref' },
+              valueType: { kind: 'string' },
+            },
+            defaultValue: { a_voice: 'voice' },
+          },
         ],
       },
     ],
@@ -100,6 +129,22 @@ function projectDocument(): StoryProjectDocument {
         scope: 'project',
         valueType: { kind: 'number' },
         defaultValue: 0,
+      },
+      {
+        id: 'v_inventory',
+        name: 'inventory',
+        displayName: 'Inventory',
+        scope: 'project',
+        valueType: { kind: 'array' },
+        defaultValue: ['key'],
+      },
+      {
+        id: 'v_flags',
+        name: 'flags',
+        displayName: 'Flags',
+        scope: 'project',
+        valueType: { kind: 'map' },
+        defaultValue: { introSeen: true },
       },
     ],
     events: [
@@ -132,6 +177,22 @@ function projectDocument(): StoryProjectDocument {
 }
 
 describe('story project KDL', () => {
+  it('migrates legacy arrays without an item type to Any JSON', () => {
+    const parsed = parseStoryProject(`project prj_legacy_array format=story-blueprint-project version=1 name=legacy display-name=Legacy {
+      engine-types {
+        engine-type Payload id=et_legacy_array {
+          field Items id=ef_legacy_array type=array:undefined default="[]"
+        }
+      }
+    }`);
+
+    expect(parsed.engineTypes[0]?.fields[0]?.type).toEqual({
+      kind: 'array',
+      elementType: { kind: 'any' },
+    });
+    expect(serializeStoryProject(parsed)).toContain('type=array:any');
+  });
+
   it('has a stable serialize-parse-serialize round trip', () => {
     const serialized = serializeStoryProject(projectDocument());
     expect(serializeStoryProject(parseStoryProject(serialized))).toBe(serialized);
@@ -142,6 +203,9 @@ describe('story project KDL', () => {
     expect(serialized).toContain('localization="Localization/raft-survival.storyloc"');
     expect(serialized).toContain('path="Characters/trader.character"');
     expect(serialized).toContain('variable v_reputation name=reputation');
+    expect(serialized).toContain('variable v_inventory name=inventory');
+    expect(serialized).toContain('type=array default="[\\"key\\"]"');
+    expect(serialized).toContain('variable v_flags name=flags');
     expect(serialized).toContain('engine-type RewardPayload');
     expect(serialized).toContain('id=et_rewardpayload');
     expect(serialized).toContain('field tags');

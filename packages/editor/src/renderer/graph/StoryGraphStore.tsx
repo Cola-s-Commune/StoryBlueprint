@@ -35,6 +35,8 @@ import {
   StoryNodeType,
   createStableId,
   migrateEngineJsonValue,
+  migrateEmbeddedEngineObjects,
+  normalizeEngineTypeDefaults,
   summarizeEngineSchemaMigration,
   nodeRegistry,
   type NodeId,
@@ -45,6 +47,7 @@ import {
   type ChapterSource,
   type VariableId,
   type VariableDefinition,
+  type ValueType,
   type RuntimeValue,
   type CharacterId,
   type CharacterSource,
@@ -501,8 +504,12 @@ interface StoryGraphStoreValue {
   applyWorkspaceMerge: (
     files: ApplyWorkspaceMergeFile[],
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
-  addVariable: (name?: string) => VariableId;
-  addProjectVariable: (name?: string) => VariableId | undefined;
+  addVariable: (name?: string, valueType?: ValueType, defaultValue?: RuntimeValue) => VariableId;
+  addProjectVariable: (
+    name?: string,
+    valueType?: ValueType,
+    defaultValue?: RuntimeValue,
+  ) => VariableId | undefined;
   findVariableReferences: (id: VariableId) => readonly VariableReference[];
   variableReferencesLoading: boolean;
   variableReferencesError?: string;
@@ -2178,7 +2185,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const addVariable = useCallback(
-    (requestedName?: string): VariableId => {
+    (
+      requestedName?: string,
+      valueType: ValueType = { kind: 'string' },
+      defaultValue: RuntimeValue = '',
+    ): VariableId => {
       const id = createStableId('variable');
       checkpoint(undefined, 'Add Variable');
       setVariables((current) => {
@@ -2194,8 +2205,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             name,
             displayName: name,
             scope: 'story',
-            valueType: { kind: 'string' },
-            defaultValue: '',
+            valueType,
+            defaultValue: structuredClone(defaultValue),
           },
         ];
       });
@@ -2206,7 +2217,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
 
   const addProjectVariable = useCallback(
-    (requestedName?: string): VariableId | undefined => {
+    (
+      requestedName?: string,
+      valueType: ValueType = { kind: 'string' },
+      defaultValue: RuntimeValue = '',
+    ): VariableId | undefined => {
       if (!workspace?.project) return undefined;
       const id = createStableId('variable');
       const used = new Set([...variables, ...projectVariables].map((variable) => variable.name));
@@ -2222,8 +2237,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           name,
           displayName: name,
           scope: 'project',
-          valueType: { kind: 'string' },
-          defaultValue: '',
+          valueType,
+          defaultValue: structuredClone(defaultValue),
         },
       ]);
       return id;
@@ -3502,7 +3517,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         }
         return true;
       }
-      const nextEngineTypes = engineTypes.map((item) => (item.name === name ? update : item));
+      let nextEngineTypes = engineTypes.map((item) => (item.name === name ? update : item));
       const affectedTypeNames = new Set([name]);
       let discoveredParent = true;
       while (discoveredParent) {
@@ -3521,7 +3536,25 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           }
         }
       }
+      const engineTypesBeforeDefaultNormalization = nextEngineTypes;
+      nextEngineTypes = [...normalizeEngineTypeDefaults(engineTypes, nextEngineTypes)];
+      const normalizedEngineTypeNames = nextEngineTypes.flatMap((candidate, index) =>
+        JSON.stringify(candidate.fields) !==
+        JSON.stringify(engineTypesBeforeDefaultNormalization[index]?.fields)
+          ? [candidate.displayName]
+          : [],
+      );
       const migrateVariable = (variable: VariableDefinition): VariableDefinition => {
+        if (variable.valueType.kind === 'array' || variable.valueType.kind === 'map') {
+          const defaultValue = migrateEmbeddedEngineObjects(
+            variable.defaultValue,
+            engineTypes,
+            nextEngineTypes,
+          );
+          return JSON.stringify(defaultValue) === JSON.stringify(variable.defaultValue)
+            ? variable
+            : { ...variable, defaultValue };
+        }
         if (variable.valueType.kind !== 'json' || !affectedTypeNames.has(variable.valueType.name)) {
           return variable;
         }
@@ -3555,6 +3588,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         localVariables: chapter.localVariables.map(migrateVariable),
       }));
       const affectedLocations = new Set<string>();
+      normalizedEngineTypeNames.forEach((typeName) =>
+        affectedLocations.add(`Engine Type ${typeName} defaults`),
+      );
       let migratedNodeValues = 0;
       const migrateJsonSource = (
         expression: { source: string; bindings?: Readonly<Record<string, VariableId>> },
@@ -3768,6 +3804,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         affectedLocations.add(`Character ${character.displayName}`),
       );
       const affectedValues =
+        normalizedEngineTypeNames.length +
         nextVariables.filter((variable, index) => variable !== variables[index]).length +
         nextProjectVariables.filter((variable, index) => variable !== projectVariables[index])
           .length +

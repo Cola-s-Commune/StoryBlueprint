@@ -848,6 +848,7 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
   const { nodes, edges, setEdges, checkpoint, updateNodeData, source, activeGraphId, saveStory } =
     useStoryGraphStore();
   const [draggedOptionId, setDraggedOptionId] = useState<OptionId>();
+  const [dragTargetOptionId, setDragTargetOptionId] = useState<OptionId>();
   const [expandedOptionIds, setExpandedOptionIds] = useState<Set<OptionId>>(() => new Set());
   const [view, setView] = useState<'options' | 'ink'>('options');
   const [inkFocusLine, setInkFocusLine] = useState<number>();
@@ -1027,15 +1028,19 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                 key={option.id}
                 className={`${styles.optionGroup} ${styles.lineGroup} ${
                   isExpanded ? '' : styles.lineGroupCollapsed
-                }`}
+                } ${dragTargetOptionId === option.id ? styles.reorderTarget : ''}`}
                 onDragOver={(event) => {
-                  if (draggedOptionId) event.preventDefault();
+                  if (draggedOptionId) {
+                    event.preventDefault();
+                    setDragTargetOptionId(option.id);
+                  }
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
                   if (draggedOptionId && draggedOptionId !== option.id)
                     moveOption(draggedOptionId, index);
                   setDraggedOptionId(undefined);
+                  setDragTargetOptionId(undefined);
                 }}
               >
                 <div className={styles.lineHeader}>
@@ -1048,9 +1053,12 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                       event.dataTransfer.effectAllowed = 'move';
                       event.dataTransfer.setData('text/plain', option.id);
                     }}
-                    onDragEnd={() => setDraggedOptionId(undefined)}
+                    onDragEnd={() => {
+                      setDraggedOptionId(undefined);
+                      setDragTargetOptionId(undefined);
+                    }}
                   >
-                    ↕
+                    ⠿
                   </span>
                   <button
                     type="button"
@@ -1196,6 +1204,7 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
     splitDialogueLines,
   } = useStoryGraphStore();
   const [draggedLineId, setDraggedLineId] = useState<DialogueLineId>();
+  const [dragTargetLineId, setDragTargetLineId] = useState<DialogueLineId>();
   const [expandedLineIds, setExpandedLineIds] = useState<Set<DialogueLineId>>(() => new Set());
   const [selectedLineIds, setSelectedLineIds] = useState<Set<DialogueLineId>>(() => new Set());
   const [lineOperationError, setLineOperationError] = useState<string>();
@@ -1422,14 +1431,18 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
               key={line.id}
               className={`${styles.optionGroup} ${styles.lineGroup} ${
                 isExpanded ? '' : styles.lineGroupCollapsed
-              }`}
+              } ${dragTargetLineId === line.id ? styles.reorderTarget : ''}`}
               onDragOver={(event) => {
-                if (draggedLineId) event.preventDefault();
+                if (draggedLineId) {
+                  event.preventDefault();
+                  setDragTargetLineId(line.id);
+                }
               }}
               onDrop={(event) => {
                 event.preventDefault();
                 if (draggedLineId && draggedLineId !== line.id) moveLine(draggedLineId, index);
                 setDraggedLineId(undefined);
+                setDragTargetLineId(undefined);
               }}
             >
               <div className={styles.lineHeader}>
@@ -1449,9 +1462,12 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
                     event.dataTransfer.effectAllowed = 'move';
                     event.dataTransfer.setData('text/plain', line.id);
                   }}
-                  onDragEnd={() => setDraggedLineId(undefined)}
+                  onDragEnd={() => {
+                    setDraggedLineId(undefined);
+                    setDragTargetLineId(undefined);
+                  }}
                 >
-                  ↕
+                  ⠿
                 </span>
                 <button
                   type="button"

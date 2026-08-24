@@ -287,6 +287,36 @@ Runtime 只计算表达式 AST，不使用 `eval` 执行源字符串。
 - 文件加载时重新解析表达式；语法错误、类型错误和失效引用在编译前报告。
 - Runtime Program 只包含 Typed Expression AST，不包含需要动态解析或 `eval` 的源码。
 
+### 5.1 条件资源与条件树（规划）
+
+需要 Boolean 的位置提供两种互补输入模式：
+
+- `Inline Expression`：直接编写当前 Bool 表达式，适合只使用一次的简单判断。
+- `Condition Reference`：选择一个已经定义好的条件资源，适合有明确叙事含义且会重复使用的判断。
+
+Condition 是可命名、可搜索、可复用的纯 Boolean 资源，具有稳定 `ConditionId`、内部 Name、Display Name
+和 Description。引用始终保存 ID；改名不破坏 Branch、Choice Option 或 Dialogue 显示条件。Condition 只能读取
+当前可见的简单变量和 Character Field，不产生 Side Effect，不等待 Signal，也不能访问 Array、Map 或 Engine
+Object 成员。跨作用域引用时必须显式声明所需输入，不能隐式捕获另一个 Story 的局部变量。
+
+Condition Tree 是 Condition 的可选图形化编辑视图，最终仍编译为一个 Boolean Typed Expression AST，
+而不是执行流蓝图。第一阶段只需要以下树节点：
+
+- `All`：所有子条件成立，等价于 AND。
+- `Any`：任一子条件成立，等价于 OR。
+- `Not`：对子条件取反。
+- `Expression Leaf`：一个普通 Bool 表达式。
+- `Condition Leaf`：引用另一个 Condition。
+
+树编辑器支持分组、拖动排序、折叠、复制和诊断，并可在不丢失语义时与文本 Bool 表达式互相转换。
+Condition 引用图必须无环；Compiler 检测直接或间接递归，并在编译产物中内联/降级为普通 Boolean AST，
+Runtime 不增加 Condition Tree 解释器。这样作者能复用“已完成序章”“可以进入商店”等领域条件，同时不把
+简单运算扩张成大量数据处理节点。
+
+适用位置包括 Branch、Choice Option 可见/可用条件、Dialogue 显示条件，以及以后所有明确要求 Boolean
+的属性。Inspector 应提供 `Expression / Condition` 切换、条件搜索与跳转编辑；AI Command 需要支持创建、
+更新和引用 Condition，但 Apply 前仍经过 Dry Run、类型检查、作用域检查与循环检测。
+
 编辑器第一阶段保留文本为权威编辑面，同时提供 Scratch 风格的轻量辅助，而不是把每个运算符变成画布节点：
 
 - 输入变量名时按需补全 Story、Project、Substory 和 Character Field，并显示类型与作用域。
@@ -343,6 +373,25 @@ Edge、表达式绑定、AI 命令和编译产物引用 `id`；编辑器与 KDL 
 - 把资源拖到对应字段，设置 AssetRef。
 
 ### 6.1 变量与作用域
+
+#### 复杂值边界
+
+Array、Map 与命名 Engine Object 是数据容器，不是 Story 编程对象。编辑器可以图形化创建和修改其默认
+JSON，也可以在运行时整值保存、替换、传入 Event / Signal / Substory，并通过 Adapter 交给游戏引擎；
+Story 图不得提供成员访问、数组索引、Map 查询、Push / Remove、遍历、过滤、排序或集合运算节点。
+
+Engine Object 的编辑界面始终依据最新 Schema 投影：新增字段读取 Schema 默认值，已删除字段不再展示。
+Schema 变更确认是唯一的数据规范化边界；它按稳定 Field ID 处理改名，并递归规范化引用该类型的 Object、
+Array、Map、变量默认值和节点整值参数。各个输入控件不得各自维护一套引用同步逻辑。不兼容的字段类型
+变更继续通过迁移预览让作者确认，而不是静默猜测转换。
+
+Any JSON 中选择的命名 Object 在源数据中携带保留字段 `$storyBlueprintType=<EngineTypeId>`。类型身份
+因此依赖稳定 ID，而不依赖字段形状；字段形状匹配只用于给早期无标记数据补标记。该字段属于编辑器
+元数据，Raw JSON 会明确显示它，作者不应手动修改；编译器会递归剥离，Runtime 与 Adapter 只收到纯 JSON。
+
+复杂值不能参与表达式运算、Branch 条件或玩家文本插值。叙事逻辑需要判断复杂状态时，应由引擎通过
+具有领域语义的 Event 修改数据，并把 `hasKey`、`questStage`、`affinity` 等简单结果暴露为 Story 变量；
+需要等待引擎处理时使用 Signal 恢复控制流。这样 Inspector 仍是数据编辑器，而蓝图保持为叙事编排器。
 
 当前编辑器定义三种内部作用域，以及 Project、Character 两种由引擎持有的外部作用域：
 
@@ -1037,9 +1086,10 @@ Diff Preview → Transaction → Undo / Redo
 ### Engine Type Schema 与图形化 JSON
 
 复杂引擎值由项目级 `Engine Type Schema` 描述。Schema 本身使用图形化编辑器维护，作者不需要手写
-JSON Schema：可以增删、改名和排序字段，并将字段设为 Boolean、Number、String、Enum、Object 或
-Array 和 Map。Object 引用另一个 Engine Type，Array 单独声明元素类型；Map 的 Key 仅允许
-String、Number 或 Enum，Value 可递归使用其他 Engine Field Type。Map 编译为普通 JSON Object，
+JSON Schema：可以增删、改名和排序字段，并将字段设为 Boolean、Number、String、Enum、Object、
+Array 或 Map。Object 引用另一个 Engine Type；Array 单独声明元素类型，也可显式使用 Any JSON，让
+每个 Item 独立选择 null、Boolean、Number、String、Array 或 Object。Map 的 Key 仅允许 String、
+Number、Enum、CharacterRef 或 AssetRef，引用 Key 使用稳定资源 ID；Value 可递归使用其他 Engine Field Type。Map 编译为普通 JSON Object，
 仅用于图形化数据录入和 Adapter 契约，不提供成员访问或编程能力。编辑器必须拒绝无法有限展开的循环引用。
 
 CharacterRef 与 AssetRef 的引用索引必须使用同一 Schema 递归遍历 Object、Array 与 Map。索引覆盖

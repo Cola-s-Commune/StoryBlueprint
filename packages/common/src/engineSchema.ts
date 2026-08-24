@@ -2,6 +2,31 @@ import type { EngineFieldType, EngineTypeDefinition, EngineTypeField } from './t
 import { engineValueMatchesFieldType } from './types/project';
 import type { RuntimeValue } from './types/values';
 
+export const ENGINE_OBJECT_TYPE_MARKER = '$storyBlueprintType';
+
+export function engineObjectTypeId(value: RuntimeValue): string | undefined {
+  if (Array.isArray(value) || value === null || typeof value !== 'object') return undefined;
+  const marker = (value as Readonly<Record<string, RuntimeValue>>)[ENGINE_OBJECT_TYPE_MARKER];
+  return typeof marker === 'string' ? marker : undefined;
+}
+
+export function tagEngineObject(value: RuntimeValue, typeId: string): RuntimeValue {
+  if (Array.isArray(value) || value === null || typeof value !== 'object') return value;
+  return { ...value, [ENGINE_OBJECT_TYPE_MARKER]: typeId };
+}
+
+export function stripEngineObjectTypeMarkers(value: RuntimeValue): RuntimeValue {
+  if (Array.isArray(value)) return value.map(stripEngineObjectTypeMarkers);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => key !== ENGINE_OBJECT_TYPE_MARKER)
+        .map(([key, item]) => [key, stripEngineObjectTypeMarkers(item)]),
+    );
+  }
+  return value;
+}
+
 export interface EngineSchemaMigrationSummary {
   addedFields: readonly string[];
   removedFields: readonly string[];
@@ -82,6 +107,13 @@ function migrateFieldValue(
   nextDefinitions: readonly EngineTypeDefinition[],
 ): RuntimeValue {
   const nextType = nextField.type;
+  if (previousType.kind === 'any' && nextType.kind === 'any') {
+    return migrateEmbeddedEngineObjects(
+      value,
+      previousDefinitions,
+      nextDefinitions,
+    );
+  }
   if (previousType.kind === 'array' && nextType.kind === 'array' && Array.isArray(value)) {
     return value.map((item) =>
       migrateFieldValue(
@@ -131,6 +163,71 @@ function migrateFieldValue(
   return structuredClone(nextField.defaultValue);
 }
 
+function exactObjectShapeMatches(
+  value: RuntimeValue,
+  definition: EngineTypeDefinition,
+  definitions: readonly EngineTypeDefinition[],
+): boolean {
+  if (Array.isArray(value) || value === null || typeof value !== 'object') return false;
+  const keys = Object.keys(value).filter((key) => key !== ENGINE_OBJECT_TYPE_MARKER);
+  return (
+    keys.length === definition.fields.length &&
+    definition.fields.every((field) => keys.includes(field.name)) &&
+    engineValueMatchesFieldType(
+      value,
+      { kind: 'object', typeName: definition.name },
+      definitions,
+    )
+  );
+}
+
+/** Migrates named Object-shaped values nested below an `any` container. */
+export function migrateEmbeddedEngineObjects(
+  value: RuntimeValue,
+  previousDefinitions: readonly EngineTypeDefinition[],
+  nextDefinitions: readonly EngineTypeDefinition[],
+): RuntimeValue {
+  const markedTypeId = engineObjectTypeId(value);
+  for (const previous of previousDefinitions) {
+    const next = nextDefinitions.find(
+      (candidate) => candidate.id === previous.id && candidate.name === previous.name,
+    );
+    if (!next) continue;
+    const summary = summarizeEngineSchemaMigration(previous, next);
+    const changed =
+      summary.addedFields.length +
+      summary.removedFields.length +
+      summary.renamedFields.length +
+      summary.changedTypeFields.length;
+    if (
+      changed > 0 &&
+      (markedTypeId === previous.id || exactObjectShapeMatches(value, previous, previousDefinitions))
+    ) {
+      return tagEngineObject(migrateEngineJsonValue(
+        value,
+        previous,
+        next,
+        previousDefinitions,
+        nextDefinitions,
+      ), next.id);
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      migrateEmbeddedEngineObjects(item, previousDefinitions, nextDefinitions),
+    );
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        migrateEmbeddedEngineObjects(item, previousDefinitions, nextDefinitions),
+      ]),
+    );
+  }
+  return structuredClone(value);
+}
+
 export function migrateEngineJsonValue(
   value: RuntimeValue,
   previous: EngineTypeDefinition,
@@ -158,4 +255,37 @@ export function migrateEngineJsonValue(
     );
   }
   return migrated;
+}
+
+/** Reprojects stored defaults through the latest referenced Object schemas. */
+export function normalizeEngineTypeDefaults(
+  previousDefinitions: readonly EngineTypeDefinition[],
+  nextDefinitions: readonly EngineTypeDefinition[],
+): readonly EngineTypeDefinition[] {
+  return nextDefinitions.map((nextDefinition) => {
+    const previousDefinition = previousDefinitions.find(
+      (candidate) => candidate.name === nextDefinition.name,
+    );
+    if (!previousDefinition) return nextDefinition;
+    const previousDefaults = Object.fromEntries(
+      previousDefinition.fields.map((field) => [field.name, field.defaultValue]),
+    );
+    const migrated = migrateEngineJsonValue(
+      previousDefaults,
+      previousDefinition,
+      nextDefinition,
+      previousDefinitions,
+      nextDefinitions,
+    ) as Readonly<Record<string, RuntimeValue>>;
+    const fields = nextDefinition.fields.map((field) => {
+      const defaultValue = migrated[field.name];
+      return defaultValue === undefined ||
+        JSON.stringify(defaultValue) === JSON.stringify(field.defaultValue)
+        ? field
+        : { ...field, defaultValue };
+    });
+    return fields.every((field, index) => field === nextDefinition.fields[index])
+      ? nextDefinition
+      : { ...nextDefinition, fields };
+  });
 }

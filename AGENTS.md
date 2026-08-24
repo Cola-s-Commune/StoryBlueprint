@@ -24,12 +24,15 @@ compiles to runtime logic.
 - Preserve existing stable IDs and connections unless an explicit change requires otherwise.
 - Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external game behavior as
   Events, and resumable external waits as Signals.
-- Values whose `valueType.kind` is `json` are opaque engine payloads. This includes Variables,
+- Values whose `valueType.kind` is `json`, `array`, or `map` are opaque engine payloads. This includes Variables,
   Character Fields, Substory inputs/outputs/locals, and Event or Signal parameters. Their `name`
   identifies the engine-side contract. They may be stored, assigned, and passed as one complete
-  value only, and connections or assignments must use the same type name. Preserve the JSON intact.
+  value only. Named `json` connections or assignments must use the same type name; Array and Map
+  values must match their respective container kind. Preserve the JSON intact.
   Do not access members, interpolate it into text, perform arithmetic or comparisons, use it in
-  Branch logic, or create a network of data-processing nodes; the game Adapter owns its behavior.
+  Branch logic, index arrays, query maps, add/remove items, iterate, filter, sort, or create a
+  network of data-processing nodes; the game Adapter owns its behavior. Use domain Events plus
+  simple Story variables when narrative logic needs a result derived from complex data.
 - Ink Block variables never bind implicitly by name. Use `variableBindings` entries with an existing
   stable Story `variableId`, an Ink global `inkName`, and direction `story-to-ink`, `ink-to-story`,
   or `two-way`. Only Boolean, Number, String, and Enum-backed string variables are bridgeable. Do not
@@ -37,6 +40,13 @@ compiles to runtime logic.
 - When an Engine Type Schema is present in the semantic snapshot, construct every JSON value from
   its declared fields, nested object references, arrays, and enum choices. Do not invent undeclared
   fields or incompatible values. The Schema is an authoring and engine-contract aid, not Story code.
+- `$storyBlueprintType` is reserved editor metadata that binds an Object nested in Any JSON to a
+  stable Engine Type ID. Preserve an existing valid marker, never invent an ID, and do not treat it
+  as game data. The compiler strips it before Runtime or Adapter delivery.
+- An Array may explicitly use `any` items; each item remains ordinary JSON and may independently be
+  null, Boolean, Number, String, Array, or Object. Map keys may be String, Number, Enum, Character
+  Reference, or Asset Reference. Reference keys serialize as stable IDs. Never use arbitrary Objects
+  or `any` as Map keys.
 - A Dialogue Line with `speakerId` is only the words spoken by that character. Do not include
   quotation marks, narration, actions, or scene description in a spoken line.
 - Narration, actions, and environment description are separate Dialogue Lines without `speakerId`.

@@ -47,6 +47,22 @@ const storyVariables: VariableDefinition[] = [
     valueType: { kind: 'json', name: 'QuestPayload' },
     defaultValue: { questId: 'intro' },
   },
+  {
+    id: 'v_inventory',
+    name: 'inventory',
+    displayName: 'Inventory',
+    scope: 'story',
+    valueType: { kind: 'array' },
+    defaultValue: [],
+  },
+  {
+    id: 'v_flags',
+    name: 'flags',
+    displayName: 'Flags',
+    scope: 'story',
+    valueType: { kind: 'map' },
+    defaultValue: {},
+  },
 ];
 
 const characters: CharacterSource[] = [
@@ -71,11 +87,19 @@ const characters: CharacterSource[] = [
 describe('expression authoring helpers', () => {
   it('keeps Engine JSON values opaque to Story expressions and text templates', () => {
     expect(() => compileExpression('payload == payload', storyVariables)).toThrow(
-      'Engine JSON values can only be passed or assigned as a whole',
+      'Structured values can only be passed or assigned as a whole',
     );
     expect(() => compileTextTemplate('{payload}', 't_payload', storyVariables)).toThrow(
-      'Engine JSON values cannot be interpolated into player-facing text',
+      'Structured values cannot be interpolated into player-facing text',
     );
+    for (const name of ['inventory', 'flags']) {
+      expect(() => compileExpression(`${name} == ${name}`, storyVariables)).toThrow(
+        'Structured values can only be passed or assigned as a whole',
+      );
+      expect(() => compileTextTemplate(`{${name}}`, `t_${name}`, storyVariables)).toThrow(
+        'Structured values cannot be interpolated into player-facing text',
+      );
+    }
   });
   it('searches qualified character fields and prioritizes the expected type', () => {
     const all = expressionCandidates(storyVariables, [], characters, '', { kind: 'boolean' });

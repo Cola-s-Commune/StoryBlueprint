@@ -5,6 +5,8 @@ import {
   StoryNodeType,
   clearStoryResourceReferences,
   clearEngineResourceValueReferences,
+  collectEngineResourceValueReferences,
+  replaceEngineResourceValueReferences,
   replaceStoryResourceReferences,
   type EngineTypeDefinition,
   type StorySourceDocument,
@@ -140,5 +142,78 @@ describe('project resource reference replacement', () => {
     expect(array).toEqual({ value: ['c_keep'], count: 1, blocked: 0 });
     expect(map).toEqual({ value: { second: 'c_keep' }, count: 1, blocked: 0 });
     expect(object).toEqual({ value: { owner: 'c_old' }, count: 0, blocked: 1 });
+  });
+
+  it('tracks, replaces, and clears Character and Asset references used as Map keys', () => {
+    const characterType = {
+      kind: 'map' as const,
+      keyType: { kind: 'character-ref' as const },
+      valueType: { kind: 'string' as const },
+    };
+    expect(
+      collectEngineResourceValueReferences(
+        { c_old: 'hostile', c_keep: 'friendly' },
+        characterType,
+        [],
+        'relations',
+      ),
+    ).toEqual([
+      { kind: 'character', id: 'c_old', path: 'relations.c_old.[key]' },
+      { kind: 'character', id: 'c_keep', path: 'relations.c_keep.[key]' },
+    ]);
+    expect(
+      replaceEngineResourceValueReferences(
+        { c_old: 'hostile' },
+        characterType,
+        [],
+        'character',
+        'c_old',
+        'c_new',
+      ),
+    ).toEqual({ value: { c_new: 'hostile' }, count: 1 });
+    expect(
+      clearEngineResourceValueReferences(
+        { c_old: 'hostile', c_keep: 'friendly' },
+        characterType,
+        [],
+        'character',
+        'c_old',
+      ),
+    ).toEqual({ value: { c_keep: 'friendly' }, count: 1, blocked: 0 });
+  });
+
+  it('tracks resource IDs selected inside free-form Any JSON fields', () => {
+    const value = { owner: 'c_old', portrait: 'a_portrait', nested: ['c_keep'] };
+    expect(collectEngineResourceValueReferences(value, { kind: 'any' }, [], 'payload')).toEqual([
+      { kind: 'character', id: 'c_old', path: 'payload.owner' },
+      { kind: 'asset', id: 'a_portrait', path: 'payload.portrait' },
+      { kind: 'character', id: 'c_keep', path: 'payload.nested[0]' },
+    ]);
+    expect(
+      replaceEngineResourceValueReferences(
+        value,
+        { kind: 'any' },
+        [],
+        'character',
+        'c_old',
+        'c_new',
+      ),
+    ).toEqual({
+      value: { owner: 'c_new', portrait: 'a_portrait', nested: ['c_keep'] },
+      count: 1,
+    });
+    expect(
+      clearEngineResourceValueReferences(
+        value,
+        { kind: 'any' },
+        [],
+        'asset',
+        'a_portrait',
+      ),
+    ).toEqual({
+      value: { owner: 'c_old', portrait: null, nested: ['c_keep'] },
+      count: 1,
+      blocked: 0,
+    });
   });
 });

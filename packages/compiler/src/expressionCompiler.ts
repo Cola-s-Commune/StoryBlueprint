@@ -259,9 +259,12 @@ class Parser {
   private binary(token: Token, left: TypedExpression, right: TypedExpression): TypedExpression {
     const operator = binaryOperators[token.value];
     if (!operator) throw new ExpressionCompileError('Unknown operator', token.offset);
-    if (left.valueType.kind === 'json' || right.valueType.kind === 'json') {
+    if (
+      ['json', 'array', 'map'].includes(left.valueType.kind) ||
+      ['json', 'array', 'map'].includes(right.valueType.kind)
+    ) {
       throw new ExpressionCompileError(
-        'Engine JSON values can only be passed or assigned as a whole',
+        'Structured values can only be passed or assigned as a whole',
         token.offset,
       );
     }
@@ -378,9 +381,9 @@ export function compileTextTemplate(
         variables,
         characters,
       );
-      if (compiledExpression.valueType.kind === 'json') {
+      if (['json', 'array', 'map'].includes(compiledExpression.valueType.kind)) {
         throw new ExpressionCompileError(
-          'Engine JSON values cannot be interpolated into player-facing text',
+          'Structured values cannot be interpolated into player-facing text',
           index + 1,
         );
       }

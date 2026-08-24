@@ -10,6 +10,10 @@ export type ValueType =
   | { kind: 'boolean'; nullable?: boolean }
   | { kind: 'number'; nullable?: boolean }
   | { kind: 'string'; nullable?: boolean }
+  /** Opaque JSON array stored and passed as a complete value. */
+  | { kind: 'array'; nullable?: boolean }
+  /** Opaque JSON object used as a string-keyed map and passed as a complete value. */
+  | { kind: 'map'; nullable?: boolean }
   /** Opaque JSON contract passed intact to the engine Adapter; Story expressions cannot inspect it. */
   | { kind: 'json'; name: string; nullable?: boolean }
   | { kind: 'enum'; name: string; values: readonly string[]; nullable?: boolean }
@@ -37,6 +41,10 @@ export function runtimeValueMatchesType(value: RuntimeValue, type: ValueType): b
   switch (type.kind) {
     case 'any':
       return true;
+    case 'array':
+      return Array.isArray(value);
+    case 'map':
+      return typeof value === 'object' && !Array.isArray(value);
     case 'boolean':
       return typeof value === 'boolean';
     case 'number':

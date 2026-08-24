@@ -358,7 +358,13 @@ function serializeGraph(source: SourceGraph): Node {
 }
 
 function valueTypeName(valueType: ValueType): string {
-  if (valueType.kind === 'boolean' || valueType.kind === 'number' || valueType.kind === 'string') {
+  if (
+    valueType.kind === 'boolean' ||
+    valueType.kind === 'number' ||
+    valueType.kind === 'string' ||
+    valueType.kind === 'array' ||
+    valueType.kind === 'map'
+  ) {
     return valueType.kind;
   }
   if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
@@ -366,7 +372,12 @@ function valueTypeName(valueType: ValueType): string {
 }
 
 function serializeVariableDefault(variable: VariableDefinition): null | boolean | number | string {
-  if (variable.valueType.kind === 'json') return JSON.stringify(variable.defaultValue);
+  if (
+    variable.valueType.kind === 'json' ||
+    variable.valueType.kind === 'array' ||
+    variable.valueType.kind === 'map'
+  )
+    return JSON.stringify(variable.defaultValue);
   if (
     variable.defaultValue === null ||
     typeof variable.defaultValue === 'boolean' ||
@@ -1032,18 +1043,40 @@ function parseGraph(graph: Node, legacyOutputId?: VariableDefinition['id']): Sou
 
 function parseValueType(value: unknown, path: string): ValueType {
   const kind = requiredString(value, path);
-  if (kind === 'boolean' || kind === 'number' || kind === 'string') return { kind };
+  if (
+    kind === 'boolean' ||
+    kind === 'number' ||
+    kind === 'string' ||
+    kind === 'array' ||
+    kind === 'map'
+  )
+    return { kind };
   if (kind.startsWith('json:') && kind.slice(5).trim())
     return { kind: 'json', name: kind.slice(5) };
   throw new StoryFormatError(`${path} contains unsupported type ${kind}`);
 }
 
 function parseVariableDefault(valueType: ValueType, value: unknown, path: string): RuntimeValue {
-  if (valueType.kind === 'json') {
+  if (
+    valueType.kind === 'json' ||
+    valueType.kind === 'array' ||
+    valueType.kind === 'map'
+  ) {
     if (typeof value !== 'string') throw new StoryFormatError(`${path} must contain JSON text`);
     try {
-      return JSON.parse(value) as RuntimeValue;
-    } catch {
+      const parsed = JSON.parse(value) as RuntimeValue;
+      if (valueType.kind === 'array' && !Array.isArray(parsed)) {
+        throw new StoryFormatError(`${path} must contain a JSON array`);
+      }
+      if (
+        valueType.kind === 'map' &&
+        (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+      ) {
+        throw new StoryFormatError(`${path} must contain a JSON object`);
+      }
+      return parsed;
+    } catch (error) {
+      if (error instanceof StoryFormatError) throw error;
       throw new StoryFormatError(`${path} contains invalid JSON`);
     }
   }

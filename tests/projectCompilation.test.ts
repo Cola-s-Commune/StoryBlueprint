@@ -92,6 +92,14 @@ function project(): StoryProjectDocument {
         valueType: { kind: 'boolean' },
         defaultValue: false,
       },
+      {
+        id: 'v_projectpayloads',
+        name: 'projectPayloads',
+        displayName: 'Project Payloads',
+        scope: 'project',
+        valueType: { kind: 'array' },
+        defaultValue: [{ $storyBlueprintType: 'et_editor_only', name: 'kept' }],
+      },
     ],
     events: [
       {
@@ -119,6 +127,13 @@ describe('project compilation', () => {
     expect(result.project.stories.s_projectstory.program.variables).toContainEqual(
       expect.objectContaining({ id: 'v_projectflag', scope: 'project' }),
     );
+    expect(result.project.stories.s_projectstory.program.variables).toContainEqual(
+      expect.objectContaining({
+        id: 'v_projectpayloads',
+        defaultValue: [{ name: 'kept' }],
+      }),
+    );
+    expect(json).not.toContain('$storyBlueprintType');
     const loaded = parseCompiledStoryProject(json);
     expect(loaded.events).toMatchObject([
       {

@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { createStableId, engineValueMatchesFieldType } from '@story-blueprint/common';
+import {
+  ENGINE_OBJECT_TYPE_MARKER,
+  createStableId,
+  engineObjectTypeId,
+  engineValueMatchesFieldType,
+  stripEngineObjectTypeMarkers,
+  tagEngineObject,
+} from '@story-blueprint/common';
 import type {
   CharacterSource,
   CharacterId,
@@ -25,8 +33,15 @@ import { BUILTIN_CHARACTER_TEMPLATES, updateCharacterTags } from '../../graph/ch
 import panelStyles from './Panel.module.css';
 import styles from './StoryData.module.css';
 
+const JsonMonacoEditor = lazy(() =>
+  import('./JsonMonacoEditor').then((module) => ({ default: module.JsonMonacoEditor })),
+);
+
 type ScalarKind = 'boolean' | 'number' | 'string';
 type EditableKind = ScalarKind | 'json';
+type VariableEditableKind = EditableKind | 'array' | 'map';
+
+const stopInspectorEvent = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
 function engineTypeName(valueType: ValueType): string {
   return valueType.kind === 'json' ? valueType.name : 'EnginePayload';
@@ -42,6 +57,7 @@ function defaultForEngineFieldType(
   type: EngineFieldType,
   engineTypes: readonly EngineTypeDefinition[],
 ): RuntimeValue {
+  if (type.kind === 'any') return null;
   if (type.kind === 'boolean') return false;
   if (type.kind === 'number') return 0;
   if (type.kind === 'string') return '';
@@ -59,6 +75,7 @@ function mapKeyMatchesType(key: string, type: EngineMapKeyType): boolean {
   if (!key) return false;
   if (type.kind === 'string') return true;
   if (type.kind === 'number') return Number.isFinite(Number(key));
+  if (type.kind === 'character-ref' || type.kind === 'asset-ref') return Boolean(key);
   return type.values.includes(key);
 }
 
@@ -66,11 +83,15 @@ function MapKeyInput({
   value,
   type,
   usedKeys,
+  characters,
+  assets,
   onCommit,
 }: {
   value: string;
   type: EngineMapKeyType;
   usedKeys: readonly string[];
+  characters: readonly CharacterSource[];
+  assets: readonly AssetSource[];
   onCommit: (key: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
@@ -85,6 +106,25 @@ function MapKeyInput({
             disabled={option !== value && usedKeys.includes(option)}
           >
             {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (type.kind === 'character-ref' || type.kind === 'asset-ref') {
+    const options =
+      type.kind === 'character-ref'
+        ? characters.map((character) => ({ id: character.id, label: character.displayName }))
+        : assets.map((asset) => ({ id: asset.id, label: `${asset.displayName} · ${asset.kind}` }));
+    return (
+      <select value={value} onChange={(event) => onCommit(event.target.value)}>
+        {options.map((option) => (
+          <option
+            key={option.id}
+            value={option.id}
+            disabled={option.id !== value && usedKeys.includes(option.id)}
+          >
+            {option.label}
           </option>
         ))}
       </select>
@@ -120,6 +160,632 @@ function MapKeyInput({
   );
 }
 
+type AnyJsonKind =
+  | 'null'
+  | 'boolean'
+  | 'number'
+  | 'string'
+  | 'character-ref'
+  | 'asset-ref'
+  | 'array'
+  | 'object';
+
+function anyJsonKind(
+  value: RuntimeValue,
+  characters: readonly CharacterSource[],
+  assets: readonly AssetSource[],
+): AnyJsonKind {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'object') return 'object';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return 'number';
+  if (characters.some((character) => character.id === value)) return 'character-ref';
+  if (assets.some((asset) => asset.id === value)) return 'asset-ref';
+  return 'string';
+}
+
+function defaultAnyJsonValue(kind: AnyJsonKind): RuntimeValue {
+  if (kind === 'null') return null;
+  if (kind === 'boolean') return false;
+  if (kind === 'number') return 0;
+  if (kind === 'string') return '';
+  if (kind === 'array') return [];
+  return {};
+}
+
+const ARRAY_REORDER_MIME = 'application/x-story-blueprint-array-index';
+
+function reorderArrayItems(
+  items: readonly RuntimeValue[],
+  fromIndex: number,
+  targetIndex: number,
+  side: 'before' | 'after',
+): RuntimeValue[] {
+  const reordered = [...items];
+  if (
+    fromIndex < 0 ||
+    targetIndex < 0 ||
+    fromIndex >= reordered.length ||
+    targetIndex >= reordered.length
+  ) {
+    return reordered;
+  }
+  const [moved] = reordered.splice(fromIndex, 1);
+  let insertionIndex = targetIndex + (side === 'after' ? 1 : 0);
+  if (fromIndex < insertionIndex) insertionIndex -= 1;
+  reordered.splice(insertionIndex, 0, moved!);
+  return reordered;
+}
+
+function readArrayDragIndex(data: string, ownerId: string): number | undefined {
+  try {
+    const payload = JSON.parse(data) as { ownerId?: unknown; index?: unknown };
+    return payload.ownerId === ownerId && Number.isInteger(payload.index)
+      ? (payload.index as number)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function ConfirmDeleteButton({
+  title,
+  message,
+  ariaLabel,
+  buttonText = '−',
+  buttonTitle = 'Delete',
+  confirmText = 'Delete',
+  disabled = false,
+  onConfirm,
+}: {
+  title: string;
+  message: string;
+  ariaLabel: string;
+  buttonText?: ReactNode;
+  buttonTitle?: string;
+  confirmText?: string;
+  disabled?: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        title={buttonTitle}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        {buttonText}
+      </button>
+      {open &&
+        createPortal(
+          <div
+            className={styles.namedCreateBackdrop}
+            role="presentation"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setOpen(false);
+            }}
+          >
+            <div
+              className={styles.schemaMigrationDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-label={title}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className={styles.detailsTitle}>{title}</div>
+              <p>{message}</p>
+              <div className={styles.schemaMigrationActions}>
+                <button
+                  type="button"
+                  className={styles.dangerButton}
+                  onClick={() => {
+                    setOpen(false);
+                    onConfirm();
+                  }}
+                >
+                  {confirmText}
+                </button>
+                <button type="button" onClick={() => setOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M5.5 2.5h5l.5 1.5h2v1H3V4h2l.5-1.5ZM4.5 6h7l-.45 7H4.95L4.5 6Zm2 1v4.5h1V7h-1Zm2 0v4.5h1V7h-1Z" />
+    </svg>
+  );
+}
+
+const MAP_REORDER_MIME = 'application/x-story-blueprint-map-key';
+
+function reorderMapEntries(
+  record: Readonly<Record<string, RuntimeValue>>,
+  fromKey: string,
+  targetKey: string,
+  side: 'before' | 'after',
+): Record<string, RuntimeValue> {
+  if (fromKey === targetKey || !(fromKey in record) || !(targetKey in record)) return { ...record };
+  const entries = Object.entries(record);
+  const fromIndex = entries.findIndex(([key]) => key === fromKey);
+  const targetIndex = entries.findIndex(([key]) => key === targetKey);
+  const [moved] = entries.splice(fromIndex, 1);
+  let insertionIndex = targetIndex + (side === 'after' ? 1 : 0);
+  if (fromIndex < insertionIndex) insertionIndex -= 1;
+  entries.splice(insertionIndex, 0, moved!);
+  return Object.fromEntries(entries);
+}
+
+function readMapDragKey(data: string, ownerId: string): string | undefined {
+  try {
+    const payload = JSON.parse(data) as { ownerId?: unknown; key?: unknown };
+    return payload.ownerId === ownerId && typeof payload.key === 'string'
+      ? payload.key
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function containsEngineObjectMarker(
+  value: RuntimeValue,
+): boolean {
+  if (Array.isArray(value)) return value.some(containsEngineObjectMarker);
+  if (value !== null && typeof value === 'object') {
+    if (ENGINE_OBJECT_TYPE_MARKER in value) return true;
+    return Object.values(value).some(containsEngineObjectMarker);
+  }
+  return false;
+}
+
+function restoreEngineObjectMarkers(
+  edited: RuntimeValue,
+  original: RuntimeValue,
+  type: EngineFieldType | undefined,
+  engineTypes: readonly EngineTypeDefinition[],
+): RuntimeValue {
+  if (Array.isArray(edited)) {
+    const originalItems = Array.isArray(original) ? original : [];
+    const elementType = type?.kind === 'array' ? type.elementType : type?.kind === 'any' ? type : undefined;
+    return edited.map((item, index) =>
+      restoreEngineObjectMarkers(item, originalItems[index] ?? null, elementType, engineTypes),
+    );
+  }
+  if (edited === null || typeof edited !== 'object') return edited;
+  const originalRecord: Readonly<Record<string, RuntimeValue>> =
+    original !== null && typeof original === 'object' && !Array.isArray(original)
+      ? (original as Readonly<Record<string, RuntimeValue>>)
+      : {};
+  let fieldTypes = new Map<string, EngineFieldType>();
+  let typeId = type?.kind === 'any' ? engineObjectTypeId(original) : undefined;
+  if (type?.kind === 'object') {
+    const definition = engineTypes.find((candidate) => candidate.name === type.typeName);
+    typeId = definition?.id;
+    fieldTypes = new Map(definition?.fields.map((field) => [field.name, field.type]) ?? []);
+  }
+  const valueType = type?.kind === 'map' ? type.valueType : type?.kind === 'any' ? type : undefined;
+  const restored = Object.fromEntries(
+    Object.entries(edited).map(([key, item]) => [
+      key,
+      restoreEngineObjectMarkers(
+        item,
+        originalRecord[key] ?? null,
+        fieldTypes.get(key) ?? valueType,
+        engineTypes,
+      ),
+    ]),
+  );
+  return typeId ? tagEngineObject(restored, typeId) : restored;
+}
+
+function validateMarkedEngineObjects(
+  value: RuntimeValue,
+  engineTypes: readonly EngineTypeDefinition[],
+  path = '$',
+): string | undefined {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const error = validateMarkedEngineObjects(value[index]!, engineTypes, `${path}[${index}]`);
+      if (error) return error;
+    }
+    return undefined;
+  }
+  if (value === null || typeof value !== 'object') return undefined;
+  const typeId = engineObjectTypeId(value);
+  if (typeId) {
+    const definition = engineTypes.find((candidate) => candidate.id === typeId);
+    if (!definition) return `${path}.${ENGINE_OBJECT_TYPE_MARKER} references missing Engine Type ${typeId}.`;
+    if (
+      !engineValueMatchesFieldType(
+        value,
+        { kind: 'object', typeName: definition.name },
+        engineTypes,
+      )
+    ) {
+      return `${path} does not match Engine Type ${definition.displayName}.`;
+    }
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key === ENGINE_OBJECT_TYPE_MARKER) continue;
+    const error = validateMarkedEngineObjects(item, engineTypes, `${path}.${key}`);
+    if (error) return error;
+  }
+  return undefined;
+}
+
+function AnyJsonFields({
+  value,
+  engineTypes,
+  characters,
+  assets,
+  onChange,
+}: {
+  value: RuntimeValue;
+  engineTypes: readonly EngineTypeDefinition[];
+  characters: readonly CharacterSource[];
+  assets: readonly AssetSource[];
+  onChange: (value: RuntimeValue) => void;
+}) {
+  const arrayOwnerId = useId();
+  const [arrayDropTarget, setArrayDropTarget] = useState<{
+    index: number;
+    side: 'before' | 'after';
+  }>();
+  const kind = anyJsonKind(value, characters, assets);
+  const markedObjectType = engineTypes.find(
+    (definition) => definition.id === engineObjectTypeId(value),
+  );
+  const matchingObjectType =
+    kind === 'object'
+      ? markedObjectType ?? engineTypes.find((definition) => {
+          if (definition.fields.length === 0) return false;
+          const keys = Object.keys(value as Readonly<Record<string, RuntimeValue>>).filter(
+            (key) => key !== ENGINE_OBJECT_TYPE_MARKER,
+          );
+          return (
+            keys.length === definition.fields.length &&
+            definition.fields.every((field) => keys.includes(field.name)) &&
+            engineValueMatchesFieldType(
+              value,
+              { kind: 'object', typeName: definition.name },
+              engineTypes,
+            )
+          );
+        })
+      : undefined;
+  const editor = (() => {
+    if (kind === 'null') return <span className={styles.anyJsonNull}>null</span>;
+    if (kind === 'boolean') {
+      return (
+        <select value={String(value)} onChange={(event) => onChange(event.target.value === 'true')}>
+          <option value="false">False</option>
+          <option value="true">True</option>
+        </select>
+      );
+    }
+    if (kind === 'number') {
+      return (
+        <input
+          type="number"
+          value={value as number}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      );
+    }
+    if (kind === 'string') {
+      return <input value={value as string} onChange={(event) => onChange(event.target.value)} />;
+    }
+    if (kind === 'character-ref') {
+      return (
+        <select value={value as string} onChange={(event) => onChange(event.target.value)}>
+          {characters.map((character) => (
+            <option key={character.id} value={character.id}>
+              {character.displayName}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (kind === 'asset-ref') {
+      return (
+        <select value={value as string} onChange={(event) => onChange(event.target.value)}>
+          {assets.map((asset) => (
+            <option key={asset.id} value={asset.id}>
+              {asset.displayName} · {asset.kind}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (kind === 'array') {
+      const items = [...(value as readonly RuntimeValue[])];
+      return (
+        <details className={styles.structuredTreeGroup} open>
+          <summary>
+            <span>Items · {items.length}</span>
+            <button
+              type="button"
+              aria-label="Add Array item"
+              title="Add Item"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onChange([...items, null]);
+              }}
+            >
+              +
+            </button>
+            <ConfirmDeleteButton
+              title="Clear all Array items?"
+              message="Every item and all nested values in this Array will be removed."
+              ariaLabel="Clear all Array items"
+              buttonText={<TrashIcon />}
+              buttonTitle="Clear All"
+              confirmText="Clear All"
+              disabled={items.length === 0}
+              onConfirm={() => onChange([])}
+            />
+          </summary>
+          <div className={styles.structuredArray}>
+          {items.length === 0 && (
+            <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
+          )}
+          {items.map((item, index) => (
+            <div
+              className={`${styles.structuredArrayItem} ${
+                arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
+              }`}
+              data-drop-side={arrayDropTarget?.index === index ? arrayDropTarget.side : undefined}
+              key={index}
+              onDragOver={(event) => {
+                if (event.dataTransfer.types.includes(ARRAY_REORDER_MIME)) {
+                  event.preventDefault();
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  setArrayDropTarget({
+                    index,
+                    side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
+                  });
+                }
+              }}
+              onDrop={(event) => {
+                const fromIndex = readArrayDragIndex(
+                  event.dataTransfer.getData(ARRAY_REORDER_MIME),
+                  arrayOwnerId,
+                );
+                if (fromIndex === undefined) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onChange(
+                  reorderArrayItems(
+                    items,
+                    fromIndex,
+                    index,
+                    arrayDropTarget?.index === index ? arrayDropTarget.side : 'before',
+                  ),
+                );
+                setArrayDropTarget(undefined);
+              }}
+            >
+              <span
+                className={styles.structuredItemLabel}
+                draggable
+                title="Drag to reorder"
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  setArrayDropTarget(undefined);
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData(
+                    ARRAY_REORDER_MIME,
+                    JSON.stringify({ ownerId: arrayOwnerId, index }),
+                  );
+                }}
+                onDragEnd={() => setArrayDropTarget(undefined)}
+              >
+                [{index}]
+              </span>
+              <AnyJsonFields
+                value={item}
+                engineTypes={engineTypes}
+                characters={characters}
+                assets={assets}
+                onChange={(next) => {
+                  const updated = [...items];
+                  updated[index] = next;
+                  onChange(updated);
+                }}
+              />
+              <span className={styles.structuredArrayActions}>
+                <button
+                  type="button"
+                  title="Insert Above"
+                  aria-label={`Insert item above ${index}`}
+                  onClick={() => {
+                    const updated = [...items];
+                    updated.splice(index, 0, null);
+                    onChange(updated);
+                  }}
+                >
+                  +↑
+                </button>
+                <button
+                  type="button"
+                  title="Insert Below"
+                  aria-label={`Insert item below ${index}`}
+                  onClick={() => {
+                    const updated = [...items];
+                    updated.splice(index + 1, 0, null);
+                    onChange(updated);
+                  }}
+                >
+                  +↓
+                </button>
+                <button
+                  type="button"
+                  title="Delete"
+                  aria-label={'Delete Array element ' + index}
+                  onClick={() => onChange(items.filter((_, i) => i !== index))}
+                >
+                  −
+                </button>
+              </span>
+            </div>
+          ))}
+          </div>
+        </details>
+      );
+    }
+    if (matchingObjectType) {
+      return (
+        <StructuredJsonFields
+          type={{ kind: 'object', typeName: matchingObjectType.name }}
+          value={value}
+          engineTypes={engineTypes}
+          characters={characters}
+          assets={assets}
+          onChange={(next) => onChange(tagEngineObject(next, matchingObjectType.id))}
+        />
+      );
+    }
+    const record = Object.fromEntries(
+      Object.entries(value as Readonly<Record<string, RuntimeValue>>).filter(
+        ([key]) => key !== ENGINE_OBJECT_TYPE_MARKER,
+      ),
+    );
+    const keys = Object.keys(record);
+    let nextIndex = keys.length + 1;
+    let nextKey = `field${nextIndex}`;
+    while (keys.includes(nextKey)) nextKey = `field${++nextIndex}`;
+    return (
+      <details className={styles.structuredTreeGroup} open>
+        <summary>
+          <span>Fields · {keys.length}</span>
+          <button
+            type="button"
+            aria-label="Add Object field"
+            title="Add Field"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onChange({ ...record, [nextKey]: null });
+            }}
+            >
+              +
+            </button>
+        </summary>
+        <div className={styles.structuredMap}>
+        {keys.length === 0 && (
+          <div className={styles.structuredEmpty}>No fields. Use + to add the first field.</div>
+        )}
+        {keys.map((key) => (
+          <div className={styles.structuredMapItem} key={key}>
+            <MapKeyInput
+              value={key}
+              type={{ kind: 'string' }}
+              usedKeys={keys}
+              characters={[]}
+              assets={[]}
+              onCommit={(renamed) =>
+                onChange(
+                  Object.fromEntries(
+                    Object.entries(record).map(([candidate, item]) => [
+                      candidate === key ? renamed : candidate,
+                      item,
+                    ]),
+                  ),
+                )
+              }
+            />
+            <AnyJsonFields
+              value={record[key]!}
+              engineTypes={engineTypes}
+              characters={characters}
+              assets={assets}
+              onChange={(next) => onChange({ ...record, [key]: next })}
+            />
+            <ConfirmDeleteButton
+              title={'Delete field ' + key + '?'}
+              message="The field and its value will be removed."
+              ariaLabel={'Delete Object field ' + key}
+              onConfirm={() =>
+                onChange(
+                  Object.fromEntries(Object.entries(record).filter(([name]) => name !== key)),
+                )
+              }
+            />
+          </div>
+        ))}
+        </div>
+      </details>
+    );
+  })();
+  return (
+    <div className={styles.anyJsonValue}>
+      <select
+        aria-label="JSON item type"
+        value={matchingObjectType ? `engine-object:${matchingObjectType.name}` : kind}
+        onChange={(event) => {
+          const selection = event.target.value;
+          if (selection.startsWith('engine-object:')) {
+            const definition = engineTypes.find(
+              (candidate) => candidate.name === selection.slice('engine-object:'.length),
+            );
+            if (!definition) return;
+            onChange(
+              tagEngineObject(defaultForEngineFieldType(
+                { kind: 'object', typeName: selection.slice('engine-object:'.length) },
+                engineTypes,
+              ), definition.id),
+            );
+            return;
+          }
+          if (selection === 'character-ref') {
+            onChange(characters[0]?.id ?? null);
+            return;
+          }
+          if (selection === 'asset-ref') {
+            onChange(assets[0]?.id ?? null);
+            return;
+          }
+          onChange(defaultAnyJsonValue(selection as AnyJsonKind));
+        }}
+      >
+        <option value="null">Null</option>
+        <option value="boolean">Boolean</option>
+        <option value="number">Number</option>
+        <option value="string">String</option>
+        <option value="character-ref" disabled={characters.length === 0}>
+          Character Reference
+        </option>
+        <option value="asset-ref" disabled={assets.length === 0}>
+          Asset Reference
+        </option>
+        <option value="array">Array</option>
+        <option value="object">Object · Free-form</option>
+        {engineTypes.map((definition) => (
+          <option key={definition.id} value={`engine-object:${definition.name}`}>
+            Object · {definition.displayName}
+          </option>
+        ))}
+      </select>
+      {editor}
+    </div>
+  );
+}
+
 function StructuredJsonFields({
   type,
   value,
@@ -135,6 +801,26 @@ function StructuredJsonFields({
   assets: readonly AssetSource[];
   onChange: (value: RuntimeValue) => void;
 }) {
+  const arrayOwnerId = useId();
+  const [arrayDropTarget, setArrayDropTarget] = useState<{
+    index: number;
+    side: 'before' | 'after';
+  }>();
+  const mapOwnerId = useId();
+  const [mapDropTarget, setMapDropTarget] = useState<{
+    key: string;
+    side: 'before' | 'after';
+  }>();
+  if (type.kind === 'any')
+    return (
+      <AnyJsonFields
+        value={value}
+        engineTypes={engineTypes}
+        characters={characters}
+        assets={assets}
+        onChange={onChange}
+      />
+    );
   if (type.kind === 'boolean') {
     return (
       <select value={String(value)} onChange={(event) => onChange(event.target.value === 'true')}>
@@ -207,9 +893,89 @@ function StructuredJsonFields({
   if (type.kind === 'array') {
     const items = Array.isArray(value) ? [...value] : [];
     return (
-      <div className={styles.structuredArray}>
+      <details className={styles.structuredTreeGroup} open>
+        <summary>
+          <span>Items · {items.length}</span>
+          <button
+            type="button"
+            aria-label="Add Array item"
+            title="Add Item"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onChange([...items, defaultForEngineFieldType(type.elementType, engineTypes)]);
+            }}
+          >
+            +
+          </button>
+          <ConfirmDeleteButton
+            title="Clear all Array items?"
+            message="Every item and all nested values in this Array will be removed."
+            ariaLabel="Clear all Array items"
+            buttonText={<TrashIcon />}
+            buttonTitle="Clear All"
+            confirmText="Clear All"
+            disabled={items.length === 0}
+            onConfirm={() => onChange([])}
+          />
+        </summary>
+        <div className={styles.structuredArray}>
+        {items.length === 0 && (
+          <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
+        )}
         {items.map((item, index) => (
-          <div className={styles.structuredArrayItem} key={index}>
+          <div
+            className={`${styles.structuredArrayItem} ${
+              arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
+            }`}
+            data-drop-side={arrayDropTarget?.index === index ? arrayDropTarget.side : undefined}
+            key={index}
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes(ARRAY_REORDER_MIME)) {
+                event.preventDefault();
+                const bounds = event.currentTarget.getBoundingClientRect();
+                setArrayDropTarget({
+                  index,
+                  side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
+                });
+              }
+            }}
+            onDrop={(event) => {
+              const fromIndex = readArrayDragIndex(
+                event.dataTransfer.getData(ARRAY_REORDER_MIME),
+                arrayOwnerId,
+              );
+              if (fromIndex === undefined) return;
+              event.preventDefault();
+              event.stopPropagation();
+              onChange(
+                reorderArrayItems(
+                  items,
+                  fromIndex,
+                  index,
+                  arrayDropTarget?.index === index ? arrayDropTarget.side : 'before',
+                ),
+              );
+              setArrayDropTarget(undefined);
+            }}
+          >
+            <span
+              className={styles.structuredItemLabel}
+              draggable
+              title="Drag to reorder"
+              onDragStart={(event) => {
+                event.stopPropagation();
+                setArrayDropTarget(undefined);
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData(
+                  ARRAY_REORDER_MIME,
+                  JSON.stringify({ ownerId: arrayOwnerId, index }),
+                );
+              }}
+              onDragEnd={() => setArrayDropTarget(undefined)}
+            >
+              [{index}]
+            </span>
             <StructuredJsonFields
               type={type.elementType}
               value={item}
@@ -222,24 +988,46 @@ function StructuredJsonFields({
                 onChange(updated);
               }}
             />
-            <button
-              type="button"
-              onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}
-            >
-              −
-            </button>
+            <span className={styles.structuredArrayActions}>
+              <button
+                type="button"
+                title="Insert Above"
+                aria-label={`Insert item above ${index}`}
+                onClick={() => {
+                  const updated = [...items];
+                  updated.splice(index, 0, defaultForEngineFieldType(type.elementType, engineTypes));
+                  onChange(updated);
+                }}
+              >
+                +↑
+              </button>
+              <button
+                type="button"
+                title="Insert Below"
+                aria-label={`Insert item below ${index}`}
+                onClick={() => {
+                  const updated = [...items];
+                  updated.splice(index + 1, 0, defaultForEngineFieldType(type.elementType, engineTypes));
+                  onChange(updated);
+                }}
+              >
+                +↓
+              </button>
+              <button
+                type="button"
+                title="Delete"
+                aria-label={'Delete Array element ' + index}
+                onClick={() =>
+                  onChange(items.filter((_, itemIndex) => itemIndex !== index))
+                }
+              >
+                −
+              </button>
+            </span>
           </div>
         ))}
-        <button
-          type="button"
-          className={styles.secondaryButton}
-          onClick={() =>
-            onChange([...items, defaultForEngineFieldType(type.elementType, engineTypes)])
-          }
-        >
-          + Add Item
-        </button>
-      </div>
+        </div>
+      </details>
     );
   }
   if (type.kind === 'map') {
@@ -257,19 +1045,111 @@ function StructuredJsonFields({
         while (keys.includes(String(index))) index += 1;
         return String(index);
       }
+      if (type.keyType.kind === 'character-ref') {
+        return characters.find((character) => !keys.includes(character.id))?.id;
+      }
+      if (type.keyType.kind === 'asset-ref') {
+        return assets.find((asset) => !keys.includes(asset.id))?.id;
+      }
       let index = keys.length + 1;
       let candidate = `key${index}`;
       while (keys.includes(candidate)) candidate = `key${++index}`;
       return candidate;
     })();
     return (
-      <div className={styles.structuredMap}>
+      <details className={styles.structuredTreeGroup} open>
+        <summary>
+          <span>Entries · {keys.length}</span>
+          <button
+            type="button"
+            aria-label="Add Map entry"
+            title="Add Entry"
+            disabled={!nextKey}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!nextKey) return;
+              onChange({
+                ...record,
+                [nextKey]: defaultForEngineFieldType(type.valueType, engineTypes),
+              });
+            }}
+          >
+            +
+          </button>
+          <ConfirmDeleteButton
+            title="Clear all Map entries?"
+            message="Every key and value in this Map will be removed."
+            ariaLabel="Clear all Map entries"
+            buttonText={<TrashIcon />}
+            buttonTitle="Clear All"
+            confirmText="Clear All"
+            disabled={keys.length === 0}
+            onConfirm={() => onChange({})}
+          />
+        </summary>
+        <div className={styles.structuredMap}>
+        {keys.length === 0 && (
+          <div className={styles.structuredEmpty}>No entries. Use + to add the first entry.</div>
+        )}
         {keys.map((key) => (
-          <div className={styles.structuredMapItem} key={key}>
+          <div
+            className={`${styles.structuredMapItem} ${styles.structuredMapEntry} ${
+              mapDropTarget?.key === key ? styles.structuredMapDropTarget : ''
+            }`}
+            data-drop-side={mapDropTarget?.key === key ? mapDropTarget.side : undefined}
+            key={key}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes(MAP_REORDER_MIME)) return;
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              setMapDropTarget({
+                key,
+                side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
+              });
+            }}
+            onDrop={(event) => {
+              const fromKey = readMapDragKey(
+                event.dataTransfer.getData(MAP_REORDER_MIME),
+                mapOwnerId,
+              );
+              if (!fromKey) return;
+              event.preventDefault();
+              event.stopPropagation();
+              onChange(
+                reorderMapEntries(
+                  record,
+                  fromKey,
+                  key,
+                  mapDropTarget?.key === key ? mapDropTarget.side : 'before',
+                ),
+              );
+              setMapDropTarget(undefined);
+            }}
+          >
+            <span
+              className={styles.mapDragHandle}
+              draggable
+              title="Drag to reorder"
+              onDragStart={(event) => {
+                event.stopPropagation();
+                setMapDropTarget(undefined);
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData(
+                  MAP_REORDER_MIME,
+                  JSON.stringify({ ownerId: mapOwnerId, key }),
+                );
+              }}
+              onDragEnd={() => setMapDropTarget(undefined)}
+            >
+              ⠿
+            </span>
             <MapKeyInput
               value={key}
               type={type.keyType}
               usedKeys={keys}
+              characters={characters}
+              assets={assets}
               onCommit={(nextKey) =>
                 onChange(
                   Object.fromEntries(
@@ -291,7 +1171,8 @@ function StructuredJsonFields({
             />
             <button
               type="button"
-              aria-label={`Remove Map item ${key}`}
+              title="Delete"
+              aria-label={'Delete Map entry ' + key}
               onClick={() =>
                 onChange(
                   Object.fromEntries(
@@ -304,21 +1185,8 @@ function StructuredJsonFields({
             </button>
           </div>
         ))}
-        <button
-          type="button"
-          className={styles.secondaryButton}
-          disabled={!nextKey}
-          onClick={() =>
-            nextKey &&
-            onChange({
-              ...record,
-              [nextKey]: defaultForEngineFieldType(type.valueType, engineTypes),
-            })
-          }
-        >
-          + Add Entry
-        </button>
-      </div>
+        </div>
+      </details>
     );
   }
   const definition = engineTypes.find((item) => item.name === type.typeName);
@@ -333,7 +1201,9 @@ function StructuredJsonFields({
     ]),
   );
   return (
-    <div className={styles.structuredObject}>
+    <details className={styles.structuredTreeGroup} open>
+      <summary>{definition?.displayName ?? type.typeName}</summary>
+      <div className={styles.structuredObject}>
       {(definition?.fields ?? []).map((field) => (
         <label key={field.name} title={field.description}>
           <span>{field.displayName}</span>
@@ -348,7 +1218,8 @@ function StructuredJsonFields({
         </label>
       ))}
       {!definition && <small className={styles.warning}>Missing Engine Type {type.typeName}</small>}
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -367,37 +1238,54 @@ export function JsonValueInput({
   nullable?: boolean;
   engineTypes?: readonly EngineTypeDefinition[];
 }) {
-  const { characters, assets } = useStoryGraphStore();
-  const canonical = JSON.stringify(value, null, 2);
+  const { characters, assets, saveAllStories } = useStoryGraphStore();
+  const visibleValue = stripEngineObjectTypeMarkers(value);
+  const canonical = JSON.stringify(visibleValue, null, 2);
   const [draft, setDraft] = useState(canonical);
   const [error, setError] = useState<string>();
   const [raw, setRaw] = useState(false);
   const [pasteStatus, setPasteStatus] = useState<'idle' | 'pasting'>('idle');
+  const structuredEditorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setDraft(canonical);
     setError(undefined);
   }, [canonical]);
+  const expectedType =
+    fieldType ?? (schema ? { kind: 'object' as const, typeName: schema.name } : undefined);
+  const usesComplexEditor =
+    expectedType?.kind === 'object' ||
+    expectedType?.kind === 'array' ||
+    expectedType?.kind === 'map' ||
+    expectedType?.kind === 'any';
+  const restoreParsedValue = (parsed: unknown): RuntimeValue =>
+    restoreEngineObjectMarkers(parsed as RuntimeValue, value, expectedType, engineTypes);
+  const validateParsedValue = (parsed: unknown): string | undefined => {
+    if (containsEngineObjectMarker(parsed as RuntimeValue)) {
+      return '$storyBlueprintType is reserved editor metadata and must not appear in authored JSON.';
+    }
+    const runtimeValue = restoreParsedValue(parsed);
+    const markerError = validateMarkedEngineObjects(runtimeValue, engineTypes);
+    if (markerError) return markerError;
+    if (
+      expectedType &&
+      !(runtimeValue === null && nullable) &&
+      !engineValueMatchesFieldType(runtimeValue, expectedType, engineTypes)
+    ) {
+      return 'Value does not match the Engine Type Schema.';
+    }
+    return undefined;
+  };
   const commit = () => {
     try {
       const parsed = JSON.parse(draft) as RuntimeValue;
-      const expectedType =
-        fieldType ?? (schema ? { kind: 'object' as const, typeName: schema.name } : undefined);
-      if (
-        expectedType &&
-        !(parsed === null && nullable) &&
-        !engineValueMatchesFieldType(parsed, expectedType, engineTypes)
-      ) {
-        setError('Value does not match the Engine Type Schema.');
-        return;
-      }
-      onCommit(parsed);
+      const validationError = validateParsedValue(parsed);
+      if (validationError) throw new Error(validationError);
+      onCommit(restoreParsedValue(parsed));
       setError(undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
-  const expectedType =
-    fieldType ?? (schema ? { kind: 'object' as const, typeName: schema.name } : undefined);
   const resetValue = expectedType
     ? defaultForEngineFieldType(expectedType, engineTypes)
     : structuredClone(value);
@@ -409,14 +1297,9 @@ export function JsonValueInput({
         : await navigator.clipboard?.readText?.();
       if (!text) throw new Error('Clipboard does not contain JSON.');
       const parsed = JSON.parse(text) as RuntimeValue;
-      if (
-        expectedType &&
-        !(parsed === null && nullable) &&
-        !engineValueMatchesFieldType(parsed, expectedType, engineTypes)
-      ) {
-        throw new Error('Clipboard JSON does not match the Engine Type Schema.');
-      }
-      onCommit(parsed);
+      const validationError = validateParsedValue(parsed);
+      if (validationError) throw new Error(validationError);
+      onCommit(restoreParsedValue(parsed));
       setError(undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -424,9 +1307,20 @@ export function JsonValueInput({
       setPasteStatus('idle');
     }
   };
+  const formatDraft = () => {
+    try {
+      const parsed = JSON.parse(draft) as unknown;
+      const validationError = validateParsedValue(parsed);
+      if (validationError) throw new Error(validationError);
+      setDraft(JSON.stringify(parsed, null, 2));
+      setError(undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
   return (
     <>
-      {(schema || fieldType) && (
+      {usesComplexEditor && (
         <div className={styles.jsonValueToolbar}>
           <button
             type="button"
@@ -451,32 +1345,78 @@ export function JsonValueInput({
           >
             Reset
           </button>
+          {raw && (
+            <button type="button" className={styles.rawToggle} onClick={formatDraft}>
+              Format JSON
+            </button>
+          )}
+          {!raw && (
+            <>
+              <button
+                type="button"
+                className={styles.rawToggle}
+                onClick={() =>
+                  structuredEditorRef.current
+                    ?.querySelectorAll('details')
+                    .forEach((details) => details.removeAttribute('open'))
+                }
+              >
+                Collapse All
+              </button>
+              <button
+                type="button"
+                className={styles.rawToggle}
+                onClick={() =>
+                  structuredEditorRef.current
+                    ?.querySelectorAll('details')
+                    .forEach((details) => details.setAttribute('open', ''))
+                }
+              >
+                Expand All
+              </button>
+            </>
+          )}
         </div>
       )}
       {(schema || fieldType) && !raw ? (
-        <StructuredJsonFields
-          type={fieldType ?? { kind: 'object', typeName: schema!.name }}
-          value={value}
-          engineTypes={engineTypes}
-          characters={characters}
-          assets={assets}
-          onChange={onCommit}
-        />
+        usesComplexEditor ? (
+          <div ref={structuredEditorRef} className={styles.jsonStructuredEditor}>
+            <StructuredJsonFields
+              type={fieldType ?? { kind: 'object', typeName: schema!.name }}
+              value={value}
+              engineTypes={engineTypes}
+              characters={characters}
+              assets={assets}
+              onChange={onCommit}
+            />
+          </div>
+        ) : (
+          <StructuredJsonFields
+            type={fieldType ?? { kind: 'object', typeName: schema!.name }}
+            value={value}
+            engineTypes={engineTypes}
+            characters={characters}
+            assets={assets}
+            onChange={onCommit}
+          />
+        )
       ) : (
-        <textarea
-          rows={5}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === 'Escape') {
-              setDraft(canonical);
-              setError(undefined);
-              event.currentTarget.blur();
-            }
-          }}
-        />
+        <div className={styles.jsonRawEditor}>
+          <Suspense fallback={<div className={styles.jsonEditorLoading}>Loading JSON editor…</div>}>
+            <JsonMonacoEditor
+              value={draft}
+              onChange={setDraft}
+              onCommit={commit}
+              onRevert={() => {
+                setDraft(canonical);
+                setError(undefined);
+              }}
+              onDiagnostic={setError}
+              validateValue={validateParsedValue}
+              onSave={() => void saveAllStories()}
+            />
+          </Suspense>
+        </div>
       )}
       {error && <small className={styles.warning}>Invalid JSON: {error}</small>}
     </>
@@ -556,6 +1496,15 @@ export function NamedCreateControl({
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState('');
   const [selectedType, setSelectedType] = useState(defaultType ?? typeOptions?.[0]?.value ?? '');
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!creating) return;
+    const frame = requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [creating]);
   const duplicate = existingNames.includes(draft);
   const validFormat = /^[A-Za-z_][A-Za-z0-9_]*$/.test(draft);
   const valid = validFormat && !duplicate;
@@ -582,7 +1531,7 @@ export function NamedCreateControl({
           <div
             className={styles.namedCreateBackdrop}
             role="presentation"
-            onMouseDown={(event) => {
+            onPointerDown={(event) => {
               if (event.target !== event.currentTarget) return;
               setDraft('');
               setCreating(false);
@@ -601,6 +1550,8 @@ export function NamedCreateControl({
                 }
               }}
               onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
             >
               <div id="named-create-title" className={styles.namedCreateTitle}>
                 {title}
@@ -608,11 +1559,11 @@ export function NamedCreateControl({
               <label>
                 <span>Name</span>
                 <input
-                  autoFocus
+                  ref={nameInputRef}
                   value={draft}
                   placeholder={placeholder}
                   aria-label={title}
-                  onChange={(event) => setDraft(event.target.value.replace(/[^A-Za-z0-9_]/g, ''))}
+                  onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
                     event.stopPropagation();
                     if (event.key === 'Enter') confirm();
@@ -1159,7 +2110,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     ...(substory?.outputs.map((output) => output.variable) ?? []),
     ...(substory?.localVariables ?? []),
   ].some((candidate) => candidate.id !== variable.id && candidate.name === variable.name);
-  const kind = variable.valueType.kind as EditableKind;
+  const kind = variable.valueType.kind as VariableEditableKind;
   const selectedEngineTypeName = engineTypeName(variable.valueType);
   const projectIndexUnavailable =
     variable.scope === 'project' &&
@@ -1196,7 +2147,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           disabled={projectIndexUnavailable || references.length > 0}
           value={kind}
           onChange={(event) => {
-            const nextKind = event.target.value as EditableKind;
+            const nextKind = event.target.value as VariableEditableKind;
             const nextEngineTypeName =
               nextKind === 'json' ? (engineTypes[0]?.name ?? addEngineType()) : undefined;
             if (nextKind === 'json' && !nextEngineTypeName) return;
@@ -1211,13 +2162,19 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                       { kind: 'object', typeName: nextEngineTypeName! },
                       engineTypes,
                     )
-                  : defaultForType(nextKind),
+                  : nextKind === 'array'
+                    ? []
+                    : nextKind === 'map'
+                      ? {}
+                      : defaultForType(nextKind),
             });
           }}
         >
           <option value="boolean">Boolean</option>
           <option value="number">Number</option>
           <option value="string">String</option>
+          <option value="array">Array</option>
+          <option value="map">Map / Dictionary</option>
           <option value="json">Engine JSON</option>
         </select>
       </label>
@@ -1303,10 +2260,17 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       </label>
       <div className={styles.fieldGroup}>
         <span>Default</span>
-        {kind === 'json' ? (
+        {kind === 'json' || kind === 'array' || kind === 'map' ? (
           <JsonValueInput
             value={variable.defaultValue}
             schema={engineTypes.find((item) => item.name === engineTypeName(variable.valueType))}
+            fieldType={
+              kind === 'array'
+                ? { kind: 'array', elementType: { kind: 'any' } }
+                : kind === 'map'
+                  ? { kind: 'map', keyType: { kind: 'string' }, valueType: { kind: 'any' } }
+                  : undefined
+            }
             engineTypes={engineTypes}
             onCommit={(defaultValue) => updateVariable(variable.id, { defaultValue })}
           />
@@ -1477,7 +2441,14 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
     });
   };
   return (
-    <div className={styles.details}>
+    <div
+      className={styles.details}
+      onKeyDown={stopInspectorEvent}
+      onKeyUp={stopInspectorEvent}
+      onPointerDown={stopInspectorEvent}
+      onMouseDown={stopInspectorEvent}
+      onWheel={stopInspectorEvent}
+    >
       <div className={styles.detailsTitle}>Character</div>
       <label>
         <span>Name</span>
@@ -2091,6 +3062,8 @@ function EngineMapKeyTypeEditor({
         <option value="string">String</option>
         <option value="number">Number</option>
         <option value="enum">Enum</option>
+        <option value="character-ref">Character Reference</option>
+        <option value="asset-ref">Asset Reference</option>
       </select>
       {value.kind === 'enum' && (
         <CommitInput
@@ -2123,7 +3096,12 @@ function engineFieldTypeForKind(
   if (kind === 'object') {
     return {
       kind: 'object',
-      typeName: engineTypes.find((item) => item.name !== ownerName)?.name ?? ownerName,
+      typeName:
+        engineTypes.find(
+          (item) =>
+            item.name !== ownerName &&
+            !engineTypeReferencesName(item.name, ownerName, engineTypes),
+        )?.name ?? ownerName,
     };
   }
   if (kind === 'array') return { kind: 'array', elementType: { kind: 'string' } };
@@ -2133,18 +3111,46 @@ function engineFieldTypeForKind(
   return { kind };
 }
 
+function engineTypeReferencesName(
+  sourceName: string,
+  targetName: string,
+  engineTypes: readonly EngineTypeDefinition[],
+  visited: ReadonlySet<string> = new Set(),
+): boolean {
+  if (sourceName === targetName) return true;
+  if (visited.has(sourceName)) return false;
+  const source = engineTypes.find((item) => item.name === sourceName);
+  if (!source) return false;
+  const nextVisited = new Set(visited).add(sourceName);
+  const referencedNames = (type: EngineFieldType): readonly string[] =>
+    type.kind === 'object'
+      ? [type.typeName]
+      : type.kind === 'array'
+        ? referencedNames(type.elementType)
+        : type.kind === 'map'
+          ? referencedNames(type.valueType)
+          : [];
+  return source.fields.some((field) =>
+    referencedNames(field.type).some((name) =>
+      engineTypeReferencesName(name, targetName, engineTypes, nextVisited),
+    ),
+  );
+}
+
 function EngineFieldTypeEditor({
   value,
   engineTypes,
   ownerName,
   onChange,
   depth = 0,
+  allowAny = false,
 }: {
   value: EngineFieldType;
   engineTypes: readonly EngineTypeDefinition[];
   ownerName: string;
   onChange: (value: EngineFieldType) => void;
   depth?: number;
+  allowAny?: boolean;
 }) {
   const kind = value.kind;
   const changeKind = (nextKind: EngineFieldType['kind']) =>
@@ -2155,13 +3161,23 @@ function EngineFieldTypeEditor({
         value={kind}
         onChange={(event) => changeKind(event.target.value as EngineFieldType['kind'])}
       >
+        {allowAny && <option value="any">Any JSON</option>}
         <option value="boolean">Boolean</option>
         <option value="number">Number</option>
         <option value="string">String</option>
         <option value="character-ref">Character Reference</option>
         <option value="asset-ref">Asset Reference</option>
         <option value="enum">Enum</option>
-        <option value="object" disabled={!engineTypes.some((item) => item.name !== ownerName)}>
+        <option
+          value="object"
+          disabled={
+            !engineTypes.some(
+              (item) =>
+                item.name !== ownerName &&
+                !engineTypeReferencesName(item.name, ownerName, engineTypes),
+            )
+          }
+        >
           Object
         </option>
         <option value="array">Array</option>
@@ -2192,6 +3208,7 @@ function EngineFieldTypeEditor({
         >
           {engineTypes
             .filter((item) => item.name !== ownerName)
+            .filter((item) => !engineTypeReferencesName(item.name, ownerName, engineTypes))
             .map((item) => (
               <option key={item.name} value={item.name}>
                 {item.displayName}
@@ -2207,6 +3224,7 @@ function EngineFieldTypeEditor({
             engineTypes={engineTypes}
             ownerName={ownerName}
             depth={depth + 1}
+            allowAny
             onChange={(elementType) => onChange({ kind: 'array', elementType })}
           />
         </div>
@@ -2261,11 +3279,13 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
     });
   };
   const addField = (name: string, requestedKind?: string) => {
-    const type = engineFieldTypeForKind(
-      (requestedKind ?? 'string') as EngineFieldType['kind'],
-      engineTypes,
-      definition.name,
-    );
+    const type = requestedKind?.startsWith('object:')
+      ? ({ kind: 'object', typeName: requestedKind.slice(7) } as const)
+      : engineFieldTypeForKind(
+          (requestedKind ?? 'string') as EngineFieldType['kind'],
+          engineTypes,
+          definition.name,
+        );
     update({
       ...definition,
       fields: [
@@ -2283,7 +3303,14 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
   };
   return (
     <>
-      <div className={styles.details}>
+      <div
+        className={styles.details}
+        onKeyDown={stopInspectorEvent}
+        onKeyUp={stopInspectorEvent}
+        onPointerDown={stopInspectorEvent}
+        onMouseDown={stopInspectorEvent}
+        onWheel={stopInspectorEvent}
+      >
         <div className={styles.detailsTitle}>Engine Type</div>
         <label>
           <span>Internal Name</span>
@@ -2329,9 +3356,16 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
               { value: 'character-ref', label: 'Character Reference' },
               { value: 'asset-ref', label: 'Asset Reference' },
               { value: 'enum', label: 'Enum' },
-              ...(engineTypes.some((item) => item.name !== definition.name)
-                ? [{ value: 'object', label: 'Object' }]
-                : []),
+              ...engineTypes
+                .filter((item) => item.name !== definition.name)
+                .filter(
+                  (item) =>
+                    !engineTypeReferencesName(item.name, definition.name, engineTypes),
+                )
+                .map((item) => ({
+                  value: `object:${item.name}`,
+                  label: `Object · ${item.displayName}`,
+                })),
               { value: 'array', label: 'Array' },
               { value: 'map', label: 'Map / Dictionary' },
             ]}
@@ -2519,7 +3553,14 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
   );
   const references = findAssetReferences(asset.id);
   return (
-    <div className={styles.details}>
+    <div
+      className={styles.details}
+      onKeyDown={stopInspectorEvent}
+      onKeyUp={stopInspectorEvent}
+      onPointerDown={stopInspectorEvent}
+      onMouseDown={stopInspectorEvent}
+      onWheel={stopInspectorEvent}
+    >
       <div className={styles.detailsTitle}>Asset</div>
       <label>
         <span>Name</span>
@@ -2625,7 +3666,14 @@ function EventEditor({ event }: { event: EventSource }) {
     (candidate) => candidate.id !== event.id && candidate.name === event.name,
   );
   return (
-    <div className={styles.details}>
+    <div
+      className={styles.details}
+      onKeyDown={stopInspectorEvent}
+      onKeyUp={stopInspectorEvent}
+      onPointerDown={stopInspectorEvent}
+      onMouseDown={stopInspectorEvent}
+      onWheel={stopInspectorEvent}
+    >
       <div className={styles.detailsTitle}>Project Event</div>
       <label>
         <span>Name</span>
@@ -2759,7 +3807,14 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
     (candidate) => candidate.id !== signal.id && candidate.name === signal.name,
   );
   return (
-    <div className={styles.details}>
+    <div
+      className={styles.details}
+      onKeyDown={stopInspectorEvent}
+      onKeyUp={stopInspectorEvent}
+      onPointerDown={stopInspectorEvent}
+      onMouseDown={stopInspectorEvent}
+      onWheel={stopInspectorEvent}
+    >
       <div className={styles.detailsTitle}>Project Signal</div>
       <label>
         <span>Name</span>
@@ -3083,6 +4138,31 @@ export function StoryData() {
     storyDataSelection,
     selectStoryData,
   } = useStoryGraphStore();
+  const variableTypeOptions = [
+    { value: 'boolean', label: 'Boolean' },
+    { value: 'number', label: 'Number' },
+    { value: 'string', label: 'String' },
+    { value: 'array', label: 'Array · Any JSON items' },
+    { value: 'map', label: 'Map · String keys / Any JSON values' },
+    ...engineTypes.map((engineType) => ({
+      value: `json:${engineType.name}`,
+      label: `Engine JSON · ${engineType.displayName}`,
+    })),
+  ];
+  const variableTypeAndDefault = (selection?: string): [ValueType, RuntimeValue] => {
+    if (selection === 'boolean') return [{ kind: 'boolean' }, false];
+    if (selection === 'number') return [{ kind: 'number' }, 0];
+    if (selection === 'array') return [{ kind: 'array' }, []];
+    if (selection === 'map') return [{ kind: 'map' }, {}];
+    if (selection?.startsWith('json:')) {
+      const name = selection.slice(5);
+      return [
+        { kind: 'json', name },
+        defaultForEngineFieldType({ kind: 'object', typeName: name }, engineTypes),
+      ];
+    }
+    return [{ kind: 'string' }, ''];
+  };
   const activeChapter = chapters.find((chapter) => chapter.id === activeGraphId);
   const addSubstoryVariable = (kind: 'parameter' | 'local', name: string) => {
     if (!activeChapter) return;
@@ -3336,7 +4416,15 @@ export function StoryData() {
                 title="Add variable"
                 placeholder="Variable name"
                 existingNames={variables.map((variable) => variable.name)}
-                onCreate={(name) => selectStoryData({ kind: 'variable', id: addVariable(name) })}
+                defaultType="string"
+                typeOptions={variableTypeOptions}
+                onCreate={(name, selectedType) => {
+                  const [valueType, defaultValue] = variableTypeAndDefault(selectedType);
+                  selectStoryData({
+                    kind: 'variable',
+                    id: addVariable(name, valueType, defaultValue),
+                  });
+                }}
               />
             </div>
             {variables.length === 0 && <div className={styles.empty}>No variables</div>}
@@ -3407,8 +4495,11 @@ export function StoryData() {
                 title="Add project variable"
                 placeholder="Variable name"
                 existingNames={[...variables, ...projectVariables].map((item) => item.name)}
-                onCreate={(name) => {
-                  const id = addProjectVariable(name);
+                defaultType="string"
+                typeOptions={variableTypeOptions}
+                onCreate={(name, selectedType) => {
+                  const [valueType, defaultValue] = variableTypeAndDefault(selectedType);
+                  const id = addProjectVariable(name, valueType, defaultValue);
                   if (id) selectStoryData({ kind: 'variable', id });
                 }}
               />

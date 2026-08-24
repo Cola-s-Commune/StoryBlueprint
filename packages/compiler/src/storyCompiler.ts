@@ -8,6 +8,7 @@ import {
   choicePromptTextId,
   collectInkReservedTagGroups,
   parseInkDialogueMetadata,
+  stripEngineObjectTypeMarkers,
   type BlockId,
   type BranchNodeData,
   type CallSubstoryNodeData,
@@ -65,18 +66,27 @@ function programId(id: string): ProgramId {
 
 function compileOpaqueJson(
   source: string,
-  valueType: Extract<ValueType, { kind: 'json' }>,
+  valueType: Extract<ValueType, { kind: 'json' | 'array' | 'map' }>,
 ): TypedExpression {
   let value: RuntimeValue;
   try {
     value = JSON.parse(source) as RuntimeValue;
   } catch (error) {
     throw new ExpressionCompileError(
-      `Invalid JSON for engine type ${valueType.name}: ${error instanceof Error ? error.message : String(error)}`,
+      `Invalid JSON for ${valueType.kind === 'json' ? `engine type ${valueType.name}` : valueType.kind}: ${error instanceof Error ? error.message : String(error)}`,
       0,
     );
   }
-  return { kind: 'literal', value, valueType };
+  if (valueType.kind === 'array' && !Array.isArray(value)) {
+    throw new ExpressionCompileError('Array value must be a JSON array', 0);
+  }
+  if (
+    valueType.kind === 'map' &&
+    (value === null || typeof value !== 'object' || Array.isArray(value))
+  ) {
+    throw new ExpressionCompileError('Map value must be a JSON object', 0);
+  }
+  return { kind: 'literal', value: stripEngineObjectTypeMarkers(value), valueType };
 }
 
 function valueTypesMatch(actual: ValueType, expected: ValueType): boolean {
@@ -91,14 +101,24 @@ function compileAuthoredValue(
   variables: readonly VariableDefinition[],
   characters: StorySourceDocument['characters'],
 ): TypedExpression {
-  if (expectedType.kind !== 'json') return compileExpression(expression, variables, characters);
+  if (
+    expectedType.kind !== 'json' &&
+    expectedType.kind !== 'array' &&
+    expectedType.kind !== 'map'
+  )
+    return compileExpression(expression, variables, characters);
   try {
     return compileOpaqueJson(expression.source, expectedType);
   } catch (jsonError) {
     try {
       const compiled = compileExpression(expression, variables, characters);
       if (!valueTypesMatch(compiled.valueType, expectedType)) {
-        throw new ExpressionCompileError(`Engine JSON value must be ${expectedType.name}`, 0);
+        throw new ExpressionCompileError(
+          expectedType.kind === 'json'
+            ? `Engine JSON value must be ${expectedType.name}`
+            : `Value must be ${expectedType.kind}`,
+          0,
+        );
       }
       return compiled;
     } catch (expressionError) {
@@ -1044,13 +1064,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
           parameters: chapter.parameters.map((parameter) => ({
             variableId: parameter.variable.id,
             valueType: parameter.variable.valueType,
-            defaultValue: parameter.variable.defaultValue,
+            defaultValue: stripEngineObjectTypeMarkers(parameter.variable.defaultValue),
           })),
           outputs: chapter.outputs.map((output) => ({
             variableId: output.variable.id,
             valueType: output.variable.valueType,
           })),
-          localVariables: [...chapter.localVariables],
+          localVariables: chapter.localVariables.map((variable) => ({
+            ...variable,
+            defaultValue: stripEngineObjectTypeMarkers(variable.defaultValue),
+          })),
         },
       ]),
     );
@@ -1062,7 +1085,10 @@ export class DefaultStoryCompiler implements StoryCompiler {
       entryBlockId: blockId(rootEntry.id),
       blocks,
       chapters,
-      variables: allVariables,
+      variables: allVariables.map((variable) => ({
+        ...variable,
+        defaultValue: stripEngineObjectTypeMarkers(variable.defaultValue),
+      })),
       sourceLocale: options.sourceLocale,
       locales:
         Object.keys(options.translations ?? {}).length > 0

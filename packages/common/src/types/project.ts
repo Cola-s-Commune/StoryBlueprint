@@ -4,6 +4,7 @@ import type { EventSource, SignalSource } from './source';
 import type { VariableDefinition } from './values';
 
 export type EngineFieldType =
+  | { kind: 'any' }
   | { kind: 'boolean' }
   | { kind: 'number' }
   | { kind: 'string' }
@@ -17,6 +18,8 @@ export type EngineFieldType =
 export type EngineMapKeyType =
   | { kind: 'string' }
   | { kind: 'number' }
+  | { kind: 'character-ref' }
+  | { kind: 'asset-ref' }
   | { kind: 'enum'; values: readonly string[] };
 
 export interface EngineTypeField {
@@ -50,6 +53,25 @@ export function collectEngineResourceValueReferences(
   path = '',
 ): EngineResourceValueReference[] {
   if (value === null) return [];
+  if (type.kind === 'any') {
+    if (typeof value === 'string' && isStableId(value, 'character')) {
+      return [{ kind: 'character', id: value, path }];
+    }
+    if (typeof value === 'string' && isStableId(value, 'asset')) {
+      return [{ kind: 'asset', id: value, path }];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item, index) =>
+        collectEngineResourceValueReferences(item, type, definitions, `${path}[${index}]`),
+      );
+    }
+    if (typeof value === 'object') {
+      return Object.entries(value).flatMap(([key, item]) =>
+        collectEngineResourceValueReferences(item, type, definitions, path ? `${path}.${key}` : key),
+      );
+    }
+    return [];
+  }
   if (type.kind === 'character-ref' && typeof value === 'string') {
     return [{ kind: 'character', id: value, path }];
   }
@@ -58,13 +80,40 @@ export function collectEngineResourceValueReferences(
   }
   if (type.kind === 'array' && Array.isArray(value)) {
     return value.flatMap((item, index) =>
-      collectEngineResourceValueReferences(item, type.elementType, definitions, `${path}[${index}]`),
+      collectEngineResourceValueReferences(
+        item,
+        type.elementType,
+        definitions,
+        `${path}[${index}]`,
+      ),
     );
   }
   if (type.kind === 'map' && !Array.isArray(value) && typeof value === 'object') {
-    return Object.entries(value).flatMap(([key, item]) =>
-      collectEngineResourceValueReferences(item, type.valueType, definitions, path ? `${path}.${key}` : key),
-    );
+    return Object.entries(value).flatMap(([key, item]) => [
+      ...(type.keyType.kind === 'character-ref'
+        ? [
+            {
+              kind: 'character' as const,
+              id: key,
+              path: path ? `${path}.${key}.[key]` : `${key}.[key]`,
+            },
+          ]
+        : type.keyType.kind === 'asset-ref'
+          ? [
+              {
+                kind: 'asset' as const,
+                id: key,
+                path: path ? `${path}.${key}.[key]` : `${key}.[key]`,
+              },
+            ]
+          : []),
+      ...collectEngineResourceValueReferences(
+        item,
+        type.valueType,
+        definitions,
+        path ? `${path}.${key}` : key,
+      ),
+    ]);
   }
   if (type.kind !== 'object' || Array.isArray(value) || typeof value !== 'object') return [];
   const definition = definitions.find((candidate) => candidate.name === type.typeName);
@@ -91,6 +140,44 @@ export function replaceEngineResourceValueReferences(
   toId: string,
 ): { value: import('./values').RuntimeValue; count: number } {
   if (value === null) return { value, count: 0 };
+  if (type.kind === 'any') {
+    if (value === fromId && typeof value === 'string') return { value: toId, count: 1 };
+    if (Array.isArray(value)) {
+      let count = 0;
+      const next = value.map((item) => {
+        const replaced = replaceEngineResourceValueReferences(
+          item,
+          type,
+          definitions,
+          kind,
+          fromId,
+          toId,
+        );
+        count += replaced.count;
+        return replaced.value;
+      });
+      return { value: count ? next : value, count };
+    }
+    if (typeof value === 'object') {
+      let count = 0;
+      const next = Object.fromEntries(
+        Object.entries(value).map(([key, item]) => {
+          const replaced = replaceEngineResourceValueReferences(
+            item,
+            type,
+            definitions,
+            kind,
+            fromId,
+            toId,
+          );
+          count += replaced.count;
+          return [key, replaced.value];
+        }),
+      );
+      return { value: count ? next : value, count };
+    }
+    return { value, count: 0 };
+  }
   if (
     ((type.kind === 'character-ref' && kind === 'character') ||
       (type.kind === 'asset-ref' && kind === 'asset')) &&
@@ -118,6 +205,10 @@ export function replaceEngineResourceValueReferences(
     let count = 0;
     const next = Object.fromEntries(
       Object.entries(value).map(([key, item]) => {
+        const replaceKey =
+          ((type.keyType.kind === 'character-ref' && kind === 'character') ||
+            (type.keyType.kind === 'asset-ref' && kind === 'asset')) &&
+          key === fromId;
         const replaced = replaceEngineResourceValueReferences(
           item,
           type.valueType,
@@ -126,8 +217,8 @@ export function replaceEngineResourceValueReferences(
           fromId,
           toId,
         );
-        count += replaced.count;
-        return [key, replaced.value];
+        count += replaced.count + (replaceKey ? 1 : 0);
+        return [replaceKey ? toId : key, replaced.value];
       }),
     );
     return { value: count ? next : value, count };
@@ -166,14 +257,52 @@ export function clearEngineResourceValueReferences(
   nullable = false,
 ): { value: import('./values').RuntimeValue; count: number; blocked: number } {
   if (value === null) return { value, count: 0, blocked: 0 };
+  if (type.kind === 'any') {
+    if (value === fromId && typeof value === 'string') {
+      return { value: null, count: 1, blocked: 0 };
+    }
+    if (Array.isArray(value)) {
+      let count = 0;
+      const next = value.map((item) => {
+        const cleared = clearEngineResourceValueReferences(
+          item,
+          type,
+          definitions,
+          kind,
+          fromId,
+          true,
+        );
+        count += cleared.count;
+        return cleared.value;
+      });
+      return { value: count ? next : value, count, blocked: 0 };
+    }
+    if (typeof value === 'object') {
+      let count = 0;
+      const next = Object.fromEntries(
+        Object.entries(value).map(([key, item]) => {
+          const cleared = clearEngineResourceValueReferences(
+            item,
+            type,
+            definitions,
+            kind,
+            fromId,
+            true,
+          );
+          count += cleared.count;
+          return [key, cleared.value];
+        }),
+      );
+      return { value: count ? next : value, count, blocked: 0 };
+    }
+    return { value, count: 0, blocked: 0 };
+  }
   const matchingReference =
     ((type.kind === 'character-ref' && kind === 'character') ||
       (type.kind === 'asset-ref' && kind === 'asset')) &&
     value === fromId;
   if (matchingReference) {
-    return nullable
-      ? { value: null, count: 1, blocked: 0 }
-      : { value, count: 0, blocked: 1 };
+    return nullable ? { value: null, count: 1, blocked: 0 } : { value, count: 0, blocked: 1 };
   }
   if (type.kind === 'array' && Array.isArray(value)) {
     let count = 0;
@@ -206,6 +335,14 @@ export function clearEngineResourceValueReferences(
     let blocked = 0;
     const next: Record<string, import('./values').RuntimeValue> = {};
     for (const [key, item] of Object.entries(value)) {
+      const matchingKey =
+        ((type.keyType.kind === 'character-ref' && kind === 'character') ||
+          (type.keyType.kind === 'asset-ref' && kind === 'asset')) &&
+        key === fromId;
+      if (matchingKey) {
+        count += 1;
+        continue;
+      }
       const directMatch =
         ((type.valueType.kind === 'character-ref' && kind === 'character') ||
           (type.valueType.kind === 'asset-ref' && kind === 'asset')) &&
@@ -259,6 +396,16 @@ export function engineValueMatchesFieldType(
   type: EngineFieldType,
   definitions: readonly EngineTypeDefinition[],
 ): boolean {
+  if (type.kind === 'any') {
+    if (value === null || typeof value === 'boolean' || typeof value === 'string') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (Array.isArray(value)) {
+      return value.every((item) => engineValueMatchesFieldType(item, type, definitions));
+    }
+    return Object.values(value).every((item) =>
+      engineValueMatchesFieldType(item, type, definitions),
+    );
+  }
   if (type.kind === 'boolean') return typeof value === 'boolean';
   if (type.kind === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (type.kind === 'string') return typeof value === 'string';
@@ -279,7 +426,11 @@ export function engineValueMatchesFieldType(
         ? key.length > 0
         : type.keyType.kind === 'number'
           ? key.trim() !== '' && Number.isFinite(Number(key))
-          : type.keyType.values.includes(key);
+          : type.keyType.kind === 'character-ref'
+            ? isStableId(key, 'character')
+            : type.keyType.kind === 'asset-ref'
+              ? isStableId(key, 'asset')
+              : type.keyType.values.includes(key);
     return Object.entries(value).every(
       ([key, item]) =>
         keyMatches(key) && engineValueMatchesFieldType(item, type.valueType, definitions),

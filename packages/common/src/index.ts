@@ -209,7 +209,13 @@ export {
   serializeCharacterTemplate,
 } from './serialization/characterTemplateKdl';
 export {
+  ENGINE_OBJECT_TYPE_MARKER,
+  engineObjectTypeId,
+  tagEngineObject,
+  stripEngineObjectTypeMarkers,
   migrateEngineJsonValue,
+  migrateEmbeddedEngineObjects,
+  normalizeEngineTypeDefaults,
   summarizeEngineSchemaMigration,
   type EngineSchemaMigrationSummary,
 } from './engineSchema';

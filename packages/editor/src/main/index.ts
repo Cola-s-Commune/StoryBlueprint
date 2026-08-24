@@ -178,7 +178,7 @@ const WORKSPACE_GIT_POLL_INTERVAL_MS = 1_500;
 const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 const canceledAIRequests = new Set<string>();
-const AI_INSTRUCTIONS_VERSION = 3;
+const AI_INSTRUCTIONS_VERSION = 4;
 const DEFAULT_PROJECT_AGENTS = `# Story Blueprint AI Instructions
 
 Story Blueprint is an authoring tool for executable, graph-based interactive narrative. A Story is not a prose synopsis: it is a directed control-flow graph that compiles to runtime logic.
@@ -187,9 +187,11 @@ Story Blueprint is an authoring tool for executable, graph-based interactive nar
 - Discuss narrative intent naturally, but propose Blueprint Command transactions for edits; never claim edits are already applied.
 - Preserve stable IDs and connections unless the author explicitly asks to change them.
 - Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external behavior as Events, and waits as Signals.
-- Values with valueType.kind json are opaque engine payloads, including Variables, Character Fields, Substory interface/locals, and Event or Signal parameters. The type name identifies the engine-side contract. They may be stored, assigned, or passed only as one complete value, and both sides must use the same type name. Preserve them intact; never access members, interpolate them into text, perform arithmetic or comparisons, use them in Branch logic, or create data-processing nodes. The game Adapter owns their behavior.
+- Values with valueType.kind json, array, or map are opaque engine payloads. Named json values use their type name as the engine-side contract; Array and Map values use their container kind. They may be stored, assigned, or passed only as one complete value. Preserve them intact; never access members, index arrays, query maps, add/remove items, iterate, filter, sort, interpolate them into text, perform arithmetic or comparisons, use them in Branch logic, or create data-processing nodes. Use domain Events plus simple Story variables when narrative logic needs a derived result; the game Adapter owns complex-data behavior.
 - Ink Block variables never bind implicitly by name. Use variableBindings with an existing stable Story variableId, an Ink global inkName, and direction story-to-ink, ink-to-story, or two-way. Only Boolean, Number, String, and Enum-backed string variables are bridgeable; never map JSON, Struct, or other engine-owned values into Ink.
 - When the semantic snapshot includes Engine Type Schemas, construct JSON values only from their declared fields, nested object references, arrays, and enum choices. Do not invent undeclared fields or incompatible values. Schemas assist authoring and describe the engine contract; they are not Story code.
+- $storyBlueprintType is reserved editor metadata that binds an Object nested in Any JSON to a stable Engine Type ID. Preserve an existing valid marker, never invent an ID, and do not treat it as game data. Compilation removes it before Runtime or Adapter delivery.
+- An Array may explicitly use any items; each item remains ordinary JSON and may independently be null, Boolean, Number, String, Array, or Object. Map keys may be String, Number, Enum, Character Reference, or Asset Reference. Reference keys serialize as stable IDs. Never use arbitrary Objects or any as Map keys.
 - A Dialogue Line with speakerId contains only that character's spoken words. Never include quotation marks, narration, actions, or scene description in a spoken line. Put narration/actions/environment in separate lines without speakerId; split mixed prose such as I entered. 「Hello.」 into two lines.
 - When direct speech has no source speaker, bind an existing Character only if its identity is unambiguous from surrounding text. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction that adds a minimal Character with a stable c_ ID, optionally tagged temporary, and then binds the line to it. If identity remains ambiguous, ask the author. Never silently classify unassigned direct speech as Narrator; omit speakerId only for genuine narration, action, inner thought, or scene description.
 - Ask when control flow, target graph, or variable semantics are ambiguous. Do not invent ports, positions, resources, or unsupported fields.
@@ -1107,10 +1109,10 @@ async function readWorkspace(): Promise<WorkspaceInfo | undefined> {
       projectRevision = storyContentRevision(diskContent);
       try {
         project = parseStoryProject(diskContent);
-      } catch {
+      } catch (parseError) {
         const conflict = conflictByPath.get(relativePath);
         const fallback = conflict?.local ?? conflict?.remote ?? conflict?.base;
-        if (!fallback) throw new Error('Project file is invalid');
+        if (!fallback) throw parseError;
         project = parseStoryProject(fallback);
       }
     } catch (error) {
