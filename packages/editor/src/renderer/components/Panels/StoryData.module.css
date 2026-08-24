@@ -152,7 +152,8 @@
   font-size: 10px;
 }
 
-.namedCreateDialog input {
+.namedCreateDialog input,
+.namedCreateDialog select {
   width: 100%;
   box-sizing: border-box;
   padding: 7px 8px;
@@ -165,7 +166,18 @@
   font-size: 12px;
 }
 
-.namedCreateDialog input:focus {
+.namedCreateDialog select {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.namedCreateDialog select option {
+  background: #171d23;
+  color: #e1e7ec;
+}
+
+.namedCreateDialog input:focus,
+.namedCreateDialog select:focus {
   border-color: #5794c0;
   box-shadow: 0 0 0 1px rgb(87 148 192 / 24%);
 }
