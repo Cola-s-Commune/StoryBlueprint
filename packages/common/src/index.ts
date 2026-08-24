@@ -205,6 +205,10 @@ export {
   summarizeEngineSchemaMigration,
   type EngineSchemaMigrationSummary,
 } from './engineSchema';
+export {
+  replaceStoryResourceReferences,
+  type StoryResourceReplacementContext,
+} from './resourceReplacement';
 
 export {
   STORY_PROJECT_FORMAT,
@@ -218,6 +222,7 @@ export {
   type EngineTypeDefinition,
   engineValueMatchesFieldType,
   collectEngineResourceValueReferences,
+  replaceEngineResourceValueReferences,
   type EngineResourceValueReference,
   type StoryProjectDocument,
 } from './types/project';

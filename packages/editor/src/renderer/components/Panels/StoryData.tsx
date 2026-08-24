@@ -738,6 +738,128 @@ function ResourceReferenceSection({
   );
 }
 
+function ReplaceResourceReferencesButton({
+  kind,
+  sourceId,
+  sourceLabel,
+  options,
+}: {
+  kind: 'character' | 'asset';
+  sourceId: string;
+  sourceLabel: string;
+  options: readonly { id: string; label: string }[];
+}) {
+  const { replaceProjectResourceReferences } = useStoryGraphStore();
+  const [open, setOpen] = useState(false);
+  const [replacementId, setReplacementId] = useState(options[0]?.id ?? '');
+  const [preview, setPreview] = useState<{ count: number; locations: readonly string[] }>();
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!options.some((option) => option.id === replacementId)) {
+      setReplacementId(options[0]?.id ?? '');
+    }
+  }, [options, replacementId]);
+  const close = () => {
+    setOpen(false);
+    setPreview(undefined);
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.secondaryButton}
+        disabled={options.length === 0}
+        onClick={() => setOpen(true)}
+      >
+        Replace References…
+      </button>
+      {open &&
+        createPortal(
+          <div className={styles.namedCreateBackdrop} role="presentation">
+            <div className={styles.schemaMigrationDialog} role="dialog" aria-modal="true">
+              <div className={styles.detailsTitle}>Replace {sourceLabel}</div>
+              <label>
+                <span>Replacement {kind}</span>
+                <select
+                  value={replacementId}
+                  onChange={(event) => {
+                    setReplacementId(event.target.value);
+                    setPreview(undefined);
+                  }}
+                >
+                  {options.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {preview ? (
+                <>
+                  <p>{preview.count} reference(s) will be replaced.</p>
+                  <div className={styles.schemaMigrationLocations}>
+                    {preview.locations.map((location, index) => (
+                      <div key={`${location}:${index}`}>{location}</div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p>Preview scans saved and unopened Story files before any change is written.</p>
+              )}
+              <div className={styles.schemaMigrationActions}>
+                <button type="button" disabled={loading} onClick={close}>
+                  Cancel
+                </button>
+                {!preview ? (
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    disabled={loading || !replacementId}
+                    onClick={() => {
+                      setLoading(true);
+                      void replaceProjectResourceReferences(
+                        kind,
+                        sourceId,
+                        replacementId,
+                        true,
+                      ).then((result) => {
+                        if (result) setPreview(result);
+                        setLoading(false);
+                      });
+                    }}
+                  >
+                    {loading ? 'Scanning…' : 'Preview'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    disabled={loading || preview.count === 0}
+                    onClick={() => {
+                      setLoading(true);
+                      void replaceProjectResourceReferences(
+                        kind,
+                        sourceId,
+                        replacementId,
+                        false,
+                      ).then((result) => {
+                        setLoading(false);
+                        if (result) close();
+                      });
+                    }}
+                  >
+                    {loading ? 'Replacing…' : 'Replace All'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function VariableEditor({ variable }: { variable: VariableDefinition }) {
   const {
     variables,
@@ -1631,6 +1753,16 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       )}
       <div className={styles.detailActions}>
         {workspace?.project && (
+          <ReplaceResourceReferencesButton
+            kind="character"
+            sourceId={character.id}
+            sourceLabel={character.displayName}
+            options={characters
+              .filter((candidate) => candidate.id !== character.id)
+              .map((candidate) => ({ id: candidate.id, label: candidate.displayName }))}
+          />
+        )}
+        {workspace?.project && (
           <button
             className={styles.secondaryButton}
             type="button"
@@ -2139,6 +2271,16 @@ function AssetEditor({ asset }: { asset: AssetSource }) {
         </div>
       )}
       <div className={styles.detailActions}>
+        {workspace?.project && (
+          <ReplaceResourceReferencesButton
+            kind="asset"
+            sourceId={asset.id}
+            sourceLabel={asset.displayName}
+            options={assets
+              .filter((candidate) => candidate.id !== asset.id && candidate.kind === asset.kind)
+              .map((candidate) => ({ id: candidate.id, label: candidate.displayName }))}
+          />
+        )}
         {resourcePath && (
           <button
             className={styles.secondaryButton}

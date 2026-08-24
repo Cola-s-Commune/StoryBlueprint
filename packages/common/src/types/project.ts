@@ -82,6 +82,81 @@ export function collectEngineResourceValueReferences(
   });
 }
 
+export function replaceEngineResourceValueReferences(
+  value: import('./values').RuntimeValue,
+  type: EngineFieldType,
+  definitions: readonly EngineTypeDefinition[],
+  kind: 'character' | 'asset',
+  fromId: string,
+  toId: string,
+): { value: import('./values').RuntimeValue; count: number } {
+  if (value === null) return { value, count: 0 };
+  if (
+    ((type.kind === 'character-ref' && kind === 'character') ||
+      (type.kind === 'asset-ref' && kind === 'asset')) &&
+    value === fromId
+  ) {
+    return { value: toId, count: 1 };
+  }
+  if (type.kind === 'array' && Array.isArray(value)) {
+    let count = 0;
+    const next = value.map((item) => {
+      const replaced = replaceEngineResourceValueReferences(
+        item,
+        type.elementType,
+        definitions,
+        kind,
+        fromId,
+        toId,
+      );
+      count += replaced.count;
+      return replaced.value;
+    });
+    return { value: count ? next : value, count };
+  }
+  if (type.kind === 'map' && !Array.isArray(value) && typeof value === 'object') {
+    let count = 0;
+    const next = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => {
+        const replaced = replaceEngineResourceValueReferences(
+          item,
+          type.valueType,
+          definitions,
+          kind,
+          fromId,
+          toId,
+        );
+        count += replaced.count;
+        return [key, replaced.value];
+      }),
+    );
+    return { value: count ? next : value, count };
+  }
+  if (type.kind !== 'object' || Array.isArray(value) || typeof value !== 'object') {
+    return { value, count: 0 };
+  }
+  const definition = definitions.find((candidate) => candidate.name === type.typeName);
+  const record = value as Readonly<Record<string, import('./values').RuntimeValue>>;
+  let count = 0;
+  const next = Object.fromEntries(
+    Object.entries(record).map(([name, item]) => {
+      const field = definition?.fields.find((candidate) => candidate.name === name);
+      if (!field) return [name, item];
+      const replaced = replaceEngineResourceValueReferences(
+        item,
+        field.type,
+        definitions,
+        kind,
+        fromId,
+        toId,
+      );
+      count += replaced.count;
+      return [name, replaced.value];
+    }),
+  );
+  return { value: count ? next : value, count };
+}
+
 export function engineValueMatchesFieldType(
   value: import('./values').RuntimeValue,
   type: EngineFieldType,

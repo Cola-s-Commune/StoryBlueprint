@@ -61,6 +61,8 @@ const electronAPI = {
   readWorkspaceProjectStories: () => ipcRenderer.invoke('workspace:read-project-stories'),
   updateWorkspaceProjectStories: (request) =>
     ipcRenderer.invoke('workspace:update-project-stories', request),
+  replaceProjectResourceReferences: (request) =>
+    ipcRenderer.invoke('workspace:replace-resource-references', request),
   exportCompiledProject: (content) => ipcRenderer.invoke('workspace:export-compiled', content),
   openCompiledProject: () => ipcRenderer.invoke('workspace:open-compiled'),
   openInkFile: () => ipcRenderer.invoke('workspace:open-ink'),

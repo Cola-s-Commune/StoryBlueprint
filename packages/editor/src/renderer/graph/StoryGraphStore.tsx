@@ -123,6 +123,7 @@ import type {
   RecentProject,
   ProjectResourceSnapshot,
   WorkspaceInfo,
+  ReplaceProjectResourceReferencesResult,
 } from '../../shared/electronApi';
 import {
   buildInkImportTransaction,
@@ -553,6 +554,12 @@ interface StoryGraphStoreValue {
   removeRecentProject: (filePath: string) => Promise<void>;
   newProject: () => Promise<void>;
   refreshWorkspace: () => Promise<void>;
+  replaceProjectResourceReferences: (
+    kind: 'character' | 'asset',
+    fromId: string,
+    toId: string,
+    dryRun: boolean,
+  ) => Promise<ReplaceProjectResourceReferencesResult | undefined>;
   initializeWorkspaceGit: () => Promise<void>;
   revealWorkspaceItem: (relativePath: string) => Promise<void>;
   deleteWorkspaceStory: (relativePath: string) => Promise<void>;
@@ -4741,6 +4748,40 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const replaceProjectResourceReferences = useCallback(
+    async (
+      kind: 'character' | 'asset',
+      fromId: string,
+      toId: string,
+      dryRun: boolean,
+    ): Promise<ReplaceProjectResourceReferencesResult | undefined> => {
+      if (!window.electronAPI || !workspace?.project) return undefined;
+      if (!(await saveAllDirtyStories())) return undefined;
+      try {
+        const result = await window.electronAPI.replaceProjectResourceReferences({
+          kind,
+          fromId,
+          toId,
+          dryRun,
+        });
+        if (!dryRun && result.workspace) {
+          setWorkspace(result.workspace);
+          const story = result.workspace.project?.stories.find((item) => item.id === document.id);
+          if (story) {
+            const opened = await window.electronAPI.openWorkspaceStory(story.path);
+            if (!opened.canceled) acceptOpenedStory(opened);
+          }
+        }
+        setWorkspaceError(undefined);
+        return result;
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : String(error));
+        return undefined;
+      }
+    },
+    [acceptOpenedStory, document.id, saveAllDirtyStories, workspace?.project],
+  );
+
   const initializeWorkspaceGit = useCallback(async () => {
     if (!window.electronAPI) return;
     try {
@@ -5552,6 +5593,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeRecentProject,
       newProject,
       refreshWorkspace,
+      replaceProjectResourceReferences,
       initializeWorkspaceGit,
       revealWorkspaceItem,
       deleteWorkspaceStory,
@@ -5677,6 +5719,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeRecentProject,
       newProject,
       refreshWorkspace,
+      replaceProjectResourceReferences,
       initializeWorkspaceGit,
       revealWorkspaceItem,
       deleteWorkspaceStory,

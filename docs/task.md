@@ -333,6 +333,7 @@
 - [x] 结构化 JSON Value 支持复制、Schema 校验粘贴与一键恢复类型默认值
 - [x] Map / Dictionary 图形化 Schema 与值编辑：String / Number / Enum Key、递归 Value、重复 Key 防护、序列化和迁移
 - [x] CharacterRef / AssetRef 递归引用索引：覆盖 Project / Story / Substory 变量、Character Field、Engine Type 默认值与节点 JSON，并支持精确路径跳转和删除保护
+- [x] Character / Asset 项目级 Replace References：全项目预览、同类资源替换、磁盘 revision 校验、Story / Character / Project 原子写入并重新载入当前 Story
 - [x] 资源与字段统一使用命名后创建：输入期间允许为空，Enter 确认、Escape 取消，并在创建前检查名称格式和重复
 
 ---

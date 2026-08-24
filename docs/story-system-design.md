@@ -1045,6 +1045,9 @@ String、Number 或 Enum，Value 可递归使用其他 Engine Field Type。Map �
 CharacterRef 与 AssetRef 的引用索引必须使用同一 Schema 递归遍历 Object、Array 与 Map。索引覆盖
 Engine Type 默认值、Project / Story / Substory 变量、Character Field 和节点中的 JSON Literal；资源删除前
 必须同时检查内存中的未保存 Story 与磁盘上的项目 Story 使用索引，不能只检查 Dialogue 的直接引用。
+批量替换资源引用必须先保存编辑器改动并执行全项目 Dry Run，随后使用预览中相同的资源 ID 执行带
+revision 校验的原子写入。Character 只能替换为 Character；Asset 只能替换为相同 Asset kind，避免
+Portrait、Voice 等资源语义被意外混用。
 
 引用 Engine Type 的变量、Character Field、Substory 接口、Event 参数和 Signal 参数共享同一套 Schema
 驱动表单。表单编辑结果仍是一个完整 JSON 值，并允许切换到 Raw JSON；两种模式必须即时校验并双向同步。

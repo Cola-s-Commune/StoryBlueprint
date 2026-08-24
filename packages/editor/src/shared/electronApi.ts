@@ -187,6 +187,19 @@ export interface UpdateProjectStoryFilesRequest {
   expectedProjectRevision?: string;
 }
 
+export interface ReplaceProjectResourceReferencesRequest {
+  kind: 'character' | 'asset';
+  fromId: string;
+  toId: string;
+  dryRun: boolean;
+}
+
+export interface ReplaceProjectResourceReferencesResult {
+  count: number;
+  locations: readonly string[];
+  workspace?: WorkspaceInfo;
+}
+
 export type ExportCompiledProjectResult =
   { canceled: true } | { canceled: false; filePath: string };
 
@@ -455,6 +468,9 @@ export interface ElectronAPI {
   updateWorkspaceProjectStories: (
     request: UpdateProjectStoryFilesRequest,
   ) => Promise<WorkspaceInfo>;
+  replaceProjectResourceReferences: (
+    request: ReplaceProjectResourceReferencesRequest,
+  ) => Promise<ReplaceProjectResourceReferencesResult>;
   exportCompiledProject: (content: string) => Promise<ExportCompiledProjectResult>;
   openCompiledProject: () => Promise<OpenCompiledProjectResult>;
   openInkFile: () => Promise<OpenInkFileResult>;

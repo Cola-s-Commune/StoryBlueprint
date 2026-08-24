@@ -28,6 +28,8 @@ import { is } from '@electron-toolkit/utils';
 import {
   createStableId,
   collectEngineResourceValueReferences,
+  replaceEngineResourceValueReferences,
+  replaceStoryResourceReferences,
   parseStoryProject,
   parseStorySource,
   parseCharacterResource,
@@ -55,6 +57,7 @@ import {
   type RuntimeValue,
   type StoryNodeDataMap,
   type ValueType,
+  type VariableDefinition,
   type ProjectAssetReference,
   type ProjectCharacterReference,
   type StoryProjectDocument,
@@ -70,6 +73,7 @@ import type {
   SaveStoryRequest,
   UpdateProjectSettingsRequest,
   UpdateProjectStoryFilesRequest,
+  ReplaceProjectResourceReferencesRequest,
   AIChatSession,
   AIProviderProfile,
   AIProviderRegistry,
@@ -3185,6 +3189,158 @@ function registerStoryFileHandlers(): void {
     }
     await replaceProjectStoriesAtomically(writes);
     return (await readWorkspace())!;
+  });
+
+  ipcMain.handle('workspace:replace-resource-references', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || !workspaceProjectFile || !value || typeof value !== 'object') {
+      throw new Error('Invalid resource reference replacement');
+    }
+    const request = value as Partial<ReplaceProjectResourceReferencesRequest>;
+    if (
+      (request.kind !== 'character' && request.kind !== 'asset') ||
+      typeof request.fromId !== 'string' ||
+      typeof request.toId !== 'string' ||
+      request.fromId === request.toId ||
+      typeof request.dryRun !== 'boolean'
+    ) {
+      throw new Error('Invalid resource reference replacement');
+    }
+    const projectContent = await readFile(workspaceProjectFile, 'utf8');
+    const project = parseStoryProject(projectContent);
+    const resources = request.kind === 'character' ? project.characters : project.assets;
+    if (!resources.some((resource) => resource.id === request.fromId)) {
+      throw new Error(`Source ${request.kind} does not exist`);
+    }
+    if (!resources.some((resource) => resource.id === request.toId)) {
+      throw new Error(`Replacement ${request.kind} does not exist`);
+    }
+    const locations: string[] = [];
+    let count = 0;
+    const writes: ProjectStoryBatchWrite[] = [];
+    const context = {
+      engineTypes: project.engineTypes ?? [],
+      projectVariables: project.variables ?? [],
+      events: project.events,
+      signals: project.signals,
+    };
+    for (const story of project.stories) {
+      const filePath = await resolveExistingWorkspacePath(story.path);
+      const content = await readFile(filePath, 'utf8');
+      const source = parseStorySource(content);
+      const replaced = replaceStoryResourceReferences(
+        source,
+        context,
+        request.kind,
+        request.fromId,
+        request.toId,
+      );
+      if (replaced.count === 0) continue;
+      count += replaced.count;
+      locations.push(`${story.displayName} · ${replaced.count}`);
+      writes.push({
+        filePath,
+        displayPath: story.path,
+        content: serializeStorySource(replaced.source),
+        expectedRevision: storyContentRevision(content),
+      });
+    }
+    const replaceVariable = (variable: VariableDefinition): VariableDefinition => {
+      if (variable.valueType.kind !== 'json') return variable;
+      const replaced = replaceEngineResourceValueReferences(
+        variable.defaultValue,
+        { kind: 'object', typeName: variable.valueType.name },
+        project.engineTypes ?? [],
+        request.kind!,
+        request.fromId!,
+        request.toId!,
+      );
+      count += replaced.count;
+      if (replaced.count) locations.push(`Project variable ${variable.displayName}`);
+      return replaced.count ? { ...variable, defaultValue: replaced.value } : variable;
+    };
+    const nextVariables = (project.variables ?? []).map(replaceVariable);
+    const nextEngineTypes = (project.engineTypes ?? []).map((definition) => ({
+      ...definition,
+      fields: definition.fields.map((field) => {
+        const replaced = replaceEngineResourceValueReferences(
+          field.defaultValue,
+          field.type,
+          project.engineTypes ?? [],
+          request.kind!,
+          request.fromId!,
+          request.toId!,
+        );
+        count += replaced.count;
+        if (replaced.count) locations.push(`Engine Type ${definition.displayName}.${field.displayName}`);
+        return replaced.count ? { ...field, defaultValue: replaced.value } : field;
+      }),
+    }));
+    const workspace = await readWorkspace();
+    for (const resource of workspace?.characterResources ?? []) {
+      let character = resource.character;
+      let characterCount = 0;
+      if (request.kind === 'character' && character.relationships?.[request.fromId as keyof typeof character.relationships]) {
+        const relationships = { ...character.relationships };
+        const relationship = relationships[request.fromId as keyof typeof relationships]!;
+        delete relationships[request.fromId as keyof typeof relationships];
+        relationships[request.toId as keyof typeof relationships] = relationship;
+        character = { ...character, relationships };
+        characterCount += 1;
+      }
+      if (request.kind === 'asset') {
+        const defaultPortraitId = character.defaultPortraitId === request.fromId ? request.toId : character.defaultPortraitId;
+        if (defaultPortraitId !== character.defaultPortraitId) characterCount += 1;
+        const emotions = Object.fromEntries(Object.entries(character.emotions).map(([name, emotion]) => {
+          if (emotion.portraitId !== request.fromId) return [name, emotion];
+          characterCount += 1;
+          return [name, { ...emotion, portraitId: request.toId }];
+        }));
+        character = { ...character, defaultPortraitId: defaultPortraitId as CharacterSource['defaultPortraitId'], emotions };
+      }
+      const fields = character.fields?.map((field) => {
+        if (field.valueType.kind !== 'json') return field;
+        const replaced = replaceEngineResourceValueReferences(
+          field.defaultValue,
+          { kind: 'object', typeName: field.valueType.name },
+          project.engineTypes ?? [],
+          request.kind!,
+          request.fromId!,
+          request.toId!,
+        );
+        characterCount += replaced.count;
+        return replaced.count ? { ...field, defaultValue: replaced.value } : field;
+      });
+      if (!characterCount) continue;
+      count += characterCount;
+      locations.push(`Character ${character.displayName} · ${characterCount}`);
+      character = { ...character, ...(fields ? { fields } : {}) };
+      const filePath = await resolveExistingWorkspacePath(resource.relativePath);
+      const content = await readFile(filePath, 'utf8');
+      writes.push({
+        filePath,
+        displayPath: resource.relativePath,
+        content: serializeCharacterResource(character),
+        expectedRevision: storyContentRevision(content),
+      });
+    }
+    const projectChanged =
+      JSON.stringify(nextVariables) !== JSON.stringify(project.variables ?? []) ||
+      JSON.stringify(nextEngineTypes) !== JSON.stringify(project.engineTypes ?? []);
+    if (projectChanged) {
+      writes.push({
+        filePath: workspaceProjectFile,
+        displayPath: basename(workspaceProjectFile),
+        content: serializeStoryProject({
+          ...project,
+          variables: nextVariables,
+          engineTypes: nextEngineTypes,
+        }),
+        expectedRevision: storyContentRevision(projectContent),
+      });
+    }
+    if (request.dryRun || count === 0) return { count, locations };
+    await replaceProjectStoriesAtomically(writes);
+    return { count, locations, workspace: await syncWorkspaceProject() };
   });
 
   ipcMain.handle('workspace:update-project-settings', async (event, value: unknown) => {
