@@ -51,6 +51,106 @@ function valueText(value: unknown, present: boolean): string {
   return JSON.stringify(value, null, 2);
 }
 
+function conflictLeafLabel(path: string): string {
+  const leaf = path.split(' › ').at(-1) ?? path;
+  if (leaf === '@order') return 'Element order';
+  if (leaf.startsWith('@id:')) return leaf.slice(4);
+  if (leaf.startsWith('@value:')) return leaf.slice(7);
+  if (leaf.startsWith('@base:')) return `Element ${Number(leaf.slice(6)) + 1}`;
+  return leaf;
+}
+
+function isOrderConflict(conflict: StoryMergeConflict): boolean {
+  return decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
+}
+
+function OrderConflictChoices({
+  conflict,
+  choice,
+  onChoose,
+}: Pick<ValueConflictChoicesProps, 'conflict' | 'choice' | 'onChoose'>) {
+  return (
+    <div className={styles.valueConflict}>
+      <div className={styles.valuePath} title={conflict.path}>
+        <strong>Element order</strong>
+        <code>{conflict.path}</code>
+      </div>
+      <div className={styles.twoWayValues}>
+        <button
+          type="button"
+          className={
+            choice === 'local-first' || choice === 'local' ? styles.selectedChoice : undefined
+          }
+          onClick={() => onChoose('local-first')}
+        >
+          <strong>Local-first</strong>
+          <span>Keep both sides and place Local insertions or ordering first.</span>
+        </button>
+        <button
+          type="button"
+          className={
+            choice === 'remote-first' || choice === 'remote' ? styles.selectedChoice : undefined
+          }
+          onClick={() => onChoose('remote-first')}
+        >
+          <strong>Remote-first</strong>
+          <span>Keep both sides and place Remote insertions or ordering first.</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface ValueConflictChoicesProps {
+  conflict: StoryMergeConflict;
+  choice: StoryMergeChoice | undefined;
+  localLabel?: string;
+  remoteLabel?: string;
+  onChoose: (choice: StoryMergeChoice) => void;
+}
+
+function ValueConflictChoices({
+  conflict,
+  choice,
+  localLabel = 'Local',
+  remoteLabel = 'Remote',
+  onChoose,
+}: ValueConflictChoicesProps) {
+  const baseKnown = conflict.basePresent !== undefined;
+  return (
+    <div className={styles.valueConflict}>
+      <div className={styles.valuePath} title={conflict.path}>
+        <strong>{conflictLeafLabel(conflict.path)}</strong>
+        <code>{conflict.path}</code>
+      </div>
+      <div className={baseKnown ? styles.threeWayValues : styles.twoWayValues}>
+        {baseKnown && (
+          <section className={styles.baseValue}>
+            <strong>Base</strong>
+            <pre>{valueText(conflict.baseValue, conflict.basePresent === true)}</pre>
+          </section>
+        )}
+        <button
+          type="button"
+          className={choice === 'local' ? styles.selectedChoice : undefined}
+          onClick={() => onChoose('local')}
+        >
+          <strong>{localLabel}</strong>
+          <pre>{valueText(conflict.localValue, conflict.kind !== 'remote-only')}</pre>
+        </button>
+        <button
+          type="button"
+          className={choice === 'remote' ? styles.selectedChoice : undefined}
+          onClick={() => onChoose('remote')}
+        >
+          <strong>{remoteLabel}</strong>
+          <pre>{valueText(conflict.remoteValue, conflict.kind !== 'local-only')}</pre>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function coordinateConflictNodeId(conflict: StoryMergeConflict): string | undefined {
   const segments = conflict.id.split('/').map(decodeURIComponent);
   if (segments.at(-1) !== 'position') return undefined;
@@ -146,6 +246,8 @@ function compareProjectMergeFile(file: ProjectMergeFile) {
       id: root,
       path: root,
       kind: !file.local ? 'remote-only' : !file.remote ? 'local-only' : 'changed',
+      basePresent: file.base !== undefined,
+      ...(file.base ? { baseValue: file.base } : {}),
       ...(file.local ? { localValue: file.local } : {}),
       ...(file.remote ? { remoteValue: file.remote } : {}),
     };
@@ -388,24 +490,21 @@ function ProjectResourceMerge() {
                       <span>{conflict.kind}</span>
                       <code>{conflict.path}</code>
                     </header>
-                    <div className={styles.choices}>
-                      <button
-                        type="button"
-                        className={choice === 'local' ? styles.selectedChoice : undefined}
-                        onClick={() => choose(conflict.id, 'local')}
-                      >
-                        <strong>{localLabel}</strong>
-                        <pre>{valueText(conflict.localValue, conflict.kind !== 'remote-only')}</pre>
-                      </button>
-                      <button
-                        type="button"
-                        className={choice === 'remote' ? styles.selectedChoice : undefined}
-                        onClick={() => choose(conflict.id, 'remote')}
-                      >
-                        <strong>{remoteLabel}</strong>
-                        <pre>{valueText(conflict.remoteValue, conflict.kind !== 'local-only')}</pre>
-                      </button>
-                    </div>
+                    {isOrderConflict(conflict) ? (
+                      <OrderConflictChoices
+                        conflict={conflict}
+                        choice={choice}
+                        onChoose={(nextChoice) => choose(conflict.id, nextChoice)}
+                      />
+                    ) : (
+                      <ValueConflictChoices
+                        conflict={conflict}
+                        choice={choice}
+                        localLabel={localLabel}
+                        remoteLabel={remoteLabel}
+                        onChoose={(nextChoice) => choose(conflict.id, nextChoice)}
+                      />
+                    )}
                   </article>
                 );
               })}
@@ -1201,11 +1300,6 @@ export function StoryMerge() {
                     coordinateLayoutOrder && coordinateConflict
                       ? undefined
                       : decisions[conflict.id];
-                  const localText = valueText(conflict.localValue, conflict.kind !== 'remote-only');
-                  const remoteText = valueText(
-                    conflict.remoteValue,
-                    conflict.kind !== 'local-only',
-                  );
                   const insertion =
                     conflict.resolution?.kind === 'concurrent-insertion'
                       ? conflict.resolution
@@ -1220,8 +1314,7 @@ export function StoryMerge() {
                       : undefined;
                   const entry =
                     conflict.resolution?.kind === 'entry-nodes' ? conflict.resolution : undefined;
-                  const orderConflict =
-                    decodeURIComponent(conflict.id.split('/').at(-1) ?? '') === '@order';
+                  const orderConflict = isOrderConflict(conflict);
                   return (
                     <article className={styles.conflict} key={conflict.id}>
                       <header>
@@ -1281,8 +1374,12 @@ export function StoryMerge() {
                             </button>
                             <button
                               type="button"
-                              className={choice === 'local' ? styles.selectedChoice : undefined}
-                              onClick={() => choose(conflict.id, 'local')}
+                              className={
+                                choice === 'local-first' || choice === 'local'
+                                  ? styles.selectedChoice
+                                  : undefined
+                              }
+                              onClick={() => choose(conflict.id, 'local-first')}
                             >
                               <strong>Keep {insertion.localLabel}</strong>
                               <span>
@@ -1291,8 +1388,12 @@ export function StoryMerge() {
                             </button>
                             <button
                               type="button"
-                              className={choice === 'remote' ? styles.selectedChoice : undefined}
-                              onClick={() => choose(conflict.id, 'remote')}
+                              className={
+                                choice === 'remote-first' || choice === 'remote'
+                                  ? styles.selectedChoice
+                                  : undefined
+                              }
+                              onClick={() => choose(conflict.id, 'remote-first')}
                             >
                               <strong>Keep {insertion.remoteLabel}</strong>
                               <span>
@@ -1528,24 +1629,11 @@ export function StoryMerge() {
                             </button>
                           </>
                         ) : (
-                          <>
-                            <button
-                              type="button"
-                              className={choice === 'local' ? styles.selectedChoice : undefined}
-                              onClick={() => choose(conflict.id, 'local')}
-                            >
-                              <strong>Local</strong>
-                              <pre>{localText}</pre>
-                            </button>
-                            <button
-                              type="button"
-                              className={choice === 'remote' ? styles.selectedChoice : undefined}
-                              onClick={() => choose(conflict.id, 'remote')}
-                            >
-                              <strong>Remote</strong>
-                              <pre>{remoteText}</pre>
-                            </button>
-                          </>
+                          <ValueConflictChoices
+                            conflict={conflict}
+                            choice={choice}
+                            onChoose={(nextChoice) => choose(conflict.id, nextChoice)}
+                          />
                         )}
                       </div>
                     </article>

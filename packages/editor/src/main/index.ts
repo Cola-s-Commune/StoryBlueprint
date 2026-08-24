@@ -17,6 +17,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   stat,
   unlink,
   writeFile,
@@ -179,7 +180,7 @@ const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 const canceledAIRequests = new Set<string>();
 const AI_INSTRUCTIONS_VERSION = 4;
-const DEFAULT_PROJECT_AGENTS = `# Story Blueprint AI Instructions
+const DEFAULT_PROJECT_AI_INSTRUCTIONS = `# Story Blueprint AI Instructions
 
 Story Blueprint is an authoring tool for executable, graph-based interactive narrative. A Story is not a prose synopsis: it is a directed control-flow graph that compiles to runtime logic.
 
@@ -795,35 +796,47 @@ function validAIAttachments(value: unknown): value is readonly AIFileAttachment[
   );
 }
 
-async function readProjectAgentsInstructions(): Promise<string> {
-  if (!workspaceRoot) return DEFAULT_PROJECT_AGENTS;
+async function readProjectAIInstructions(): Promise<string> {
+  if (!workspaceRoot) return DEFAULT_PROJECT_AI_INSTRUCTIONS;
+  const instructionsPath = join(workspaceRoot, 'STORY_BLUEPRINT_AI.md');
   try {
-    const content = await readFile(join(workspaceRoot, 'AGENTS.md'), 'utf8');
+    let content: string;
+    try {
+      content = await readFile(instructionsPath, 'utf8');
+    } catch {
+      const legacyPath = join(workspaceRoot, 'AGENTS.md');
+      const legacyContent = await readFile(legacyPath, 'utf8');
+      if (!legacyContent.trimStart().startsWith('# Story Blueprint AI Instructions')) {
+        return DEFAULT_PROJECT_AI_INSTRUCTIONS;
+      }
+      await rename(legacyPath, instructionsPath);
+      content = legacyContent;
+    }
     if (Buffer.byteLength(content, 'utf8') > MAX_AI_ATTACHMENT_BYTES) {
-      return DEFAULT_PROJECT_AGENTS;
+      return DEFAULT_PROJECT_AI_INSTRUCTIONS;
     }
     const projectInstructions = content.trim();
-    if (!projectInstructions || projectInstructions === DEFAULT_PROJECT_AGENTS.trim()) {
-      return DEFAULT_PROJECT_AGENTS;
+    if (!projectInstructions || projectInstructions === DEFAULT_PROJECT_AI_INSTRUCTIONS.trim()) {
+      return DEFAULT_PROJECT_AI_INSTRUCTIONS;
     }
-    return `${DEFAULT_PROJECT_AGENTS}\n\n## Project-Specific AI Instructions\n\n${projectInstructions}`;
+    return `${DEFAULT_PROJECT_AI_INSTRUCTIONS}\n\n## Project-Specific AI Instructions\n\n${projectInstructions}`;
   } catch {
-    return DEFAULT_PROJECT_AGENTS;
+    return DEFAULT_PROJECT_AI_INSTRUCTIONS;
   }
 }
 
 async function readAIInstructionsStatus(): Promise<AIInstructionsStatus> {
-  if (!workspaceRoot) return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectAgents: 'missing' };
-  const projectAgentsPath = join(workspaceRoot, 'AGENTS.md');
+  if (!workspaceRoot) return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectInstructions: 'missing' };
+  const projectInstructionsPath = join(workspaceRoot, 'STORY_BLUEPRINT_AI.md');
   try {
-    const metadata = await stat(projectAgentsPath);
+    const metadata = await stat(projectInstructionsPath);
     return {
       builtInVersion: AI_INSTRUCTIONS_VERSION,
-      projectAgents: metadata.size > MAX_AI_ATTACHMENT_BYTES ? 'oversized' : 'loaded',
-      projectAgentsPath,
+      projectInstructions: metadata.size > MAX_AI_ATTACHMENT_BYTES ? 'oversized' : 'loaded',
+      projectInstructionsPath,
     };
   } catch {
-    return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectAgents: 'missing', projectAgentsPath };
+    return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectInstructions: 'missing', projectInstructionsPath };
   }
 }
 
@@ -2341,7 +2354,7 @@ function registerStoryFileHandlers(): void {
     try {
       const [apiKey, projectInstructions] = await Promise.all([
         readAIProviderKey(settings.id),
-        readProjectAgentsInstructions(),
+        readProjectAIInstructions(),
       ]);
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -2907,7 +2920,7 @@ function registerStoryFileHandlers(): void {
     };
     await writeFile(projectFile, serializeStoryProject(project), 'utf8');
     await createProjectGitignoreIfMissing(rootPath);
-    await writeFile(join(rootPath, 'AGENTS.md'), DEFAULT_PROJECT_AGENTS, {
+    await writeFile(join(rootPath, 'STORY_BLUEPRINT_AI.md'), DEFAULT_PROJECT_AI_INSTRUCTIONS, {
       encoding: 'utf8',
       flag: 'wx',
     }).catch((error: NodeJS.ErrnoException) => {
@@ -3145,7 +3158,7 @@ function registerStoryFileHandlers(): void {
       : `${candidate.fileName}.storyproject`;
     workspaceProjectFile = join(workspaceRoot!, fileName);
     await writeFile(workspaceProjectFile, candidate.content, { encoding: 'utf8', flag: 'wx' });
-    await writeFile(join(workspaceRoot!, 'AGENTS.md'), DEFAULT_PROJECT_AGENTS, {
+    await writeFile(join(workspaceRoot!, 'STORY_BLUEPRINT_AI.md'), DEFAULT_PROJECT_AI_INSTRUCTIONS, {
       encoding: 'utf8',
       flag: 'wx',
     }).catch((error: NodeJS.ErrnoException) => {

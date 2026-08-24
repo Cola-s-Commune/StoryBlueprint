@@ -312,6 +312,8 @@ function TrashIcon() {
 }
 
 const MAP_REORDER_MIME = 'application/x-story-blueprint-map-key';
+const COLLECTION_WINDOW_SIZE = 50;
+const COLLECTION_SEARCH_THRESHOLD = 20;
 
 function reorderMapEntries(
   record: Readonly<Record<string, RuntimeValue>>,
@@ -339,6 +341,78 @@ function readMapDragKey(data: string, ownerId: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function collectionValueMatches(
+  query: string,
+  key: string,
+  value: RuntimeValue,
+  characters: readonly CharacterSource[],
+  assets: readonly AssetSource[],
+): boolean {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  if (key.toLocaleLowerCase().includes(normalized)) return true;
+  try {
+    const serialized = JSON.stringify(stripEngineObjectTypeMarkers(value)).toLocaleLowerCase();
+    if (serialized.includes(normalized)) return true;
+    if (
+      characters.some(
+        (character) =>
+          character.displayName.toLocaleLowerCase().includes(normalized) &&
+          serialized.includes(character.id.toLocaleLowerCase()),
+      )
+    ) return true;
+    return assets.some(
+      (asset) =>
+        asset.displayName.toLocaleLowerCase().includes(normalized) &&
+        serialized.includes(asset.id.toLocaleLowerCase()),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function CollectionWindowControls({
+  noun,
+  total,
+  matched,
+  visible,
+  query,
+  onQueryChange,
+  onShowMore,
+}: {
+  noun: string;
+  total: number;
+  matched: number;
+  visible: number;
+  query: string;
+  onQueryChange: (query: string) => void;
+  onShowMore: () => void;
+}) {
+  if (total < COLLECTION_SEARCH_THRESHOLD && visible >= matched) return null;
+  return (
+    <div className={styles.collectionWindowControls}>
+      {total >= COLLECTION_SEARCH_THRESHOLD && (
+        <input
+          type="search"
+          value={query}
+          placeholder={`Search ${noun}…`}
+          aria-label={`Search ${noun}`}
+          onChange={(event) => onQueryChange(event.target.value)}
+        />
+      )}
+      <small>
+        Showing {Math.min(visible, matched)} of {matched}
+        {matched !== total ? ` matched · ${total} total` : ''}
+      </small>
+      {visible < matched && (
+        <button type="button" onClick={onShowMore}>
+          Show {Math.min(COLLECTION_WINDOW_SIZE, matched - visible)} more
+        </button>
+      )}
+    </div>
+  );
 }
 
 function containsEngineObjectMarker(
@@ -427,17 +501,217 @@ function validateMarkedEngineObjects(
   return undefined;
 }
 
+interface StructuredValueDiagnostic {
+  readonly path: string;
+  readonly message: string;
+}
+
+function collectStructuredValueDiagnostics(
+  value: RuntimeValue,
+  type: EngineFieldType,
+  engineTypes: readonly EngineTypeDefinition[],
+  characters: readonly CharacterSource[],
+  assets: readonly AssetSource[],
+  path = '$',
+  nullable = false,
+): StructuredValueDiagnostic[] {
+  if (value === null) {
+    return nullable || type.kind === 'any'
+      ? []
+      : [{ path, message: `Expected ${type.kind}, but the value is Null.` }];
+  }
+  if (type.kind === 'any') {
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      return [{ path, message: 'Number must be finite.' }];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item, index) =>
+        collectStructuredValueDiagnostics(item, type, engineTypes, characters, assets, `${path}[${index}]`),
+      );
+    }
+    if (typeof value === 'object') {
+      const markedType = engineObjectTypeId(value);
+      if (markedType) {
+        const definition = engineTypes.find((candidate) => candidate.id === markedType);
+        if (!definition) return [{ path, message: `Referenced Engine Type ${markedType} is missing.` }];
+        return collectStructuredValueDiagnostics(
+          value,
+          { kind: 'object', typeName: definition.name },
+          engineTypes,
+          characters,
+          assets,
+          path,
+        );
+      }
+      return Object.entries(value).flatMap(([key, item]) =>
+        key === ENGINE_OBJECT_TYPE_MARKER
+          ? []
+          : collectStructuredValueDiagnostics(item, type, engineTypes, characters, assets, `${path}.${key}`),
+      );
+    }
+    return [];
+  }
+  if (type.kind === 'boolean')
+    return typeof value === 'boolean' ? [] : [{ path, message: 'Expected Boolean.' }];
+  if (type.kind === 'number')
+    return typeof value === 'number' && Number.isFinite(value)
+      ? []
+      : [{ path, message: 'Expected a finite Number.' }];
+  if (type.kind === 'string')
+    return typeof value === 'string' ? [] : [{ path, message: 'Expected String.' }];
+  if (type.kind === 'character-ref') {
+    if (typeof value !== 'string') return [{ path, message: 'Expected Character Reference.' }];
+    return characters.some((character) => character.id === value)
+      ? []
+      : [{ path, message: `Character ${value} does not exist.` }];
+  }
+  if (type.kind === 'asset-ref') {
+    if (typeof value !== 'string') return [{ path, message: 'Expected Asset Reference.' }];
+    return assets.some((asset) => asset.id === value)
+      ? []
+      : [{ path, message: `Asset ${value} does not exist.` }];
+  }
+  if (type.kind === 'enum')
+    return typeof value === 'string' && type.values.includes(value)
+      ? []
+      : [{ path, message: `Expected one of: ${type.values.join(', ') || '(no values)'}.` }];
+  if (type.kind === 'array') {
+    if (!Array.isArray(value)) return [{ path, message: 'Expected Array.' }];
+    return value.flatMap((item, index) =>
+      collectStructuredValueDiagnostics(
+        item,
+        type.elementType,
+        engineTypes,
+        characters,
+        assets,
+        `${path}[${index}]`,
+      ),
+    );
+  }
+  if (type.kind === 'map') {
+    if (Array.isArray(value) || typeof value !== 'object') return [{ path, message: 'Expected Map.' }];
+    return Object.entries(value).flatMap(([key, item]) => {
+      const keyValid =
+        type.keyType.kind === 'string'
+          ? key.length > 0
+          : type.keyType.kind === 'number'
+            ? key.trim() !== '' && Number.isFinite(Number(key))
+            : type.keyType.kind === 'character-ref'
+              ? characters.some((character) => character.id === key)
+              : type.keyType.kind === 'asset-ref'
+                ? assets.some((asset) => asset.id === key)
+                : type.keyType.values.includes(key);
+      return [
+        ...(keyValid ? [] : [{ path: `${path}.${key}`, message: `Map key ${key} is invalid.` }]),
+        ...collectStructuredValueDiagnostics(
+          item,
+          type.valueType,
+          engineTypes,
+          characters,
+          assets,
+          `${path}.${key}`,
+        ),
+      ];
+    });
+  }
+  if (Array.isArray(value) || typeof value !== 'object') return [{ path, message: `Expected Object ${type.typeName}.` }];
+  const definition = engineTypes.find((candidate) => candidate.name === type.typeName);
+  if (!definition) return [{ path, message: `Engine Type ${type.typeName} does not exist.` }];
+  const record = value as Readonly<Record<string, RuntimeValue>>;
+  return definition.fields.flatMap((field) => {
+    const fieldValue = record[field.name];
+    if (fieldValue === undefined) return [{ path: `${path}.${field.name}`, message: 'Required field is missing.' }];
+    return collectStructuredValueDiagnostics(
+      fieldValue,
+      field.type,
+      engineTypes,
+      characters,
+      assets,
+      `${path}.${field.name}`,
+      field.nullable === true,
+    );
+  });
+}
+
+function FocusedValueEditor({
+  label,
+  errorCount = 0,
+  children,
+}: {
+  label: string;
+  errorCount?: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.focusValueButton}
+        onClick={() => setOpen(true)}
+      >
+        Open {label}…
+        {errorCount > 0 && (
+          <em className={styles.structuredErrorBadge}>{errorCount}</em>
+        )}
+      </button>
+      {open &&
+        createPortal(
+          <div
+            className={styles.focusValueBackdrop}
+            role="presentation"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setOpen(false);
+            }}
+          >
+            <section
+              className={styles.focusValueDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Edit ${label}`}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <header className={styles.focusValueHeader}>
+                <div>
+                  <small>Focused value</small>
+                  <strong>{label}</strong>
+                </div>
+                <button type="button" onClick={() => setOpen(false)}>
+                  Done
+                </button>
+              </header>
+              <div className={styles.focusValueContent}>{children}</div>
+            </section>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function AnyJsonFields({
   value,
   engineTypes,
   characters,
   assets,
+  depth = 0,
+  nullable = false,
   onChange,
 }: {
   value: RuntimeValue;
   engineTypes: readonly EngineTypeDefinition[];
   characters: readonly CharacterSource[];
   assets: readonly AssetSource[];
+  depth?: number;
+  nullable?: boolean;
   onChange: (value: RuntimeValue) => void;
 }) {
   const arrayOwnerId = useId();
@@ -445,6 +719,8 @@ function AnyJsonFields({
     index: number;
     side: 'before' | 'after';
   }>();
+  const [collectionQuery, setCollectionQuery] = useState('');
+  const [collectionLimit, setCollectionLimit] = useState(COLLECTION_WINDOW_SIZE);
   const kind = anyJsonKind(value, characters, assets);
   const markedObjectType = engineTypes.find(
     (definition) => definition.id === engineObjectTypeId(value),
@@ -467,6 +743,21 @@ function AnyJsonFields({
           );
         })
       : undefined;
+  if (depth >= 3 && (kind === 'array' || kind === 'object')) {
+    const label = kind === 'array' ? `Array · ${(value as readonly RuntimeValue[]).length} items` : matchingObjectType?.displayName ?? 'Free Object';
+    return (
+      <FocusedValueEditor label={label}>
+        <AnyJsonFields
+          value={value}
+          engineTypes={engineTypes}
+          characters={characters}
+          assets={assets}
+          depth={0}
+          onChange={onChange}
+        />
+      </FocusedValueEditor>
+    );
+  }
   const editor = (() => {
     if (kind === 'null') return <span className={styles.anyJsonNull}>null</span>;
     if (kind === 'boolean') {
@@ -513,6 +804,13 @@ function AnyJsonFields({
     }
     if (kind === 'array') {
       const items = [...(value as readonly RuntimeValue[])];
+      const matchingIndices = items
+        .map((item, index) => ({ item, index }))
+        .filter(({ item, index }) =>
+          collectionValueMatches(collectionQuery, String(index), item, characters, assets),
+        )
+        .map(({ index }) => index);
+      const visibleIndices = matchingIndices.slice(0, collectionLimit);
       return (
         <details className={styles.structuredTreeGroup} open>
           <summary>
@@ -525,6 +823,8 @@ function AnyJsonFields({
                 event.preventDefault();
                 event.stopPropagation();
                 onChange([...items, null]);
+                setCollectionQuery('');
+                setCollectionLimit(items.length + 1);
               }}
             >
               +
@@ -541,10 +841,24 @@ function AnyJsonFields({
             />
           </summary>
           <div className={styles.structuredArray}>
+          <CollectionWindowControls
+            noun="items"
+            total={items.length}
+            matched={matchingIndices.length}
+            visible={visibleIndices.length}
+            query={collectionQuery}
+            onQueryChange={(query) => {
+              setCollectionQuery(query);
+              setCollectionLimit(COLLECTION_WINDOW_SIZE);
+            }}
+            onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+          />
           {items.length === 0 && (
             <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
           )}
-          {items.map((item, index) => (
+          {visibleIndices.map((index) => {
+            const item = items[index]!;
+            return (
             <div
               className={`${styles.structuredArrayItem} ${
                 arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
@@ -602,6 +916,7 @@ function AnyJsonFields({
                 engineTypes={engineTypes}
                 characters={characters}
                 assets={assets}
+                depth={depth + 1}
                 onChange={(next) => {
                   const updated = [...items];
                   updated[index] = next;
@@ -643,7 +958,8 @@ function AnyJsonFields({
                 </button>
               </span>
             </div>
-          ))}
+            );
+          })}
           </div>
         </details>
       );
@@ -656,6 +972,7 @@ function AnyJsonFields({
           engineTypes={engineTypes}
           characters={characters}
           assets={assets}
+          depth={depth + 1}
           onChange={(next) => onChange(tagEngineObject(next, matchingObjectType.id))}
         />
       );
@@ -666,6 +983,10 @@ function AnyJsonFields({
       ),
     );
     const keys = Object.keys(record);
+    const matchingKeys = keys.filter((key) =>
+      collectionValueMatches(collectionQuery, key, record[key]!, characters, assets),
+    );
+    const visibleKeys = matchingKeys.slice(0, collectionLimit);
     let nextIndex = keys.length + 1;
     let nextKey = `field${nextIndex}`;
     while (keys.includes(nextKey)) nextKey = `field${++nextIndex}`;
@@ -681,16 +1002,30 @@ function AnyJsonFields({
               event.preventDefault();
               event.stopPropagation();
               onChange({ ...record, [nextKey]: null });
+              setCollectionQuery('');
+              setCollectionLimit(keys.length + 1);
             }}
             >
               +
             </button>
         </summary>
         <div className={styles.structuredMap}>
+        <CollectionWindowControls
+          noun="fields"
+          total={keys.length}
+          matched={matchingKeys.length}
+          visible={visibleKeys.length}
+          query={collectionQuery}
+          onQueryChange={(query) => {
+            setCollectionQuery(query);
+            setCollectionLimit(COLLECTION_WINDOW_SIZE);
+          }}
+          onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+        />
         {keys.length === 0 && (
           <div className={styles.structuredEmpty}>No fields. Use + to add the first field.</div>
         )}
-        {keys.map((key) => (
+        {visibleKeys.map((key) => (
           <div className={styles.structuredMapItem} key={key}>
             <MapKeyInput
               value={key}
@@ -714,6 +1049,7 @@ function AnyJsonFields({
               engineTypes={engineTypes}
               characters={characters}
               assets={assets}
+              depth={depth + 1}
               onChange={(next) => onChange({ ...record, [key]: next })}
             />
             <ConfirmDeleteButton
@@ -792,6 +1128,8 @@ function StructuredJsonFields({
   engineTypes,
   characters,
   assets,
+  depth = 0,
+  nullable = false,
   onChange,
 }: {
   type: EngineFieldType;
@@ -799,6 +1137,8 @@ function StructuredJsonFields({
   engineTypes: readonly EngineTypeDefinition[];
   characters: readonly CharacterSource[];
   assets: readonly AssetSource[];
+  depth?: number;
+  nullable?: boolean;
   onChange: (value: RuntimeValue) => void;
 }) {
   const arrayOwnerId = useId();
@@ -811,6 +1151,38 @@ function StructuredJsonFields({
     key: string;
     side: 'before' | 'after';
   }>();
+  const [collectionQuery, setCollectionQuery] = useState('');
+  const [collectionLimit, setCollectionLimit] = useState(COLLECTION_WINDOW_SIZE);
+  const diagnostics = collectStructuredValueDiagnostics(
+    value,
+    type,
+    engineTypes,
+    characters,
+    assets,
+    '$',
+    nullable,
+  );
+  if (depth >= 3 && (type.kind === 'array' || type.kind === 'map' || type.kind === 'object')) {
+    const label =
+      type.kind === 'array'
+        ? `Array · ${Array.isArray(value) ? value.length : 0} items`
+        : type.kind === 'map'
+          ? `Map · ${value !== null && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).length : 0} entries`
+          : engineTypes.find((definition) => definition.name === type.typeName)?.displayName ?? type.typeName;
+    return (
+      <FocusedValueEditor label={label} errorCount={diagnostics.length}>
+        <StructuredJsonFields
+          type={type}
+          value={value}
+          engineTypes={engineTypes}
+          characters={characters}
+          assets={assets}
+          depth={0}
+          onChange={onChange}
+        />
+      </FocusedValueEditor>
+    );
+  }
   if (type.kind === 'any')
     return (
       <AnyJsonFields
@@ -818,6 +1190,7 @@ function StructuredJsonFields({
         engineTypes={engineTypes}
         characters={characters}
         assets={assets}
+        depth={depth}
         onChange={onChange}
       />
     );
@@ -892,10 +1265,22 @@ function StructuredJsonFields({
   }
   if (type.kind === 'array') {
     const items = Array.isArray(value) ? [...value] : [];
+    const matchingIndices = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item, index }) =>
+        collectionValueMatches(collectionQuery, String(index), item, characters, assets),
+      )
+      .map(({ index }) => index);
+    const visibleIndices = matchingIndices.slice(0, collectionLimit);
     return (
       <details className={styles.structuredTreeGroup} open>
         <summary>
-          <span>Items · {items.length}</span>
+          <span>
+            Items · {items.length}
+            {diagnostics.length > 0 && (
+              <em className={styles.structuredErrorBadge}>{diagnostics.length}</em>
+            )}
+          </span>
           <button
             type="button"
             aria-label="Add Array item"
@@ -904,6 +1289,8 @@ function StructuredJsonFields({
               event.preventDefault();
               event.stopPropagation();
               onChange([...items, defaultForEngineFieldType(type.elementType, engineTypes)]);
+              setCollectionQuery('');
+              setCollectionLimit(items.length + 1);
             }}
           >
             +
@@ -920,10 +1307,24 @@ function StructuredJsonFields({
           />
         </summary>
         <div className={styles.structuredArray}>
+        <CollectionWindowControls
+          noun="items"
+          total={items.length}
+          matched={matchingIndices.length}
+          visible={visibleIndices.length}
+          query={collectionQuery}
+          onQueryChange={(query) => {
+            setCollectionQuery(query);
+            setCollectionLimit(COLLECTION_WINDOW_SIZE);
+          }}
+          onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+        />
         {items.length === 0 && (
           <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
         )}
-        {items.map((item, index) => (
+        {visibleIndices.map((index) => {
+          const item = items[index]!;
+          return (
           <div
             className={`${styles.structuredArrayItem} ${
               arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
@@ -982,12 +1383,18 @@ function StructuredJsonFields({
               engineTypes={engineTypes}
               characters={characters}
               assets={assets}
+              depth={depth + 1}
               onChange={(next) => {
                 const updated = [...items];
                 updated[index] = next;
                 onChange(updated);
               }}
             />
+            {diagnostics.filter((item) => item.path.startsWith(`$[${index}]`)).map((item) => (
+              <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
+                {item.message}
+              </small>
+            ))}
             <span className={styles.structuredArrayActions}>
               <button
                 type="button"
@@ -1025,7 +1432,8 @@ function StructuredJsonFields({
               </button>
             </span>
           </div>
-        ))}
+          );
+        })}
         </div>
       </details>
     );
@@ -1036,6 +1444,10 @@ function StructuredJsonFields({
         ? ({ ...value } as Record<string, RuntimeValue>)
         : {};
     const keys = Object.keys(record);
+    const matchingKeys = keys.filter((key) =>
+      collectionValueMatches(collectionQuery, key, record[key]!, characters, assets),
+    );
+    const visibleKeys = matchingKeys.slice(0, collectionLimit);
     const nextKey = (() => {
       if (type.keyType.kind === 'enum') {
         return type.keyType.values.find((candidate) => !keys.includes(candidate));
@@ -1059,7 +1471,12 @@ function StructuredJsonFields({
     return (
       <details className={styles.structuredTreeGroup} open>
         <summary>
-          <span>Entries · {keys.length}</span>
+          <span>
+            Entries · {keys.length}
+            {diagnostics.length > 0 && (
+              <em className={styles.structuredErrorBadge}>{diagnostics.length}</em>
+            )}
+          </span>
           <button
             type="button"
             aria-label="Add Map entry"
@@ -1073,6 +1490,8 @@ function StructuredJsonFields({
                 ...record,
                 [nextKey]: defaultForEngineFieldType(type.valueType, engineTypes),
               });
+              setCollectionQuery('');
+              setCollectionLimit(keys.length + 1);
             }}
           >
             +
@@ -1089,10 +1508,22 @@ function StructuredJsonFields({
           />
         </summary>
         <div className={styles.structuredMap}>
+        <CollectionWindowControls
+          noun="entries"
+          total={keys.length}
+          matched={matchingKeys.length}
+          visible={visibleKeys.length}
+          query={collectionQuery}
+          onQueryChange={(query) => {
+            setCollectionQuery(query);
+            setCollectionLimit(COLLECTION_WINDOW_SIZE);
+          }}
+          onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+        />
         {keys.length === 0 && (
           <div className={styles.structuredEmpty}>No entries. Use + to add the first entry.</div>
         )}
-        {keys.map((key) => (
+        {visibleKeys.map((key) => (
           <div
             className={`${styles.structuredMapItem} ${styles.structuredMapEntry} ${
               mapDropTarget?.key === key ? styles.structuredMapDropTarget : ''
@@ -1167,8 +1598,14 @@ function StructuredJsonFields({
               engineTypes={engineTypes}
               characters={characters}
               assets={assets}
+              depth={depth + 1}
               onChange={(next) => onChange({ ...record, [key]: next })}
             />
+            {diagnostics.filter((item) => item.path.startsWith(`$.${key}`)).map((item) => (
+              <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
+                {item.message}
+              </small>
+            ))}
             <button
               type="button"
               title="Delete"
@@ -1202,7 +1639,14 @@ function StructuredJsonFields({
   );
   return (
     <details className={styles.structuredTreeGroup} open>
-      <summary>{definition?.displayName ?? type.typeName}</summary>
+      <summary>
+        <span>
+          {definition?.displayName ?? type.typeName}
+          {diagnostics.length > 0 && (
+            <em className={styles.structuredErrorBadge}>{diagnostics.length}</em>
+          )}
+        </span>
+      </summary>
       <div className={styles.structuredObject}>
       {(definition?.fields ?? []).map((field) => (
         <label key={field.name} title={field.description}>
@@ -1213,8 +1657,15 @@ function StructuredJsonFields({
             engineTypes={engineTypes}
             characters={characters}
             assets={assets}
+            depth={depth + 1}
+            nullable={field.nullable === true}
             onChange={(next) => onChange({ ...record, [field.name]: next })}
           />
+          {diagnostics.filter((item) => item.path.startsWith(`$.${field.name}`)).map((item) => (
+            <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
+              {item.message}
+            </small>
+          ))}
         </label>
       ))}
       {!definition && <small className={styles.warning}>Missing Engine Type {type.typeName}</small>}
@@ -1387,6 +1838,7 @@ export function JsonValueInput({
               engineTypes={engineTypes}
               characters={characters}
               assets={assets}
+              nullable={nullable}
               onChange={onCommit}
             />
           </div>
@@ -1397,6 +1849,7 @@ export function JsonValueInput({
             engineTypes={engineTypes}
             characters={characters}
             assets={assets}
+            nullable={nullable}
             onChange={onCommit}
           />
         )
@@ -3509,6 +3962,23 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
                 </div>
               )}
             </div>
+            <div className={styles.schemaMigrationPlan}>
+              <strong>Migration plan</strong>
+              {engineTypeMigrationPreview.actions.map((action) => (
+                <div
+                  className={
+                    action.kind === 'discard' || action.kind === 'reset'
+                      ? styles.schemaMigrationDestructive
+                      : undefined
+                  }
+                  key={`${action.kind}:${action.field}`}
+                >
+                  <span>{action.kind}</span>
+                  <code>{action.field}</code>
+                  <small>{action.detail}</small>
+                </div>
+              ))}
+            </div>
             {engineTypeMigrationPreview.affectedLocations.length > 0 && (
               <div className={styles.schemaMigrationLocations}>
                 {engineTypeMigrationPreview.affectedLocations.map((location) => (
@@ -3517,15 +3987,15 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
               </div>
             )}
             <div className={styles.schemaMigrationActions}>
-              <button type="button" onClick={cancelEngineTypeMigration}>
-                Cancel
-              </button>
               <button
                 type="button"
                 className={styles.primaryButton}
                 onClick={confirmEngineTypeMigration}
               >
                 Migrate
+              </button>
+              <button type="button" onClick={cancelEngineTypeMigration}>
+                Cancel
               </button>
             </div>
           </div>

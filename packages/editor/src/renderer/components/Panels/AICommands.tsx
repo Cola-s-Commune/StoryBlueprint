@@ -1519,9 +1519,9 @@ export function AICommands() {
                   : `${selectedNodeIds.length} selected`}
             </strong>
             {instructionsStatus && (
-              <span title={instructionsStatus.projectAgentsPath}>
-                Rules v{instructionsStatus.builtInVersion} · AGENTS{' '}
-                {instructionsStatus.projectAgents}
+              <span title={instructionsStatus.projectInstructionsPath}>
+                Rules v{instructionsStatus.builtInVersion} · Project AI{' '}
+                {instructionsStatus.projectInstructions}
               </span>
             )}
           </div>

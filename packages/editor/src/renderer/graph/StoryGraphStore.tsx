@@ -244,6 +244,11 @@ export type StoryDataSelection =
 export interface EngineTypeMigrationPreview {
   typeName: string;
   summary: EngineSchemaMigrationSummary;
+  actions: readonly {
+    kind: 'preserve' | 'initialize' | 'reset' | 'discard';
+    field: string;
+    detail: string;
+  }[];
   affectedValues: number;
   affectedLocations: readonly string[];
 }
@@ -3801,8 +3806,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         });
       });
       characterChanges.forEach(({ character }) =>
-        affectedLocations.add(`Character ${character.displayName}`),
+        affectedLocations.add(`Character ${character.displayName} · fields`),
       );
+      migratedWorkspaceStories.forEach((story, index) => {
+        if (story.revision !== workspaceStories[index]?.revision) {
+          affectedLocations.add(`Story ${story.document.displayName} · structured values`);
+        }
+      });
       const affectedValues =
         normalizedEngineTypeNames.length +
         nextVariables.filter((variable, index) => variable !== variables[index]).length +
@@ -3846,6 +3856,29 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setEngineTypeMigrationPreview({
         typeName: previous.displayName,
         summary,
+        actions: [
+          ...summary.renamedFields.map((field) => ({
+            kind: 'preserve' as const,
+            field: `${field.from} → ${field.to}`,
+            detail: 'Preserve the existing value under the renamed field.',
+          })),
+          ...summary.addedFields.map((field) => ({
+            kind: 'initialize' as const,
+            field,
+            detail: 'Initialize the new field from its declared default.',
+          })),
+          ...summary.changedTypeFields.map((field) => ({
+            kind: 'reset' as const,
+            field,
+            detail:
+              'Preserve compatible nested values; reset incompatible values to the new default.',
+          })),
+          ...summary.removedFields.map((field) => ({
+            kind: 'discard' as const,
+            field,
+            detail: 'Remove this field and discard its stored value.',
+          })),
+        ],
         affectedValues,
         affectedLocations: [...affectedLocations],
       });

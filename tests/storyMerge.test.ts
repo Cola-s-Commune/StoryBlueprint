@@ -1243,3 +1243,45 @@ describe('Project resource semantic merge', () => {
     expect(merged?.displayName).toBe('Remote');
   });
 });
+
+describe('Structured value semantic merge', () => {
+  it('merges independent insertions in an unkeyed array instead of conflicting on the whole array', () => {
+    const base = { values: [1, 2] };
+    const local = { values: [1, 10, 2] };
+    const remote = { values: [1, 2, 20] };
+
+    const diff = diffThreeWayValues(base, local, remote, 'variable:inventory');
+
+    expect(diff.conflicts).toEqual([]);
+    expect(diff.autoMerged).toEqual({ values: [1, 10, 2, 20] });
+  });
+
+  it('reports a conflicting unkeyed array element at element depth', () => {
+    const base = { values: [{ label: 'Base', count: 1 }] };
+    const local = { values: [{ label: 'Local', count: 1 }] };
+    const remote = { values: [{ label: 'Remote', count: 1 }] };
+
+    const diff = diffThreeWayValues(base, local, remote, 'variable:inventory');
+
+    expect(diff.conflicts).toHaveLength(1);
+    expect(diff.conflicts[0].path).toContain('label');
+    expect(diff.conflicts[0].path).not.toBe('variable:inventory/values');
+  });
+
+  it('ignores internal structured-type metadata when comparing values', () => {
+    const base = {
+      payload: { name: 'Alice', $storyBlueprintType: 'et_old' },
+    };
+    const local = {
+      payload: { name: 'Alice', $storyBlueprintType: 'et_current' },
+    };
+    const remote = {
+      payload: { name: 'Alice', $storyBlueprintType: 'et_remote' },
+    };
+
+    const diff = diffThreeWayValues(base, local, remote, 'variable:profile');
+
+    expect(diff.conflicts).toEqual([]);
+    expect(diff.autoMerged.payload.name).toBe('Alice');
+  });
+});

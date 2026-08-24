@@ -79,6 +79,8 @@ export interface StoryMergeConflict {
   id: string;
   path: string;
   kind: 'changed' | 'local-only' | 'remote-only';
+  basePresent?: boolean;
+  baseValue?: unknown;
   localValue?: unknown;
   remoteValue?: unknown;
   resolution?:
@@ -164,7 +166,17 @@ function clone<T>(value: T): T {
 }
 
 function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(comparableValue(left)) === JSON.stringify(comparableValue(right));
+}
+
+function comparableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(comparableValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== '$storyBlueprintType')
+      .map(([key, item]) => [key, comparableValue(item)]),
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -192,6 +204,70 @@ function keyedArray(value: unknown[]): Map<string, unknown> | undefined {
     result.set(key, value[index]);
   }
   return result;
+}
+
+interface AlignedArray {
+  items: Map<string, unknown>;
+  order: string[];
+}
+
+function alignArrayToBase(base: readonly unknown[], branch: readonly unknown[]): AlignedArray {
+  const baseSignatures = base.map((item) => JSON.stringify(comparableValue(item)));
+  const branchSignatures = branch.map((item) => JSON.stringify(comparableValue(item)));
+  const rows = base.length + 1;
+  const columns = branch.length + 1;
+  const lcs = Array.from({ length: rows }, () => new Uint16Array(columns));
+  if (base.length * branch.length <= 250_000) {
+    for (let left = base.length - 1; left >= 0; left -= 1) {
+      for (let right = branch.length - 1; right >= 0; right -= 1) {
+        lcs[left][right] =
+          baseSignatures[left] === branchSignatures[right]
+            ? lcs[left + 1][right + 1] + 1
+            : Math.max(lcs[left + 1][right], lcs[left][right + 1]);
+      }
+    }
+  }
+  const anchors: Array<[number, number]> = [];
+  let left = 0;
+  let right = 0;
+  while (left < base.length && right < branch.length) {
+    if (baseSignatures[left] === branchSignatures[right]) {
+      anchors.push([left, right]);
+      left += 1;
+      right += 1;
+    } else if (lcs[left + 1][right] >= lcs[left][right + 1]) left += 1;
+    else right += 1;
+  }
+  const items = new Map<string, unknown>();
+  const order: string[] = [];
+  const boundaries: Array<[number, number]> = [[-1, -1], ...anchors, [base.length, branch.length]];
+  for (let boundary = 0; boundary < boundaries.length - 1; boundary += 1) {
+    const [previousBase, previousBranch] = boundaries[boundary];
+    const [nextBase, nextBranch] = boundaries[boundary + 1];
+    const baseGap = base.slice(previousBase + 1, nextBase);
+    const branchGap = branch.slice(previousBranch + 1, nextBranch);
+    const paired = Math.min(baseGap.length, branchGap.length);
+    for (let index = 0; index < paired; index += 1) {
+      const key = `base:${previousBase + 1 + index}`;
+      items.set(key, branchGap[index]);
+      order.push(key);
+    }
+    const occurrences = new Map<string, number>();
+    for (let index = paired; index < branchGap.length; index += 1) {
+      const signature = JSON.stringify(comparableValue(branchGap[index]));
+      const occurrence = occurrences.get(signature) ?? 0;
+      occurrences.set(signature, occurrence + 1);
+      const key = `add:${previousBase}:${nextBase}:${signature}:${occurrence}`;
+      items.set(key, branchGap[index]);
+      order.push(key);
+    }
+    if (nextBase < base.length) {
+      const key = `base:${nextBase}`;
+      items.set(key, branch[nextBranch]);
+      order.push(key);
+    }
+  }
+  return { items, order };
 }
 
 function childPath(path: string, segment: string): string {
@@ -323,11 +399,15 @@ function conflict(
   localValue: unknown,
   remotePresent: boolean,
   remoteValue: unknown,
+  basePresent?: boolean,
+  baseValue?: unknown,
 ): StoryMergeConflict {
   return {
     id: path,
     path: path.split('/').filter(Boolean).map(decodeURIComponent).join(' › '),
     kind: !localPresent ? 'remote-only' : !remotePresent ? 'local-only' : 'changed',
+    ...(basePresent !== undefined ? { basePresent } : {}),
+    ...(basePresent ? { baseValue: clone(baseValue) } : {}),
     ...(localPresent ? { localValue: clone(localValue) } : {}),
     ...(remotePresent ? { remoteValue: clone(remoteValue) } : {}),
   };
@@ -351,8 +431,19 @@ function collectDiff(
     return;
   }
   if (Array.isArray(localValue) && Array.isArray(remoteValue)) {
-    const localItems = keyedArray(localValue);
-    const remoteItems = keyedArray(remoteValue);
+    let localItems = keyedArray(localValue);
+    let remoteItems = keyedArray(remoteValue);
+    let localOrderOverride: string[] | undefined;
+    let remoteOrderOverride: string[] | undefined;
+    const alignedByContent = !localItems || !remoteItems;
+    if (alignedByContent) {
+      const alignedLocal = alignArrayToBase(localValue, localValue);
+      const alignedRemote = alignArrayToBase(localValue, remoteValue);
+      localItems = alignedLocal.items;
+      remoteItems = alignedRemote.items;
+      localOrderOverride = alignedLocal.order;
+      remoteOrderOverride = alignedRemote.order;
+    }
     if (!localItems || !remoteItems) {
       output.push(conflict(path, true, localValue, true, remoteValue));
       return;
@@ -370,9 +461,9 @@ function collectDiff(
         output,
       );
     }
-    const localOrder = [...localItems.keys()].filter((key) => remoteItems.has(key));
-    const remoteOrder = [...remoteItems.keys()].filter((key) => localItems.has(key));
-    if (orderMatters(path) && !same(localOrder, remoteOrder)) {
+    const localOrder = (localOrderOverride ?? [...localItems.keys()]).filter((key) => remoteItems.has(key));
+    const remoteOrder = (remoteOrderOverride ?? [...remoteItems.keys()]).filter((key) => localItems.has(key));
+    if ((orderMatters(path) || alignedByContent) && !same(localOrder, remoteOrder)) {
       output.push(conflict(childPath(path, '@order'), true, localOrder, true, remoteOrder));
     }
     return;
@@ -454,7 +545,9 @@ function mergeThreeValue(
     isRecord(localValue) &&
     isRecord(remoteValue)
   ) {
-    conflicts.push(conflict(path, true, localValue, true, remoteValue));
+    conflicts.push(
+      conflict(path, true, localValue, true, remoteValue, basePresent, baseValue),
+    );
     return clone(decisions[path] === 'remote' ? remoteValue : localValue);
   }
 
@@ -465,9 +558,25 @@ function mergeThreeValue(
     Array.isArray(remoteValue) &&
     (!basePresent || Array.isArray(baseValue))
   ) {
-    const baseItems = keyedArray(basePresent ? (baseValue as unknown[]) : []);
-    const localItems = keyedArray(localValue);
-    const remoteItems = keyedArray(remoteValue);
+    const baseArray = basePresent ? (baseValue as unknown[]) : [];
+    let baseItems = keyedArray(baseArray);
+    let localItems = keyedArray(localValue);
+    let remoteItems = keyedArray(remoteValue);
+    let baseOrderOverride: string[] | undefined;
+    let localOrderOverride: string[] | undefined;
+    let remoteOrderOverride: string[] | undefined;
+    const alignedByContent = !baseItems || !localItems || !remoteItems;
+    if (alignedByContent) {
+      const alignedBase = alignArrayToBase(baseArray, baseArray);
+      const alignedLocal = alignArrayToBase(baseArray, localValue);
+      const alignedRemote = alignArrayToBase(baseArray, remoteValue);
+      baseItems = alignedBase.items;
+      localItems = alignedLocal.items;
+      remoteItems = alignedRemote.items;
+      baseOrderOverride = alignedBase.order;
+      localOrderOverride = alignedLocal.order;
+      remoteOrderOverride = alignedRemote.order;
+    }
     if (baseItems && localItems && remoteItems) {
       const keys = [...baseItems.keys(), ...localItems.keys(), ...remoteItems.keys()].filter(
         (key, index, all) => all.indexOf(key) === index,
@@ -489,23 +598,24 @@ function mergeThreeValue(
         if (value !== missing) mergedItems.set(key, value);
       }
 
-      const baseOrder = [...baseItems.keys()];
-      const localOrder = [...localItems.keys()];
-      const remoteOrder = [...remoteItems.keys()];
+      const baseOrder = baseOrderOverride ?? [...baseItems.keys()];
+      const localOrder = localOrderOverride ?? [...localItems.keys()];
+      const remoteOrder = remoteOrderOverride ?? [...remoteItems.keys()];
+      const arrayOrderMatters = orderMatters(path) || alignedByContent;
       const baseInLocal = baseOrder.filter((key) => localItems.has(key));
       const localBaseItems = localOrder.filter((key) => baseItems.has(key));
       const baseInRemote = baseOrder.filter((key) => remoteItems.has(key));
       const remoteBaseItems = remoteOrder.filter((key) => baseItems.has(key));
-      const localReordered = orderMatters(path) && !same(baseInLocal, localBaseItems);
-      const remoteReordered = orderMatters(path) && !same(baseInRemote, remoteBaseItems);
+      const localReordered = arrayOrderMatters && !same(baseInLocal, localBaseItems);
+      const remoteReordered = arrayOrderMatters && !same(baseInRemote, remoteBaseItems);
       const orderPath = childPath(path, '@order');
       const concurrentInsertions =
-        orderMatters(path) && hasConcurrentInsertionGap(baseOrder, localOrder, remoteOrder);
+        arrayOrderMatters && hasConcurrentInsertionGap(baseOrder, localOrder, remoteOrder);
       let primary = localOrder;
       let secondary = remoteOrder;
       let concurrentOrder: string[] | undefined;
       if (concurrentInsertions) {
-        conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder));
+        conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder, true, baseOrder));
         if (decisions[orderPath] === 'remote' || decisions[orderPath] === 'remote-first') {
           primary = remoteOrder;
           secondary = localOrder;
@@ -521,8 +631,8 @@ function mergeThreeValue(
         primary = remoteOrder;
         secondary = localOrder;
       } else if (localReordered && remoteReordered && !same(localBaseItems, remoteBaseItems)) {
-        conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder));
-        if (decisions[orderPath] === 'remote') {
+        conflicts.push(conflict(orderPath, true, localOrder, true, remoteOrder, true, baseOrder));
+        if (decisions[orderPath] === 'remote' || decisions[orderPath] === 'remote-first') {
           primary = remoteOrder;
           secondary = localOrder;
         }
@@ -565,7 +675,17 @@ function mergeThreeValue(
     return result;
   }
 
-  conflicts.push(conflict(path, localPresent, localValue, remotePresent, remoteValue));
+  conflicts.push(
+    conflict(
+      path,
+      localPresent,
+      localValue,
+      remotePresent,
+      remoteValue,
+      basePresent,
+      baseValue,
+    ),
+  );
   const useRemote = decisions[path] === 'remote';
   if (useRemote) return remotePresent ? clone(remoteValue) : missing;
   return localPresent ? clone(localValue) : missing;
@@ -1561,7 +1681,9 @@ function mergeValue(
       if (value !== missing) mergedItems.set(key, value);
     }
     const orderPath = childPath(path, '@order');
-    const useRemoteOrder = orderMatters(path) && decisions[orderPath] === 'remote';
+    const useRemoteOrder =
+      orderMatters(path) &&
+      (decisions[orderPath] === 'remote' || decisions[orderPath] === 'remote-first');
     const primary = useRemoteOrder ? [...remoteItems.keys()] : [...localItems.keys()];
     const secondary = useRemoteOrder ? [...localItems.keys()] : [...remoteItems.keys()];
     return mergedKeyOrder(primary, secondary, new Set(mergedItems.keys())).map((key) =>

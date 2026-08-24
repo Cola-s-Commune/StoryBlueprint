@@ -332,7 +332,7 @@
 - [x] Object 字段引用其他 Engine Type；Array 配置元素类型，并检测直接或间接循环引用
 - [x] Array Item 可显式选择 Any JSON；每个 Item 独立选择 null / Boolean / Number / String / Array / Object 并图形化编辑
 - [x] Schema 驱动 JSON Value Inspector：嵌套字段、数组项增删、默认值、可空与 Raw JSON 双向切换
-- [x] Schema 变更影响预览与安全迁移：新增字段填默认值、字段改名保留值、删除字段清理值、类型不兼容重置默认值；列出受影响变量和节点并作为单次事务撤销
+- [x] Schema 变更影响预览与安全迁移：逐字段说明 Preserve / Initialize / Reset / Discard 策略；新增字段填默认值、字段改名保留值、删除字段清理值、类型不兼容重置默认值；列出受影响变量、角色、子故事、节点和其他 Story，并作为单次事务撤销
 - [x] Engine Type 与字段使用稳定 ID；改名和排序不改变身份，新增/删除不会被误判为改名
 - [x] Schema 迁移预览使用编辑器内对话框，不依赖系统 confirm；嵌套类型变更递归迁移所有父类型值
 - [x] Schema 只用于作者表单、校验、文档和引擎契约；编译产物仍是普通 JSON，不生成成员访问或数据处理逻辑
@@ -835,8 +835,12 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 会话式 Story Assistant：理解最新 Story 状态、回答 / 追问、可选命令提案与会话隔离
 - [x] Codex 风格 chat-first 交互：底部 Composer、键盘发送、自动滚动、上下文与工作状态、提案审核卡片
 - [x] 按 Workspace + Story 持久化 AI 会话，支持历史切换、新建和删除，不污染项目文件
-- [x] 项目级 `AGENTS.md`：新建项目自动生成、AI 请求由主进程读取并作为可版本控制的协作契约
-- [x] AI 请求始终合并最新版内置契约与项目 `AGENTS.md`，旧项目不再冻结在创建时模板；增减变量明确使用 read-modify-write 表达式
+- [x] 项目级 `STORY_BLUEPRINT_AI.md`：新建项目自动生成、AI 请求由主进程读取并作为可版本控制的协作契约；避免被开发代理误识别为仓库指令
+- [x] 旧项目中由 Story Blueprint 生成的 `AGENTS.md` 在首次 AI 请求时安全迁移为 `STORY_BLUEPRINT_AI.md`；不触碰其他工具创建的同名文件
+- [x] 复杂数据深层 Focus 编辑：Object / Array / Map 嵌套达到第 3 层后停止继续压缩 Inspector，改用独立大编辑区完成编辑
+- [x] 复杂数据字段级诊断：按路径校验 Object Field、Array Element、Map Key/Value、枚举和 Character/Asset 引用；父级折叠标题及 Focus 入口汇总错误数量
+- [x] 大型复杂容器窗口化与检索：Array / Map / Free Object 分批渲染，每批 50 项；支持索引、Key、JSON 内容及 Character/Asset 显示名搜索并显示匹配规模
+- [x] AI 请求始终合并最新版内置契约与项目 `STORY_BLUEPRINT_AI.md`，旧项目不再冻结在创建时模板；增减变量明确使用 read-modify-write 表达式
 - [x] AI `add-variable-adjustment` 高层操作按稳定变量 ID 与 signed delta 生成自绑定 Set Variable；相对修改请求中的字面量覆盖在 Dry Run 阶段阻止 Apply
 - [x] AI 参考文件附件：作者显式选择文本文件，数量和大小受限，仅附着于当前请求且不写入 Story 或聊天历史
 - [x] AI 会话标题独立可编辑：首次消息仅用于默认命名，后续重命名持久化且不被新消息覆盖
@@ -933,6 +937,8 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 同一 Data Input 的 Local / Remote 竞争来源转为可选择的语义冲突
 - [x] Local / Remote 同时替换 Start 时生成入口二选一冲突，Apply 前强制每个 Graph 只有一个入口
 - [x] Line / Option / Parameter 等有序集合在同一位置并发插入时显式选择 Local-first / Remote-first
+- [x] 复杂 JSON 值按字段和数组元素做三方语义合并；无稳定 ID 的数组使用序列对齐，冲突定位到具体嵌套路径，并忽略编辑器内部类型标记
+- [x] 复杂 JSON 冲突可视化：显示嵌套字段短名、完整路径及 Base / Local / Remote 三方值；容器顺序冲突提供 Local-first / Remote-first 决策
 - [x] AI Commands 支持 `layout-selection` 与 `layout-neighborhood` 布局意图，不允许 AI 直接生成 `x/y`
 - [ ] Multi-user
 

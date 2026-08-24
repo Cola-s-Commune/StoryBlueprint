@@ -266,6 +266,129 @@
   overflow-wrap: anywhere;
 }
 
+.valueConflict {
+  grid-column: 1 / -1;
+  min-width: 0;
+  background: #1b2026;
+}
+
+.valuePath {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid #343b44;
+  background: #20272e;
+}
+
+.valuePath strong {
+  flex: none;
+  color: #d8e0e8;
+  font-size: 10px;
+}
+
+.valuePath code {
+  min-width: 0;
+  overflow: hidden;
+  color: #778594;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.threeWayValues,
+.twoWayValues {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: #39424c;
+}
+
+.twoWayValues {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.threeWayValues > section,
+.threeWayValues > button,
+.twoWayValues > button {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 5px;
+  min-height: 74px;
+  padding: 8px;
+  border: 0;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  background: #1e2329;
+  color: #aeb8c3;
+  font: inherit;
+  text-align: left;
+}
+
+.threeWayValues > button,
+.twoWayValues > button {
+  cursor: pointer;
+}
+
+.threeWayValues > button:hover,
+.twoWayValues > button:hover {
+  background: #252c34;
+}
+
+.threeWayValues > button.selectedChoice,
+.twoWayValues > button.selectedChoice {
+  outline-color: #5687b4;
+  background: #243344;
+}
+
+.threeWayValues strong,
+.twoWayValues strong {
+  color: #91b8db;
+  font-size: 9px;
+}
+
+.threeWayValues span,
+.twoWayValues span {
+  color: #7f8a96;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.threeWayValues pre,
+.twoWayValues pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  color: #cbd3dc;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 9px;
+  line-height: 1.4;
+  user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.baseValue {
+  background: #1a1f24 !important;
+}
+
+.baseValue strong {
+  color: #8996a3;
+}
+
+.baseValue pre {
+  color: #8f9aa5;
+}
+
+@media (max-width: 760px) {
+  .threeWayValues {
+    grid-template-columns: 1fr;
+  }
+}
+
 .regionDetails,
 .regionConfirmation {
   grid-column: 1 / -1;

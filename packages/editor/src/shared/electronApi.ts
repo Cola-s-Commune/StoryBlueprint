@@ -283,8 +283,8 @@ export interface AIProviderRegistry {
 
 export interface AIInstructionsStatus {
   builtInVersion: number;
-  projectAgents: 'loaded' | 'missing' | 'oversized';
-  projectAgentsPath?: string;
+  projectInstructions: 'loaded' | 'missing' | 'oversized';
+  projectInstructionsPath?: string;
 }
 
 export interface SaveAIProviderProfileRequest {
