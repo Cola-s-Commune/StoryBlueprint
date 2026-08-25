@@ -7,6 +7,7 @@ import type {
   ChapterId,
   CharacterId,
   EventId,
+  EventOutputId,
   SignalId,
   DialogueLineId,
   NodeId,
@@ -125,18 +126,40 @@ export interface BranchNodeData {
 /** Reads a story variable as a typed data value. */
 export interface GetVariableNodeData {
   variableId?: VariableId;
+  outputValueType?: ValueType;
+  /** Independently connectable Engine Object fields, identified by stable Schema field IDs. */
+  exposedFields?: readonly {
+    fieldId: import('./ids').EngineFieldId;
+    member: string;
+    displayName: string;
+    valueType: ValueType;
+  }[];
+  accessor?:
+    | { kind: 'member'; member: string; valueType: ValueType }
+    | { kind: 'index'; index: ExpressionSource; valueType: ValueType };
 }
 
 /** Assigns a safe expression to a story variable. */
 export interface SetVariableNodeData {
   variableId?: VariableId;
   value: ExpressionSource;
+  /** Container variables may append an Array item or set a Map entry instead of replacing all. */
+  containerOperation?: 'append' | 'set-entry' | 'set-field';
+  key?: ExpressionSource;
+  /** Restricted first-level Engine Object mutation resolved by stable Schema field ID. */
+  fieldId?: import('./ids').EngineFieldId;
+  fieldName?: string;
+  fieldValueType?: ValueType;
+  /** Serialized port contracts used for immediate connection validation. */
+  valueInputType?: ValueType;
+  keyInputType?: ValueType;
 }
 
-/** Dispatches a project-defined engine event and immediately continues. */
+/** Calls a project-defined engine event and optionally stores its returned values. */
 export interface CallEventNodeData {
   eventId?: EventId;
   arguments: Record<string, ExpressionSource>;
+  resultVariableIds: Record<EventOutputId, VariableId>;
 }
 
 /** Pauses story execution until the engine emits a project-defined signal. */
@@ -229,7 +252,27 @@ export interface NodeDefinition<T extends StoryNodeType = StoryNodeType> {
     labelProperty: string;
     kind: 'execution' | 'data';
     valueType?: ValueType;
+    valueTypeProperty?: string;
+    recordEntries?: boolean;
+    idPrefix?: string;
+    optional?: boolean;
   };
+  /** Describes data-backed input ports such as Event arguments. */
+  dynamicInputs?: {
+    sourceProperty: string;
+    idProperty: string;
+    labelProperty: string;
+    kind: 'execution' | 'data';
+    valueType?: ValueType;
+    valueTypeProperty?: string;
+    recordEntries?: boolean;
+    idPrefix?: string;
+    optional?: boolean;
+  };
+  /** Overrides static data input types from serialized node data. */
+  inputValueTypeProperties?: Readonly<Record<string, string>>;
+  /** Overrides static data output types from serialized node data; dot paths are supported. */
+  outputValueTypeProperties?: Readonly<Record<string, string>>;
   /** Factory: returns default data for a new node of this type */
   defaultData: () => StoryNodeDataMap[T];
 }

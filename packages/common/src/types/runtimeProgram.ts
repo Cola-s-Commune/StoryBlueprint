@@ -79,12 +79,17 @@ export interface SetVariableInstruction extends RuntimeInstructionBase {
   op: 'set-variable';
   variableId: VariableId;
   value: TypedExpression;
+  containerOperation?: 'append' | 'set-entry' | 'set-field';
+  key?: TypedExpression;
+  fieldName?: string;
 }
 
 export interface CallEventInstruction extends RuntimeInstructionBase {
   op: 'call-event';
   eventId: EventId;
   arguments: Readonly<Record<string, TypedExpression>>;
+  outputs: readonly { id: string; name: string; valueType: ValueType }[];
+  resultVariableIds: Readonly<Record<string, VariableId>>;
 }
 
 export interface WaitSignalInstruction extends RuntimeInstructionBase {

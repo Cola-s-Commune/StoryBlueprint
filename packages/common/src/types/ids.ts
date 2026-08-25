@@ -8,6 +8,7 @@ const stableIdPrefixes = {
   character: 'c',
   asset: 'a',
   event: 'ev',
+  eventOutput: 'evo',
   signal: 'sig',
   engineType: 'et',
   engineField: 'ef',
@@ -31,6 +32,7 @@ export type VariableId = StableId<'variable'>;
 export type CharacterId = StableId<'character'>;
 export type AssetId = StableId<'asset'>;
 export type EventId = StableId<'event'>;
+export type EventOutputId = StableId<'eventOutput'>;
 export type SignalId = StableId<'signal'>;
 export type EngineTypeId = StableId<'engineType'>;
 export type EngineFieldId = StableId<'engineField'>;

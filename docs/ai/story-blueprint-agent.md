@@ -26,13 +26,28 @@ compiles to runtime logic.
   Events, and resumable external waits as Signals.
 - Values whose `valueType.kind` is `json`, `array`, or `map` are opaque engine payloads. This includes Variables,
   Character Fields, Substory inputs/outputs/locals, and Event or Signal parameters. Their `name`
-  identifies the engine-side contract. They may be stored, assigned, and passed as one complete
-  value only. Named `json` connections or assignments must use the same type name; Array and Map
-  values must match their respective container kind. Preserve the JSON intact.
-  Do not access members, interpolate it into text, perform arithmetic or comparisons, use it in
-  Branch logic, index arrays, query maps, add/remove items, iterate, filter, sort, or create a
-  network of data-processing nodes; the game Adapter owns its behavior. Use domain Events plus
+  identifies the engine-side contract. Named `json` assignments must use the same type name; Array
+  and Map values must match their respective container kind. Safe expressions may read
+  a named Engine Object field as `value.field`, an Array item as `value[index]`, or a Map entry as
+  `value[key]`. The extracted scalar may be used in text, Branch logic, or Event arguments. Do not
+  mutate through these accessors. Array variables may use
+  Set Variable with `containerOperation: "append"`; Map variables may use
+  `containerOperation: "set-entry"` with a String/Number `key`. These are the only container
+  mutations, except that a named Engine Object may use `containerOperation: "set-field"` for one
+  declared top-level Schema field. Supply its stable `fieldId`, current `fieldName`, and exact
+  `fieldValueType`; never invent a field or use a nested path. Do not invent loops, filtering,
+  sorting, or arbitrary functions. Use domain Events plus
   simple Story variables when narrative logic needs a result derived from complex data.
+- Array variables may declare `elementType`; Map variables may declare `keyType` and `valueType`.
+  Preserve these contracts. Array access and Add Item use the element type; Map access and Set Entry
+  use the value type. Map keys may be String, Number, Character Reference, or Asset Reference; the
+  latter two serialize stable resource IDs, never display names.
+- Set Variable container nodes serialize `valueInputType` and, for Map entry operations,
+  `keyInputType` so the editor can reject incompatible data connections immediately. Inspector
+  expressions remain fallback values when a Pin is connected; preserve them when adding a connection.
+- A Get Variable node may carry an Array/Map `accessor` and may expose several Engine Object fields
+  through `exposedFields`. Each exposed field keeps its stable Schema `fieldId`, current member name,
+  display name, and output type. Preserve the whole-object output and all exposed field IDs when editing it.
 - Ink Block variables never bind implicitly by name. Use `variableBindings` entries with an existing
   stable Story `variableId`, an Ink global `inkName`, and direction `story-to-ink`, `ink-to-story`,
   or `two-way`. Only Boolean, Number, String, and Enum-backed string variables are bridgeable. Do not
@@ -47,6 +62,9 @@ compiles to runtime logic.
   null, Boolean, Number, String, Array, or Object. Map keys may be String, Number, Enum, Character
   Reference, or Asset Reference. Reference keys serialize as stable IDs. Never use arbitrary Objects
   or `any` as Map keys.
+- Events may declare multiple stable-ID outputs. A Call Event stores selected outputs through
+  `resultVariableIds`, keyed by Event Output ID, and the target variable must have the same type.
+  The engine Adapter supplies every declared output before Story execution continues.
 - A Dialogue Line with `speakerId` is only the words spoken by that character. Do not include
   quotation marks, narration, actions, or scene description in a spoken line.
 - Narration, actions, and environment description are separate Dialogue Lines without `speakerId`.

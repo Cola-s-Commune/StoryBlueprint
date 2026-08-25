@@ -188,11 +188,15 @@ Story Blueprint is an authoring tool for executable, graph-based interactive nar
 - Discuss narrative intent naturally, but propose Blueprint Command transactions for edits; never claim edits are already applied.
 - Preserve stable IDs and connections unless the author explicitly asks to change them.
 - Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external behavior as Events, and waits as Signals.
-- Values with valueType.kind json, array, or map are opaque engine payloads. Named json values use their type name as the engine-side contract; Array and Map values use their container kind. They may be stored, assigned, or passed only as one complete value. Preserve them intact; never access members, index arrays, query maps, add/remove items, iterate, filter, sort, interpolate them into text, perform arithmetic or comparisons, use them in Branch logic, or create data-processing nodes. Use domain Events plus simple Story variables when narrative logic needs a derived result; the game Adapter owns complex-data behavior.
+- Values with valueType.kind json, array, or map are engine payloads. Named json assignments use their type name as the contract; Array and Map values match their container kind. Safe expressions may read a named Engine Object field as value.field, an Array item as value[index], or a Map entry as value[key]. Extracted scalars may be used in text, Branch logic, and Event arguments. Array variables may use Set Variable with containerOperation "append"; Map variables may use containerOperation "set-entry" with a String/Number key. A named Engine Object may use containerOperation "set-field" only for one declared top-level Schema field, with its stable fieldId, current fieldName, and exact fieldValueType. Never invent nested mutation paths, loops, filtering, sorting, arbitrary functions, or other container mutations. Use domain Events when narrative logic needs more complex processing.
+- A Get Variable node may carry an Array/Map accessor and may expose several Engine Object fields through exposedFields. Each exposed field keeps its stable Schema fieldId, current member name, display name, and output type. Preserve the whole-object output and all exposed field IDs when editing it.
+- Array variables may declare elementType; Map variables may declare keyType and valueType. Preserve these contracts. Array access and Add Item use the element type; Map access and Set Entry use the value type. Character and Asset Map keys are stable resource IDs, never display names.
+- Set Variable container nodes serialize valueInputType and, for Map entries, keyInputType for immediate connection validation. Inspector expressions remain disconnect fallbacks; preserve them when connecting a Pin.
 - Ink Block variables never bind implicitly by name. Use variableBindings with an existing stable Story variableId, an Ink global inkName, and direction story-to-ink, ink-to-story, or two-way. Only Boolean, Number, String, and Enum-backed string variables are bridgeable; never map JSON, Struct, or other engine-owned values into Ink.
 - When the semantic snapshot includes Engine Type Schemas, construct JSON values only from their declared fields, nested object references, arrays, and enum choices. Do not invent undeclared fields or incompatible values. Schemas assist authoring and describe the engine contract; they are not Story code.
 - $storyBlueprintType is reserved editor metadata that binds an Object nested in Any JSON to a stable Engine Type ID. Preserve an existing valid marker, never invent an ID, and do not treat it as game data. Compilation removes it before Runtime or Adapter delivery.
 - An Array may explicitly use any items; each item remains ordinary JSON and may independently be null, Boolean, Number, String, Array, or Object. Map keys may be String, Number, Enum, Character Reference, or Asset Reference. Reference keys serialize as stable IDs. Never use arbitrary Objects or any as Map keys.
+- Events may declare multiple stable-ID outputs. A Call Event stores selected outputs through resultVariableIds keyed by Event Output ID; the target variable must have the same type. The engine Adapter supplies every declared output before Story execution continues.
 - A Dialogue Line with speakerId contains only that character's spoken words. Never include quotation marks, narration, actions, or scene description in a spoken line. Put narration/actions/environment in separate lines without speakerId; split mixed prose such as I entered. 「Hello.」 into two lines.
 - When direct speech has no source speaker, bind an existing Character only if its identity is unambiguous from surrounding text. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction that adds a minimal Character with a stable c_ ID, optionally tagged temporary, and then binds the line to it. If identity remains ambiguous, ask the author. Never silently classify unassigned direct speech as Narrator; omit speakerId only for genuine narration, action, inner thought, or scene description.
 - Ask when control flow, target graph, or variable semantics are ambiguous. Do not invent ports, positions, resources, or unsupported fields.
@@ -239,8 +243,8 @@ function errorText(error: unknown): string {
 }
 
 /** Best-effort diagnostics for production releases; logging must never crash the app. */
-function writeErrorLog(scope: string, error: unknown): void {
-  if (is.dev) return;
+function writeErrorLog(scope: string, error: unknown, options?: { force?: boolean }): void {
+  if (is.dev && !options?.force) return;
   const message = errorText(error).slice(0, MAX_ERROR_LOG_MESSAGE_BYTES);
   const entry = `[${new Date().toISOString()}] [${scope}] ${message}\n\n`;
   void mkdir(app.getPath('logs'), { recursive: true })
@@ -2049,7 +2053,10 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event) || typeof scope !== 'string' || typeof message !== 'string') {
       throw new Error('Invalid renderer error report');
     }
-    writeErrorLog(`renderer:${scope.slice(0, 96)}`, message);
+    const normalizedScope = scope.slice(0, 96);
+    writeErrorLog(`renderer:${normalizedScope}`, message, {
+      force: normalizedScope === 'input-trace',
+    });
   });
   ipcMain.handle('app:get-update-settings', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
@@ -4172,8 +4179,13 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     writeErrorLog('renderer-process-gone', `${details.reason} (exit code ${details.exitCode})`);
   });
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (level >= 2) writeErrorLog('renderer-console', `${sourceId}:${line}: ${message}`);
+  mainWindow.webContents.on('console-message', (event) => {
+    if (event.level === 'warning' || event.level === 'error') {
+      writeErrorLog(
+        'renderer-console',
+        `${event.sourceId}:${event.lineNumber}: ${event.message}`,
+      );
+    }
   });
 
   const sendWindowState = () =>

@@ -14,6 +14,7 @@ import {
   type DialogueLine,
   type DialogueLineId,
   type EndNodeData,
+  type EngineTypeDefinition,
   type ExpressionSource,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
@@ -29,6 +30,7 @@ import {
   type VariableId,
 } from '@story-blueprint/common';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { compileTextTemplate } from '@story-blueprint/compiler';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { toSourceGraph, type EditorGraphState } from '../../graph/editorGraph';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
@@ -130,9 +132,17 @@ function PlainPropertyField({
   onBeginEdit,
   onChange,
 }: PropertyFieldProps) {
-  const { availableVariables: graphVariables, projectVariables } = useStoryGraphStore();
+  const {
+    availableVariables: graphVariables,
+    projectVariables,
+    engineTypes,
+    characters,
+  } = useStoryGraphStore();
   const availableVariables = [...graphVariables, ...projectVariables];
   const editing = useRef(false);
+  const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const [referenceOpen, setReferenceOpen] = useState(false);
+  const [referenceSearch, setReferenceSearch] = useState('');
   const handleChange = (nextValue: string) => {
     if (!editing.current) {
       onBeginEdit();
@@ -157,6 +167,9 @@ function PlainPropertyField({
     handleChange(`${value.slice(0, start)}${token}${value.slice(end)}`);
   };
   const common = {
+    ref: (control: HTMLInputElement | HTMLTextAreaElement | null) => {
+      controlRef.current = control;
+    },
     value,
     onBlur: handleBlur,
     onDragOver: (event: DragEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -168,12 +181,99 @@ function PlainPropertyField({
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       handleChange(event.target.value),
   };
+  const references = useMemo(
+    () =>
+      referenceOpen ? availableVariables.flatMap((variable) => {
+        if (variable.valueType.kind !== 'json') {
+          return ['array', 'map'].includes(variable.valueType.kind)
+            ? []
+            : [{ label: variable.displayName, detail: variable.name, token: variable.name }];
+        }
+        const engineTypeName = variable.valueType.name;
+        const schema = engineTypes.find((candidate) => candidate.name === engineTypeName);
+        return (schema?.fields ?? []).flatMap((field) =>
+          ['boolean', 'number', 'string', 'enum', 'character-ref', 'asset-ref'].includes(
+            field.type.kind,
+          )
+            ? [{
+                label: `${variable.displayName} · ${field.displayName}`,
+                detail: `${variable.name}.${field.name}`,
+                token: `${variable.name}.${field.name}`,
+              }]
+            : [],
+        );
+      }) : [],
+    [availableVariables, engineTypes, referenceOpen],
+  );
+  const filteredReferences = references.filter((reference) =>
+    `${reference.label} ${reference.detail}`.toLowerCase().includes(referenceSearch.toLowerCase()),
+  );
+  const insertReference = (token: string) => {
+    const control = controlRef.current;
+    const start = control?.selectionStart ?? value.length;
+    const end = control?.selectionEnd ?? start;
+    handleChange(`${value.slice(0, start)}{${token}}${value.slice(end)}`);
+    setReferenceOpen(false);
+    requestAnimationFrame(() => {
+      control?.focus();
+      control?.setSelectionRange(start + token.length + 2, start + token.length + 2);
+    });
+  };
+  let templateError: string | undefined;
+  if (variableMode === 'template' && editing.current) {
+    try {
+      compileTextTemplate({ source: value }, 't_inspector_preview', availableVariables, characters);
+    } catch (error) {
+      templateError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   return (
     <label className={styles.field}>
-      <span>{label}</span>
+      <span className={styles.propertyLabelRow}>
+        <span>{label}</span>
+        {variableMode === 'template' && (
+          <button
+            type="button"
+            className={styles.insertReferenceButton}
+            onClick={(event) => {
+              event.preventDefault();
+              setReferenceOpen((open) => !open);
+            }}
+          >
+            Insert Reference
+          </button>
+        )}
+      </span>
       {multiline ? <textarea {...common} rows={5} /> : <input {...common} />}
-      {variableMode && <small>Drag a variable here to insert it.</small>}
+      {referenceOpen && (
+        <div className={styles.referencePicker} onClick={(event) => event.preventDefault()}>
+          <input
+            autoFocus
+            placeholder="Search variables and fields…"
+            value={referenceSearch}
+            onChange={(event) => setReferenceSearch(event.target.value)}
+          />
+          <div className={styles.referenceResults}>
+            {filteredReferences.map((reference) => (
+              <button
+                type="button"
+                key={reference.token}
+                onClick={() => insertReference(reference.token)}
+              >
+                <span>{reference.label}</span>
+                <code>{`{${reference.detail}}`}</code>
+              </button>
+            ))}
+            {filteredReferences.length === 0 && <small>No displayable references.</small>}
+          </div>
+        </div>
+      )}
+      {templateError ? (
+        <small className={styles.templateError}>{templateError}</small>
+      ) : variableMode ? (
+        <small>Drag a variable here or insert a reference.</small>
+      ) : null}
     </label>
   );
 }
@@ -568,7 +668,7 @@ function useStringExpressionMode({
 }
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
-  const { availableVariables, projectVariables, characters, checkpoint, updateNodeData } =
+  const { availableVariables, projectVariables, characters, assets, engineTypes, edges, checkpoint, updateNodeData } =
     useStoryGraphStore();
   const allVariables = [
     ...availableVariables,
@@ -579,7 +679,40 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
   const isString = variable?.valueType.kind === 'string';
   const jsonType = variable?.valueType.kind === 'json' ? variable.valueType : undefined;
   const isJson = jsonType !== undefined;
+  const isArray = variable?.valueType.kind === 'array';
+  const isMap = variable?.valueType.kind === 'map';
+  const schema = jsonType
+    ? engineTypes.find((candidate) => candidate.name === jsonType.name)
+    : undefined;
+  const fieldValueType = (field: EngineTypeDefinition['fields'][number]): ValueType => {
+    const type = field.type;
+    if (type.kind === 'object')
+      return { kind: 'json', name: type.typeName, nullable: field.nullable };
+    if (
+      type.kind === 'array' ||
+      type.kind === 'map' ||
+      type.kind === 'boolean' ||
+      type.kind === 'number' ||
+      type.kind === 'string' ||
+      type.kind === 'any'
+    )
+      return { kind: type.kind, nullable: field.nullable } as ValueType;
+    if (type.kind === 'enum')
+      return {
+        kind: 'enum',
+        name: `${schema?.name ?? jsonType?.name ?? 'EngineObject'}.${field.name}`,
+        values: type.values,
+        nullable: field.nullable,
+      };
+    return { kind: 'string', nullable: field.nullable };
+  };
   const decodedLiteral = decodeStringLiteral(data.value.source);
+  const valueConnected = edges.some(
+    (edge) => edge.target === nodeId && edge.targetHandle === 'value',
+  );
+  const keyConnected = edges.some(
+    (edge) => edge.target === nodeId && edge.targetHandle === 'key',
+  );
 
   const updateValue = (source: string) =>
     updateNodeData(nodeId, StoryNodeType.SetVariable, {
@@ -604,6 +737,13 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           const nextIsJson = nextVariable?.valueType.kind === 'json';
           updateNodeData(nodeId, StoryNodeType.SetVariable, {
             variableId,
+            containerOperation: undefined,
+            key: undefined,
+            fieldId: undefined,
+            fieldName: undefined,
+            fieldValueType: undefined,
+            valueInputType: nextVariable?.valueType,
+            keyInputType: undefined,
             ...(nextIsJson
               ? { value: { source: '{}', bindings: {} } }
               : nextIsString
@@ -617,6 +757,146 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           });
         }}
       />
+      {(isArray || isMap || (isJson && schema)) && (
+        <label className={styles.field}>
+          <span>Operation</span>
+          <select
+            value={data.containerOperation ?? 'set'}
+            onChange={(event) => {
+              checkpoint();
+              const operation = event.target.value;
+              updateNodeData(nodeId, StoryNodeType.SetVariable, {
+                containerOperation:
+                  operation === 'set'
+                    ? undefined
+                    : (operation as 'append' | 'set-entry' | 'set-field'),
+                key:
+                  operation === 'set-entry'
+                    ? data.key ?? { source: '"key"', bindings: {} }
+                    : undefined,
+                fieldId:
+                  operation === 'set-field' ? (schema?.fields[0]?.id ?? undefined) : undefined,
+                fieldName:
+                  operation === 'set-field' ? (schema?.fields[0]?.name ?? undefined) : undefined,
+                fieldValueType:
+                  operation === 'set-field' && schema?.fields[0]
+                    ? fieldValueType(schema.fields[0])
+                    : undefined,
+                valueInputType:
+                  operation === 'set-field' && schema?.fields[0]
+                    ? fieldValueType(schema.fields[0])
+                    : operation === 'append' && variable?.valueType.kind === 'array'
+                      ? variable.valueType.elementType ?? { kind: 'any' }
+                      : operation === 'set-entry' && variable?.valueType.kind === 'map'
+                        ? variable.valueType.valueType ?? { kind: 'any' }
+                        : variable?.valueType,
+                keyInputType:
+                  operation === 'set-entry' && variable?.valueType.kind === 'map'
+                    ? variable.valueType.keyType === 'number'
+                      ? { kind: 'number' }
+                      : { kind: 'string' }
+                    : undefined,
+                value:
+                  operation === 'set'
+                    ? { source: isArray ? '[]' : '{}', bindings: {} }
+                    : operation === 'set-field' && schema?.fields[0]
+                      ? {
+                          source: JSON.stringify(schema.fields[0].defaultValue),
+                          bindings: {},
+                        }
+                      : { source: isArray ? '0' : '"value"', bindings: {} },
+              });
+            }}
+          >
+            <option value="set">
+              Set Entire {isArray ? 'Array' : isMap ? 'Map' : schema?.displayName ?? 'Object'}
+            </option>
+            {isArray && <option value="append">Add Item</option>}
+            {isMap && <option value="set-entry">Set / Add Entry</option>}
+            {isJson && schema && <option value="set-field">Set Object Field</option>}
+          </select>
+        </label>
+      )}
+      {isJson && schema && data.containerOperation === 'set-field' && (
+        <label className={styles.field}>
+          <span>Field</span>
+          <select
+            value={data.fieldId ?? ''}
+            onChange={(event) => {
+              checkpoint();
+              const field = schema.fields.find((candidate) => candidate.id === event.target.value);
+              updateNodeData(nodeId, StoryNodeType.SetVariable, {
+                fieldId: field?.id,
+                fieldName: field?.name,
+                fieldValueType: field ? fieldValueType(field) : undefined,
+                valueInputType: field ? fieldValueType(field) : undefined,
+                value: {
+                  source: JSON.stringify(field?.defaultValue ?? null),
+                  bindings: {},
+                },
+              });
+            }}
+          >
+            {schema.fields.map((field) => (
+              <option value={field.id} key={field.id}>
+                {field.displayName} · {field.type.kind}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {valueConnected && (
+        <div className={styles.info}>
+          Value comes from a data connection. The Inspector value remains as the fallback after disconnecting.
+        </div>
+      )}
+      {keyConnected && (
+        <div className={styles.info}>
+          Key comes from a data connection. The Inspector key remains as the fallback after disconnecting.
+        </div>
+      )}
+      {isMap &&
+      data.containerOperation === 'set-entry' &&
+      (variable?.valueType.kind === 'map') &&
+      (variable.valueType.keyType === 'character-ref' ||
+        variable.valueType.keyType === 'asset-ref') ? (
+        <label className={styles.field}>
+          <span>Entry Key</span>
+          <select
+            value={decodeStringLiteral(data.key?.source ?? '') ?? ''}
+            onChange={(event) => {
+              checkpoint();
+              updateNodeData(nodeId, StoryNodeType.SetVariable, {
+                key: { source: JSON.stringify(event.target.value), bindings: {} },
+              });
+            }}
+          >
+            <option value="">Select {variable.valueType.keyType === 'character-ref' ? 'Character' : 'Asset'}…</option>
+            {(variable.valueType.keyType === 'character-ref' ? characters : assets).map((resource) => (
+              <option value={resource.id} key={resource.id}>
+                {resource.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : isMap && data.containerOperation === 'set-entry' ? (
+        <PropertyField
+          label="Entry Key"
+          value={data.key?.source ?? '"key"'}
+          variableMode="expression"
+          expectedType={
+            variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
+              ? { kind: 'number' }
+              : { kind: 'string' }
+          }
+          onBeginEdit={checkpoint}
+          onChange={(source) =>
+            updateNodeData(nodeId, StoryNodeType.SetVariable, {
+              key: { source, bindings: {} },
+            })
+          }
+        />
+      ) : null}
       {isString && (
         <label className={styles.field}>
           <span>Value Mode</span>
@@ -633,10 +913,18 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           </select>
         </label>
       )}
-      {isJson ? (
+      {isJson && data.containerOperation !== 'set-field' ? (
         <EngineJsonSourceEditor
           label={`JSON or ${jsonType!.name} variable`}
           typeName={jsonType!.name}
+          source={data.value.source}
+          onBeginEdit={checkpoint}
+          onChange={updateValue}
+        />
+      ) : data.containerOperation === 'set-field' && data.fieldValueType?.kind === 'json' ? (
+        <EngineJsonSourceEditor
+          label={`Field Value · ${data.fieldName ?? 'field'}`}
+          typeName={data.fieldValueType.name}
           source={data.value.source}
           onBeginEdit={checkpoint}
           onChange={updateValue}
@@ -654,7 +942,17 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           label="Value Expression"
           value={data.value.source}
           variableMode="expression"
-          expectedType={variable?.valueType}
+          expectedType={
+            data.containerOperation === 'set-field'
+              ? data.fieldValueType
+              : data.containerOperation === 'append' && variable?.valueType.kind === 'array'
+                ? variable.valueType.elementType ?? { kind: 'any' }
+                : data.containerOperation === 'set-entry' && variable?.valueType.kind === 'map'
+                  ? variable.valueType.valueType ?? { kind: 'any' }
+              : data.containerOperation
+                ? { kind: 'any' }
+                : variable?.valueType
+          }
           onBeginEdit={checkpoint}
           onChange={stringMode.updateExpression}
         />
@@ -2057,6 +2355,7 @@ export function Inspector() {
     characters,
     events,
     signals,
+    engineTypes,
     chapters,
     activeGraphId,
     checkpoint,
@@ -2412,15 +2711,120 @@ export function Inspector() {
       }
       case StoryNodeType.GetVariable: {
         const data = node.data as GetVariableNodeData;
+        const selectedVariable = [...availableVariables, ...projectVariables].find(
+          (candidate) => candidate.id === data.variableId,
+        );
+        const selectedJsonType =
+          selectedVariable?.valueType.kind === 'json' ? selectedVariable.valueType : undefined;
+        const schema = selectedJsonType
+          ? engineTypes.find((candidate) => candidate.name === selectedJsonType.name)
+          : undefined;
+        const indexedOutputType =
+          selectedVariable?.valueType.kind === 'array'
+            ? selectedVariable.valueType.elementType ?? { kind: 'any' as const }
+            : selectedVariable?.valueType.kind === 'map'
+              ? selectedVariable.valueType.valueType ?? { kind: 'any' as const }
+              : { kind: 'any' as const };
+        const fieldValueType = (field: EngineTypeDefinition['fields'][number]): ValueType => {
+          const type = field.type;
+          if (type.kind === 'object') return { kind: 'json', name: type.typeName, nullable: field.nullable };
+          if (type.kind === 'array' || type.kind === 'map' || type.kind === 'boolean' || type.kind === 'number' || type.kind === 'string' || type.kind === 'any') {
+            return { kind: type.kind, nullable: field.nullable } as ValueType;
+          }
+          if (type.kind === 'enum') {
+            return {
+              kind: 'enum',
+              name: `${schema?.name ?? 'EngineObject'}.${field.name}`,
+              values: type.values,
+              nullable: field.nullable,
+            };
+          }
+          return { kind: 'string', nullable: field.nullable };
+        };
         return (
-          <VariableSelect
-            label="Variable"
-            value={data.variableId}
-            onBeginEdit={checkpoint}
-            onChange={(variableId) =>
-              updateNodeData(node.id, StoryNodeType.GetVariable, { variableId })
-            }
-          />
+          <>
+            <VariableSelect
+              label="Variable"
+              value={data.variableId}
+              onBeginEdit={checkpoint}
+              onChange={(variableId) =>
+                updateNodeData(node.id, StoryNodeType.GetVariable, {
+                  variableId,
+                  accessor: undefined,
+                  exposedFields: [],
+                  outputValueType: [...availableVariables, ...projectVariables].find(
+                    (candidate) => candidate.id === variableId,
+                  )?.valueType,
+                })
+              }
+            />
+            {schema && (
+              <div className={styles.exposedFields}>
+                <div className={styles.groupLabel}>Output Pins</div>
+                <div className={styles.info}>
+                  The whole object is always available. Expose only fields that need their own Pin.
+                </div>
+                {schema.fields.map((field) => {
+                  const exposed = (data.exposedFields ?? []).some(
+                    (candidate) => candidate.fieldId === field.id,
+                  );
+                  return (
+                    <label key={field.id} className={styles.exposedFieldRow}>
+                      <input
+                        type="checkbox"
+                        checked={exposed}
+                        onChange={() => {
+                          checkpoint();
+                          const next = exposed
+                            ? (data.exposedFields ?? []).filter(
+                                (candidate) => candidate.fieldId !== field.id,
+                              )
+                            : [
+                                ...(data.exposedFields ?? []),
+                                {
+                                  fieldId: field.id,
+                                  member: field.name,
+                                  displayName: field.displayName,
+                                  valueType: fieldValueType(field),
+                                },
+                              ];
+                          updateNodeData(node.id, StoryNodeType.GetVariable, {
+                            accessor: undefined,
+                            exposedFields: next,
+                            outputValueType: selectedVariable?.valueType,
+                          });
+                        }}
+                      />
+                      <span>{field.displayName}</span>
+                      <em>{field.type.kind}</em>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {(selectedVariable?.valueType.kind === 'array' || selectedVariable?.valueType.kind === 'map') && (
+              <PropertyField
+                label={selectedVariable.valueType.kind === 'array' ? 'Index' : 'Key'}
+                value={data.accessor?.kind === 'index' ? data.accessor.index.source : selectedVariable.valueType.kind === 'array' ? '0' : '"key"'}
+                variableMode="expression"
+                expectedType={
+                  selectedVariable.valueType.kind === 'array' ||
+                  selectedVariable.valueType.keyType !== 'number'
+                    ? { kind: selectedVariable.valueType.kind === 'array' ? 'number' : 'string' }
+                    : { kind: 'number' }
+                }
+                onBeginEdit={checkpoint}
+                onChange={(source) => updateNodeData(node.id, StoryNodeType.GetVariable, {
+                  accessor: {
+                    kind: 'index',
+                    index: { source, bindings: {} },
+                    valueType: indexedOutputType,
+                  },
+                  outputValueType: indexedOutputType,
+                })}
+              />
+            )}
+          </>
         );
       }
       case StoryNodeType.SetVariable: {
@@ -2458,6 +2862,7 @@ export function Inspector() {
                         },
                       ]),
                     ),
+                    resultVariableIds: {},
                   });
                 }}
               >
@@ -2485,8 +2890,44 @@ export function Inspector() {
                 argumentsByName={data.arguments}
               />
             ))}
+            {(selectedEvent?.outputs ?? []).map((output) => {
+              const compatibleVariables = [...availableVariables, ...projectVariables].filter(
+                (variable) =>
+                  variable.valueType.kind === output.valueType.kind &&
+                  (variable.valueType.kind !== 'json' ||
+                    (output.valueType.kind === 'json' &&
+                      variable.valueType.name === output.valueType.name)),
+              );
+              return (
+                <label className={styles.field} key={output.id}>
+                  <span>Store {output.displayName}</span>
+                  <select
+                    value={data.resultVariableIds?.[output.id] ?? ''}
+                    onChange={(event) => {
+                      checkpoint();
+                      const variableId = event.target.value;
+                      updateNodeData(node.id, StoryNodeType.CallEvent, {
+                        resultVariableIds: {
+                          ...(data.resultVariableIds ?? {}),
+                          [output.id]: variableId || undefined,
+                        },
+                      });
+                    }}
+                  >
+                    <option value="">Do not store</option>
+                    {compatibleVariables.map((variable) => (
+                      <option value={variable.id} key={variable.id}>
+                        {variable.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
             <div className={styles.info}>
-              Dispatches the event to the engine and continues immediately.
+              {(selectedEvent?.outputs?.length ?? 0) > 0
+                ? 'Waits for the engine result, validates every return value, then continues.'
+                : 'Dispatches the event to the engine and continues when the adapter resolves.'}
             </div>
           </>
         );

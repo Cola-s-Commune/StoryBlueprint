@@ -43,4 +43,5 @@ export type TypedExpression =
       valueType: ValueType;
     }
   | { kind: 'member'; target: TypedExpression; member: string; valueType: ValueType }
+  | { kind: 'index'; target: TypedExpression; index: TypedExpression; valueType: ValueType }
   | { kind: 'convert'; target: TypedExpression; to: ValueType; valueType: ValueType };

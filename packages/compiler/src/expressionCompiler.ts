@@ -13,7 +13,7 @@ import type {
   CharacterSource,
 } from '@story-blueprint/common';
 
-type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'left' | 'right' | 'dot' | 'eof';
+type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'left' | 'right' | 'left-bracket' | 'right-bracket' | 'dot' | 'eof';
 interface Token {
   kind: TokenKind;
   value: string;
@@ -77,6 +77,14 @@ function tokenize(source: string): Token[] {
     }
     if (char === '(' || char === ')') {
       tokens.push({ kind: char === '(' ? 'left' : 'right', value: char, offset: index++ });
+      continue;
+    }
+    if (char === '[' || char === ']') {
+      tokens.push({
+        kind: char === '[' ? 'left-bracket' : 'right-bracket',
+        value: char,
+        offset: index++,
+      });
       continue;
     }
     if (char === '.') {
@@ -230,14 +238,24 @@ class Parser {
         const field =
           (boundId ? this.variablesById.get(boundId) : undefined) ??
           character?.fields?.find((candidate) => candidate.name === fieldToken.value);
-        if (!character)
-          throw new ExpressionCompileError(`Unknown character ${token.value}`, token.offset);
-        if (!field)
-          throw new ExpressionCompileError(
-            `Unknown character field ${qualifiedName}`,
-            fieldToken.offset,
-          );
-        return { kind: 'variable', variableId: field.id, valueType: field.valueType };
+        if (character) {
+          if (!field)
+            throw new ExpressionCompileError(
+              `Unknown character field ${qualifiedName}`,
+              fieldToken.offset,
+            );
+          return { kind: 'variable', variableId: field.id, valueType: field.valueType };
+        }
+        const variable = this.variablesByName.get(token.value);
+        if (!variable || variable.valueType.kind !== 'json') {
+          throw new ExpressionCompileError(`Unknown structured value ${token.value}`, token.offset);
+        }
+        return {
+          kind: 'member',
+          target: { kind: 'variable', variableId: variable.id, valueType: variable.valueType },
+          member: fieldToken.value,
+          valueType: { kind: 'any' },
+        };
       }
       const boundId = this.bindings[token.value];
       const variable =
@@ -245,7 +263,22 @@ class Parser {
         this.variablesByName.get(token.value);
       if (!variable)
         throw new ExpressionCompileError(`Unknown variable ${token.value}`, token.offset);
-      return { kind: 'variable', variableId: variable.id, valueType: variable.valueType };
+      const target: TypedExpression = {
+        kind: 'variable',
+        variableId: variable.id,
+        valueType: variable.valueType,
+      };
+      if (this.peek().kind !== 'left-bracket') return target;
+      if (variable.valueType.kind !== 'array' && variable.valueType.kind !== 'map') {
+        throw new ExpressionCompileError(`${token.value} is not an Array or Map`, token.offset);
+      }
+      this.take();
+      const index = this.parseBinary(0);
+      const closing = this.take();
+      if (closing.kind !== 'right-bracket') {
+        throw new ExpressionCompileError('Expected ]', closing.offset);
+      }
+      return { kind: 'index', target, index, valueType: { kind: 'any' } };
     }
     if (token.kind === 'left') {
       const expression = this.parseBinary(0);

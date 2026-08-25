@@ -56,6 +56,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function readPath(value: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>(
+    (current, part) => (isRecord(current) ? current[part] : undefined),
+    value,
+  );
+}
+
 export function resolveNodePorts(
   node: GraphNodeLike,
   registry: NodeRegistry = nodeRegistry,
@@ -68,23 +75,61 @@ export function resolveNodePorts(
     };
   }
 
-  const ports: NodePort[] = [...definition.inputs, ...definition.outputs];
+  const data = node.data as unknown;
+  const ports: NodePort[] = [...definition.inputs, ...definition.outputs].map((port) => {
+    const property =
+      (port.direction === 'input'
+        ? definition.inputValueTypeProperties
+        : definition.outputValueTypeProperties)?.[port.id];
+    const valueType = property ? readPath(data, property) : undefined;
+    return valueType && isRecord(valueType) && typeof valueType.kind === 'string'
+      ? { ...port, valueType: valueType as ValueType }
+      : port;
+  });
   const portIds = new Set(ports.map((port) => port.id));
   const diagnostics: ConnectionDiagnostic[] = [];
-  const dynamic = definition.dynamicOutputs;
-  if (!dynamic) return { ports, diagnostics };
+  const dynamicPorts = [
+    definition.dynamicOutputs && { definition: definition.dynamicOutputs, direction: 'output' as const },
+    definition.dynamicInputs && { definition: definition.dynamicInputs, direction: 'input' as const },
+  ].filter(Boolean) as Array<{
+    definition: NonNullable<typeof definition.dynamicOutputs>;
+    direction: 'input' | 'output';
+  }>;
 
-  const data = node.data as unknown;
-  const items = isRecord(data) ? data[dynamic.sourceProperty] : undefined;
-  if (!Array.isArray(items)) {
-    diagnostics.push({
-      code: 'INVALID_DYNAMIC_PORT_DATA',
-      message: `${node.type}.${dynamic.sourceProperty} must be an array`,
-    });
-    return { ports, diagnostics };
-  }
+  for (const { definition: dynamic, direction } of dynamicPorts) {
+    const source = isRecord(data) ? data[dynamic.sourceProperty] : undefined;
+    if (dynamic.recordEntries) {
+      if (!isRecord(source) || Array.isArray(source)) {
+        diagnostics.push({
+          code: 'INVALID_DYNAMIC_PORT_DATA',
+          message: `${node.type}.${dynamic.sourceProperty} must be an object`,
+        });
+        continue;
+      }
+      for (const key of Object.keys(source)) {
+        const id = `${dynamic.idPrefix ?? ''}${key}`;
+        if (portIds.has(id)) {
+          diagnostics.push({
+            code: 'INVALID_DYNAMIC_PORT_DATA',
+            message: `Dynamic port ID ${id} is duplicated on ${node.id}`,
+          });
+          continue;
+        }
+        portIds.add(id);
+        ports.push({ id, label: key, kind: dynamic.kind, direction, valueType: dynamic.valueType });
+      }
+      continue;
+    }
+    if (source === undefined && dynamic.optional) continue;
+    if (!Array.isArray(source)) {
+      diagnostics.push({
+        code: 'INVALID_DYNAMIC_PORT_DATA',
+        message: `${node.type}.${dynamic.sourceProperty} must be an array`,
+      });
+      continue;
+    }
 
-  for (const item of items) {
+    for (const item of source) {
     if (!isRecord(item)) {
       diagnostics.push({
         code: 'INVALID_DYNAMIC_PORT_DATA',
@@ -92,7 +137,7 @@ export function resolveNodePorts(
       });
       continue;
     }
-    const id = item[dynamic.idProperty];
+    const rawId = item[dynamic.idProperty];
     const rawLabel = item[dynamic.labelProperty];
     const label =
       typeof rawLabel === 'string'
@@ -100,13 +145,14 @@ export function resolveNodePorts(
         : isRecord(rawLabel) && typeof rawLabel.source === 'string'
           ? rawLabel.source
           : undefined;
-    if (typeof id !== 'string' || typeof label !== 'string') {
+    if (typeof rawId !== 'string' || typeof label !== 'string') {
       diagnostics.push({
         code: 'INVALID_DYNAMIC_PORT_DATA',
         message: `Dynamic port item on ${node.id} requires string ID and label fields`,
       });
       continue;
     }
+    const id = `${dynamic.idPrefix ?? ''}${rawId}`;
     if (portIds.has(id)) {
       diagnostics.push({
         code: 'INVALID_DYNAMIC_PORT_DATA',
@@ -119,9 +165,13 @@ export function resolveNodePorts(
       id,
       label,
       kind: dynamic.kind,
-      direction: 'output',
-      valueType: dynamic.valueType,
+      direction,
+      valueType:
+        dynamic.valueTypeProperty && isRecord(item)
+          ? (item[dynamic.valueTypeProperty] as ValueType | undefined)
+          : dynamic.valueType,
     });
+    }
   }
 
   return { ports, diagnostics };
@@ -134,6 +184,13 @@ function sameValueType(source: ValueType | undefined, target: ValueType | undefi
   if (source.kind === 'enum' && target.kind === 'enum') return source.name === target.name;
   if (source.kind === 'struct' && target.kind === 'struct') return source.name === target.name;
   if (source.kind === 'json' && target.kind === 'json') return source.name === target.name;
+  if (source.kind === 'array' && target.kind === 'array')
+    return !source.elementType || !target.elementType || sameValueType(source.elementType, target.elementType);
+  if (source.kind === 'map' && target.kind === 'map')
+    return (
+      (!source.keyType || !target.keyType || source.keyType === target.keyType) &&
+      (!source.valueType || !target.valueType || sameValueType(source.valueType, target.valueType))
+    );
   return true;
 }
 

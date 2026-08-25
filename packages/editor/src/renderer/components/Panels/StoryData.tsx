@@ -53,6 +53,35 @@ function defaultForType(kind: ScalarKind): RuntimeValue {
   return '';
 }
 
+function containerTypeSelection(type: ValueType | undefined): string {
+  if (!type) return 'any';
+  return type.kind === 'json' ? `json:${type.name}` : type.kind;
+}
+
+function containerValueType(selection: string): ValueType {
+  return selection.startsWith('json:')
+    ? { kind: 'json', name: selection.slice(5) }
+    : ({ kind: selection } as ValueType);
+}
+
+function valueTypeToEngineFieldType(type: ValueType | undefined): EngineFieldType {
+  if (!type || type.kind === 'any') return { kind: 'any' };
+  if (type.kind === 'json') return { kind: 'object', typeName: type.name };
+  if (type.kind === 'array') {
+    return { kind: 'array', elementType: valueTypeToEngineFieldType(type.elementType) };
+  }
+  if (type.kind === 'map') {
+    return {
+      kind: 'map',
+      keyType: { kind: type.keyType ?? 'string' },
+      valueType: valueTypeToEngineFieldType(type.valueType),
+    };
+  }
+  if (type.kind === 'enum') return { kind: 'enum', values: type.values };
+  if (type.kind === 'struct') return { kind: 'any' };
+  return { kind: type.kind };
+}
+
 function defaultForEngineFieldType(
   type: EngineFieldType,
   engineTypes: readonly EngineTypeDefinition[],
@@ -2608,6 +2637,10 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
               valueType:
                 nextKind === 'json'
                   ? { kind: 'json', name: nextEngineTypeName! }
+                  : nextKind === 'array'
+                    ? { kind: 'array', elementType: { kind: 'any' } }
+                    : nextKind === 'map'
+                      ? { kind: 'map', keyType: 'string', valueType: { kind: 'any' } }
                   : ({ kind: nextKind } as ValueType),
               defaultValue:
                 nextKind === 'json'
@@ -2631,6 +2664,89 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
           <option value="json">Engine JSON</option>
         </select>
       </label>
+      {variable.valueType.kind === 'array' && (
+        <label>
+          <span>Element Type</span>
+          <select
+            disabled={projectIndexUnavailable || references.length > 0}
+            value={containerTypeSelection(variable.valueType.elementType)}
+            onChange={(event) =>
+              updateVariable(variable.id, {
+                valueType: {
+                  kind: 'array',
+                  elementType: containerValueType(event.target.value),
+                },
+                defaultValue: [],
+              })
+            }
+          >
+            <option value="any">Any JSON</option>
+            <option value="boolean">Boolean</option>
+            <option value="number">Number</option>
+            <option value="string">String</option>
+            {engineTypes.map((item) => (
+              <option value={`json:${item.name}`} key={item.id}>
+                Object · {item.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {variable.valueType.kind === 'map' && (
+        <>
+          <label>
+            <span>Key Type</span>
+            <select
+              disabled={projectIndexUnavailable || references.length > 0}
+              value={variable.valueType.keyType ?? 'string'}
+              onChange={(event) =>
+                updateVariable(variable.id, {
+                  valueType: {
+                    kind: 'map',
+                    keyType: event.target.value as NonNullable<
+                      Extract<ValueType, { kind: 'map' }>['keyType']
+                    >,
+                    valueType: variable.valueType.kind === 'map' ? variable.valueType.valueType : undefined,
+                  },
+                  defaultValue: {},
+                })
+              }
+            >
+              <option value="string">String</option>
+              <option value="number">Number</option>
+              <option value="character-ref">Character Reference</option>
+              <option value="asset-ref">Asset Reference</option>
+            </select>
+          </label>
+          <label>
+            <span>Value Type</span>
+            <select
+              disabled={projectIndexUnavailable || references.length > 0}
+              value={containerTypeSelection(variable.valueType.valueType)}
+              onChange={(event) =>
+                updateVariable(variable.id, {
+                  valueType: {
+                    kind: 'map',
+                    keyType: variable.valueType.kind === 'map' ? variable.valueType.keyType : 'string',
+                    valueType: containerValueType(event.target.value),
+                  },
+                  defaultValue: {},
+                })
+              }
+            >
+              <option value="any">Any JSON</option>
+              <option value="boolean">Boolean</option>
+              <option value="number">Number</option>
+              <option value="string">String</option>
+              {engineTypes.map((item) => (
+                <option value={`json:${item.name}`} key={item.id}>
+                  Object · {item.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
       {variable.valueType.kind === 'json' && (
         <div className={styles.engineTypeBinding}>
           <label>
@@ -2719,9 +2835,29 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
             schema={engineTypes.find((item) => item.name === engineTypeName(variable.valueType))}
             fieldType={
               kind === 'array'
-                ? { kind: 'array', elementType: { kind: 'any' } }
+                ? {
+                    kind: 'array',
+                    elementType: valueTypeToEngineFieldType(
+                      variable.valueType.kind === 'array'
+                        ? variable.valueType.elementType
+                        : undefined,
+                    ),
+                  }
                 : kind === 'map'
-                  ? { kind: 'map', keyType: { kind: 'string' }, valueType: { kind: 'any' } }
+                  ? {
+                      kind: 'map',
+                      keyType: {
+                        kind:
+                          variable.valueType.kind === 'map'
+                            ? variable.valueType.keyType ?? 'string'
+                            : 'string',
+                      },
+                      valueType: valueTypeToEngineFieldType(
+                        variable.valueType.kind === 'map'
+                          ? variable.valueType.valueType
+                          : undefined,
+                      ),
+                    }
                   : undefined
             }
             engineTypes={engineTypes}
@@ -4261,8 +4397,99 @@ function EventEditor({ event }: { event: EventSource }) {
           </button>
         </div>
       ))}
+      <div className={styles.parameterHeader}>
+        <span>Return Values</span>
+        <NamedCreateControl
+          title="Add event return value"
+          placeholder="Return value name"
+          buttonLabel="Add"
+          existingNames={(event.outputs ?? []).map((output) => output.name)}
+          onCreate={(name) =>
+            updateEvent(event.id, {
+              outputs: [
+                ...(event.outputs ?? []),
+                {
+                  id: createStableId('eventOutput'),
+                  name,
+                  displayName: name,
+                  valueType: { kind: 'string' },
+                },
+              ],
+            })
+          }
+        />
+      </div>
+      {(event.outputs?.length ?? 0) === 0 && <div className={styles.empty}>No return values</div>}
+      {(event.outputs ?? []).map((output, index) => (
+        <div className={styles.parameterRow} key={output.id}>
+          <ScriptNameInput
+            value={output.name}
+            onCommit={(name) =>
+              updateEvent(event.id, {
+                outputs: (event.outputs ?? []).map((candidate, candidateIndex) =>
+                  candidateIndex === index ? { ...candidate, name, displayName: name } : candidate,
+                ),
+              })
+            }
+          />
+          <select
+            value={output.valueType.kind}
+            onChange={(change) =>
+              updateEvent(event.id, {
+                outputs: (event.outputs ?? []).map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? {
+                        ...candidate,
+                        valueType:
+                          change.target.value === 'json'
+                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
+                            : { kind: change.target.value as 'boolean' | 'number' | 'string' | 'array' | 'map' },
+                      }
+                    : candidate,
+                ),
+              })
+            }
+          >
+            <option value="boolean">Boolean</option>
+            <option value="number">Number</option>
+            <option value="string">String</option>
+            <option value="array">Array</option>
+            <option value="map">Map</option>
+            <option value="json">Engine JSON</option>
+          </select>
+          {output.valueType.kind === 'json' && (
+            <select
+              value={output.valueType.name}
+              onChange={(change) =>
+                updateEvent(event.id, {
+                  outputs: (event.outputs ?? []).map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, valueType: { kind: 'json', name: change.target.value } }
+                      : candidate,
+                  ),
+                })
+              }
+            >
+              {engineTypes.map((item) => (
+                <option key={item.name} value={item.name}>{item.displayName}</option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            title="Remove return value"
+            onClick={() =>
+              updateEvent(event.id, {
+                outputs: (event.outputs ?? []).filter((_, candidateIndex) => candidateIndex !== index),
+              })
+            }
+          >
+            ×
+          </button>
+        </div>
+      ))}
       <div className={styles.infoText}>
-        Call Event dispatches to the engine and immediately continues.
+        Events with return values wait for the engine result before continuing.
       </div>
       <button className={styles.dangerButton} type="button" onClick={() => removeEvent(event.id)}>
         Delete Event
@@ -4416,7 +4643,10 @@ function eventSignature(event: EventSource): string {
   const parameters = event.parameters
     .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
     .join(', ');
-  return `${event.name}(${parameters}): ${event.returnType?.kind ?? 'void'}`;
+  const outputs = (event.outputs ?? [])
+    .map((output) => `${output.name}: ${output.valueType.kind}`)
+    .join(', ');
+  return `${event.name}(${parameters}): ${outputs ? `{ ${outputs} }` : 'void'}`;
 }
 
 function signalSignature(signal: SignalSource): string {
@@ -4622,8 +4852,9 @@ export function StoryData() {
   const variableTypeAndDefault = (selection?: string): [ValueType, RuntimeValue] => {
     if (selection === 'boolean') return [{ kind: 'boolean' }, false];
     if (selection === 'number') return [{ kind: 'number' }, 0];
-    if (selection === 'array') return [{ kind: 'array' }, []];
-    if (selection === 'map') return [{ kind: 'map' }, {}];
+    if (selection === 'array') return [{ kind: 'array', elementType: { kind: 'any' } }, []];
+    if (selection === 'map')
+      return [{ kind: 'map', keyType: 'string', valueType: { kind: 'any' } }, {}];
     if (selection?.startsWith('json:')) {
       const name = selection.slice(5);
       return [

@@ -129,7 +129,16 @@ export class NodeRegistry {
       label: 'Branch',
       category: 'logic',
       color: '#9c27b0',
-      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      inputs: [
+        { id: 'in', label: 'Prev', kind: 'execution', direction: 'input' },
+        {
+          id: 'condition',
+          label: 'Condition',
+          kind: 'data',
+          direction: 'input',
+          valueType: { kind: 'boolean' },
+        },
+      ],
       outputs: [
         { id: 'true', label: 'True', kind: 'execution', direction: 'output' },
         { id: 'false', label: 'False', kind: 'execution', direction: 'output' },
@@ -153,7 +162,17 @@ export class NodeRegistry {
           valueType: { kind: 'any' },
         },
       ],
-      defaultData: () => ({}),
+      outputValueTypeProperties: { value: 'outputValueType' },
+      dynamicOutputs: {
+        sourceProperty: 'exposedFields',
+        idProperty: 'fieldId',
+        labelProperty: 'displayName',
+        kind: 'data',
+        valueTypeProperty: 'valueType',
+        idPrefix: 'field:',
+        optional: true,
+      },
+      defaultData: () => ({ exposedFields: [] }),
     });
 
     this.register<StoryNodeType.SetVariable>({
@@ -162,7 +181,12 @@ export class NodeRegistry {
       label: 'Set Variable',
       category: 'logic',
       color: '#36b5a3',
-      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      inputs: [
+        { id: 'in', label: 'Prev', kind: 'execution', direction: 'input' },
+        { id: 'value', label: 'Value', kind: 'data', direction: 'input', valueType: { kind: 'any' } },
+        { id: 'key', label: 'Key', kind: 'data', direction: 'input', valueType: { kind: 'any' } },
+      ],
+      inputValueTypeProperties: { value: 'valueInputType', key: 'keyInputType' },
       outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
       defaultData: () => ({ value: { source: '', bindings: {} } }),
     });
@@ -175,7 +199,16 @@ export class NodeRegistry {
       color: '#d979b5',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
-      defaultData: () => ({ arguments: {} }),
+      dynamicInputs: {
+        sourceProperty: 'arguments',
+        idProperty: '',
+        labelProperty: '',
+        kind: 'data',
+        valueType: { kind: 'any' },
+        recordEntries: true,
+        idPrefix: 'argument:',
+      },
+      defaultData: () => ({ arguments: {}, resultVariableIds: {} }),
     });
 
     this.register<StoryNodeType.WaitSignal>({

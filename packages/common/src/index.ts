@@ -131,6 +131,7 @@ export {
   type CharacterId,
   type AssetId,
   type EventId,
+  type EventOutputId,
   type SignalId,
   type EngineTypeId,
   type EngineFieldId,

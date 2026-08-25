@@ -77,6 +77,48 @@ describe('connection validation', () => {
     });
   });
 
+  it('rejects a typed container value connected to an incompatible Key Pin', () => {
+    const typedNodes: GraphNodeLike[] = [
+      {
+        id: 'read-number',
+        type: StoryNodeType.GetVariable,
+        data: {
+          variableId: 'v_numbers',
+          accessor: {
+            kind: 'index',
+            index: { source: '0', bindings: {} },
+            valueType: { kind: 'number' },
+          },
+          outputValueType: { kind: 'number' },
+        },
+      },
+      {
+        id: 'set-map',
+        type: StoryNodeType.SetVariable,
+        data: {
+          variableId: 'v_map',
+          value: { source: 'true', bindings: {} },
+          containerOperation: 'set-entry',
+          key: { source: '"door"', bindings: {} },
+          valueInputType: { kind: 'boolean' },
+          keyInputType: { kind: 'string' },
+        },
+      },
+    ];
+    expect(
+      validateGraphConnection(
+        {
+          source: 'read-number',
+          sourcePortId: 'value',
+          target: 'set-map',
+          targetPortId: 'key',
+        },
+        typedNodes,
+        [],
+      ),
+    ).toMatchObject({ valid: false, diagnostic: { code: 'INCOMPATIBLE_DATA_TYPE' } });
+  });
+
   it('preserves conflicting successors when loading a Git merge stage', () => {
     const source: SourceGraph = {
       nodes: nodes.map((node, index) => ({

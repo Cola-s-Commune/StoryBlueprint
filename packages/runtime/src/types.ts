@@ -106,7 +106,10 @@ export interface EventRequest {
   requestId: string;
   eventId: EventId;
   arguments: Readonly<Record<string, RuntimeValue>>;
+  outputs: readonly { id: string; name: string; valueType: import('@story-blueprint/common').ValueType }[];
 }
+
+export type EventResult = Readonly<Record<string, RuntimeValue>>;
 
 export interface SignalRequest {
   requestId: string;
@@ -118,8 +121,8 @@ export interface SignalRequest {
 export interface StoryAdapter {
   showDialogue(request: DialogueRequest, signal: AbortSignal): Promise<void>;
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
-  /** Dispatches an engine action. Resolving means dispatched, not completed. */
-  callEvent(request: EventRequest, signal: AbortSignal): Promise<void>;
+  /** Calls an engine action and resolves with values keyed by stable Event Output ID. */
+  callEvent(request: EventRequest, signal: AbortSignal): Promise<EventResult>;
   /** Resolves when the engine observes the requested signal. */
   waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<SignalPayload>;
   resolveText(textId: TextId, locale: string): Promise<string | undefined>;

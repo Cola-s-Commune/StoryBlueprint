@@ -324,7 +324,7 @@ export class StoryRuntime {
     return this.runUntilPause();
   }
 
-  continueEvent(): RuntimeRunResult {
+  continueEvent(result: Readonly<Record<string, RuntimeValue>> = {}): RuntimeRunResult {
     const instruction = this.currentInstruction();
     if (this.currentState.pending?.kind !== 'event' || instruction?.op !== 'call-event') {
       return this.fail({
@@ -333,6 +333,31 @@ export class StoryRuntime {
         message: 'Runtime is not waiting for an event dispatch',
         location: this.location(),
       });
+    }
+    for (const output of instruction.outputs) {
+      if (!(output.id in result)) {
+        return this.fail({
+          code: 'INVALID_ADAPTER_RESULT',
+          severity: 'error',
+          message: `Event result is missing ${output.name}`,
+          location: this.location(),
+          instructionId: instruction.id,
+        });
+      }
+      const value = result[output.id]!;
+      if (!runtimeValueMatchesType(value, output.valueType)) {
+        return this.fail({
+          code: 'INVALID_ADAPTER_RESULT',
+          severity: 'error',
+          message: `Event result ${output.name} does not match ${output.valueType.kind}`,
+          location: this.location(),
+          instructionId: instruction.id,
+        });
+      }
+    }
+    for (const [outputId, variableId] of Object.entries(instruction.resultVariableIds)) {
+      const value = result[outputId];
+      if (value !== undefined) this.writeVariable(variableId as VariableId, value);
     }
     this.currentState.pending = undefined;
     this.currentState.status = 'running';
@@ -419,10 +444,46 @@ export class StoryRuntime {
       case 'ink-block':
         return this.advanceInk(instruction);
       case 'set-variable':
-        this.writeVariable(
-          instruction.variableId,
-          evaluateExpression(instruction.value, this.readVariable),
-        );
+        if (instruction.containerOperation === 'append') {
+          const current = this.readVariable(instruction.variableId);
+          if (!Array.isArray(current)) {
+            throw new Error(`Variable ${instruction.variableId} is not an Array`);
+          }
+          this.writeVariable(instruction.variableId, [
+            ...current,
+            evaluateExpression(instruction.value, this.readVariable),
+          ]);
+        } else if (instruction.containerOperation === 'set-entry') {
+          const current = this.readVariable(instruction.variableId);
+          if (current === null || Array.isArray(current) || typeof current !== 'object') {
+            throw new Error(`Variable ${instruction.variableId} is not a Map`);
+          }
+          const key = instruction.key
+            ? evaluateExpression(instruction.key, this.readVariable)
+            : undefined;
+          if (typeof key !== 'string' && typeof key !== 'number') {
+            throw new Error('Map key must be a String or Number');
+          }
+          this.writeVariable(instruction.variableId, {
+            ...current,
+            [String(key)]: evaluateExpression(instruction.value, this.readVariable),
+          });
+        } else if (instruction.containerOperation === 'set-field') {
+          const current = this.readVariable(instruction.variableId);
+          if (current === null || Array.isArray(current) || typeof current !== 'object') {
+            throw new Error(`Variable ${instruction.variableId} is not an Engine Object`);
+          }
+          if (!instruction.fieldName) throw new Error('Set Object Field is missing its field');
+          this.writeVariable(instruction.variableId, {
+            ...current,
+            [instruction.fieldName]: evaluateExpression(instruction.value, this.readVariable),
+          });
+        } else {
+          this.writeVariable(
+            instruction.variableId,
+            evaluateExpression(instruction.value, this.readVariable),
+          );
+        }
         this.currentState.instructionIndex += 1;
         return undefined;
       case 'call-event': {
@@ -657,6 +718,7 @@ export class StoryRuntime {
             evaluateExpression(expression, this.readVariable),
           ]),
         ),
+        outputs: instruction.outputs,
       },
     };
   }

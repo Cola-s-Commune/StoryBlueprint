@@ -23,7 +23,36 @@ export function CallEventNode({ data }: NodeProps) {
         <span className={styles.typeIcon}>⚡</span>
       </div>
       <div className={styles.terminalBody}>
-        {event?.displayName ?? (call.eventId ? 'Missing Event' : 'Select Event')}
+        <strong>{event?.displayName ?? (call.eventId ? 'Missing Event' : 'Select Event')}</strong>
+        {(event?.parameters.length ?? 0) > 0 && (
+          <div className={styles.interfaceRows}>
+            {event!.parameters.map((parameter) => (
+              <span key={parameter.name}>
+                <b>IN</b> {parameter.name}
+                <em>{parameter.valueType.kind}</em>
+                <Handle
+                  className={`${styles.handle} ${styles.dataHandle} ${styles.dataHandleInput}`}
+                  type="target"
+                  position={Position.Left}
+                  id={`argument:${parameter.name}`}
+                />
+              </span>
+            ))}
+          </div>
+        )}
+        {(event?.outputs?.length ?? 0) > 0 && (
+          <div className={styles.interfaceRows}>
+            {event!.outputs!.map((output) => (
+              <span key={output.id}>
+                <b>OUT</b> {output.displayName}
+                <em>
+                  {output.valueType.kind}
+                  {call.resultVariableIds?.[output.id] ? ' · stored' : ''}
+                </em>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}

@@ -53,6 +53,13 @@ export function BranchNode({ data }: NodeProps) {
         position={Position.Left}
         id="in"
       />
+      <Handle
+        className={`${styles.handle} ${styles.dataHandle} ${styles.dataHandleInput}`}
+        type="target"
+        position={Position.Left}
+        id="condition"
+        style={{ top: 62 }}
+      />
     </div>
   );
 }

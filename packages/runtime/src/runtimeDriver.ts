@@ -52,8 +52,8 @@ export class StoryRuntimeDriver {
             break;
           }
           case 'event': {
-            await this.adapter.callEvent(result.interaction.request, signal);
-            result = this.runtime.continueEvent();
+            const eventResult = await this.adapter.callEvent(result.interaction.request, signal);
+            result = this.runtime.continueEvent(eventResult);
             break;
           }
           case 'signal': {

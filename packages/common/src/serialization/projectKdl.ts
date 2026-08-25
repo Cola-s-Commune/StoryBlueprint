@@ -369,11 +369,22 @@ function validateProject(project: StoryProjectDocument): void {
       throw new StoryFormatError(`Duplicate event name ${event.name}`);
     eventIds.add(event.id);
     eventNames.add(event.name);
-    if (
-      event.returnType &&
-      !['boolean', 'number', 'string', 'json'].includes(event.returnType.kind)
-    ) {
-      throw new StoryFormatError(`Unsupported return type in event ${event.name}`);
+    const outputIds = new Set<string>();
+    const outputNames = new Set<string>();
+    for (const output of event.outputs ?? []) {
+      if (!isStableId(output.id, 'eventOutput') || outputIds.has(output.id)) {
+        throw new StoryFormatError(`Invalid or duplicate output ID in event ${event.name}`);
+      }
+      if (!output.name || outputNames.has(output.name)) {
+        throw new StoryFormatError(`Invalid or duplicate output in event ${event.name}`);
+      }
+      outputIds.add(output.id);
+      outputNames.add(output.name);
+      if (
+        !['boolean', 'number', 'string', 'array', 'map', 'json'].includes(output.valueType.kind)
+      ) {
+        throw new StoryFormatError(`Unsupported output type in event ${event.name}`);
+      }
     }
     const parameterNames = new Set<string>();
     for (const parameter of event.parameters) {
@@ -702,12 +713,21 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       if (event.description) node.setProperty('description', event.description);
       node.setProperty('resumable', event.resumable);
       node.setProperty('side-effect', event.sideEffect);
-      if (event.returnType) node.setProperty('return-type', projectValueTypeName(event.returnType));
       for (const parameter of event.parameters) {
         const parameterNode = Node.create('parameter');
         parameterNode.addArgument(parameter.name);
         parameterNode.setProperty('type', projectValueTypeName(parameter.valueType));
         node.appendNode(parameterNode);
+      }
+      for (const output of event.outputs ?? []) {
+        const outputNode = Node.create('output');
+        outputNode.addArgument(output.id);
+        outputNode.setProperty('name', output.name);
+        if (output.displayName !== output.name) {
+          outputNode.setProperty('display-name', output.displayName);
+        }
+        outputNode.setProperty('type', projectValueTypeName(output.valueType));
+        node.appendNode(outputNode);
       }
       events.appendNode(node);
     }
@@ -1023,9 +1043,8 @@ export function parseStoryProject(text: string): StoryProjectDocument {
         'description',
         'resumable',
         'side-effect',
-        'return-type',
       ]);
-      assertChildren(node, path, ['parameter']);
+      assertChildren(node, path, ['parameter', 'output']);
       const name = requiredString(node.getProperty('name'), `${path}.name`);
       const resumable = node.getProperty('resumable');
       if (typeof resumable !== 'boolean') {
@@ -1056,13 +1075,23 @@ export function parseStoryProject(text: string): StoryProjectDocument {
             ),
           };
         }),
-        returnType:
-          node.getProperty('return-type') === undefined
-            ? undefined
-            : scalarValueType(
-                requiredString(node.getProperty('return-type'), `${path}.return-type`),
-                `${path}.return-type`,
-              ),
+        outputs: node.findNodesByName('output').map((output, outputIndex) => {
+          const outputPath = `${path}.output[${outputIndex}]`;
+          assertArguments(output, outputPath, 1);
+          assertProperties(output, outputPath, ['name', 'display-name', 'type']);
+          assertChildren(output, outputPath, []);
+          const outputName = requiredString(output.getProperty('name'), `${outputPath}.name`);
+          return {
+            id: requiredId(output.getArgument(0), 'eventOutput', `${outputPath}.id`),
+            name: outputName,
+            displayName:
+              (output.getProperty('display-name') as string | undefined) ?? outputName,
+            valueType: scalarValueType(
+              requiredString(output.getProperty('type'), `${outputPath}.type`),
+              outputPath,
+            ),
+          };
+        }),
         resumable,
         sideEffect: sideEffect as EventSource['sideEffect'],
       };

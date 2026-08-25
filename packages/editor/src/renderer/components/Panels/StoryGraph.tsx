@@ -19,6 +19,7 @@ import {
   type OnConnectEnd,
   type ReactFlowInstance,
   addEdge,
+  useStoreApi,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -131,6 +132,54 @@ function initialGraphControlMode(): GraphControlMode {
   return saved === 'standard' ? 'standard' : 'blueprint';
 }
 
+function FlowInteractionRecovery() {
+  const store = useStoreApi<EditorGraphNode, EditorGraphEdge>();
+
+  useEffect(() => {
+    const resetInteractionState = () => {
+      const state = store.getState();
+      const hasActiveGesture = state.userSelectionActive || state.paneDragging;
+      if (!hasActiveGesture && !state.connection.inProgress) {
+        return;
+      }
+      if (hasActiveGesture) {
+        // Stop d3-zoom/d3-drag when the browser lost the matching native mouseup.
+        for (const button of [0, 2]) {
+          window.dispatchEvent(
+            new MouseEvent('mouseup', { bubbles: true, button, buttons: 0 }),
+          );
+        }
+      }
+      if (state.connection.inProgress) {
+        state.cancelConnection();
+      }
+      store.setState({
+        userSelectionActive: false,
+        userSelectionRect: null,
+        paneDragging: false,
+      });
+    };
+    const resetAfterPointerRelease = () => window.setTimeout(resetInteractionState, 0);
+    const resetAfterReleasedMove = (event: MouseEvent | PointerEvent) => {
+      if (event.buttons === 0) resetInteractionState();
+    };
+    window.addEventListener('pointerup', resetAfterPointerRelease, true);
+    window.addEventListener('pointercancel', resetInteractionState, true);
+    window.addEventListener('mousemove', resetAfterReleasedMove, true);
+    window.addEventListener('pointermove', resetAfterReleasedMove, true);
+    window.addEventListener('blur', resetInteractionState);
+    return () => {
+      window.removeEventListener('pointerup', resetAfterPointerRelease, true);
+      window.removeEventListener('pointercancel', resetInteractionState, true);
+      window.removeEventListener('mousemove', resetAfterReleasedMove, true);
+      window.removeEventListener('pointermove', resetAfterReleasedMove, true);
+      window.removeEventListener('blur', resetInteractionState);
+    };
+  }, [store]);
+
+  return null;
+}
+
 export function StoryGraph() {
   const {
     graph,
@@ -219,6 +268,7 @@ export function StoryGraph() {
     moved: boolean;
     manualPan: boolean;
   }>();
+  const rightMouseUpSeenRef = useRef(false);
   const additiveSelectionRef = useRef<{
     nodeIds: ReadonlySet<string>;
     edgeIds: ReadonlySet<string>;
@@ -230,6 +280,68 @@ export function StoryGraph() {
   const graphRef = useRef(graph);
   graphRef.current = graph;
   const dragSnapshot = useRef<EditorGraphState | null>(null);
+
+  // Electron can lose the native mouseup while a pointer crosses displays or the window blurs.
+  const releaseRightMouseGesture = useCallback((event?: {
+    clientX: number;
+    clientY: number;
+    screenX?: number;
+    screenY?: number;
+  }) => {
+    const drag = rightDragRef.current;
+    if (!drag || rightMouseUpSeenRef.current) return;
+    rightMouseUpSeenRef.current = true;
+    const clientX = event?.clientX ?? drag.lastX;
+    const clientY = event?.clientY ?? drag.lastY;
+    window.dispatchEvent(
+      new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        buttons: 0,
+        clientX,
+        clientY,
+        screenX: event?.screenX ?? clientX,
+        screenY: event?.screenY ?? clientY,
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
+    const handleNativeMouseUp = (event: MouseEvent) => {
+      if (event.button === 2) rightMouseUpSeenRef.current = true;
+    };
+    const handlePointerRelease = (event: PointerEvent) => {
+      if (event.type === 'pointerup' && event.button !== 2) return;
+      const drag = rightDragRef.current;
+      if (!drag) return;
+      if (event.type === 'pointercancel') {
+        releaseRightMouseGesture(event);
+        return;
+      }
+      const pointer = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        screenX: event.screenX,
+        screenY: event.screenY,
+      };
+      window.setTimeout(() => {
+        if (rightDragRef.current !== drag || rightMouseUpSeenRef.current) return;
+        releaseRightMouseGesture(pointer);
+      }, 0);
+    };
+    const handleWindowBlur = () => releaseRightMouseGesture();
+    window.addEventListener('mouseup', handleNativeMouseUp, true);
+    window.addEventListener('pointerup', handlePointerRelease, true);
+    window.addEventListener('pointercancel', handlePointerRelease, true);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      window.removeEventListener('mouseup', handleNativeMouseUp, true);
+      window.removeEventListener('pointerup', handlePointerRelease, true);
+      window.removeEventListener('pointercancel', handlePointerRelease, true);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [releaseRightMouseGesture]);
 
   const validateConnection = useCallback(
     (connection: Connection | Edge) =>
@@ -467,12 +579,19 @@ export function StoryGraph() {
       setConnectionError(null);
       markDirty();
     };
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.button === 0) handleMouseUp(event);
+    };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', cancelTransfer);
     window.addEventListener('blur', cancelTransfer);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', cancelTransfer);
       window.removeEventListener('blur', cancelTransfer);
     };
   }, [checkpoint, markDirty, setEdges]);
@@ -578,6 +697,7 @@ export function StoryGraph() {
       }
 
       if (controlMode === 'blueprint' && event.button === 2) {
+        rightMouseUpSeenRef.current = false;
         rightDragRef.current = {
           x: event.clientX,
           y: event.clientY,
@@ -1301,8 +1421,6 @@ export function StoryGraph() {
             drag.moved = true;
           }
           if (drag.manualPan && flowInstance) {
-            event.preventDefault();
-            event.stopPropagation();
             const viewport = flowInstance.getViewport();
             void flowInstance.setViewport({
               ...viewport,
@@ -1519,6 +1637,7 @@ export function StoryGraph() {
           panOnDrag={controlMode === 'blueprint' ? [2] : [0, 1]}
           panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
         >
+          <FlowInteractionRecovery />
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" pannable />
           <Controls />

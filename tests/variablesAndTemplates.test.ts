@@ -3,6 +3,8 @@ import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
   StoryNodeType,
+  parseStorySource,
+  serializeStorySource,
   type StorySourceDocument,
   type VariableDefinition,
 } from '../packages/common/src';
@@ -271,5 +273,82 @@ describe('variables and templates', () => {
     const completed = restored.choose('o_yesx');
     expect(completed.kind).toBe('completed');
     expect(completed.state.status).toBe('completed');
+  });
+
+  it('adds Array items and sets Map entries without exposing general container programming', () => {
+    const source: StorySourceDocument = {
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: 's_containers',
+      name: 'containers',
+      displayName: 'Containers',
+      variables: [
+        { id: 'v_items', name: 'items', displayName: 'Items', scope: 'story', valueType: { kind: 'array', elementType: { kind: 'number' } }, defaultValue: [] },
+        { id: 'v_flags', name: 'flags', displayName: 'Flags', scope: 'story', valueType: { kind: 'map', keyType: 'string', valueType: { kind: 'boolean' } }, defaultValue: {} },
+        { id: 'v_selected', name: 'selected', displayName: 'Selected', scope: 'story', valueType: { kind: 'number' }, defaultValue: 0 },
+        { id: 'v_profile', name: 'profile', displayName: 'Profile', scope: 'story', valueType: { kind: 'json', name: 'Profile' }, defaultValue: { score: 8 } },
+        { id: 'v_profilescore', name: 'profileScore', displayName: 'Profile Score', scope: 'story', valueType: { kind: 'number' }, defaultValue: 0 },
+      ],
+      characters: [], assets: [], events: [], chapters: [],
+      root: {
+        nodes: [
+          { id: 'n_cstart', type: StoryNodeType.Start, definitionVersion: 1, position: { x: 0, y: 0 }, data: { title: 'Start' } },
+          { id: 'n_additem', type: StoryNodeType.SetVariable, definitionVersion: 1, position: { x: 1, y: 0 }, data: { variableId: 'v_items', containerOperation: 'append', value: { source: '7', bindings: {} } } },
+          { id: 'n_setentry', type: StoryNodeType.SetVariable, definitionVersion: 1, position: { x: 2, y: 0 }, data: { variableId: 'v_flags', containerOperation: 'set-entry', key: { source: '"door"', bindings: {} }, value: { source: 'true', bindings: {} } } },
+          { id: 'n_readitem', type: StoryNodeType.GetVariable, definitionVersion: 1, position: { x: 2, y: 2 }, data: { variableId: 'v_items', accessor: { kind: 'index', index: { source: '0', bindings: {} }, valueType: { kind: 'any' } } } },
+          { id: 'n_readflag', type: StoryNodeType.GetVariable, definitionVersion: 1, position: { x: 3, y: 2 }, data: { variableId: 'v_flags', accessor: { kind: 'index', index: { source: '"door"', bindings: {} }, valueType: { kind: 'boolean' } } } },
+          { id: 'n_storeitem', type: StoryNodeType.SetVariable, definitionVersion: 1, position: { x: 3, y: 0 }, data: { variableId: 'v_selected', value: { source: '0', bindings: {} } } },
+          { id: 'n_setprofilefield', type: StoryNodeType.SetVariable, definitionVersion: 1, position: { x: 3, y: 1 }, data: { variableId: 'v_profile', containerOperation: 'set-field', fieldId: 'ef_score', fieldName: 'score', fieldValueType: { kind: 'number' }, value: { source: '12', bindings: {} } } },
+          { id: 'n_branchflag', type: StoryNodeType.Branch, definitionVersion: 1, position: { x: 4, y: 0 }, data: { condition: { source: 'false', bindings: {} } } },
+          { id: 'n_readprofile', type: StoryNodeType.GetVariable, definitionVersion: 1, position: { x: 4, y: 2 }, data: { variableId: 'v_profile', exposedFields: [{ fieldId: 'ef_score', member: 'score', displayName: 'Score', valueType: { kind: 'number' } }] } },
+          { id: 'n_storeprofile', type: StoryNodeType.SetVariable, definitionVersion: 1, position: { x: 5, y: 0 }, data: { variableId: 'v_profilescore', value: { source: '0', bindings: {} } } },
+          { id: 'n_cend', type: StoryNodeType.End, definitionVersion: 1, position: { x: 4, y: 0 }, data: { title: 'End' } },
+        ],
+        edges: [
+          { from: { nodeId: 'n_cstart', portId: 'out' }, to: { nodeId: 'n_additem', portId: 'in' } },
+          { from: { nodeId: 'n_additem', portId: 'out' }, to: { nodeId: 'n_setentry', portId: 'in' } },
+          { from: { nodeId: 'n_setentry', portId: 'out' }, to: { nodeId: 'n_storeitem', portId: 'in' } },
+          { from: { nodeId: 'n_readitem', portId: 'value' }, to: { nodeId: 'n_storeitem', portId: 'value' } },
+          { from: { nodeId: 'n_storeitem', portId: 'out' }, to: { nodeId: 'n_setprofilefield', portId: 'in' } },
+          { from: { nodeId: 'n_setprofilefield', portId: 'out' }, to: { nodeId: 'n_branchflag', portId: 'in' } },
+          { from: { nodeId: 'n_readflag', portId: 'value' }, to: { nodeId: 'n_branchflag', portId: 'condition' } },
+          { from: { nodeId: 'n_branchflag', portId: 'true' }, to: { nodeId: 'n_storeprofile', portId: 'in' } },
+          { from: { nodeId: 'n_branchflag', portId: 'false' }, to: { nodeId: 'n_cend', portId: 'in' } },
+          { from: { nodeId: 'n_readprofile', portId: 'field:ef_score' }, to: { nodeId: 'n_storeprofile', portId: 'value' } },
+          { from: { nodeId: 'n_storeprofile', portId: 'out' }, to: { nodeId: 'n_cend', portId: 'in' } },
+        ],
+      },
+    };
+    const restored = parseStorySource(serializeStorySource(source));
+    expect(
+      restored.root.nodes.find((node) => node.id === 'n_readprofile')?.data,
+    ).toEqual(source.root.nodes.find((node) => node.id === 'n_readprofile')?.data);
+    const compiled = compileStory(restored);
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true);
+    if (!compiled.ok) return;
+    const completed = new StoryRuntime(compiled.program).runUntilPause();
+    expect(completed.kind).toBe('completed');
+    expect(completed.state.storyVariables.v_items).toEqual([7]);
+    expect(completed.state.storyVariables.v_flags).toEqual({ door: true });
+    expect(completed.state.storyVariables.v_selected).toBe(7);
+    expect(completed.state.storyVariables.v_profile).toEqual({ score: 12 });
+    expect(completed.state.storyVariables.v_profilescore).toBe(12);
+
+    const invalid = structuredClone(source);
+    const addItem = invalid.root.nodes.find((node) => node.id === 'n_additem')!;
+    addItem.data = { ...addItem.data, value: { source: '"wrong"', bindings: {} } };
+    expect(compileStory(invalid).ok).toBe(false);
+  });
+
+  it('reads Engine JSON fields, Array items, and Map entries in safe expressions', () => {
+    const structuredVariables: VariableDefinition[] = [
+      { id: 'v_profile', name: 'profile', displayName: 'Profile', scope: 'story', valueType: { kind: 'json', name: 'Profile' }, defaultValue: { score: 8 } },
+      { id: 'v_items', name: 'items', displayName: 'Items', scope: 'story', valueType: { kind: 'array' }, defaultValue: ['first'] },
+      { id: 'v_flags', name: 'flags', displayName: 'Flags', scope: 'story', valueType: { kind: 'map' }, defaultValue: { door: true } },
+    ];
+    const values = new Map(structuredVariables.map((variable) => [variable.id, variable.defaultValue]));
+    expect(evaluateExpression(compileExpression('profile.score', structuredVariables), (id) => values.get(id)!,)).toBe(8);
+    expect(evaluateExpression(compileExpression('items[0]', structuredVariables), (id) => values.get(id)!,)).toBe('first');
+    expect(evaluateExpression(compileExpression('flags["door"]', structuredVariables), (id) => values.get(id)!,)).toBe(true);
   });
 });

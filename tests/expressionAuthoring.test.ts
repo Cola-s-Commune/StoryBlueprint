@@ -85,13 +85,15 @@ const characters: CharacterSource[] = [
 ];
 
 describe('expression authoring helpers', () => {
-  it('keeps Engine JSON values opaque to Story expressions and text templates', () => {
+  it('rejects whole structured values but permits explicit Engine fields in text templates', () => {
     expect(() => compileExpression('payload == payload', storyVariables)).toThrow(
       'Structured values can only be passed or assigned as a whole',
     );
     expect(() => compileTextTemplate('{payload}', 't_payload', storyVariables)).toThrow(
       'Structured values cannot be interpolated into player-facing text',
     );
+    expect(compileTextTemplate('Quest: {payload.questId}', 't_payload_field', storyVariables).parts)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'expression' })]));
     for (const name of ['inventory', 'flags']) {
       expect(() => compileExpression(`${name} == ${name}`, storyVariables)).toThrow(
         'Structured values can only be passed or assigned as a whole',

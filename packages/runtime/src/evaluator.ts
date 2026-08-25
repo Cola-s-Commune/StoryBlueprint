@@ -81,6 +81,21 @@ export function evaluateExpression(
       }
       return (target as Readonly<Record<string, RuntimeValue>>)[expression.member];
     }
+    case 'index': {
+      const target = evaluateExpression(expression.target, readVariable);
+      const index = evaluateExpression(expression.index, readVariable);
+      if (Array.isArray(target)) {
+        if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= target.length) {
+          throw new TypeError(`Array index ${String(index)} is out of range`);
+        }
+        return target[index]!;
+      }
+      if (target === null || typeof target !== 'object') throw new TypeError('Expected Array or Map');
+      if (typeof index !== 'string' && typeof index !== 'number') throw new TypeError('Map key must be String or Number');
+      const key = String(index);
+      if (!(key in target)) throw new TypeError(`Map key ${key} does not exist`);
+      return (target as Readonly<Record<string, RuntimeValue>>)[key]!;
+    }
     case 'convert': {
       const value = evaluateExpression(expression.target, readVariable);
       if (expression.to.kind === 'string') return String(value);

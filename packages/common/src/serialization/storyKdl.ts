@@ -17,7 +17,7 @@ import {
   type SourceNode,
   type StorySourceDocument,
 } from '../types/source';
-import type { RuntimeValue, ValueType, VariableDefinition, VariableScope } from '../types/values';
+import { runtimeValueMatchesType, type RuntimeValue, type ValueType, type VariableDefinition, type VariableScope } from '../types/values';
 
 export class StoryFormatError extends Error {
   constructor(message: string) {
@@ -240,8 +240,28 @@ function serializeSourceNode(source: SourceNode): Node {
       );
       break;
     case StoryNodeType.GetVariable: {
-      const variableId = (data as StoryNodeDataMap[StoryNodeType.GetVariable]).variableId;
+      const getVariable = data as StoryNodeDataMap[StoryNodeType.GetVariable];
+      const variableId = getVariable.variableId;
       if (variableId) target.setProperty('variable', variableId);
+      if (getVariable.outputValueType) {
+        target.setProperty('output-value-type', JSON.stringify(getVariable.outputValueType));
+      }
+      if (getVariable.accessor?.kind === 'member') {
+        target.setProperty('member', getVariable.accessor.member);
+        target.setProperty('output-type', JSON.stringify(getVariable.accessor.valueType));
+      } else if (getVariable.accessor?.kind === 'index') {
+        target.setProperty('index', getVariable.accessor.index.source);
+        target.setProperty('output-type', JSON.stringify(getVariable.accessor.valueType));
+        appendBindings(target, 'index', getVariable.accessor.index.bindings);
+      }
+      for (const field of getVariable.exposedFields ?? []) {
+        const fieldNode = Node.create('output-field');
+        fieldNode.addArgument(field.fieldId);
+        fieldNode.addArgument(field.member);
+        fieldNode.setProperty('display-name', field.displayName);
+        fieldNode.setProperty('type', JSON.stringify(field.valueType));
+        target.appendNode(fieldNode);
+      }
       break;
     }
     case StoryNodeType.SetVariable: {
@@ -249,6 +269,24 @@ function serializeSourceNode(source: SourceNode): Node {
       if (setVariable.variableId) target.setProperty('variable', setVariable.variableId);
       target.setProperty('value', setVariable.value.source);
       appendBindings(target, 'value', setVariable.value.bindings);
+      if (setVariable.containerOperation) {
+        target.setProperty('container-operation', setVariable.containerOperation);
+      }
+      if (setVariable.fieldId) target.setProperty('field-id', setVariable.fieldId);
+      if (setVariable.fieldName) target.setProperty('field-name', setVariable.fieldName);
+      if (setVariable.fieldValueType) {
+        target.setProperty('field-type', JSON.stringify(setVariable.fieldValueType));
+      }
+      if (setVariable.valueInputType) {
+        target.setProperty('value-input-type', JSON.stringify(setVariable.valueInputType));
+      }
+      if (setVariable.keyInputType) {
+        target.setProperty('key-input-type', JSON.stringify(setVariable.keyInputType));
+      }
+      if (setVariable.key) {
+        target.setProperty('key', setVariable.key.source);
+        appendBindings(target, 'key', setVariable.key.bindings);
+      }
       break;
     }
     case StoryNodeType.CallEvent: {
@@ -262,6 +300,14 @@ function serializeSourceNode(source: SourceNode): Node {
         argument.addArgument(value.source);
         appendBindings(argument, 'value', value.bindings);
         target.appendNode(argument);
+      }
+      for (const [outputId, variableId] of Object.entries(callEvent.resultVariableIds ?? {}).sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        const result = Node.create('result');
+        result.addArgument(outputId);
+        result.addArgument(variableId);
+        target.appendNode(result);
       }
       break;
     }
@@ -362,11 +408,14 @@ function valueTypeName(valueType: ValueType): string {
     valueType.kind === 'boolean' ||
     valueType.kind === 'number' ||
     valueType.kind === 'string' ||
-    valueType.kind === 'array' ||
-    valueType.kind === 'map'
+    (valueType.kind === 'array' && !valueType.elementType) ||
+    (valueType.kind === 'map' && !valueType.keyType && !valueType.valueType)
   ) {
     return valueType.kind;
   }
+  if (valueType.kind === 'array') return `array:${JSON.stringify(valueType.elementType ?? { kind: 'any' })}`;
+  if (valueType.kind === 'map')
+    return `map:${JSON.stringify({ keyType: valueType.keyType ?? 'string', valueType: valueType.valueType ?? { kind: 'any' } })}`;
   if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
   throw new StoryFormatError(`Unsupported variable type ${valueType.kind}`);
 }
@@ -646,8 +695,24 @@ function parseSourceNode(
     [StoryNodeType.InkBlock]: ['source-mode', 'source', 'path', 'entry-knot'],
     [StoryNodeType.Choice]: ['prompt'],
     [StoryNodeType.Branch]: ['condition'],
-    [StoryNodeType.GetVariable]: ['variable'],
-    [StoryNodeType.SetVariable]: ['variable', 'value'],
+    [StoryNodeType.GetVariable]: [
+      'variable',
+      'member',
+      'index',
+      'output-type',
+      'output-value-type',
+    ],
+    [StoryNodeType.SetVariable]: [
+      'variable',
+      'value',
+      'container-operation',
+      'key',
+      'field-id',
+      'field-name',
+      'field-type',
+      'value-input-type',
+      'key-input-type',
+    ],
     [StoryNodeType.CallEvent]: ['event'],
     [StoryNodeType.WaitSignal]: ['signal'],
     [StoryNodeType.CallSubstory]: ['chapter', 'result-variable'],
@@ -663,9 +728,9 @@ function parseSourceNode(
     [StoryNodeType.Choice]: ['option', 'binding'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: ['binding'],
-    [StoryNodeType.GetVariable]: [],
+    [StoryNodeType.GetVariable]: ['output-field'],
     [StoryNodeType.SetVariable]: ['binding'],
-    [StoryNodeType.CallEvent]: ['argument'],
+    [StoryNodeType.CallEvent]: ['argument', 'result'],
     [StoryNodeType.WaitSignal]: ['match'],
     [StoryNodeType.CallSubstory]: ['argument', 'result'],
     [StoryNodeType.Reroute]: [],
@@ -829,19 +894,96 @@ function parseSourceNode(
       };
       break;
     case StoryNodeType.GetVariable:
+      assertBindingTargets(node, ['index'], id);
+      const exposedFields = node.findNodesByName('output-field').map((fieldNode, index) => {
+        assertShape(fieldNode, `${id}.output-field[${index}]`, {
+          arguments: 2,
+          properties: ['display-name', 'type'],
+        });
+        return {
+          fieldId: requiredId(
+            fieldNode.getArgument(0),
+            'engineField',
+            `${id}.output-field[${index}].id`,
+          ),
+          member: requiredString(
+            fieldNode.getArgument(1),
+            `${id}.output-field[${index}].member`,
+          ),
+          displayName: requiredString(
+            fieldNode.getProperty('display-name'),
+            `${id}.output-field[${index}].display-name`,
+          ),
+          valueType: JSON.parse(
+            requiredString(fieldNode.getProperty('type'), `${id}.output-field[${index}].type`),
+          ) as ValueType,
+        };
+      });
       data = {
         variableId: node.getProperty('variable')
           ? requiredId(node.getProperty('variable'), 'variable', `${id}.variable`)
           : undefined,
+        outputValueType: node.getProperty('output-value-type')
+          ? (JSON.parse(
+              requiredString(node.getProperty('output-value-type'), `${id}.output-value-type`),
+            ) as ValueType)
+          : undefined,
+        accessor:
+          node.getProperty('member') !== undefined
+            ? {
+                kind: 'member',
+                member: requiredString(node.getProperty('member'), `${id}.member`),
+                valueType: JSON.parse(
+                  requiredString(node.getProperty('output-type'), `${id}.output-type`),
+                ) as ValueType,
+              }
+            : node.getProperty('index') !== undefined
+              ? {
+                  kind: 'index',
+                  index: expressionSource(node.getProperty('index'), `${id}.index`, node, 'index'),
+                  valueType: JSON.parse(
+                    requiredString(node.getProperty('output-type'), `${id}.output-type`),
+                  ) as ValueType,
+                }
+              : undefined,
+        ...(exposedFields.length > 0 ? { exposedFields } : {}),
       };
       break;
     case StoryNodeType.SetVariable:
-      assertBindingTargets(node, ['value'], id);
+      assertBindingTargets(node, ['value', 'key'], id);
       data = {
         variableId: node.getProperty('variable')
           ? requiredId(node.getProperty('variable'), 'variable', `${id}.variable`)
           : undefined,
         value: expressionSource(node.getProperty('value'), `${id}.value`, node, 'value'),
+        containerOperation: node.getProperty('container-operation') as
+          | 'append'
+          | 'set-entry'
+          | 'set-field'
+          | undefined,
+        key:
+          node.getProperty('key') === undefined
+            ? undefined
+            : expressionSource(node.getProperty('key'), `${id}.key`, node, 'key'),
+        fieldId: node.getProperty('field-id')
+          ? requiredId(node.getProperty('field-id'), 'engineField', `${id}.field-id`)
+          : undefined,
+        fieldName: optionalString(node.getProperty('field-name'), `${id}.field-name`),
+        fieldValueType: node.getProperty('field-type')
+          ? (JSON.parse(
+              requiredString(node.getProperty('field-type'), `${id}.field-type`),
+            ) as ValueType)
+          : undefined,
+        valueInputType: node.getProperty('value-input-type')
+          ? (JSON.parse(
+              requiredString(node.getProperty('value-input-type'), `${id}.value-input-type`),
+            ) as ValueType)
+          : undefined,
+        keyInputType: node.getProperty('key-input-type')
+          ? (JSON.parse(
+              requiredString(node.getProperty('key-input-type'), `${id}.key-input-type`),
+            ) as ValueType)
+          : undefined,
       };
       break;
     case StoryNodeType.CallEvent:
@@ -857,6 +999,16 @@ function parseSourceNode(
             return [
               requiredString(argument.getArgument(0), `${path}.name`),
               expressionSource(argument.getArgument(1), `${path}.value`, argument, 'value'),
+            ];
+          }),
+        ),
+        resultVariableIds: Object.fromEntries(
+          node.findNodesByName('result').map((result, index) => {
+            const path = `${id}.result[${index}]`;
+            assertShape(result, path, { arguments: 2 });
+            return [
+              requiredId(result.getArgument(0), 'eventOutput', `${path}.output`),
+              requiredId(result.getArgument(1), 'variable', `${path}.variable`),
             ];
           }),
         ),
@@ -1053,6 +1205,24 @@ function parseValueType(value: unknown, path: string): ValueType {
     return { kind };
   if (kind.startsWith('json:') && kind.slice(5).trim())
     return { kind: 'json', name: kind.slice(5) };
+  if (kind.startsWith('array:')) {
+    try {
+      return { kind: 'array', elementType: JSON.parse(kind.slice(6)) as ValueType };
+    } catch {
+      throw new StoryFormatError(`${path} contains invalid Array element type`);
+    }
+  }
+  if (kind.startsWith('map:')) {
+    try {
+      const detail = JSON.parse(kind.slice(4)) as {
+        keyType?: 'string' | 'number' | 'character-ref' | 'asset-ref';
+        valueType?: ValueType;
+      };
+      return { kind: 'map', keyType: detail.keyType, valueType: detail.valueType };
+    } catch {
+      throw new StoryFormatError(`${path} contains invalid Map type`);
+    }
+  }
   throw new StoryFormatError(`${path} contains unsupported type ${kind}`);
 }
 
@@ -1073,6 +1243,9 @@ function parseVariableDefault(valueType: ValueType, value: unknown, path: string
         (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
       ) {
         throw new StoryFormatError(`${path} must contain a JSON object`);
+      }
+      if (!runtimeValueMatchesType(parsed, valueType)) {
+        throw new StoryFormatError(`${path} contains values that do not match ${valueType.kind}`);
       }
       return parsed;
     } catch (error) {

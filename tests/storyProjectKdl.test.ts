@@ -157,6 +157,20 @@ function projectDocument(): StoryProjectDocument {
           { name: 'amount', valueType: { kind: 'number' } },
           { name: 'payload', valueType: { kind: 'json', name: 'RewardPayload' } },
         ],
+        outputs: [
+          {
+            id: 'evo_granteditems',
+            name: 'grantedItems',
+            displayName: 'Granted Items',
+            valueType: { kind: 'array' },
+          },
+          {
+            id: 'evo_summary',
+            name: 'summary',
+            displayName: 'Summary',
+            valueType: { kind: 'json', name: 'RewardPayload' },
+          },
+        ],
         resumable: true,
         sideEffect: 'write',
       },

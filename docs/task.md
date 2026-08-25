@@ -311,8 +311,10 @@
 - [x] 第一阶段 Boolean / Number / String 参数及 Literal / Expression / Variable 表达式绑定
 - [x] Call Event 固定为派发后立即继续；无返回值、完成状态或失败分支
 - [x] Event / Signal 支持带引擎类型名的 opaque JSON 参数；编辑器只校验完整 JSON 并原样交给 Adapter，不开放成员访问或 Story 编程
-- [ ] Boolean / Number / String / CharacterRef / AssetRef 参数
-- [ ] Array / Struct / Map / Json 递归复杂参数，编译产物使用 JSON 兼容值
+- [x] Event 支持多个稳定 ID 返回值；Adapter Promise 按 Output ID 返回并在 Runtime 校验后写入指定变量
+- [x] Boolean / Number / String / Array / Map / Engine JSON 返回值
+- [ ] CharacterRef / AssetRef 参数与返回值
+- [ ] Struct 递归复杂参数，编译产物使用 JSON 兼容值
 - [ ] 参数支持 Literal、Expression、Variable Binding 和结构化编辑
 - [ ] Raw JSON 仅作为复杂参数的逃生编辑方式
 - [ ] Ink External Function 映射为 Event Definition / Call Event
@@ -670,7 +672,16 @@
 - [x] Typed Expression 求值、Text Template 渲染和 Choice 条件过滤
 - [x] Story Variable 默认值、读取与 Set Variable 集成
 - [x] Story / Project Variable 可直接使用 Array 与 Map 容器类型；默认值图形化编辑并作为完整 JSON 值交给 Runtime / Adapter，不开放容器编程
-- [x] 复杂值边界固化：Array / Map / Engine Object 禁止成员访问、索引、增删改查、遍历、运算、Branch 与文本插值，只允许整值编辑、赋值和传递
+- [x] Set Variable 对 Array 提供 Add Item、对 Map 提供 Set / Add Entry；整体 Set 保留，不扩展循环或通用集合算法
+- [x] Safe Expression 支持 Engine Object `value.field`、Array `value[index]` 与 Map `value[key]` 读取；Runtime 对缺失字段、越界索引和缺失 Key 提供错误
+- [x] 复杂值图形化读取基础：Get Variable 可选择 Engine Schema Field、Array Index 或 Map Key；输出数据 Pin 接入 Set Variable 并编译为 Typed Expression
+- [x] 数据 Pin 扩展到 Branch 条件与 Event 参数；连线值覆盖节点内的后备表达式，并按目标类型校验
+- [x] Engine Object 支持按需暴露多个 Schema Field Pin；主对象输出保留，字段引用使用稳定 Field ID，并随 Schema 迁移更新名称与类型
+- [x] Dialogue / Choice 文本模板提供可搜索的引用插入器、Engine Object 标量字段选择与即时语法诊断；文本继续使用 `{value.field}`，不增加密集数据线
+- [x] 复杂值边界固化：Array / Map / Engine Object 只开放安全的字段/索引读取、整值赋值、Array Add 与 Map Set Entry；不开放遍历、任意方法调用或通用图形化编程
+- [x] Set Object Field 受限修改 Engine Object 的一级 Schema 字段；保存稳定 Field ID、校验字段类型，并在 Runtime 不可变写回整个对象
+- [x] Array / Map 变量保存元素、Key 与 Value 类型；读取 Pin、Add Item、Set Entry、默认值编辑和连线校验共享强类型契约，Character / Asset Key 使用稳定资源 ID
+- [x] 容器修改节点完成数据 Pin：Array Item、Map Key / Value、Object Field Value 使用序列化类型快照即时校验；Inspector 值作为断线后备值
 - [x] Engine Object 使用最新 Schema 动态投影；Schema 迁移确认集中递归规范化父 Object、Array / Map、变量和节点整值，Field ID 负责改名匹配
 - [x] Any JSON 内的命名 Object 使用稳定 Engine Type ID 标记，不再依赖结构猜测；编译产物递归移除编辑器类型标记
 - [x] Project / Story / Chapter / Character Variables 状态机集成
@@ -689,7 +700,7 @@
 
 - [x] StoryAdapter TypeScript 契约
 - [x] Dialogue / Choice 异步接口
-- [ ] Event Registry 与 Typed Parameters / Result
+- [x] Event Registry 与 Typed Parameters / 多 Result
 - [x] `callEvent(eventId, arguments, signal)` 异步调用协议
 - [x] 游戏引擎按稳定 Event ID 注册具体 Handler
 - [ ] Wait / Fire-and-forget、返回值与 Failed 分支语义

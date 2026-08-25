@@ -3,6 +3,7 @@ import type {
   ChapterId,
   CharacterId,
   EventId,
+  EventOutputId,
   SignalId,
   NodeId,
   OptionId,
@@ -106,7 +107,12 @@ export interface EventSource {
   displayName: string;
   description?: string;
   parameters: readonly { name: string; valueType: ValueType }[];
-  returnType?: ValueType;
+  outputs?: readonly {
+    id: EventOutputId;
+    name: string;
+    displayName: string;
+    valueType: ValueType;
+  }[];
   resumable: boolean;
   sideEffect: 'none' | 'read' | 'write';
 }

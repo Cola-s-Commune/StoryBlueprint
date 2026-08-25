@@ -3181,6 +3181,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           name,
           displayName: name,
           parameters: [],
+          outputs: [],
           resumable: true,
           sideEffect: 'write',
         },
@@ -3242,6 +3243,42 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               ]),
             );
             return { ...node, data: { ...node.data, arguments: nextArguments } };
+          }),
+        });
+        setNodes((current) => updateCalls({ nodes: current, edges }).nodes);
+        updateInactiveGraphs(updateCalls);
+        setWorkspaceStories((current) =>
+          current.map((story) => ({
+            ...story,
+            rootGraph: updateCalls(story.rootGraph),
+            chapters: story.chapters.map((chapter) => ({
+              ...chapter,
+              graph: updateCalls(chapter.graph),
+            })),
+            document: { ...story.document, dirty: true },
+            revision: story.revision + 1,
+          })),
+        );
+        markDirty();
+      }
+      if (nextUpdate.outputs) {
+        const outputIds = new Set<string>(nextEvent.outputs?.map((output) => output.id) ?? []);
+        const updateCalls = (candidate: EditorGraphState): EditorGraphState => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) => {
+            if (node.type !== StoryNodeType.CallEvent || node.data.eventId !== id) return node;
+            const call = node.data as StoryNodeDataMap[StoryNodeType.CallEvent];
+            return {
+              ...node,
+              data: {
+                ...call,
+                resultVariableIds: Object.fromEntries(
+                  Object.entries(call.resultVariableIds ?? {}).filter(([outputId]) =>
+                    outputIds.has(outputId),
+                  ),
+                ),
+              },
+            };
           }),
         });
         setNodes((current) => updateCalls({ nodes: current, edges }).nodes);
@@ -3639,9 +3676,102 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return {
           ...candidate,
           nodes: candidate.nodes.map((node) => {
+            if (node.type === StoryNodeType.GetVariable) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.GetVariable];
+              const variable = visibleVariables.find((item) => item.id === data.variableId);
+              if (variable?.valueType.kind !== 'json' || !data.exposedFields?.length) return node;
+              const engineTypeName = variable.valueType.name;
+              const definition = nextEngineTypes.find(
+                (item) => item.name === engineTypeName,
+              );
+              if (!definition) return node;
+              const exposedFields = data.exposedFields.flatMap((exposed) => {
+                const field = definition.fields.find((candidate) => candidate.id === exposed.fieldId);
+                if (!field) return [];
+                const type = field.type;
+                const valueType: ValueType =
+                  type.kind === 'object'
+                    ? { kind: 'json', name: type.typeName, nullable: field.nullable }
+                    : type.kind === 'array' ||
+                        type.kind === 'map' ||
+                        type.kind === 'boolean' ||
+                        type.kind === 'number' ||
+                        type.kind === 'string' ||
+                        type.kind === 'any'
+                      ? ({ kind: type.kind, nullable: field.nullable } as ValueType)
+                      : type.kind === 'enum'
+                        ? {
+                            kind: 'enum',
+                            name: `${engineTypeName}.${field.name}`,
+                            values: type.values,
+                            nullable: field.nullable,
+                          }
+                        : { kind: 'string', nullable: field.nullable };
+                return [{
+                  fieldId: field.id,
+                  member: field.name,
+                  displayName: field.displayName,
+                  valueType,
+                }];
+              });
+              return JSON.stringify(exposedFields) === JSON.stringify(data.exposedFields)
+                ? node
+                : { ...node, data: { ...data, exposedFields } };
+            }
             if (node.type === StoryNodeType.SetVariable) {
               const data = node.data as StoryNodeDataMap[StoryNodeType.SetVariable];
               const variable = visibleVariables.find((item) => item.id === data.variableId);
+              if (
+                data.containerOperation === 'set-field' &&
+                variable?.valueType.kind === 'json' &&
+                data.fieldId
+              ) {
+                const engineTypeName = variable.valueType.name;
+                const definition = nextEngineTypes.find(
+                  (item) => item.name === engineTypeName,
+                );
+                const field = definition?.fields.find((candidate) => candidate.id === data.fieldId);
+                if (!field) {
+                  return {
+                    ...node,
+                    data: { ...data, fieldName: undefined, fieldValueType: undefined },
+                  };
+                }
+                const type = field.type;
+                const fieldValueType: ValueType =
+                  type.kind === 'object'
+                    ? { kind: 'json', name: type.typeName, nullable: field.nullable }
+                    : type.kind === 'array' ||
+                        type.kind === 'map' ||
+                        type.kind === 'boolean' ||
+                        type.kind === 'number' ||
+                        type.kind === 'string' ||
+                        type.kind === 'any'
+                      ? ({ kind: type.kind, nullable: field.nullable } as ValueType)
+                      : type.kind === 'enum'
+                        ? {
+                            kind: 'enum',
+                            name: `${engineTypeName}.${field.name}`,
+                            values: type.values,
+                            nullable: field.nullable,
+                          }
+                        : { kind: 'string', nullable: field.nullable };
+                const value = migrateJsonSource(
+                  data.value,
+                  fieldValueType,
+                  `Node ${node.id} · Set ${field.displayName}`,
+                );
+                const nextData = {
+                  ...data,
+                  fieldName: field.name,
+                  fieldValueType,
+                  valueInputType: fieldValueType,
+                  value,
+                };
+                return JSON.stringify(nextData) === JSON.stringify(data)
+                  ? node
+                  : { ...node, data: nextData };
+              }
               const value = migrateJsonSource(
                 data.value,
                 variable?.valueType,

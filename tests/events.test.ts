@@ -68,6 +68,7 @@ function eventStory(): StorySourceDocument {
           position: { x: 200, y: 0 },
           data: {
             eventId: 'ev_reward',
+            resultVariableIds: {},
             arguments: {
               amount: { source: 'score + 1', bindings: {} },
               message: { source: '"Treasure"', bindings: {} },
@@ -154,9 +155,73 @@ describe('project events', () => {
           message: 'Treasure',
           payload: { itemId: 'gold', amount: 3, tags: ['quest'] },
         },
+        outputs: [],
       },
     });
     expect(runtime.continueEvent().kind).toBe('completed');
+  });
+
+  it('uses a connected Get Variable value for an event argument', () => {
+    const source = eventStory();
+    source.root.nodes.push({
+      id: 'n_getscore',
+      type: StoryNodeType.GetVariable,
+      definitionVersion: 1,
+      position: { x: 100, y: 100 },
+      data: { variableId: 'v_score' },
+    });
+    source.root.edges.push({
+      from: { nodeId: 'n_getscore', portId: 'value' },
+      to: { nodeId: 'n_event', portId: 'argument:amount' },
+    });
+    const compiled = compileStory(source);
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    const waiting = runtime.runUntilPause();
+    expect(waiting.kind).toBe('waiting');
+    if (waiting.kind !== 'waiting' || waiting.interaction.kind !== 'event') return;
+    expect(waiting.interaction.request.arguments.amount).toBe(4);
+  });
+
+  it('validates multiple adapter return values and stores selected results', () => {
+    const source = eventStory();
+    source.events[0] = {
+      ...source.events[0]!,
+      outputs: [
+        {
+          id: 'evo_score',
+          name: 'newScore',
+          displayName: 'New Score',
+          valueType: { kind: 'number' },
+        },
+        {
+          id: 'evo_items',
+          name: 'items',
+          displayName: 'Items',
+          valueType: { kind: 'array' },
+        },
+      ],
+    };
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    eventNode.data = {
+      ...eventNode.data,
+      resultVariableIds: { evo_score: 'v_score' },
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    expect(runtime.runUntilPause().kind).toBe('waiting');
+    const invalid = runtime.continueEvent({ evo_score: 'wrong', evo_items: [] });
+    expect(invalid.kind).toBe('failed');
+
+    const validRuntime = new StoryRuntime(compiled.program);
+    validRuntime.runUntilPause();
+    expect(validRuntime.continueEvent({ evo_score: 9, evo_items: ['gold'] }).kind).toBe(
+      'completed',
+    );
+    expect(validRuntime.state.storyVariables.v_score).toBe(9);
   });
 
   it('diagnoses missing event arguments', () => {

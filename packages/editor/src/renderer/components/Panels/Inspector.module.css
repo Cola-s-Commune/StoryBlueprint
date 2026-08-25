@@ -115,6 +115,89 @@
   font-size: 9px;
 }
 
+.propertyLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.insertReferenceButton {
+  border: 0;
+  background: transparent;
+  color: #75a9d8;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.referencePicker {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #414954;
+  border-radius: 4px;
+  background: #1d2228;
+  padding: 6px;
+}
+
+.referenceResults {
+  display: grid;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.referenceResults button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #d5dce5;
+  padding: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.referenceResults button:hover {
+  background: #2b343e;
+}
+
+.referenceResults code {
+  color: #75a9d8;
+  font-size: 9px;
+}
+
+.field .templateError {
+  color: #e37878;
+}
+
+.exposedFields {
+  margin-bottom: 12px;
+}
+
+.exposedFieldRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  color: #d2d8e0;
+  font-size: 11px;
+}
+
+.exposedFieldRow input {
+  margin: 0;
+}
+
+.exposedFieldRow em {
+  color: #727c8b;
+  font-size: 9px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
 .variablePicker {
   position: relative;
 }

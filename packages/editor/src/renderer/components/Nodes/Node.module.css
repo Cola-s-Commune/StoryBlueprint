@@ -344,6 +344,7 @@
 }
 
 .interfaceRows > span {
+  position: relative;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -441,6 +442,59 @@
   text-transform: uppercase;
 }
 
+.variableOutputs {
+  display: grid;
+  min-width: 210px;
+  border-top: 1px solid #303741;
+}
+
+.dataInputRows {
+  display: grid;
+  min-width: 230px;
+  border-top: 1px solid #303741;
+}
+
+.dataInputRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(50px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 12px 4px 16px;
+}
+
+.dataInputRow b {
+  color: #8f9bab;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.dataInputRow em {
+  color: #727c8b;
+  font-size: 8px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.variableOutputRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 12px;
+  color: #cbd4df;
+  font-size: 10px;
+}
+
+.variableOutputRow em {
+  color: #727c8b;
+  font-size: 8px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
 .dataHandle {
   width: 26px !important;
   height: 26px !important;
@@ -465,4 +519,8 @@
 
 .dataHandleOutput {
   right: -7px !important;
+}
+
+.dataHandleInput {
+  left: -7px !important;
 }

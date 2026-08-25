@@ -339,7 +339,25 @@ export function RuntimePreview() {
         arguments: interaction.request.arguments,
       },
     ]);
-    acceptResult(session.runtime, session.runtime.continueEvent());
+    acceptResult(
+      session.runtime,
+      session.runtime.continueEvent(
+        Object.fromEntries(
+          interaction.request.outputs.map((output) => [
+            output.id,
+            output.valueType.kind === 'boolean'
+              ? false
+              : output.valueType.kind === 'number'
+                ? 0
+                : output.valueType.kind === 'array'
+                  ? []
+                  : output.valueType.kind === 'map' || output.valueType.kind === 'json'
+                    ? {}
+                    : '',
+          ]),
+        ),
+      ),
+    );
   }, [acceptResult, interaction, session]);
   const errorText = [
     result?.kind === 'failed'

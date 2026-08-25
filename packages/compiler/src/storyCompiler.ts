@@ -8,6 +8,7 @@ import {
   choicePromptTextId,
   collectInkReservedTagGroups,
   parseInkDialogueMetadata,
+  runtimeValueMatchesType,
   stripEngineObjectTypeMarkers,
   type BlockId,
   type BranchNodeData,
@@ -86,13 +87,27 @@ function compileOpaqueJson(
   ) {
     throw new ExpressionCompileError('Map value must be a JSON object', 0);
   }
+  if (!runtimeValueMatchesType(value, valueType)) {
+    throw new ExpressionCompileError(
+      `JSON value does not match ${valueType.kind} item contract`,
+      0,
+    );
+  }
   return { kind: 'literal', value: stripEngineObjectTypeMarkers(value), valueType };
 }
 
 function valueTypesMatch(actual: ValueType, expected: ValueType): boolean {
-  if (actual.kind === 'any') return true;
+  if (actual.kind === 'any' || expected.kind === 'any') return true;
   if (actual.kind !== expected.kind) return false;
-  return actual.kind !== 'json' || expected.kind !== 'json' || actual.name === expected.name;
+  if (actual.kind === 'json' && expected.kind === 'json') return actual.name === expected.name;
+  if (actual.kind === 'array' && expected.kind === 'array')
+    return !expected.elementType || !actual.elementType || valueTypesMatch(actual.elementType, expected.elementType);
+  if (actual.kind === 'map' && expected.kind === 'map')
+    return (
+      (!expected.keyType || !actual.keyType || actual.keyType === expected.keyType) &&
+      (!expected.valueType || !actual.valueType || valueTypesMatch(actual.valueType, expected.valueType))
+    );
+  return true;
 }
 
 function compileAuthoredValue(
@@ -346,6 +361,81 @@ export class DefaultStoryCompiler implements StoryCompiler {
           });
           return undefined;
         }
+      };
+      const connectedDataExpression = (
+        node: SourceNode,
+        portId: string,
+      ): { connected: boolean; value?: TypedExpression } => {
+        const edge = graph.edges.find(
+          (candidate) => candidate.to.nodeId === node.id && candidate.to.portId === portId,
+        );
+        if (!edge) return { connected: false };
+        const sourceNode = nodesById.get(edge.from.nodeId);
+        if (
+          !sourceNode ||
+          sourceNode.type !== StoryNodeType.GetVariable ||
+          (edge.from.portId !== 'value' && !edge.from.portId.startsWith('field:'))
+        ) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `${node.type}.${portId} requires a valid Get Variable output`,
+            sourceNodeId: node.id,
+          });
+          return { connected: true };
+        }
+        const read = sourceNode.data as unknown as GetVariableNodeData;
+        const variable = visibleVariables.find((candidate) => candidate.id === read.variableId);
+        if (!variable) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `Get Variable connected to ${node.type}.${portId} references a missing variable`,
+            sourceNodeId: sourceNode.id,
+          });
+          return { connected: true };
+        }
+        const target: TypedExpression = {
+          kind: 'variable',
+          variableId: variable.id,
+          valueType: variable.valueType,
+        };
+        const value = compileSafe(sourceNode, () => {
+          if (edge.from.portId.startsWith('field:')) {
+            const fieldId = edge.from.portId.slice('field:'.length);
+            const field = read.exposedFields?.find((candidate) => candidate.fieldId === fieldId);
+            if (!field) {
+              throw new ExpressionCompileError(
+                `Get Variable output ${edge.from.portId} no longer exists`,
+                0,
+              );
+            }
+            return {
+              kind: 'member' as const,
+              target,
+              member: field.member,
+              valueType: field.valueType,
+            };
+          }
+          if (read.accessor?.kind === 'member') {
+            return {
+              kind: 'member' as const,
+              target,
+              member: read.accessor.member,
+              valueType: read.accessor.valueType,
+            };
+          }
+          if (read.accessor?.kind === 'index') {
+            return {
+              kind: 'index' as const,
+              target,
+              index: compileExpression(read.accessor.index, visibleVariables, source.characters),
+              valueType: read.accessor.valueType,
+            };
+          }
+          return target;
+        });
+        return { connected: true, value };
       };
 
       for (const node of graph.nodes) {
@@ -632,20 +722,104 @@ export class DefaultStoryCompiler implements StoryCompiler {
               });
             } else {
               const variable = visibleVariables.find((item) => item.id === data.variableId)!;
-              const value = compileSafe(node, () =>
-                compileAuthoredValue(
-                  data.value,
-                  variable.valueType,
-                  visibleVariables,
-                  source.characters,
-                ),
-              );
-              if (value) {
-                if (!valueTypesMatch(value.valueType, variable.valueType)) {
+              const connectedValue = connectedDataExpression(node, 'value');
+              const connectedKey =
+                data.containerOperation === 'set-entry'
+                  ? connectedDataExpression(node, 'key')
+                  : { connected: false as const };
+              const containerOperation = data.containerOperation;
+              const operationValid =
+                !containerOperation ||
+                (containerOperation === 'append' && variable.valueType.kind === 'array') ||
+                (containerOperation === 'set-entry' && variable.valueType.kind === 'map') ||
+                (containerOperation === 'set-field' &&
+                  variable.valueType.kind === 'json' &&
+                  Boolean(data.fieldId && data.fieldName && data.fieldValueType));
+              if (!operationValid) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Container operation does not support ${variable.valueType.kind}`,
+                  sourceNodeId: node.id,
+                });
+              }
+              const value = connectedValue.value ?? (!connectedValue.connected ? compileSafe(node, () =>
+                containerOperation === 'set-field' && data.fieldValueType
+                  ? compileAuthoredValue(
+                      data.value,
+                      data.fieldValueType,
+                      visibleVariables,
+                      source.characters,
+                    )
+                  : containerOperation === 'append' && variable.valueType.kind === 'array'
+                    ? compileAuthoredValue(
+                        data.value,
+                        variable.valueType.elementType ?? { kind: 'any' },
+                        visibleVariables,
+                        source.characters,
+                      )
+                    : containerOperation === 'set-entry' && variable.valueType.kind === 'map'
+                      ? compileAuthoredValue(
+                          data.value,
+                          variable.valueType.valueType ?? { kind: 'any' },
+                          visibleVariables,
+                          source.characters,
+                        )
+                  : containerOperation
+                  ? compileExpression(data.value, visibleVariables, source.characters)
+                  : compileAuthoredValue(
+                      data.value,
+                      variable.valueType,
+                      visibleVariables,
+                      source.characters,
+                    ),
+              ) : undefined);
+              const key =
+                connectedKey.value ??
+                (containerOperation === 'set-entry' && data.key && !connectedKey.connected
+                  ? compileSafe(node, () =>
+                      compileAuthoredValue(
+                        data.key!,
+                        variable.valueType.kind === 'map' && variable.valueType.keyType === 'number'
+                          ? { kind: 'number' }
+                          : { kind: 'string' },
+                        visibleVariables,
+                        source.characters,
+                      ),
+                    )
+                  : undefined);
+              if (containerOperation === 'set-entry' && !data.key && !connectedKey.connected) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: 'Map Set Entry requires a key',
+                  sourceNodeId: node.id,
+                });
+              }
+              if (value && operationValid) {
+                const expectedValueType =
+                  containerOperation === 'set-field'
+                    ? data.fieldValueType
+                    : containerOperation === 'append' && variable.valueType.kind === 'array'
+                      ? variable.valueType.elementType
+                      : containerOperation === 'set-entry' && variable.valueType.kind === 'map'
+                        ? variable.valueType.valueType
+                        : variable.valueType;
+                if (
+                  expectedValueType &&
+                  !valueTypesMatch(value.valueType, expectedValueType)
+                ) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
                     severity: 'error',
-                    message: `Set Variable ${variable.name} must be ${variable.valueType.kind}`,
+                    message:
+                      containerOperation === 'set-field'
+                        ? `Object field ${data.fieldName ?? 'field'} must be ${expectedValueType.kind}`
+                        : containerOperation === 'append'
+                          ? `Array item must be ${expectedValueType.kind}`
+                          : containerOperation === 'set-entry'
+                            ? `Map value must be ${expectedValueType.kind}`
+                        : `Set Variable ${variable.name} must be ${variable.valueType.kind}`,
                     sourceNodeId: node.id,
                   });
                 } else {
@@ -654,6 +828,11 @@ export class DefaultStoryCompiler implements StoryCompiler {
                     op: 'set-variable',
                     variableId: data.variableId,
                     value,
+                    ...(containerOperation ? { containerOperation } : {}),
+                    ...(key ? { key } : {}),
+                    ...(containerOperation === 'set-field' && data.fieldName
+                      ? { fieldName: data.fieldName }
+                      : {}),
                   });
                 }
               }
@@ -679,7 +858,11 @@ export class DefaultStoryCompiler implements StoryCompiler {
             if (event) {
               for (const parameter of event.parameters) {
                 const argument = data.arguments[parameter.name];
-                if (!argument) {
+                const connectedArgument = connectedDataExpression(
+                  node,
+                  `argument:${parameter.name}`,
+                );
+                if (!argument && !connectedArgument.connected) {
                   diagnostics.push({
                     code: 'INVALID_NODE',
                     severity: 'error',
@@ -688,14 +871,16 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   });
                   continue;
                 }
-                const compiled = compileSafe(node, () =>
+                const compiled = connectedArgument.value ?? (!connectedArgument.connected && argument
+                  ? compileSafe(node, () =>
                   compileAuthoredValue(
-                    argument,
+                    argument!,
                     parameter.valueType,
                     visibleVariables,
                     source.characters,
                   ),
-                );
+                    )
+                  : undefined);
                 if (compiled && !valueTypesMatch(compiled.valueType, parameter.valueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
@@ -705,6 +890,31 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   });
                 } else if (compiled) compiledArguments[parameter.name] = compiled;
               }
+              const resultVariableIds: Record<string, VariableId> = {};
+              for (const output of event.outputs ?? []) {
+                const variableId = data.resultVariableIds?.[output.id];
+                if (!variableId) continue;
+                const variable = visibleVariables.find((candidate) => candidate.id === variableId);
+                if (!variable) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Event output ${output.name} references a missing result variable`,
+                    sourceNodeId: node.id,
+                  });
+                  continue;
+                }
+                if (!valueTypesMatch(output.valueType, variable.valueType)) {
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Event output ${output.name} cannot be stored in ${variable.name}`,
+                    sourceNodeId: node.id,
+                  });
+                  continue;
+                }
+                resultVariableIds[output.id] = variableId;
+              }
               const target = requireTarget(node, 'out');
               if (target && Object.keys(compiledArguments).length === event.parameters.length) {
                 instructions.push({
@@ -712,6 +922,12 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   op: 'call-event',
                   eventId: event.id,
                   arguments: compiledArguments,
+                  outputs: (event.outputs ?? []).map((output) => ({
+                    id: output.id,
+                    name: output.name,
+                    valueType: output.valueType,
+                  })),
+                  resultVariableIds,
                 });
                 instructions.push(jump(node, target));
               }
@@ -825,9 +1041,14 @@ export class DefaultStoryCompiler implements StoryCompiler {
             const data = node.data as unknown as BranchNodeData;
             const whenTrue = requireTarget(node, 'true');
             const whenFalse = requireTarget(node, 'false');
-            const condition = compileSafe(node, () =>
-              compileExpression(data.condition, visibleVariables, source.characters),
-            );
+            const connectedCondition = connectedDataExpression(node, 'condition');
+            const condition =
+              connectedCondition.value ??
+              (!connectedCondition.connected
+                ? compileSafe(node, () =>
+                    compileExpression(data.condition, visibleVariables, source.characters),
+                  )
+                : undefined);
             if (whenTrue && whenFalse && condition) {
               if (condition.valueType.kind !== 'boolean' && condition.valueType.kind !== 'any') {
                 diagnostics.push({

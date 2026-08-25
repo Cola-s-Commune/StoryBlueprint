@@ -1,4 +1,4 @@
-import type { VariableId } from './ids';
+import { isStableId, type VariableId } from './ids';
 
 export type RuntimeScalar = null | boolean | number | string;
 export type RuntimeStruct = { readonly [field: string]: RuntimeValue };
@@ -11,9 +11,14 @@ export type ValueType =
   | { kind: 'number'; nullable?: boolean }
   | { kind: 'string'; nullable?: boolean }
   /** Opaque JSON array stored and passed as a complete value. */
-  | { kind: 'array'; nullable?: boolean }
+  | { kind: 'array'; elementType?: ValueType; nullable?: boolean }
   /** Opaque JSON object used as a string-keyed map and passed as a complete value. */
-  | { kind: 'map'; nullable?: boolean }
+  | {
+      kind: 'map';
+      keyType?: 'string' | 'number' | 'character-ref' | 'asset-ref';
+      valueType?: ValueType;
+      nullable?: boolean;
+    }
   /** Opaque JSON contract passed intact to the engine Adapter; Story expressions cannot inspect it. */
   | { kind: 'json'; name: string; nullable?: boolean }
   | { kind: 'enum'; name: string; values: readonly string[]; nullable?: boolean }
@@ -42,9 +47,22 @@ export function runtimeValueMatchesType(value: RuntimeValue, type: ValueType): b
     case 'any':
       return true;
     case 'array':
-      return Array.isArray(value);
+      return (
+        Array.isArray(value) &&
+        (!type.elementType || value.every((item) => runtimeValueMatchesType(item, type.elementType!)))
+      );
     case 'map':
-      return typeof value === 'object' && !Array.isArray(value);
+      return (
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        Object.keys(value).every((key) => {
+          if (!type.keyType || type.keyType === 'string') return true;
+          if (type.keyType === 'number') return key.trim() !== '' && Number.isFinite(Number(key));
+          return isStableId(key, type.keyType === 'character-ref' ? 'character' : 'asset');
+        }) &&
+        (!type.valueType ||
+          Object.values(value).every((item) => runtimeValueMatchesType(item, type.valueType!)))
+      );
     case 'boolean':
       return typeof value === 'boolean';
     case 'number':
