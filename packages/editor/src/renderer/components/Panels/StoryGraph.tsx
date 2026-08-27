@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
   ReactFlow,
@@ -13,7 +14,6 @@ import {
   MiniMap,
   Controls,
   ConnectionLineType,
-  SelectionMode,
   type Connection,
   type Edge,
   type OnConnectEnd,
@@ -127,31 +127,99 @@ function graphPinFromTarget(target: EventTarget | null): GraphPinReference | und
 type GraphControlMode = 'blueprint' | 'standard';
 const graphControlModeStorageKey = 'story-blueprint.graph-control-mode';
 
+type CanvasGesture =
+  | { kind: 'idle' }
+  | {
+      kind: 'press';
+      mode: 'pan' | 'select';
+      pointerId: number;
+      button: 0 | 2;
+      originX: number;
+      originY: number;
+      lastX: number;
+      lastY: number;
+      moved: boolean;
+    }
+  | {
+      kind: 'pan';
+      pointerId: number;
+      button: 0 | 2;
+      lastX: number;
+      lastY: number;
+      moved: true;
+    }
+  | {
+      kind: 'select';
+      pointerId: number;
+      originX: number;
+      originY: number;
+      currentX: number;
+      currentY: number;
+    }
+  | { kind: 'node-drag' };
+
 function initialGraphControlMode(): GraphControlMode {
   const saved = window.localStorage.getItem(graphControlModeStorageKey);
   return saved === 'standard' ? 'standard' : 'blueprint';
 }
 
-function FlowInteractionRecovery() {
+function dispatchMouseRelease(
+  button: 0 | 2,
+  point?: { clientX: number; clientY: number; screenX?: number; screenY?: number },
+) {
+  // d3-drag listens on event.view (the renderer window), so dispatching on
+  // the window with an explicit view is important when the native mouseup was
+  // lost while crossing a window or display.
+  window.dispatchEvent(
+    new MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button,
+      buttons: 0,
+      clientX: point?.clientX ?? 0,
+      clientY: point?.clientY ?? 0,
+      screenX: point?.screenX ?? point?.clientX ?? 0,
+      screenY: point?.screenY ?? point?.clientY ?? 0,
+    }),
+  );
+}
+
+function FlowInteractionRecovery({ nodeDragActiveRef }: { nodeDragActiveRef: { current: boolean } }) {
   const store = useStoreApi<EditorGraphNode, EditorGraphEdge>();
 
   useEffect(() => {
-    const resetInteractionState = () => {
+    const getActiveButtons = (): (0 | 2)[] => {
       const state = store.getState();
-      const hasActiveGesture = state.userSelectionActive || state.paneDragging;
-      if (!hasActiveGesture && !state.connection.inProgress) {
-        return;
+      const nodeDragging = nodeDragActiveRef.current || state.nodes.some((node) => node.dragging);
+      const buttons: (0 | 2)[] = [];
+      if (nodeDragging || state.userSelectionActive || state.connection.inProgress) {
+        buttons.push(0);
       }
-      if (hasActiveGesture) {
-        // Stop d3-zoom/d3-drag when the browser lost the matching native mouseup.
-        for (const button of [0, 2]) {
-          window.dispatchEvent(
-            new MouseEvent('mouseup', { bubbles: true, button, buttons: 0 }),
-          );
-        }
-      }
-      if (state.connection.inProgress) {
-        state.cancelConnection();
+      // React Flow does not expose which button started paneDragging. Sending
+      // both releases is harmless and covers blueprint (right) and standard
+      // (left) pan modes.
+      if (state.paneDragging) buttons.push(0, 2);
+      return [...new Set(buttons)];
+    };
+
+    const resetStoreState = () => {
+      const state = store.getState();
+      nodeDragActiveRef.current = false;
+      if (state.connection.inProgress) state.cancelConnection();
+      const staleDraggingNodes = state.nodes.filter((node) => node.dragging);
+      if (staleDraggingNodes.length > 0) {
+        // If d3-drag was torn down before its end callback, still publish the
+        // final position with dragging=false so controlled nodes cannot remain
+        // permanently in the dragging state.
+        state.triggerNodeChanges(
+          staleDraggingNodes.map((node) => ({
+            id: node.id,
+            type: 'position' as const,
+            position: node.position,
+            dragging: false,
+          })),
+        );
       }
       store.setState({
         userSelectionActive: false,
@@ -159,23 +227,52 @@ function FlowInteractionRecovery() {
         paneDragging: false,
       });
     };
-    const resetAfterPointerRelease = () => window.setTimeout(resetInteractionState, 0);
-    const resetAfterReleasedMove = (event: MouseEvent | PointerEvent) => {
-      if (event.buttons === 0) resetInteractionState();
+
+    const recover = (event?: MouseEvent | PointerEvent) => {
+      const buttons = getActiveButtons();
+      if (buttons.length === 0) return;
+      const point = event
+        ? {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            screenX: event.screenX,
+            screenY: event.screenY,
+          }
+        : undefined;
+      for (const button of buttons) dispatchMouseRelease(button, point);
+      // React state updates are asynchronous. Re-check once after d3 has had
+      // a chance to run its end handler and clean up any remaining flags.
+      window.setTimeout(resetStoreState, 0);
     };
-    window.addEventListener('pointerup', resetAfterPointerRelease, true);
-    window.addEventListener('pointercancel', resetInteractionState, true);
-    window.addEventListener('mousemove', resetAfterReleasedMove, true);
-    window.addEventListener('pointermove', resetAfterReleasedMove, true);
-    window.addEventListener('blur', resetInteractionState);
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.button !== 0 && event.button !== 2) return;
+      window.setTimeout(() => recover(event), 0);
+    };
+    const handlePointerCancel = (event: PointerEvent) => recover(event);
+    const handleReleasedMove = (event: MouseEvent | PointerEvent) => {
+      if (event.buttons === 0) recover(event);
+    };
+    const handleWindowBlur = () => recover();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') recover();
+    };
+
+    window.addEventListener('pointerup', handlePointerUp, true);
+    window.addEventListener('pointercancel', handlePointerCancel, true);
+    window.addEventListener('mousemove', handleReleasedMove, true);
+    window.addEventListener('pointermove', handleReleasedMove, true);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.removeEventListener('pointerup', resetAfterPointerRelease, true);
-      window.removeEventListener('pointercancel', resetInteractionState, true);
-      window.removeEventListener('mousemove', resetAfterReleasedMove, true);
-      window.removeEventListener('pointermove', resetAfterReleasedMove, true);
-      window.removeEventListener('blur', resetInteractionState);
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      window.removeEventListener('pointercancel', handlePointerCancel, true);
+      window.removeEventListener('mousemove', handleReleasedMove, true);
+      window.removeEventListener('pointermove', handleReleasedMove, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [store]);
+  }, [nodeDragActiveRef, store]);
 
   return null;
 }
@@ -260,15 +357,15 @@ export function StoryGraph() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
-  const rightDragRef = useRef<{
-    x: number;
-    y: number;
-    lastX: number;
-    lastY: number;
-    moved: boolean;
-    manualPan: boolean;
-  }>();
-  const rightMouseUpSeenRef = useRef(false);
+  const canvasGestureRef = useRef<CanvasGesture>({ kind: 'idle' });
+  const canvasGestureFrameRef = useRef<number | null>(null);
+  const canvasGestureDeltaRef = useRef({ x: 0, y: 0 });
+  const [marqueeRect, setMarqueeRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const additiveSelectionRef = useRef<{
     nodeIds: ReadonlySet<string>;
     edgeIds: ReadonlySet<string>;
@@ -280,68 +377,7 @@ export function StoryGraph() {
   const graphRef = useRef(graph);
   graphRef.current = graph;
   const dragSnapshot = useRef<EditorGraphState | null>(null);
-
-  // Electron can lose the native mouseup while a pointer crosses displays or the window blurs.
-  const releaseRightMouseGesture = useCallback((event?: {
-    clientX: number;
-    clientY: number;
-    screenX?: number;
-    screenY?: number;
-  }) => {
-    const drag = rightDragRef.current;
-    if (!drag || rightMouseUpSeenRef.current) return;
-    rightMouseUpSeenRef.current = true;
-    const clientX = event?.clientX ?? drag.lastX;
-    const clientY = event?.clientY ?? drag.lastY;
-    window.dispatchEvent(
-      new MouseEvent('mouseup', {
-        bubbles: true,
-        cancelable: true,
-        button: 2,
-        buttons: 0,
-        clientX,
-        clientY,
-        screenX: event?.screenX ?? clientX,
-        screenY: event?.screenY ?? clientY,
-      }),
-    );
-  }, []);
-
-  useEffect(() => {
-    const handleNativeMouseUp = (event: MouseEvent) => {
-      if (event.button === 2) rightMouseUpSeenRef.current = true;
-    };
-    const handlePointerRelease = (event: PointerEvent) => {
-      if (event.type === 'pointerup' && event.button !== 2) return;
-      const drag = rightDragRef.current;
-      if (!drag) return;
-      if (event.type === 'pointercancel') {
-        releaseRightMouseGesture(event);
-        return;
-      }
-      const pointer = {
-        clientX: event.clientX,
-        clientY: event.clientY,
-        screenX: event.screenX,
-        screenY: event.screenY,
-      };
-      window.setTimeout(() => {
-        if (rightDragRef.current !== drag || rightMouseUpSeenRef.current) return;
-        releaseRightMouseGesture(pointer);
-      }, 0);
-    };
-    const handleWindowBlur = () => releaseRightMouseGesture();
-    window.addEventListener('mouseup', handleNativeMouseUp, true);
-    window.addEventListener('pointerup', handlePointerRelease, true);
-    window.addEventListener('pointercancel', handlePointerRelease, true);
-    window.addEventListener('blur', handleWindowBlur);
-    return () => {
-      window.removeEventListener('mouseup', handleNativeMouseUp, true);
-      window.removeEventListener('pointerup', handlePointerRelease, true);
-      window.removeEventListener('pointercancel', handlePointerRelease, true);
-      window.removeEventListener('blur', handleWindowBlur);
-    };
-  }, [releaseRightMouseGesture]);
+  const nodeDragActiveRef = useRef(false);
 
   const validateConnection = useCallback(
     (connection: Connection | Edge) =>
@@ -523,11 +559,11 @@ export function StoryGraph() {
     (event: globalThis.MouseEvent | ReactMouseEvent) => {
       event.preventDefault();
       if (mergePreviewActive) return;
-      if (controlMode === 'blueprint' && rightDragRef.current?.moved) {
-        rightDragRef.current = undefined;
+      const gesture = canvasGestureRef.current;
+      if (gesture.kind === 'pan' || (gesture.kind === 'press' && gesture.moved)) {
+        canvasGestureRef.current = { kind: 'idle' };
         return;
       }
-      rightDragRef.current = undefined;
       if (!flowInstance || !canvasRef.current) return;
       const bounds = canvasRef.current.getBoundingClientRect();
       const maxHeight = Math.max(48, Math.min(480, bounds.height - 8));
@@ -538,12 +574,12 @@ export function StoryGraph() {
         flowPosition: flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
       });
     },
-    [controlMode, flowInstance, mergePreviewActive],
+    [flowInstance, mergePreviewActive],
   );
 
   useEffect(() => {
     window.localStorage.setItem(graphControlModeStorageKey, controlMode);
-    rightDragRef.current = undefined;
+    canvasGestureRef.current = { kind: 'idle' };
     setContextMenu(null);
   }, [controlMode]);
 
@@ -696,19 +732,8 @@ export function StoryGraph() {
         }
       }
 
-      if (controlMode === 'blueprint' && event.button === 2) {
-        rightMouseUpSeenRef.current = false;
-        rightDragRef.current = {
-          x: event.clientX,
-          y: event.clientY,
-          lastX: event.clientX,
-          lastY: event.clientY,
-          moved: false,
-          manualPan: Boolean(target?.closest('.react-flow__nodesselection')),
-        };
-      }
     },
-    [checkpoint, controlMode, edges, markDirty, nodes, setEdges, setNodes],
+    [checkpoint, edges, markDirty, nodes, setEdges, setNodes],
   );
 
   const mergeAdditiveSelection = useCallback(() => {
@@ -726,6 +751,217 @@ export function StoryGraph() {
       ),
     );
   }, [setEdges, setNodes]);
+
+  const scheduleCanvasGestureFrame = useCallback(() => {
+    if (canvasGestureFrameRef.current !== null) return;
+    canvasGestureFrameRef.current = requestAnimationFrame(() => {
+      canvasGestureFrameRef.current = null;
+      const gesture = canvasGestureRef.current;
+      if (gesture.kind === 'pan') {
+        const delta = canvasGestureDeltaRef.current;
+        canvasGestureDeltaRef.current = { x: 0, y: 0 };
+        if (delta.x !== 0 || delta.y !== 0) {
+          const viewport = flowInstance?.getViewport();
+          if (viewport && flowInstance) {
+            void flowInstance.setViewport({
+              ...viewport,
+              x: viewport.x + delta.x,
+              y: viewport.y + delta.y,
+            });
+          }
+        }
+      } else if (gesture.kind === 'select') {
+        const bounds = canvasRef.current?.getBoundingClientRect();
+        if (!bounds) return;
+        setMarqueeRect({
+          left: Math.min(gesture.originX, gesture.currentX) - bounds.left,
+          top: Math.min(gesture.originY, gesture.currentY) - bounds.top,
+          width: Math.abs(gesture.currentX - gesture.originX),
+          height: Math.abs(gesture.currentY - gesture.originY),
+        });
+      }
+    });
+  }, [flowInstance]);
+
+  const finishCanvasGesture = useCallback(
+    (event?: ReactPointerEvent<HTMLDivElement>, canceled = false) => {
+      const gesture = canvasGestureRef.current;
+      if (gesture.kind === 'idle' || gesture.kind === 'node-drag') return;
+      if (canvasGestureFrameRef.current !== null) {
+        cancelAnimationFrame(canvasGestureFrameRef.current);
+        canvasGestureFrameRef.current = null;
+      }
+      const currentX =
+        event?.clientX ?? ('lastX' in gesture ? gesture.lastX : gesture.currentX);
+      const currentY =
+        event?.clientY ?? ('lastY' in gesture ? gesture.lastY : gesture.currentY);
+      if (gesture.kind === 'pan') {
+        const delta = canvasGestureDeltaRef.current;
+        canvasGestureDeltaRef.current = { x: 0, y: 0 };
+        const viewport = flowInstance?.getViewport();
+        if (viewport && flowInstance && (delta.x !== 0 || delta.y !== 0)) {
+          void flowInstance.setViewport({
+            ...viewport,
+            x: viewport.x + delta.x,
+            y: viewport.y + delta.y,
+          });
+        }
+      } else if (gesture.kind === 'select') {
+        if (!canceled) {
+          const selection = {
+            left: Math.min(gesture.originX, currentX),
+            right: Math.max(gesture.originX, currentX),
+            top: Math.min(gesture.originY, currentY),
+            bottom: Math.max(gesture.originY, currentY),
+          };
+          const selectedIds = new Set<string>();
+          canvasRef.current
+            ?.querySelectorAll<HTMLElement>('.react-flow__node[data-id]')
+            .forEach((element) => {
+              const rect = element.getBoundingClientRect();
+              if (
+                rect.right > selection.left &&
+                rect.left < selection.right &&
+                rect.bottom > selection.top &&
+                rect.top < selection.bottom
+              ) {
+                const id = element.dataset.id;
+                if (id) selectedIds.add(id);
+              }
+            });
+          setNodes((current) =>
+            current.map((node) => ({ ...node, selected: selectedIds.has(node.id) })),
+          );
+          setEdges((current) => current.map((edge) => ({ ...edge, selected: false })));
+          mergeAdditiveSelection();
+        }
+        setMarqueeRect(null);
+      }
+      canvasGestureRef.current = { kind: 'idle' };
+      if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [flowInstance, mergeAdditiveSelection, setEdges, setNodes],
+  );
+
+  const handleCanvasPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (mergePreviewActive || canvasGestureRef.current.kind !== 'idle') return;
+      if (event.button !== 0 && event.button !== 2) return;
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (
+        target?.closest(
+          '.react-flow__controls, .react-flow__minimap, .react-flow__handle, .react-flow__edge',
+        )
+      ) {
+        return;
+      }
+      const node = target?.closest('.react-flow__node');
+      if (event.button === 0 && node) return;
+      const shouldSelect =
+        event.button === 0 && (controlMode === 'blueprint' || event.shiftKey);
+      const shouldPan =
+        event.button === 2 ? controlMode === 'blueprint' : !shouldSelect;
+      if (!shouldSelect && !shouldPan) return;
+      if (shouldSelect && event.shiftKey) {
+        additiveSelectionRef.current = {
+          nodeIds: new Set(nodes.filter((candidate) => candidate.selected).map((candidate) => candidate.id)),
+          edgeIds: new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id)),
+        };
+      } else if (shouldSelect) {
+        additiveSelectionRef.current = undefined;
+      }
+      if (event.button === 0) event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      canvasGestureRef.current = {
+        kind: 'press',
+        mode: shouldSelect ? 'select' : 'pan',
+        pointerId: event.pointerId,
+        button: event.button as 0 | 2,
+        originX: event.clientX,
+        originY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        moved: false,
+      };
+    },
+    [controlMode, edges, mergePreviewActive, nodes],
+  );
+
+  const handleCanvasPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const gesture = canvasGestureRef.current;
+      if (gesture.kind === 'idle' || gesture.kind === 'node-drag') return;
+      if (gesture.pointerId !== event.pointerId) return;
+      if (gesture.kind === 'press') {
+        const distance = Math.hypot(
+          event.clientX - gesture.originX,
+          event.clientY - gesture.originY,
+        );
+        if (distance < 4) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        if (gesture.mode === 'select') {
+          canvasGestureRef.current = {
+            kind: 'select',
+            pointerId: gesture.pointerId,
+            originX: gesture.originX,
+            originY: gesture.originY,
+            currentX: event.clientX,
+            currentY: event.clientY,
+          };
+        } else {
+          canvasGestureRef.current = {
+            kind: 'pan',
+            pointerId: gesture.pointerId,
+            button: gesture.button,
+            lastX: event.clientX,
+            lastY: event.clientY,
+            moved: true,
+          };
+        }
+      } else if (gesture.kind === 'pan') {
+        canvasGestureDeltaRef.current.x += event.clientX - gesture.lastX;
+        canvasGestureDeltaRef.current.y += event.clientY - gesture.lastY;
+        canvasGestureRef.current = { ...gesture, lastX: event.clientX, lastY: event.clientY };
+      } else {
+        canvasGestureRef.current = { ...gesture, currentX: event.clientX, currentY: event.clientY };
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      scheduleCanvasGestureFrame();
+    },
+    [scheduleCanvasGestureFrame],
+  );
+
+  const handleCanvasPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const gesture = canvasGestureRef.current;
+      if (gesture.kind === 'idle' || gesture.kind === 'node-drag') return;
+      if (gesture.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      finishCanvasGesture(event);
+    },
+    [finishCanvasGesture],
+  );
+
+  const handleCanvasPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      finishCanvasGesture(event, true);
+    },
+    [finishCanvasGesture],
+  );
+
+  useEffect(() => {
+    const cancelCanvasGesture = () => finishCanvasGesture(undefined, true);
+    window.addEventListener('blur', cancelCanvasGesture);
+    return () => window.removeEventListener('blur', cancelCanvasGesture);
+  }, [finishCanvasGesture]);
 
   const createNode = useCallback(
     (type: StoryNodeType) => {
@@ -1052,11 +1288,15 @@ export function StoryGraph() {
   }, [aiProposal?.nonce, flowInstance]);
 
   const onNodeDragStart = useCallback(() => {
+    nodeDragActiveRef.current = true;
+    canvasGestureRef.current = { kind: 'node-drag' };
     if (aiProposal) return;
     dragSnapshot.current = structuredClone(graph);
   }, [aiProposal, graph]);
   const onNodeDragStop = useCallback(
     (_event: unknown, node: EditorGraphNode) => {
+      nodeDragActiveRef.current = false;
+      canvasGestureRef.current = { kind: 'idle' };
       if (aiProposal) {
         updateAIProposalNodes([
           {
@@ -1414,28 +1654,23 @@ export function StoryGraph() {
         className={styles.canvas}
         ref={canvasRef}
         onMouseDownCapture={handleCanvasMouseDown}
-        onMouseMoveCapture={(event) => {
-          const drag = rightDragRef.current;
-          if (!drag || !(event.buttons & 2)) return;
-          if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 4) {
-            drag.moved = true;
-          }
-          if (drag.manualPan && flowInstance) {
-            const viewport = flowInstance.getViewport();
-            void flowInstance.setViewport({
-              ...viewport,
-              x: viewport.x + event.clientX - drag.lastX,
-              y: viewport.y + event.clientY - drag.lastY,
-            });
-          }
-          drag.lastX = event.clientX;
-          drag.lastY = event.clientY;
-        }}
+        onPointerDownCapture={handleCanvasPointerDown}
+        onPointerMoveCapture={handleCanvasPointerMove}
+        onPointerUpCapture={handleCanvasPointerUp}
+        onPointerCancelCapture={handleCanvasPointerCancel}
         onContextMenuCapture={(event) => {
           const target = event.target instanceof Element ? event.target : undefined;
-          if (!target?.closest('.react-flow__nodesselection')) return;
-          event.stopPropagation();
-          openContextMenu(event);
+          const gesture = canvasGestureRef.current;
+          if (gesture.kind === 'pan' || (gesture.kind === 'press' && gesture.moved)) {
+            event.preventDefault();
+            event.stopPropagation();
+            canvasGestureRef.current = { kind: 'idle' };
+            return;
+          }
+          if (target?.closest('.react-flow__node, .react-flow__nodesselection')) {
+            event.stopPropagation();
+            openContextMenu(event);
+          }
         }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes(storyDataMime)) {
@@ -1631,17 +1866,28 @@ export function StoryGraph() {
           onlyRenderVisibleElements
           deleteKeyCode={null}
           multiSelectionKeyCode={['Shift', 'Control']}
-          selectionKeyCode={controlMode === 'blueprint' ? null : 'Shift'}
-          selectionOnDrag={controlMode === 'blueprint'}
-          selectionMode={SelectionMode.Partial}
-          panOnDrag={controlMode === 'blueprint' ? [2] : [0, 1]}
-          panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
+          selectionKeyCode={null}
+          selectionOnDrag={false}
+          panOnDrag={false}
+          panActivationKeyCode={null}
+          autoPanOnNodeDrag={false}
         >
-          <FlowInteractionRecovery />
+          <FlowInteractionRecovery nodeDragActiveRef={nodeDragActiveRef} />
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
           <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" pannable />
           <Controls />
         </ReactFlow>
+        {marqueeRect && (
+          <div
+            className={styles.marquee}
+            style={{
+              left: marqueeRect.left,
+              top: marqueeRect.top,
+              width: marqueeRect.width,
+              height: marqueeRect.height,
+            }}
+          />
+        )}
         {showSearch && (
           <aside className={styles.searchPanel}>
             <div className={styles.searchBar}>

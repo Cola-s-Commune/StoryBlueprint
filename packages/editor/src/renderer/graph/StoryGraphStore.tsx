@@ -14,6 +14,7 @@ import {
   applyNodeChanges,
   useEdgesState,
   useNodesState,
+  type NodeChange,
   type OnEdgesChange,
   type OnNodesChange,
   type XYPosition,
@@ -644,8 +645,74 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }),
     [],
   );
-  const [nodes, setNodes, onNodesChange] = useNodesState<EditorGraphNode>(initialGraph.nodes);
+  const [nodes, setNodes, applyNodesChange] = useNodesState<EditorGraphNode>(initialGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>(initialGraph.edges);
+  const nodeDragTransactionRef = useRef<{
+    changes: Map<string, NodeChange<EditorGraphNode>>;
+    frame: number | null;
+  }>({ changes: new Map(), frame: null });
+  const flushNodeDragTransaction = useCallback(
+    (additionalChanges: NodeChange<EditorGraphNode>[] = []) => {
+      const transaction = nodeDragTransactionRef.current;
+      if (transaction.frame !== null) {
+        cancelAnimationFrame(transaction.frame);
+        transaction.frame = null;
+      }
+      const pendingChanges = [...transaction.changes.values()];
+      transaction.changes.clear();
+      const changes = [...pendingChanges, ...additionalChanges];
+      if (changes.length === 0) return;
+      setNodes((current) => applyNodeChanges(changes, current));
+    },
+    [setNodes],
+  );
+  const onNodesChange = useCallback<OnNodesChange<EditorGraphNode>>(
+    (changes) => {
+      const draggingChanges = changes.filter(
+        (change): change is Extract<NodeChange<EditorGraphNode>, { type: 'position' }> =>
+          change.type === 'position' && change.dragging === true,
+      );
+      const endingChanges = changes.filter(
+        (change): change is Extract<NodeChange<EditorGraphNode>, { type: 'position' }> =>
+          change.type === 'position' && change.dragging === false,
+      );
+      const immediateChanges = changes.filter(
+        (change) => change.type !== 'position',
+      );
+
+      if (draggingChanges.length > 0) {
+        const transaction = nodeDragTransactionRef.current;
+        for (const change of draggingChanges) transaction.changes.set(change.id, change);
+        if (transaction.frame === null) {
+          transaction.frame = requestAnimationFrame(() => {
+            transaction.frame = null;
+            const pendingChanges = [...transaction.changes.values()];
+            transaction.changes.clear();
+            if (pendingChanges.length > 0) {
+              setNodes((current) => applyNodeChanges(pendingChanges, current));
+            }
+          });
+        }
+      }
+
+      if (endingChanges.length > 0) {
+        flushNodeDragTransaction(endingChanges);
+      }
+      if (immediateChanges.length > 0) {
+        applyNodesChange(immediateChanges);
+      }
+    },
+    [applyNodesChange, flushNodeDragTransaction, setNodes],
+  );
+  useEffect(
+    () => () => {
+      const transaction = nodeDragTransactionRef.current;
+      if (transaction.frame !== null) cancelAnimationFrame(transaction.frame);
+      transaction.frame = null;
+      transaction.changes.clear();
+    },
+    [],
+  );
   const graph = useMemo<EditorGraphState>(() => ({ nodes, edges }), [edges, nodes]);
   const history = useGraphHistory<EditorHistoryState>();
   const [variables, setVariables] = useState<VariableDefinition[]>([]);
