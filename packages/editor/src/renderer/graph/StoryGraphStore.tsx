@@ -615,14 +615,14 @@ function linkedInkPaths(source: StorySourceDocument): string[] {
 }
 
 async function loadLinkedInkSources(
-  sources: readonly StorySourceDocument[],
+  paths: Iterable<string>,
 ): Promise<Record<string, string>> {
   const api = window.electronAPI;
   if (!api) return {};
-  const paths = new Set(sources.flatMap(linkedInkPaths));
+  const uniquePaths = new Set(paths);
   const loaded: Record<string, string> = {};
   await Promise.all(
-    [...paths].map(async (path) => {
+    [...uniquePaths].map(async (path) => {
       try {
         const result = await api.readWorkspaceInkFile(path);
         if (!result.canceled) loaded[path] = result.content;
@@ -826,15 +826,24 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
   const [inkSources, setInkSources] = useState<Readonly<Record<string, string>>>({});
+  const linkedInkPathKey = useMemo(
+    () => linkedInkPaths(source).sort().join('\0'),
+    [source],
+  );
   useEffect(() => {
+    const paths = linkedInkPathKey ? linkedInkPathKey.split('\0') : [];
+    if (paths.length === 0) {
+      setInkSources((current) => (Object.keys(current).length === 0 ? current : {}));
+      return;
+    }
     let canceled = false;
-    void loadLinkedInkSources([source]).then((loaded) => {
+    void loadLinkedInkSources(paths).then((loaded) => {
       if (!canceled) setInkSources(loaded);
     });
     return () => {
       canceled = true;
     };
-  }, [source]);
+  }, [linkedInkPathKey]);
   const resolvedCharacters = useMemo(() => {
     const external = workspace?.characterResources.map((resource) => resource.character) ?? [];
     const externalIds = new Set(external.map((character) => character.id));
@@ -5605,7 +5614,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       });
       const result = compileProject(nextWorkspace.project, projectSources, {
         localization: nextWorkspace.localization?.document,
-        inkSources: await loadLinkedInkSources(projectSources.map((item) => item.source)),
+        inkSources: await loadLinkedInkSources(
+          projectSources.flatMap((item) => linkedInkPaths(item.source)),
+        ),
       });
       setProblems(result.diagnostics);
       if (!result.ok) return;
