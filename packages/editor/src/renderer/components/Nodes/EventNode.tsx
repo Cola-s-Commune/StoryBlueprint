@@ -19,11 +19,14 @@ export function CallEventNode({ data }: NodeProps) {
       }
     >
       <div className={styles.header}>
-        <span className={styles.title}>Call Event</span>
+        <span className={styles.title}>Call External Function</span>
         <span className={styles.typeIcon}>⚡</span>
       </div>
       <div className={styles.terminalBody}>
-        <strong>{event?.displayName ?? (call.eventId ? 'Missing Event' : 'Select Event')}</strong>
+        <strong>
+          {event?.displayName ??
+            (call.eventId ? 'Missing External Function' : 'Select External Function')}
+        </strong>
         {(event?.parameters.length ?? 0) > 0 && (
           <div className={styles.interfaceRows}>
             {event!.parameters.map((parameter) => (

@@ -117,6 +117,9 @@ export interface EventSource {
   sideEffect: 'none' | 'read' | 'write';
 }
 
+/** Engine-facing function definition shared by native nodes and Ink EXTERNAL declarations. */
+export type ExternalFunctionSource = EventSource;
+
 /** A project-level notification that story execution can explicitly wait for. */
 export interface SignalSource {
   id: SignalId;

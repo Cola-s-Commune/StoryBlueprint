@@ -180,6 +180,10 @@ describe('project compilation', () => {
       expect.arrayContaining([
         expect.objectContaining({ code: 'DANGLING_EDGE', storyId: 's_projectstory' }),
         expect.objectContaining({ code: 'UNREACHABLE_NODE', sourceNodeId: 'n_projectdialogue' }),
+      ]),
+    );
+    expect(result.diagnostics).not.toEqual(
+      expect.arrayContaining([
         expect.objectContaining({ code: 'INVALID_NODE', sourceNodeId: 'n_projectdialogue' }),
       ]),
     );

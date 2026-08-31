@@ -588,6 +588,37 @@
   font-size: 10px;
 }
 
+.inkConversionActions {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding-top: 10px;
+  border-top: 1px solid #343a43;
+}
+
+.inkConversionActions button {
+  justify-self: start;
+  border: 1px solid #3e6d83;
+  border-radius: 3px;
+  background: #20333e;
+  color: #9ed4e9;
+  padding: 6px 9px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.inkConversionActions button:hover {
+  border-color: #5d9cba;
+  background: #284554;
+}
+
+.inkConversionActions span {
+  color: #778493;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .inkVariableBinding {
   margin-bottom: 9px;
   padding: 9px;

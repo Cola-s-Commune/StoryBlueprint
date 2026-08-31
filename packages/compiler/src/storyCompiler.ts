@@ -65,6 +65,27 @@ function programId(id: string): ProgramId {
   return `p_${suffix(id)}` as ProgramId;
 }
 
+interface InkExternalDeclaration {
+  inkName: string;
+  parameterNames: readonly string[];
+}
+
+/** Extracts declaration names only; Ink.js remains the authoritative parser/compiler. */
+function scanInkExternalDeclarations(source: string): InkExternalDeclaration[] {
+  const declarations: InkExternalDeclaration[] = [];
+  const pattern = /^\s*EXTERNAL\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*$/gim;
+  for (const match of source.matchAll(pattern)) {
+    const parameterNames = match[2]!
+      .split(',')
+      .map((parameter) => parameter.trim())
+      .filter(Boolean);
+    if (parameterNames.every((parameter) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(parameter))) {
+      declarations.push({ inkName: match[1]!, parameterNames });
+    }
+  }
+  return declarations;
+}
+
 function compileOpaqueJson(
   source: string,
   valueType: Extract<ValueType, { kind: 'json' | 'array' | 'map' }>,
@@ -101,11 +122,17 @@ function valueTypesMatch(actual: ValueType, expected: ValueType): boolean {
   if (actual.kind !== expected.kind) return false;
   if (actual.kind === 'json' && expected.kind === 'json') return actual.name === expected.name;
   if (actual.kind === 'array' && expected.kind === 'array')
-    return !expected.elementType || !actual.elementType || valueTypesMatch(actual.elementType, expected.elementType);
+    return (
+      !expected.elementType ||
+      !actual.elementType ||
+      valueTypesMatch(actual.elementType, expected.elementType)
+    );
   if (actual.kind === 'map' && expected.kind === 'map')
     return (
       (!expected.keyType || !actual.keyType || actual.keyType === expected.keyType) &&
-      (!expected.valueType || !actual.valueType || valueTypesMatch(actual.valueType, expected.valueType))
+      (!expected.valueType ||
+        !actual.valueType ||
+        valueTypesMatch(actual.valueType, expected.valueType))
     );
   return true;
 }
@@ -116,11 +143,7 @@ function compileAuthoredValue(
   variables: readonly VariableDefinition[],
   characters: StorySourceDocument['characters'],
 ): TypedExpression {
-  if (
-    expectedType.kind !== 'json' &&
-    expectedType.kind !== 'array' &&
-    expectedType.kind !== 'map'
-  )
+  if (expectedType.kind !== 'json' && expectedType.kind !== 'array' && expectedType.kind !== 'map')
     return compileExpression(expression, variables, characters);
   try {
     return compileOpaqueJson(expression.source, expectedType);
@@ -316,6 +339,35 @@ export class DefaultStoryCompiler implements StoryCompiler {
         const key = `${edge.from.nodeId}\0${edge.from.portId}`;
         if (!outgoingByPort.has(key)) outgoingByPort.set(key, edge);
       }
+      // Only nodes reachable from the graph entry are executable. Orphaned nodes are
+      // valid authoring work-in-progress and must not produce execution diagnostics.
+      const reachableNodeIds = new Set<NodeId>();
+      const pendingReachability: NodeId[] = [];
+      const entry = graph.nodes.find((candidate) => candidate.type === StoryNodeType.Start);
+      if (entry) pendingReachability.push(entry.id);
+      const isExecutionOutput = (node: SourceNode, portId: string): boolean => {
+        if (portId === 'out' || portId === 'true' || portId === 'false') return true;
+        if (node.type === StoryNodeType.Choice) {
+          const options = (node.data as unknown as ChoiceNodeData).options ?? [];
+          return options.some((option) => option.id === portId);
+        }
+        return false;
+      };
+      while (pendingReachability.length > 0) {
+        const nodeId = pendingReachability.shift()!;
+        if (reachableNodeIds.has(nodeId)) continue;
+        const node = nodesById.get(nodeId);
+        if (!node) continue;
+        reachableNodeIds.add(nodeId);
+        if (node.type === StoryNodeType.FlowJump) {
+          const target = (node.data as unknown as FlowJumpNodeData).targetNodeId;
+          if (target) pendingReachability.push(target);
+        }
+        for (const edge of graph.edges) {
+          if (edge.from.nodeId !== nodeId || !isExecutionOutput(node, edge.from.portId)) continue;
+          pendingReachability.push(edge.to.nodeId);
+        }
+      }
       const resolveTarget = (
         nodeId: NodeId,
         portId: string,
@@ -439,6 +491,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
       };
 
       for (const node of graph.nodes) {
+        if (!reachableNodeIds.has(node.id)) continue;
         if (
           node.type === StoryNodeType.GetVariable ||
           node.type === StoryNodeType.Reroute ||
@@ -683,11 +736,89 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 }
               }
               if (invalidBinding) break;
+              const externalDeclarations = scanInkExternalDeclarations(inkSource);
+              const externalFunctionBindings = data.externalFunctionBindings ?? [];
+              const seenExternalNames = new Set<string>();
+              let invalidExternalBinding = false;
+              for (const binding of externalFunctionBindings) {
+                const declaration = externalDeclarations.find(
+                  (candidate) => candidate.inkName === binding.inkName,
+                );
+                if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding.inkName)) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink external function name is invalid: ${binding.inkName}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (seenExternalNames.has(binding.inkName)) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink external function is mapped more than once: ${binding.inkName}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (!declaration) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink Block has no EXTERNAL declaration named ${binding.inkName}`,
+                    sourceNodeId: node.id,
+                  });
+                }
+                const event = source.events.find(
+                  (candidate) => candidate.id === binding.functionId,
+                );
+                if (!event) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink external function ${binding.inkName} references missing External Function ${binding.functionId}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if (
+                  declaration &&
+                  event.parameters.length !== declaration.parameterNames.length
+                ) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink external function ${binding.inkName} expects ${declaration.parameterNames.length} parameter(s), but ${event.displayName} defines ${event.parameters.length}`,
+                    sourceNodeId: node.id,
+                  });
+                } else if ((event.outputs ?? []).length > 1) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink external function ${binding.inkName} maps to ${event.displayName}, which declares multiple outputs; Ink EXTERNAL calls support one return value`,
+                    sourceNodeId: node.id,
+                  });
+                }
+                seenExternalNames.add(binding.inkName);
+              }
+              for (const declaration of externalDeclarations) {
+                if (!seenExternalNames.has(declaration.inkName)) {
+                  invalidExternalBinding = true;
+                  diagnostics.push({
+                    code: 'INVALID_NODE',
+                    severity: 'error',
+                    message: `Ink external function ${declaration.inkName} is not mapped to an External Function`,
+                    sourceNodeId: node.id,
+                  });
+                }
+              }
+              if (invalidExternalBinding) break;
               for (const warning of compiler.warnings) {
                 diagnostics.push({
-                  code: 'INVALID_NODE',
+                  code: 'INK_WARNING',
                   severity: 'warning',
-                  message: `Ink Block: ${warning}`,
+                  message: `Ink Block warning: ${warning.replace(/^WARNING:\s*/i, '')}`,
                   sourceNodeId: node.id,
                 });
               }
@@ -697,6 +828,13 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 inkJson: compiledInk.ToJson() as string,
                 entryKnot,
                 variableBindings,
+                externalFunctionBindings: externalFunctionBindings.map((binding) => ({
+                  inkName: binding.inkName,
+                  functionId: binding.functionId,
+                  parameterNames: externalDeclarations.find(
+                    (candidate) => candidate.inkName === binding.inkName,
+                  )!.parameterNames,
+                })),
               });
               const target = resolveTarget(node.id, 'out');
               if (target) instructions.push(jump(node, target));
@@ -743,37 +881,41 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   sourceNodeId: node.id,
                 });
               }
-              const value = connectedValue.value ?? (!connectedValue.connected ? compileSafe(node, () =>
-                containerOperation === 'set-field' && data.fieldValueType
-                  ? compileAuthoredValue(
-                      data.value,
-                      data.fieldValueType,
-                      visibleVariables,
-                      source.characters,
+              const value =
+                connectedValue.value ??
+                (!connectedValue.connected
+                  ? compileSafe(node, () =>
+                      containerOperation === 'set-field' && data.fieldValueType
+                        ? compileAuthoredValue(
+                            data.value,
+                            data.fieldValueType,
+                            visibleVariables,
+                            source.characters,
+                          )
+                        : containerOperation === 'append' && variable.valueType.kind === 'array'
+                          ? compileAuthoredValue(
+                              data.value,
+                              variable.valueType.elementType ?? { kind: 'any' },
+                              visibleVariables,
+                              source.characters,
+                            )
+                          : containerOperation === 'set-entry' && variable.valueType.kind === 'map'
+                            ? compileAuthoredValue(
+                                data.value,
+                                variable.valueType.valueType ?? { kind: 'any' },
+                                visibleVariables,
+                                source.characters,
+                              )
+                            : containerOperation
+                              ? compileExpression(data.value, visibleVariables, source.characters)
+                              : compileAuthoredValue(
+                                  data.value,
+                                  variable.valueType,
+                                  visibleVariables,
+                                  source.characters,
+                                ),
                     )
-                  : containerOperation === 'append' && variable.valueType.kind === 'array'
-                    ? compileAuthoredValue(
-                        data.value,
-                        variable.valueType.elementType ?? { kind: 'any' },
-                        visibleVariables,
-                        source.characters,
-                      )
-                    : containerOperation === 'set-entry' && variable.valueType.kind === 'map'
-                      ? compileAuthoredValue(
-                          data.value,
-                          variable.valueType.valueType ?? { kind: 'any' },
-                          visibleVariables,
-                          source.characters,
-                        )
-                  : containerOperation
-                  ? compileExpression(data.value, visibleVariables, source.characters)
-                  : compileAuthoredValue(
-                      data.value,
-                      variable.valueType,
-                      visibleVariables,
-                      source.characters,
-                    ),
-              ) : undefined);
+                  : undefined);
               const key =
                 connectedKey.value ??
                 (containerOperation === 'set-entry' && data.key && !connectedKey.connected
@@ -805,10 +947,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                       : containerOperation === 'set-entry' && variable.valueType.kind === 'map'
                         ? variable.valueType.valueType
                         : variable.valueType;
-                if (
-                  expectedValueType &&
-                  !valueTypesMatch(value.valueType, expectedValueType)
-                ) {
+                if (expectedValueType && !valueTypesMatch(value.valueType, expectedValueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',
                     severity: 'error',
@@ -819,7 +958,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
                           ? `Array item must be ${expectedValueType.kind}`
                           : containerOperation === 'set-entry'
                             ? `Map value must be ${expectedValueType.kind}`
-                        : `Set Variable ${variable.name} must be ${variable.valueType.kind}`,
+                            : `Set Variable ${variable.name} must be ${variable.valueType.kind}`,
                     sourceNodeId: node.id,
                   });
                 } else {
@@ -871,16 +1010,18 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   });
                   continue;
                 }
-                const compiled = connectedArgument.value ?? (!connectedArgument.connected && argument
-                  ? compileSafe(node, () =>
-                  compileAuthoredValue(
-                    argument!,
-                    parameter.valueType,
-                    visibleVariables,
-                    source.characters,
-                  ),
-                    )
-                  : undefined);
+                const compiled =
+                  connectedArgument.value ??
+                  (!connectedArgument.connected && argument
+                    ? compileSafe(node, () =>
+                        compileAuthoredValue(
+                          argument!,
+                          parameter.valueType,
+                          visibleVariables,
+                          source.characters,
+                        ),
+                      )
+                    : undefined);
                 if (compiled && !valueTypesMatch(compiled.valueType, parameter.valueType)) {
                   diagnostics.push({
                     code: 'EXPRESSION_ERROR',

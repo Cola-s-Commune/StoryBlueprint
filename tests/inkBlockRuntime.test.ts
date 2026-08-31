@@ -8,7 +8,7 @@ import {
   type StorySourceDocument,
 } from '../packages/common/src';
 import { compileStory } from '../packages/compiler/src';
-import { StoryRuntime } from '../packages/runtime/src';
+import { runStoryWithAdapter, StoryRuntime, type StoryAdapter } from '../packages/runtime/src';
 
 function inkBlockStory(): StorySourceDocument {
   return {
@@ -58,6 +58,93 @@ function inkBlockStory(): StorySourceDocument {
 }
 
 describe('Ink Block runtime', () => {
+  it('round-trips explicit Ink External Function bindings in Story KDL', () => {
+    const source = inkBlockStory();
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source: 'EXTERNAL has_item(item_id)\n=== start ===\nHello.',
+      externalFunctionBindings: [{ inkName: 'has_item', functionId: 'ev_hasitem' }],
+    };
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('external-function-binding has_item ev_hasitem');
+    expect(parseStorySource(serialized).root.nodes[1]?.data).toEqual(source.root.nodes[1]?.data);
+  });
+
+  it('maps Ink EXTERNAL declarations to stable External Function IDs and invokes the sync adapter', async () => {
+    const source = inkBlockStory();
+    source.events = [
+      {
+        id: 'ev_affinity',
+        name: 'addAffinity',
+        displayName: 'Add Affinity',
+        parameters: [{ name: 'amount', valueType: { kind: 'number' } }],
+        resumable: true,
+        sideEffect: 'write',
+      },
+    ];
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source:
+        'EXTERNAL add_affinity(amount)\n=== start ===\n~ temp result = add_affinity(2)\nAffinity is {result}.',
+      externalFunctionBindings: [{ inkName: 'add_affinity', functionId: 'ev_affinity' }],
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    const adapter: StoryAdapter = {
+      showDialogue: async () => undefined,
+      showChoice: async () => 'o_unused',
+      callEvent: async () => ({}),
+      callExternalFunctionSync: ({ functionId, arguments: args }) => {
+        expect(functionId).toBe('ev_affinity');
+        return (args.amount as number) + 5;
+      },
+      waitForSignal: async () => ({}),
+      resolveText: async () => undefined,
+      readExternalVariable: async (variable) => variable.defaultValue,
+      writeExternalVariable: async () => undefined,
+    };
+    const result = await runStoryWithAdapter(runtime, adapter, new AbortController().signal);
+    expect(result.kind).toBe('completed');
+  });
+
+  it('diagnoses missing or mismatched Ink EXTERNAL mappings', () => {
+    const source = inkBlockStory();
+    source.events = [
+      {
+        id: 'ev_affinity',
+        name: 'addAffinity',
+        displayName: 'Add Affinity',
+        parameters: [{ name: 'amount', valueType: { kind: 'number' } }],
+        resumable: true,
+        sideEffect: 'write',
+      },
+    ];
+    const ink = source.root.nodes[1]!;
+    ink.data = {
+      sourceMode: 'embedded',
+      source: 'EXTERNAL add_affinity(amount, bonus)\n=== start ===\nHello.',
+      externalFunctionBindings: [{ inkName: 'add_affinity', functionId: 'ev_affinity' }],
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(false);
+    if (compiled.ok) return;
+    expect(compiled.diagnostics.some((item) => item.message.includes('expects 2 parameter'))).toBe(
+      true,
+    );
+    ink.data = {
+      sourceMode: 'embedded',
+      source: 'EXTERNAL missing_function()\n=== start ===\nHello.',
+      externalFunctionBindings: [],
+    };
+    const missing = compileStory(source);
+    expect(missing.ok).toBe(false);
+    expect(
+      missing.diagnostics.some((item) => item.message.includes('missing_function is not mapped')),
+    ).toBe(true);
+  });
+
   it('stores linked Ink by project-relative path and resolves it at compile time', () => {
     const source = inkBlockStory();
     source.root.nodes[1]!.data = {
@@ -312,6 +399,25 @@ describe('Ink Block runtime', () => {
     const compiled = compileStory(source);
     expect(compiled.ok).toBe(false);
     expect(compiled.diagnostics.some((item) => item.message.startsWith('Ink Block:'))).toBe(true);
+  });
+
+  it('keeps Ink compiler warnings non-blocking and clearly classified', () => {
+    const source = inkBlockStory();
+    source.root.nodes[1]!.data = {
+      sourceMode: 'embedded',
+      source: '=== start ===\nA loose end.',
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(true);
+    expect(compiled.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'INK_WARNING',
+          severity: 'warning',
+          message: expect.stringContaining('Apparent loose end exists'),
+        }),
+      ]),
+    );
   });
 
   it('treats an unconnected Dialogue output as the natural end of a Story', () => {

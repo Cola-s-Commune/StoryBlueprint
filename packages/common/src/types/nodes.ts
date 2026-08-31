@@ -90,9 +90,17 @@ export interface InkVariableBinding {
   direction: InkVariableDirection;
 }
 
+export interface InkExternalFunctionBinding {
+  /** Name used by the Ink script's EXTERNAL declaration/call. */
+  inkName: string;
+  /** Stable project function ID; never infer this from display/name text. */
+  functionId: import('./ids').ExternalFunctionId;
+}
+
 interface InkBlockNodeDataBase {
   entryKnot?: string;
   variableBindings?: readonly InkVariableBinding[];
+  externalFunctionBindings?: readonly InkExternalFunctionBinding[];
 }
 
 export type InkBlockNodeData =

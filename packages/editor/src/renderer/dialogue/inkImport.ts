@@ -10,8 +10,11 @@ import {
   type CharacterSource,
   type ChapterId,
   type DialogueLine,
+  type EventSource,
+  type InkExternalFunctionBinding,
   type NodeId,
   type RuntimeValue,
+  type SourceGraph,
   type StoryNodeDataMap,
   type ValueType,
   type VariableDefinition,
@@ -35,6 +38,7 @@ export interface InkImportSummary {
   variableNodes: number;
   variablesAdded: number;
   portalNodes: number;
+  externalFunctionNodes?: number;
 }
 
 export type InkImportResult =
@@ -84,8 +88,21 @@ interface AssignmentStatement {
   value: string;
 }
 
+interface ExternalCallStatement {
+  kind: 'external-call';
+  line: number;
+  inkName: string;
+  arguments: string[];
+  resultVariableName?: string;
+}
+
 type InkStatement =
-  DialogueStatement | ChoiceStatement | DivertStatement | BranchStatement | AssignmentStatement;
+  | DialogueStatement
+  | ChoiceStatement
+  | DivertStatement
+  | BranchStatement
+  | AssignmentStatement
+  | ExternalCallStatement;
 
 interface InkSection {
   label?: string;
@@ -109,6 +126,9 @@ const knotPattern = /^\s*===\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*===\s*$/;
 const divertPattern = /^\s*->\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*$/;
 const variablePattern = /^\s*VAR\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/i;
 const assignmentPattern = /^\s*~\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/;
+const externalDeclarationPattern = /^\s*EXTERNAL\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*$/i;
+const externalCallPattern =
+  /^\s*~\s*(?:(temp)\s+)?(?:(?:([A-Za-z_][A-Za-z0-9_]*)\s*=)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$/i;
 
 function diagnostic(
   diagnostics: InkImportDiagnostic[],
@@ -198,6 +218,51 @@ function choiceContent(source: string): {
   return { text, target: inlineTarget?.[2], visibleIf };
 }
 
+/**
+ * Blueprint Dialogue Lines require an explicit speaker prefix, while ordinary Ink output uses
+ * bare text for narration. Keep named Ink lines intact and make only bare lines explicit
+ * Narrator Lines for the importer.
+ */
+function asDialogueInkSource(sourceLines: readonly string[]): string {
+  return sourceLines
+    .map((line) => (/^\s*[^:#][^:]*:\s/.test(line) ? line : `Narrator: ${line.trimStart()}`))
+    .join('\n');
+}
+
+function splitExternalCallArguments(source: string): string[] | undefined {
+  if (!source.trim()) return [];
+  const values: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote = '';
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '(' || character === '[' || character === '{') depth += 1;
+    else if (character === ')' || character === ']' || character === '}') {
+      if (depth === 0) return undefined;
+      depth -= 1;
+    } else if (character === ',' && depth === 0) {
+      const value = source.slice(start, index).trim();
+      if (!value) return undefined;
+      values.push(normalizeInkExpression(value));
+      start = index + 1;
+    }
+  }
+  const value = source.slice(start).trim();
+  if (quote || depth !== 0 || !value) return undefined;
+  values.push(normalizeInkExpression(value));
+  return values;
+}
+
 function parseSimpleBranch(
   sourceLines: readonly string[],
   startIndex: number,
@@ -259,6 +324,12 @@ function parseInkProfile(
   const sections: InkSection[] = [{ line: 1, statements: [] }];
   const variables: VariableDefinition[] = [];
   const variableNames = new Map(existingVariables.map((variable) => [variable.name, variable]));
+  const externalNames = new Set(
+    sourceLines.flatMap((line) => {
+      const declaration = externalDeclarationPattern.exec(line);
+      return declaration ? [declaration[1]!] : [];
+    }),
+  );
   const labels = new Map<string, number>();
   let section = sections[0]!;
 
@@ -308,6 +379,41 @@ function parseInkProfile(
       };
       variables.push(definition);
       variableNames.set(definition.name, definition);
+      continue;
+    }
+
+    const externalCall = externalCallPattern.exec(sourceLine);
+    if (externalCall) {
+      const inkName = externalCall[3]!;
+      // Recognise call-shaped assignments before ordinary `~ name = expression` parsing. This
+      // keeps a missing EXTERNAL declaration from becoming the misleading "Unknown variable"
+      // expression error and makes the conversion boundary explicit to the author.
+      if (!externalNames.has(inkName)) {
+        diagnostic(
+          diagnostics,
+          index + 1,
+          `External Function ${inkName} is called but has no EXTERNAL declaration.`,
+        );
+      } else {
+        const args = splitExternalCallArguments(externalCall[4]!);
+        if (!args) {
+          diagnostic(diagnostics, index + 1, 'External Function arguments are malformed.');
+        } else if (externalCall[1]) {
+          diagnostic(
+            diagnostics,
+            index + 1,
+            'External Function return values cannot be assigned to an Ink temporary. Use a Story or Ink VAR variable.',
+          );
+        } else {
+          section.statements.push({
+            kind: 'external-call',
+            line: index + 1,
+            inkName,
+            arguments: args,
+            resultVariableName: externalCall[2],
+          });
+        }
+      }
       continue;
     }
 
@@ -365,7 +471,13 @@ function parseInkProfile(
       continue;
     }
 
-    if (/^\s*(?:INCLUDE|EXTERNAL|LIST|CONST|TUNNEL|FUNCTION)\b/i.test(sourceLine)) {
+    if (externalDeclarationPattern.test(sourceLine)) {
+      // A declaration alone has no control-flow equivalent. Ignore it here so it cannot create
+      // a false conversion error for otherwise node-compatible Ink. Actual calls still require
+      // an explicit native Call External Function conversion and are not inferred as expressions.
+      continue;
+    }
+    if (/^\s*(?:INCLUDE|LIST|CONST|TUNNEL|FUNCTION)\b/i.test(sourceLine)) {
       diagnostic(diagnostics, index + 1, `Unsupported Ink declaration: ${trimmed}`);
       continue;
     }
@@ -385,6 +497,7 @@ function parseInkProfile(
         knotPattern.test(candidate) ||
         variablePattern.test(candidate) ||
         assignmentPattern.test(candidate) ||
+        externalDeclarationPattern.test(candidate) ||
         divertPattern.test(candidate) ||
         /^\s*[*+]\s+/.test(candidate) ||
         candidateTrimmed === '{' ||
@@ -397,7 +510,7 @@ function parseInkProfile(
     }
     index -= 1;
     const parsedDialogue = parseDialogueInk(
-      dialogueLines.join('\n'),
+      asDialogueInkSource(dialogueLines),
       { lines: [] },
       characters,
       assets,
@@ -416,7 +529,9 @@ function parseInkProfile(
 
   const targetLabels = sections.flatMap((candidate) =>
     candidate.statements.flatMap((statement) => {
-      if (statement.kind === 'divert') return [statement.target];
+      if (statement.kind === 'divert' && statement.target.toUpperCase() !== 'DONE') {
+        return [statement.target];
+      }
       if (statement.kind === 'choice') return statement.options.map((option) => option.target);
       if (statement.kind === 'branch') return [statement.whenTrue, statement.whenFalse];
       return [];
@@ -450,6 +565,17 @@ function parseInkProfile(
           `Assignment references unknown variable “${statement.variableName}”.`,
         );
       }
+      if (
+        statement.kind === 'external-call' &&
+        statement.resultVariableName &&
+        !variableNames.has(statement.resultVariableName)
+      ) {
+        diagnostic(
+          diagnostics,
+          statement.line,
+          `External Function return is assigned to unknown Story or Ink VAR variable “${statement.resultVariableName}”.`,
+        );
+      }
     });
   }
   if (sections.every((candidate) => candidate.statements.length === 0)) {
@@ -470,6 +596,8 @@ export function buildInkImportTransaction(
     characters: readonly CharacterSource[];
     assets: readonly AssetSource[];
     variables: readonly VariableDefinition[];
+    events?: readonly EventSource[];
+    externalFunctionBindings?: readonly InkExternalFunctionBinding[];
   },
 ): InkImportResult {
   const parsed = parseInkProfile(source, options.characters, options.assets, options.variables);
@@ -495,6 +623,7 @@ export function buildInkImportTransaction(
     variableNodes: 0,
     variablesAdded: parsed.variables.length,
     portalNodes: 0,
+    externalFunctionNodes: 0,
   };
   let operationIndex = 0;
   const addOperation = (operation: BlueprintCommandInput) => {
@@ -552,7 +681,95 @@ export function buildInkImportTransaction(
         summary.variableNodes += 1;
         continue;
       }
+      if (statement.kind === 'external-call') {
+        const binding = options.externalFunctionBindings?.find(
+          (candidate) => candidate.inkName === statement.inkName,
+        );
+        const event = binding
+          ? options.events?.find((candidate) => candidate.id === binding.functionId)
+          : undefined;
+        if (!binding || !event) {
+          parsed.diagnostics.push({
+            severity: 'error',
+            line: statement.line,
+            column: 1,
+            message: `External Function ${statement.inkName} is not mapped to a project External Function.`,
+          });
+          continue;
+        }
+        if (statement.arguments.length !== event.parameters.length) {
+          parsed.diagnostics.push({
+            severity: 'error',
+            line: statement.line,
+            column: 1,
+            message: `External Function ${statement.inkName} expects ${event.parameters.length} argument(s), got ${statement.arguments.length}.`,
+          });
+          continue;
+        }
+        const argumentsMap: Record<string, { source: string; bindings: Record<string, string> }> =
+          {};
+        event.parameters.forEach((parameter, index) => {
+          const argument = statement.arguments[index]!;
+          argumentsMap[parameter.name] = {
+            source: argument,
+            bindings: Object.fromEntries(
+              [...variableByName.entries()].map(([name, variable]) => [name, variable.id]),
+            ),
+          };
+        });
+        const resultVariableIds: Record<string, string> = {};
+        if (statement.resultVariableName) {
+          if ((event.outputs ?? []).length !== 1) {
+            parsed.diagnostics.push({
+              severity: 'error',
+              line: statement.line,
+              column: 1,
+              message: `External Function ${statement.inkName} must declare exactly one return value when assigned.`,
+            });
+            continue;
+          }
+          const resultVariable = variableByName.get(statement.resultVariableName);
+          if (!resultVariable) {
+            parsed.diagnostics.push({
+              severity: 'error',
+              line: statement.line,
+              column: 1,
+              message: `External Function return is assigned to unknown Story or Ink VAR variable “${statement.resultVariableName}”.`,
+            });
+            continue;
+          }
+          const output = event.outputs![0]!;
+          if (JSON.stringify(output.valueType) !== JSON.stringify(resultVariable.valueType)) {
+            parsed.diagnostics.push({
+              severity: 'error',
+              line: statement.line,
+              column: 1,
+              message: `External Function return ${output.name} does not match variable ${resultVariable.name}.`,
+            });
+            continue;
+          }
+          resultVariableIds[output.id] = resultVariable.id;
+        }
+        const id = addNode(StoryNodeType.CallEvent, {
+          eventId: event.id,
+          arguments: argumentsMap,
+          resultVariableIds,
+        });
+        if (previous) connect(previous.nodeId, previous.portId, id);
+        previous = { nodeId: id, portId: 'out' };
+        summary.externalFunctionNodes = (summary.externalFunctionNodes ?? 0) + 1;
+        continue;
+      }
       if (statement.kind === 'divert') {
+        if (statement.target.toUpperCase() === 'DONE') {
+          const terminal = addNode(
+            options.chapterId ? StoryNodeType.Return : StoryNodeType.End,
+            options.chapterId ? { values: {} } : { title: section.label ?? 'Ink Import End' },
+          );
+          if (previous) connect(previous.nodeId, previous.portId, terminal);
+          previous = undefined;
+          continue;
+        }
         const id = addNode(StoryNodeType.FlowJump, {
           targetNodeId: anchors.get(statement.target),
         });
@@ -605,6 +822,13 @@ export function buildInkImportTransaction(
     }
   }
   addOperation({ kind: 'layout-selection', graph: target, nodeIds });
+  if (parsed.diagnostics.some((item) => item.severity === 'error')) {
+    return {
+      ok: false,
+      profileVersion: INK_NODE_PROFILE_VERSION,
+      diagnostics: parsed.diagnostics,
+    };
+  }
   return {
     ok: true,
     profileVersion: INK_NODE_PROFILE_VERSION,
@@ -616,5 +840,191 @@ export function buildInkImportTransaction(
     },
     diagnostics: parsed.diagnostics,
     summary,
+  };
+}
+
+/**
+ * Builds a replacement transaction for an existing Ink Block. The imported graph is staged in
+ * the same preview used by file import, while the old block and its terminal placeholders are
+ * removed only when the proposal is applied.
+ */
+export function buildInkBlockConversionTransaction(
+  source: string,
+  options: {
+    revision: string;
+    chapterId?: string;
+    characters: readonly CharacterSource[];
+    assets: readonly AssetSource[];
+    variables: readonly VariableDefinition[];
+    events?: readonly EventSource[];
+    externalFunctionBindings?: readonly InkExternalFunctionBinding[];
+    graph: SourceGraph;
+    inkNodeId: NodeId;
+  },
+): InkImportResult {
+  const imported = buildInkImportTransaction(source, options);
+  if (!imported.ok) return imported;
+
+  const target = graphTarget(options.chapterId);
+  const incoming = options.graph.edges.filter(
+    (edge) => edge.to.nodeId === options.inkNodeId && edge.to.portId === 'in',
+  );
+  const outgoing = options.graph.edges.filter(
+    (edge) => edge.from.nodeId === options.inkNodeId && edge.from.portId === 'out',
+  );
+  const importedOperations = [...imported.transaction.operations];
+  const addedNodes = importedOperations.filter(
+    (operation): operation is Extract<BlueprintCommand, { kind: 'add-node' }> =>
+      operation.kind === 'add-node',
+  );
+  // Flow Anchors are visual jump targets and do not accept execution input. Start at
+  // the first executable node in the imported source; a terminal is only a fallback
+  // for an empty knot.
+  const firstImportedNode =
+    addedNodes.find(
+      (operation) =>
+        operation.node.type !== StoryNodeType.FlowAnchor &&
+        operation.node.type !== StoryNodeType.End &&
+        operation.node.type !== StoryNodeType.Return &&
+        operation.node.type !== StoryNodeType.FlowJump,
+    )?.node.id ??
+    addedNodes.find(
+      (operation) =>
+        operation.node.type !== StoryNodeType.FlowAnchor &&
+        operation.node.type !== StoryNodeType.End &&
+        operation.node.type !== StoryNodeType.Return,
+    )?.node.id ??
+    addedNodes.find((operation) => operation.node.type === StoryNodeType.End)?.node.id ??
+    addedNodes.find((operation) => operation.node.type === StoryNodeType.Return)?.node.id;
+  if (!firstImportedNode) {
+    return {
+      ok: false,
+      profileVersion: INK_NODE_PROFILE_VERSION,
+      diagnostics: [
+        {
+          severity: 'error',
+          line: 1,
+          column: 1,
+          message: 'Ink source did not produce any nodes to replace the Ink Block.',
+        },
+      ],
+    };
+  }
+
+  const terminalNodes = addedNodes.filter(
+    (operation) =>
+      operation.node.type === StoryNodeType.End || operation.node.type === StoryNodeType.Return,
+  );
+  const terminalIds = new Set(terminalNodes.map((operation) => operation.node.id));
+  const terminalPredecessors = importedOperations
+    .filter(
+      (operation): operation is Extract<BlueprintCommand, { kind: 'connect' }> =>
+        operation.kind === 'connect' && terminalIds.has(operation.to.nodeId),
+    )
+    .map((operation) => operation.from);
+
+  let operationIndex = 0;
+  const operations: BlueprintCommand[] = [];
+  const addOperation = (operation: BlueprintCommandInput) => {
+    operations.push({
+      ...operation,
+      operationId: `ink_replace_${++operationIndex}`,
+    } as BlueprintCommand);
+  };
+
+  addOperation({ kind: 'remove-node', graph: target, nodeId: options.inkNodeId });
+  for (const operation of importedOperations) {
+    if (operation.kind === 'layout-selection') continue;
+    addOperation(operation);
+  }
+
+  for (const edge of incoming) {
+    addOperation({
+      kind: 'connect',
+      graph: target,
+      from: edge.from,
+      to: { nodeId: firstImportedNode, portId: 'in' },
+      replaceExisting: true,
+    });
+  }
+
+  if (outgoing.length > 0) {
+    for (const terminal of terminalNodes) {
+      addOperation({ kind: 'remove-node', graph: target, nodeId: terminal.node.id });
+    }
+    if (terminalPredecessors.length <= 1) {
+      for (const predecessor of terminalPredecessors) {
+        for (const edge of outgoing) {
+          addOperation({
+            kind: 'connect',
+            graph: target,
+            from: predecessor,
+            to: edge.to,
+            replaceExisting: true,
+          });
+        }
+      }
+    } else {
+      // Multiple converted paths cannot all enter a normal execution input. Preserve the
+      // original continuation through a portal, which is erased again by compilation.
+      const continuationAnchorId = createStableId('node');
+      addOperation({
+        kind: 'add-node',
+        graph: target,
+        node: {
+          id: continuationAnchorId,
+          type: StoryNodeType.FlowAnchor,
+          name: 'Continue after Ink Block',
+          data: { label: 'Continue after Ink Block' },
+        },
+      });
+      for (const edge of outgoing) {
+        addOperation({
+          kind: 'connect',
+          graph: target,
+          from: { nodeId: continuationAnchorId, portId: 'out' },
+          to: edge.to,
+          replaceExisting: true,
+        });
+      }
+      for (const predecessor of terminalPredecessors) {
+        const jumpId = createStableId('node');
+        addOperation({
+          kind: 'add-node',
+          graph: target,
+          node: {
+            id: jumpId,
+            type: StoryNodeType.FlowJump,
+            name: 'Continue after Ink Block',
+            data: { targetNodeId: continuationAnchorId },
+          },
+        });
+        addOperation({
+          kind: 'connect',
+          graph: target,
+          from: predecessor,
+          to: { nodeId: jumpId, portId: 'in' },
+        });
+      }
+    }
+  }
+
+  const layout = importedOperations.find(
+    (operation): operation is Extract<BlueprintCommand, { kind: 'layout-selection' }> =>
+      operation.kind === 'layout-selection',
+  );
+  if (layout) {
+    addOperation({
+      ...layout,
+      nodeIds: layout.nodeIds.filter((nodeId) => !terminalIds.has(nodeId)),
+    });
+  }
+
+  return {
+    ...imported,
+    transaction: {
+      ...imported.transaction,
+      operations,
+    },
   };
 }

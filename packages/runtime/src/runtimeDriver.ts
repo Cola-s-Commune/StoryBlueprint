@@ -10,6 +10,11 @@ export class StoryRuntimeDriver {
   ) {}
 
   async run(signal: AbortSignal): Promise<RuntimeRunResult> {
+    this.runtime.setExternalFunctionResolver(
+      this.adapter.callExternalFunctionSync
+        ? (request) => this.adapter.callExternalFunctionSync!(request)
+        : undefined,
+    );
     if (!this.hydratedExternalVariables) {
       for (const variable of this.runtime.externalVariables) {
         let value;

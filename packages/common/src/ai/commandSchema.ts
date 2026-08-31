@@ -136,7 +136,9 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
                   displayName: { type: 'string', minLength: 1 },
                   scope: { enum: ['project', 'story', 'chapter', 'local'] },
                   valueType: { $ref: '#/$defs/variableValueType' },
-                  defaultValue: { type: ['null', 'boolean', 'number', 'string', 'object', 'array'] },
+                  defaultValue: {
+                    type: ['null', 'boolean', 'number', 'string', 'object', 'array'],
+                  },
                 },
               },
             },
@@ -575,8 +577,9 @@ export const BLUEPRINT_NODE_CATALOG = [
     type: StoryNodeType.InkBlock,
     data: {
       sourceMode: 'embedded',
-      source: 'VAR affinity = 0\nHello.',
+      source: 'EXTERNAL has_item(item_id)\nVAR affinity = 0\nHello.',
       variableBindings: [{ inkName: 'affinity', variableId: 'v_existing', direction: 'two-way' }],
+      externalFunctionBindings: [{ inkName: 'has_item', functionId: 'ev_existing' }],
     },
     inputPorts: ['in'],
     outputPorts: ['out'],

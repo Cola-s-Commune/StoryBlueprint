@@ -1614,11 +1614,15 @@ export function StoryGraph() {
           <aside className={styles.aiChangeBanner}>
             <div>
               <strong>
-                {aiProposal.origin === 'ink' ? 'Ink import preview' : 'AI proposal preview'}
+                {aiProposal.origin === 'ink-conversion'
+                  ? 'Ink Block conversion preview'
+                  : aiProposal.origin === 'ink-import'
+                    ? 'Ink import preview'
+                    : 'AI proposal preview'}
               </strong>
               <span>
-                {aiProposal.origin === 'ink' && inkImportReport?.summary
-                  ? `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
+                {aiProposal.origin.startsWith('ink') && inkImportReport?.summary
+                  ? `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
                   : 'Move the green nodes, then Apply or Discard. Story is unchanged.'}
               </span>
             </div>

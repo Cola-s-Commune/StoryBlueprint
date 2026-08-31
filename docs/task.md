@@ -317,7 +317,7 @@
 - [ ] Struct 递归复杂参数，编译产物使用 JSON 兼容值
 - [ ] 参数支持 Literal、Expression、Variable Binding 和结构化编辑
 - [ ] Raw JSON 仅作为复杂参数的逃生编辑方式
-- [ ] Ink External Function 映射为 Event Definition / Call Event
+- [x] Ink External Function 映射为 External Function Definition / Call External Function（稳定 ID、参数数量校验、显式绑定）
 
 ## Wait for Signal Node
 
@@ -405,10 +405,11 @@
 - [x] Linked Ink：引用项目内 `.ink` 文件，外部文件作为权威来源；支持 Inspector 切换、外部变更刷新、Preview 与 Build 解析
 - [x] 接入完整 Ink Runtime，不要求先转换成原生节点
 - [x] Ink Block 的入口、完成出口与 Story Typed Variable 显式桥接
-- [ ] Ink External Function 与 Event Adapter 桥接
+- [x] Ink External Function 与 External Function Adapter 桥接（同步回调；异步调用保留原生 Call External Function）
 - [x] Ink Runtime 暂停、选择、继续、错误和取消状态接入 Story Runtime
 - [x] Linked / Embedded 模式明确单一权威来源，不自动双向同步文本与节点
-- [ ] Convert to Nodes / Convert to Ink Block 使用显式操作和 Diff Preview
+- [x] Ink Block → Nodes 使用显式操作、Proposal Graph Diff Preview、Apply / Discard 与单步 Undo；保留原有入口/后继流程，分支结束自动通过 Flow Portal 汇合
+- [ ] Nodes → Ink Block 使用显式操作和 Diff Preview
 
 ---
 
@@ -873,7 +874,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 集成 Ink Runtime，执行完整 Ink 语言而非仅支持子集
 - [x] Linked `.ink` 与 Embedded Ink Source 加载、编译和诊断
 - [x] Ink Variable 与 Story Typed Variable 显式桥接（Story → Ink、Ink → Story、Two-way）
-- [ ] Ink External Function 与项目 Event Definition 映射
+- [x] Ink External Function 与项目 External Function Definition 映射
 - [x] Ink Choice / Continue 与 Story Runtime PendingInteraction 桥接
 - [x] Ink Block 运行状态参与 Save / Load、Abort 和结构化 Diagnostics
 
@@ -898,7 +899,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [ ] 完整 `.ink` → 原生节点的长期转换目标
 - [ ] 暂未覆盖的结构保留为可完整运行的 Ink Block，并提供 Diagnostics / Preview
 - [x] 原生 `.ink` 文件 → Nodes 显式转换入口、行列 Diagnostics 与可移动 Diff Preview
-- [ ] Linked / Embedded Ink Block → Nodes 显式转换
+- [x] Linked / Embedded Ink Block → Nodes 显式转换，支持受限 Profile、可移动 Diff Preview、Apply / Discard 与 Undo
 - [ ] 选中原生节点 → Ink Block 显式转换
 - [ ] 转换前显示语义 Diff，不承诺保留原始空白、排版和注释位置
 - [ ] 语义往返测试

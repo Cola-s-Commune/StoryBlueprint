@@ -179,7 +179,7 @@ const WORKSPACE_GIT_POLL_INTERVAL_MS = 1_500;
 const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 const canceledAIRequests = new Set<string>();
-const AI_INSTRUCTIONS_VERSION = 4;
+const AI_INSTRUCTIONS_VERSION = 5;
 const DEFAULT_PROJECT_AI_INSTRUCTIONS = `# Story Blueprint AI Instructions
 
 Story Blueprint is an authoring tool for executable, graph-based interactive narrative. A Story is not a prose synopsis: it is a directed control-flow graph that compiles to runtime logic.
@@ -187,8 +187,8 @@ Story Blueprint is an authoring tool for executable, graph-based interactive nar
 - Treat the semantic snapshot as the source of truth for graph structure and resources.
 - Discuss narrative intent naturally, but propose Blueprint Command transactions for edits; never claim edits are already applied.
 - Preserve stable IDs and connections unless the author explicitly asks to change them.
-- Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, external behavior as Events, and waits as Signals.
-- Values with valueType.kind json, array, or map are engine payloads. Named json assignments use their type name as the contract; Array and Map values match their container kind. Safe expressions may read a named Engine Object field as value.field, an Array item as value[index], or a Map entry as value[key]. Extracted scalars may be used in text, Branch logic, and Event arguments. Array variables may use Set Variable with containerOperation "append"; Map variables may use containerOperation "set-entry" with a String/Number key. A named Engine Object may use containerOperation "set-field" only for one declared top-level Schema field, with its stable fieldId, current fieldName, and exact fieldValueType. Never invent nested mutation paths, loops, filtering, sorting, arbitrary functions, or other container mutations. Use domain Events when narrative logic needs more complex processing.
+- Model dialogue as Dialogue Lines, decisions as Choice or Branch nodes, and engine-backed behavior as External Functions. Ink EXTERNAL declarations must map explicitly to an existing External Function by stable ID; never infer by display name.
+- Values with valueType.kind json, array, or map are engine payloads. Named json assignments use their type name as the contract; Array and Map values match their container kind. Safe expressions may read a named Engine Object field as value.field, an Array item as value[index], or a Map entry as value[key]. Extracted scalars may be used in text, Branch logic, and External Function arguments. Array variables may use Set Variable with containerOperation "append"; Map variables may use containerOperation "set-entry" with a String/Number key. A named Engine Object may use containerOperation "set-field" only for one declared top-level Schema field, with its stable fieldId, current fieldName, and exact fieldValueType. Never invent nested mutation paths, loops, filtering, sorting, arbitrary functions, or other container mutations. Use External Functions when narrative logic needs engine-backed processing.
 - A Get Variable node may carry an Array/Map accessor and may expose several Engine Object fields through exposedFields. Each exposed field keeps its stable Schema fieldId, current member name, display name, and output type. Preserve the whole-object output and all exposed field IDs when editing it.
 - Array variables may declare elementType; Map variables may declare keyType and valueType. Preserve these contracts. Array access and Add Item use the element type; Map access and Set Entry use the value type. Character and Asset Map keys are stable resource IDs, never display names.
 - Set Variable container nodes serialize valueInputType and, for Map entries, keyInputType for immediate connection validation. Inspector expressions remain disconnect fallbacks; preserve them when connecting a Pin.
@@ -196,7 +196,8 @@ Story Blueprint is an authoring tool for executable, graph-based interactive nar
 - When the semantic snapshot includes Engine Type Schemas, construct JSON values only from their declared fields, nested object references, arrays, and enum choices. Do not invent undeclared fields or incompatible values. Schemas assist authoring and describe the engine contract; they are not Story code.
 - $storyBlueprintType is reserved editor metadata that binds an Object nested in Any JSON to a stable Engine Type ID. Preserve an existing valid marker, never invent an ID, and do not treat it as game data. Compilation removes it before Runtime or Adapter delivery.
 - An Array may explicitly use any items; each item remains ordinary JSON and may independently be null, Boolean, Number, String, Array, or Object. Map keys may be String, Number, Enum, Character Reference, or Asset Reference. Reference keys serialize as stable IDs. Never use arbitrary Objects or any as Map keys.
-- Events may declare multiple stable-ID outputs. A Call Event stores selected outputs through resultVariableIds keyed by Event Output ID; the target variable must have the same type. The engine Adapter supplies every declared output before Story execution continues.
+- External Functions may declare multiple stable-ID outputs. A Call External Function stores selected outputs through resultVariableIds keyed by External Function Output ID; the target variable must have the same type. The engine Adapter supplies every declared output before Story execution continues.
+- External Functions are the shared engine contract for native calls and Ink EXTERNAL declarations. Ink mappings live on the Ink Block as externalFunctionBindings ({inkName, functionId}); declaration parameter counts must match. Ink calls require adapter.callExternalFunctionSync and cannot await asynchronous work. Use a native Call External Function node for async engine work.
 - A Dialogue Line with speakerId contains only that character's spoken words. Never include quotation marks, narration, actions, or scene description in a spoken line. Put narration/actions/environment in separate lines without speakerId; split mixed prose such as I entered. 「Hello.」 into two lines.
 - When direct speech has no source speaker, bind an existing Character only if its identity is unambiguous from surrounding text. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction that adds a minimal Character with a stable c_ ID, optionally tagged temporary, and then binds the line to it. If identity remains ambiguous, ask the author. Never silently classify unassigned direct speech as Narrator; omit speakerId only for genuine narration, action, inner thought, or scene description.
 - Ask when control flow, target graph, or variable semantics are ambiguous. Do not invent ports, positions, resources, or unsupported fields.
@@ -205,7 +206,7 @@ Story Blueprint is an authoring tool for executable, graph-based interactive nar
 
 ## Novel / Long-Form Adaptation
 
-When adapting a novel or other long-form prose into a Galgame, treat the source as the script, not as a synopsis. Preserve every scene beat, spoken line, narration, action, internal thought, pause, and important description by default. Keep the original order and pacing; do not compress content just to reduce node or operation count. Split into scene-sized Dialogue / Choice / Event / Signal structures, and do not invent choices or gameplay actions unless requested or present in the source. If the source does not fit one request or transaction, work in explicit sequential batches, identify the covered range and continuation point, and ask to continue. Never silently omit or summarize unprocessed text, and clearly label a proposal as complete or partial.
+When adapting a novel or other long-form prose into a Galgame, treat the source as the script, not as a synopsis. Preserve every scene beat, spoken line, narration, action, internal thought, pause, and important description by default. Keep the original order and pacing; do not compress content just to reduce node or operation count. Split into scene-sized Dialogue / Choice / External Function / Signal structures, and do not invent choices or gameplay actions unless requested or present in the source. If the source does not fit one request or transaction, work in explicit sequential batches, identify the covered range and continuation point, and ask to continue. Never silently omit or summarize unprocessed text, and clearly label a proposal as complete or partial.
 
 ## Response Format
 
@@ -830,7 +831,8 @@ async function readProjectAIInstructions(): Promise<string> {
 }
 
 async function readAIInstructionsStatus(): Promise<AIInstructionsStatus> {
-  if (!workspaceRoot) return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectInstructions: 'missing' };
+  if (!workspaceRoot)
+    return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectInstructions: 'missing' };
   const projectInstructionsPath = join(workspaceRoot, 'STORY_BLUEPRINT_AI.md');
   try {
     const metadata = await stat(projectInstructionsPath);
@@ -840,7 +842,11 @@ async function readAIInstructionsStatus(): Promise<AIInstructionsStatus> {
       projectInstructionsPath,
     };
   } catch {
-    return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectInstructions: 'missing', projectInstructionsPath };
+    return {
+      builtInVersion: AI_INSTRUCTIONS_VERSION,
+      projectInstructions: 'missing',
+      projectInstructionsPath,
+    };
   }
 }
 
@@ -3165,10 +3171,14 @@ function registerStoryFileHandlers(): void {
       : `${candidate.fileName}.storyproject`;
     workspaceProjectFile = join(workspaceRoot!, fileName);
     await writeFile(workspaceProjectFile, candidate.content, { encoding: 'utf8', flag: 'wx' });
-    await writeFile(join(workspaceRoot!, 'STORY_BLUEPRINT_AI.md'), DEFAULT_PROJECT_AI_INSTRUCTIONS, {
-      encoding: 'utf8',
-      flag: 'wx',
-    }).catch((error: NodeJS.ErrnoException) => {
+    await writeFile(
+      join(workspaceRoot!, 'STORY_BLUEPRINT_AI.md'),
+      DEFAULT_PROJECT_AI_INSTRUCTIONS,
+      {
+        encoding: 'utf8',
+        flag: 'wx',
+      },
+    ).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
     const initialStory = await createInitialStoryFile(workspaceRoot!);
@@ -4181,10 +4191,7 @@ async function createWindow(): Promise<void> {
   });
   mainWindow.webContents.on('console-message', (event) => {
     if (event.level === 'warning' || event.level === 'error') {
-      writeErrorLog(
-        'renderer-console',
-        `${event.sourceId}:${event.lineNumber}: ${event.message}`,
-      );
+      writeErrorLog('renderer-console', `${event.sourceId}:${event.lineNumber}: ${event.message}`);
     }
   });
 

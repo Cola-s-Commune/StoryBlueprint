@@ -5,6 +5,7 @@ import type {
   CharacterId,
   ChapterId,
   EventId,
+  ExternalFunctionId,
   SignalId,
   InstructionId,
   OptionId,
@@ -65,6 +66,11 @@ export interface InkBlockInstruction extends RuntimeInstructionBase {
     inkName: string;
     variableId: VariableId;
     direction: 'story-to-ink' | 'ink-to-story' | 'two-way';
+  }[];
+  externalFunctionBindings?: readonly {
+    inkName: string;
+    functionId: ExternalFunctionId;
+    parameterNames: readonly string[];
   }[];
 }
 

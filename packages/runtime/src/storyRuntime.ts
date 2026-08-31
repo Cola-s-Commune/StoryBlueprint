@@ -21,6 +21,7 @@ import type {
   ChoiceRequest,
   DialogueRequest,
   EventRequest,
+  ExternalFunctionRequest,
   SignalRequest,
   SignalPayload,
   RuntimeDiagnostic,
@@ -128,6 +129,7 @@ export class StoryRuntime {
   private readonly externalVariableDefinitions: ReadonlyMap<VariableId, VariableDefinition>;
   private readonly externalVariableIdSet: ReadonlySet<VariableId>;
   private locale?: string;
+  private externalFunctionResolver?: (request: ExternalFunctionRequest) => RuntimeValue;
 
   constructor(program: RuntimeProgram, restoredState?: RuntimeState, locale?: string) {
     if (program.format !== STORY_RUNTIME_FORMAT || program.version !== STORY_RUNTIME_VERSION) {
@@ -173,6 +175,13 @@ export class StoryRuntime {
 
   setLocale(locale: string): void {
     this.locale = locale;
+  }
+
+  /** Installs the synchronous bridge used by embedded Ink EXTERNAL calls. */
+  setExternalFunctionResolver(
+    resolver: ((request: ExternalFunctionRequest) => RuntimeValue) | undefined,
+  ): void {
+    this.externalFunctionResolver = resolver;
   }
 
   /** Supplies the engine-owned value before story execution begins. */
@@ -290,7 +299,7 @@ export class StoryRuntime {
         return this.advanceInk(instruction, story) ?? this.runUntilPause();
       } catch (cause) {
         return this.fail({
-          code: 'INVALID_ADAPTER_RESULT',
+          code: 'INK_EXTERNAL_FUNCTION_ERROR',
           severity: 'error',
           message: cause instanceof Error ? cause.message : String(cause),
           location: this.location(),
@@ -861,6 +870,22 @@ export class StoryRuntime {
   /** Rehydrates an Ink story only from serializable runtime state. */
   private inkStory(instruction: Extract<RuntimeInstruction, { op: 'ink-block' }>): InkStory {
     const story = new InkStory(instruction.inkJson);
+    for (const binding of instruction.externalFunctionBindings ?? []) {
+      story.BindExternalFunction(binding.inkName, (...args: RuntimeValue[]) => {
+        if (!this.externalFunctionResolver) {
+          throw new Error(
+            `Ink external function ${binding.inkName} has no synchronous runtime adapter`,
+          );
+        }
+        const request: ExternalFunctionRequest = {
+          functionId: binding.functionId,
+          arguments: Object.fromEntries(
+            binding.parameterNames.map((name, index) => [name, args[index] ?? null]),
+          ),
+        };
+        return this.externalFunctionResolver(request);
+      });
+    }
     if (this.currentState.ink?.instructionId === instruction.id) {
       story.state.LoadJson(this.currentState.ink.stateJson);
     } else {
@@ -938,7 +963,19 @@ export class StoryRuntime {
       });
     }
     while (story.canContinue) {
-      const text = story.Continue();
+      let text: string | null;
+      try {
+        text = story.Continue();
+      } catch (cause) {
+        return this.fail({
+          code: 'INK_EXTERNAL_FUNCTION_ERROR',
+          severity: 'error',
+          message: cause instanceof Error ? cause.message : String(cause),
+          location: this.location(),
+          instructionId: instruction.id,
+          cause,
+        });
+      }
       if (!text) continue;
       const normalizedText = text.replace(/[\r\n]+$/g, '');
       if (!normalizedText) continue;
@@ -981,9 +1018,22 @@ export class StoryRuntime {
         },
       });
     }
-    if (story.currentChoices.length > 0) {
+    let currentChoices: readonly { text: string }[];
+    try {
+      currentChoices = story.currentChoices;
+    } catch (cause) {
+      return this.fail({
+        code: 'INK_EXTERNAL_FUNCTION_ERROR',
+        severity: 'error',
+        message: cause instanceof Error ? cause.message : String(cause),
+        location: this.location(),
+        instructionId: instruction.id,
+        cause,
+      });
+    }
+    if (currentChoices.length > 0) {
       const requestId = this.saveInkState(instruction, story);
-      const options = story.currentChoices.map((choice, index) => ({
+      const options = currentChoices.map((choice, index) => ({
         id: `${requestId}:choice:${index}` as OptionId,
         text: choice.text,
         choiceIndex: index,

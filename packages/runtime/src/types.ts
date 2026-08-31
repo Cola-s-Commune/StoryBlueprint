@@ -4,6 +4,7 @@ import type {
   CharacterId,
   ChapterId,
   EventId,
+  ExternalFunctionId,
   SignalId,
   InstructionId,
   LocalizedVoiceRef,
@@ -106,7 +107,17 @@ export interface EventRequest {
   requestId: string;
   eventId: EventId;
   arguments: Readonly<Record<string, RuntimeValue>>;
-  outputs: readonly { id: string; name: string; valueType: import('@story-blueprint/common').ValueType }[];
+  outputs: readonly {
+    id: string;
+    name: string;
+    valueType: import('@story-blueprint/common').ValueType;
+  }[];
+}
+
+/** Synchronous bridge used only while Ink evaluates an EXTERNAL call. */
+export interface ExternalFunctionRequest {
+  functionId: ExternalFunctionId;
+  arguments: Readonly<Record<string, RuntimeValue>>;
 }
 
 export type EventResult = Readonly<Record<string, RuntimeValue>>;
@@ -123,6 +134,8 @@ export interface StoryAdapter {
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
   /** Calls an engine action and resolves with values keyed by stable Event Output ID. */
   callEvent(request: EventRequest, signal: AbortSignal): Promise<EventResult>;
+  /** Optional synchronous implementation for Ink EXTERNAL functions. */
+  callExternalFunctionSync?(request: ExternalFunctionRequest): RuntimeValue;
   /** Resolves when the engine observes the requested signal. */
   waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<SignalPayload>;
   resolveText(textId: TextId, locale: string): Promise<string | undefined>;
@@ -141,7 +154,8 @@ export type RuntimeDiagnosticCode =
   | 'TIGHT_LOOP'
   | 'ABORTED'
   | 'INK_METADATA_ERROR'
-  | 'INK_VARIABLE_ERROR';
+  | 'INK_VARIABLE_ERROR'
+  | 'INK_EXTERNAL_FUNCTION_ERROR';
 
 export interface RuntimeDiagnostic {
   code: RuntimeDiagnosticCode;

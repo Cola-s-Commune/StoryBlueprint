@@ -190,14 +190,7 @@ function MapKeyInput({
 }
 
 type AnyJsonKind =
-  | 'null'
-  | 'boolean'
-  | 'number'
-  | 'string'
-  | 'character-ref'
-  | 'asset-ref'
-  | 'array'
-  | 'object';
+  'null' | 'boolean' | 'number' | 'string' | 'character-ref' | 'asset-ref' | 'array' | 'object';
 
 function anyJsonKind(
   value: RuntimeValue,
@@ -322,7 +315,9 @@ function ConfirmDeleteButton({
                 >
                   {confirmText}
                 </button>
-                <button type="button" onClick={() => setOpen(false)}>Cancel</button>
+                <button type="button" onClick={() => setOpen(false)}>
+                  Cancel
+                </button>
               </div>
             </div>
           </div>,
@@ -364,9 +359,7 @@ function reorderMapEntries(
 function readMapDragKey(data: string, ownerId: string): string | undefined {
   try {
     const payload = JSON.parse(data) as { ownerId?: unknown; key?: unknown };
-    return payload.ownerId === ownerId && typeof payload.key === 'string'
-      ? payload.key
-      : undefined;
+    return payload.ownerId === ownerId && typeof payload.key === 'string' ? payload.key : undefined;
   } catch {
     return undefined;
   }
@@ -391,7 +384,8 @@ function collectionValueMatches(
           character.displayName.toLocaleLowerCase().includes(normalized) &&
           serialized.includes(character.id.toLocaleLowerCase()),
       )
-    ) return true;
+    )
+      return true;
     return assets.some(
       (asset) =>
         asset.displayName.toLocaleLowerCase().includes(normalized) &&
@@ -444,9 +438,7 @@ function CollectionWindowControls({
   );
 }
 
-function containsEngineObjectMarker(
-  value: RuntimeValue,
-): boolean {
+function containsEngineObjectMarker(value: RuntimeValue): boolean {
   if (Array.isArray(value)) return value.some(containsEngineObjectMarker);
   if (value !== null && typeof value === 'object') {
     if (ENGINE_OBJECT_TYPE_MARKER in value) return true;
@@ -463,7 +455,8 @@ function restoreEngineObjectMarkers(
 ): RuntimeValue {
   if (Array.isArray(edited)) {
     const originalItems = Array.isArray(original) ? original : [];
-    const elementType = type?.kind === 'array' ? type.elementType : type?.kind === 'any' ? type : undefined;
+    const elementType =
+      type?.kind === 'array' ? type.elementType : type?.kind === 'any' ? type : undefined;
     return edited.map((item, index) =>
       restoreEngineObjectMarkers(item, originalItems[index] ?? null, elementType, engineTypes),
     );
@@ -511,7 +504,8 @@ function validateMarkedEngineObjects(
   const typeId = engineObjectTypeId(value);
   if (typeId) {
     const definition = engineTypes.find((candidate) => candidate.id === typeId);
-    if (!definition) return `${path}.${ENGINE_OBJECT_TYPE_MARKER} references missing Engine Type ${typeId}.`;
+    if (!definition)
+      return `${path}.${ENGINE_OBJECT_TYPE_MARKER} references missing Engine Type ${typeId}.`;
     if (
       !engineValueMatchesFieldType(
         value,
@@ -555,14 +549,22 @@ function collectStructuredValueDiagnostics(
     }
     if (Array.isArray(value)) {
       return value.flatMap((item, index) =>
-        collectStructuredValueDiagnostics(item, type, engineTypes, characters, assets, `${path}[${index}]`),
+        collectStructuredValueDiagnostics(
+          item,
+          type,
+          engineTypes,
+          characters,
+          assets,
+          `${path}[${index}]`,
+        ),
       );
     }
     if (typeof value === 'object') {
       const markedType = engineObjectTypeId(value);
       if (markedType) {
         const definition = engineTypes.find((candidate) => candidate.id === markedType);
-        if (!definition) return [{ path, message: `Referenced Engine Type ${markedType} is missing.` }];
+        if (!definition)
+          return [{ path, message: `Referenced Engine Type ${markedType} is missing.` }];
         return collectStructuredValueDiagnostics(
           value,
           { kind: 'object', typeName: definition.name },
@@ -575,7 +577,14 @@ function collectStructuredValueDiagnostics(
       return Object.entries(value).flatMap(([key, item]) =>
         key === ENGINE_OBJECT_TYPE_MARKER
           ? []
-          : collectStructuredValueDiagnostics(item, type, engineTypes, characters, assets, `${path}.${key}`),
+          : collectStructuredValueDiagnostics(
+              item,
+              type,
+              engineTypes,
+              characters,
+              assets,
+              `${path}.${key}`,
+            ),
       );
     }
     return [];
@@ -618,7 +627,8 @@ function collectStructuredValueDiagnostics(
     );
   }
   if (type.kind === 'map') {
-    if (Array.isArray(value) || typeof value !== 'object') return [{ path, message: 'Expected Map.' }];
+    if (Array.isArray(value) || typeof value !== 'object')
+      return [{ path, message: 'Expected Map.' }];
     return Object.entries(value).flatMap(([key, item]) => {
       const keyValid =
         type.keyType.kind === 'string'
@@ -643,13 +653,15 @@ function collectStructuredValueDiagnostics(
       ];
     });
   }
-  if (Array.isArray(value) || typeof value !== 'object') return [{ path, message: `Expected Object ${type.typeName}.` }];
+  if (Array.isArray(value) || typeof value !== 'object')
+    return [{ path, message: `Expected Object ${type.typeName}.` }];
   const definition = engineTypes.find((candidate) => candidate.name === type.typeName);
   if (!definition) return [{ path, message: `Engine Type ${type.typeName} does not exist.` }];
   const record = value as Readonly<Record<string, RuntimeValue>>;
   return definition.fields.flatMap((field) => {
     const fieldValue = record[field.name];
-    if (fieldValue === undefined) return [{ path: `${path}.${field.name}`, message: 'Required field is missing.' }];
+    if (fieldValue === undefined)
+      return [{ path: `${path}.${field.name}`, message: 'Required field is missing.' }];
     return collectStructuredValueDiagnostics(
       fieldValue,
       field.type,
@@ -682,15 +694,9 @@ function FocusedValueEditor({
   }, [open]);
   return (
     <>
-      <button
-        type="button"
-        className={styles.focusValueButton}
-        onClick={() => setOpen(true)}
-      >
+      <button type="button" className={styles.focusValueButton} onClick={() => setOpen(true)}>
         Open {label}…
-        {errorCount > 0 && (
-          <em className={styles.structuredErrorBadge}>{errorCount}</em>
-        )}
+        {errorCount > 0 && <em className={styles.structuredErrorBadge}>{errorCount}</em>}
       </button>
       {open &&
         createPortal(
@@ -756,7 +762,8 @@ function AnyJsonFields({
   );
   const matchingObjectType =
     kind === 'object'
-      ? markedObjectType ?? engineTypes.find((definition) => {
+      ? (markedObjectType ??
+        engineTypes.find((definition) => {
           if (definition.fields.length === 0) return false;
           const keys = Object.keys(value as Readonly<Record<string, RuntimeValue>>).filter(
             (key) => key !== ENGINE_OBJECT_TYPE_MARKER,
@@ -770,10 +777,13 @@ function AnyJsonFields({
               engineTypes,
             )
           );
-        })
+        }))
       : undefined;
   if (depth >= 3 && (kind === 'array' || kind === 'object')) {
-    const label = kind === 'array' ? `Array · ${(value as readonly RuntimeValue[]).length} items` : matchingObjectType?.displayName ?? 'Free Object';
+    const label =
+      kind === 'array'
+        ? `Array · ${(value as readonly RuntimeValue[]).length} items`
+        : (matchingObjectType?.displayName ?? 'Free Object');
     return (
       <FocusedValueEditor label={label}>
         <AnyJsonFields
@@ -870,125 +880,127 @@ function AnyJsonFields({
             />
           </summary>
           <div className={styles.structuredArray}>
-          <CollectionWindowControls
-            noun="items"
-            total={items.length}
-            matched={matchingIndices.length}
-            visible={visibleIndices.length}
-            query={collectionQuery}
-            onQueryChange={(query) => {
-              setCollectionQuery(query);
-              setCollectionLimit(COLLECTION_WINDOW_SIZE);
-            }}
-            onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
-          />
-          {items.length === 0 && (
-            <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
-          )}
-          {visibleIndices.map((index) => {
-            const item = items[index]!;
-            return (
-            <div
-              className={`${styles.structuredArrayItem} ${
-                arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
-              }`}
-              data-drop-side={arrayDropTarget?.index === index ? arrayDropTarget.side : undefined}
-              key={index}
-              onDragOver={(event) => {
-                if (event.dataTransfer.types.includes(ARRAY_REORDER_MIME)) {
-                  event.preventDefault();
-                  const bounds = event.currentTarget.getBoundingClientRect();
-                  setArrayDropTarget({
-                    index,
-                    side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
-                  });
-                }
+            <CollectionWindowControls
+              noun="items"
+              total={items.length}
+              matched={matchingIndices.length}
+              visible={visibleIndices.length}
+              query={collectionQuery}
+              onQueryChange={(query) => {
+                setCollectionQuery(query);
+                setCollectionLimit(COLLECTION_WINDOW_SIZE);
               }}
-              onDrop={(event) => {
-                const fromIndex = readArrayDragIndex(
-                  event.dataTransfer.getData(ARRAY_REORDER_MIME),
-                  arrayOwnerId,
-                );
-                if (fromIndex === undefined) return;
-                event.preventDefault();
-                event.stopPropagation();
-                onChange(
-                  reorderArrayItems(
-                    items,
-                    fromIndex,
-                    index,
-                    arrayDropTarget?.index === index ? arrayDropTarget.side : 'before',
-                  ),
-                );
-                setArrayDropTarget(undefined);
-              }}
-            >
-              <span
-                className={styles.structuredItemLabel}
-                draggable
-                title="Drag to reorder"
-                onDragStart={(event) => {
-                  event.stopPropagation();
-                  setArrayDropTarget(undefined);
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData(
-                    ARRAY_REORDER_MIME,
-                    JSON.stringify({ ownerId: arrayOwnerId, index }),
-                  );
-                }}
-                onDragEnd={() => setArrayDropTarget(undefined)}
-              >
-                [{index}]
-              </span>
-              <AnyJsonFields
-                value={item}
-                engineTypes={engineTypes}
-                characters={characters}
-                assets={assets}
-                depth={depth + 1}
-                onChange={(next) => {
-                  const updated = [...items];
-                  updated[index] = next;
-                  onChange(updated);
-                }}
-              />
-              <span className={styles.structuredArrayActions}>
-                <button
-                  type="button"
-                  title="Insert Above"
-                  aria-label={`Insert item above ${index}`}
-                  onClick={() => {
-                    const updated = [...items];
-                    updated.splice(index, 0, null);
-                    onChange(updated);
+              onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+            />
+            {items.length === 0 && (
+              <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
+            )}
+            {visibleIndices.map((index) => {
+              const item = items[index]!;
+              return (
+                <div
+                  className={`${styles.structuredArrayItem} ${
+                    arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
+                  }`}
+                  data-drop-side={
+                    arrayDropTarget?.index === index ? arrayDropTarget.side : undefined
+                  }
+                  key={index}
+                  onDragOver={(event) => {
+                    if (event.dataTransfer.types.includes(ARRAY_REORDER_MIME)) {
+                      event.preventDefault();
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      setArrayDropTarget({
+                        index,
+                        side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
+                      });
+                    }
+                  }}
+                  onDrop={(event) => {
+                    const fromIndex = readArrayDragIndex(
+                      event.dataTransfer.getData(ARRAY_REORDER_MIME),
+                      arrayOwnerId,
+                    );
+                    if (fromIndex === undefined) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onChange(
+                      reorderArrayItems(
+                        items,
+                        fromIndex,
+                        index,
+                        arrayDropTarget?.index === index ? arrayDropTarget.side : 'before',
+                      ),
+                    );
+                    setArrayDropTarget(undefined);
                   }}
                 >
-                  +↑
-                </button>
-                <button
-                  type="button"
-                  title="Insert Below"
-                  aria-label={`Insert item below ${index}`}
-                  onClick={() => {
-                    const updated = [...items];
-                    updated.splice(index + 1, 0, null);
-                    onChange(updated);
-                  }}
-                >
-                  +↓
-                </button>
-                <button
-                  type="button"
-                  title="Delete"
-                  aria-label={'Delete Array element ' + index}
-                  onClick={() => onChange(items.filter((_, i) => i !== index))}
-                >
-                  −
-                </button>
-              </span>
-            </div>
-            );
-          })}
+                  <span
+                    className={styles.structuredItemLabel}
+                    draggable
+                    title="Drag to reorder"
+                    onDragStart={(event) => {
+                      event.stopPropagation();
+                      setArrayDropTarget(undefined);
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData(
+                        ARRAY_REORDER_MIME,
+                        JSON.stringify({ ownerId: arrayOwnerId, index }),
+                      );
+                    }}
+                    onDragEnd={() => setArrayDropTarget(undefined)}
+                  >
+                    [{index}]
+                  </span>
+                  <AnyJsonFields
+                    value={item}
+                    engineTypes={engineTypes}
+                    characters={characters}
+                    assets={assets}
+                    depth={depth + 1}
+                    onChange={(next) => {
+                      const updated = [...items];
+                      updated[index] = next;
+                      onChange(updated);
+                    }}
+                  />
+                  <span className={styles.structuredArrayActions}>
+                    <button
+                      type="button"
+                      title="Insert Above"
+                      aria-label={`Insert item above ${index}`}
+                      onClick={() => {
+                        const updated = [...items];
+                        updated.splice(index, 0, null);
+                        onChange(updated);
+                      }}
+                    >
+                      +↑
+                    </button>
+                    <button
+                      type="button"
+                      title="Insert Below"
+                      aria-label={`Insert item below ${index}`}
+                      onClick={() => {
+                        const updated = [...items];
+                        updated.splice(index + 1, 0, null);
+                        onChange(updated);
+                      }}
+                    >
+                      +↓
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete"
+                      aria-label={'Delete Array element ' + index}
+                      onClick={() => onChange(items.filter((_, i) => i !== index))}
+                    >
+                      −
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </details>
       );
@@ -1034,65 +1046,65 @@ function AnyJsonFields({
               setCollectionQuery('');
               setCollectionLimit(keys.length + 1);
             }}
-            >
-              +
-            </button>
+          >
+            +
+          </button>
         </summary>
         <div className={styles.structuredMap}>
-        <CollectionWindowControls
-          noun="fields"
-          total={keys.length}
-          matched={matchingKeys.length}
-          visible={visibleKeys.length}
-          query={collectionQuery}
-          onQueryChange={(query) => {
-            setCollectionQuery(query);
-            setCollectionLimit(COLLECTION_WINDOW_SIZE);
-          }}
-          onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
-        />
-        {keys.length === 0 && (
-          <div className={styles.structuredEmpty}>No fields. Use + to add the first field.</div>
-        )}
-        {visibleKeys.map((key) => (
-          <div className={styles.structuredMapItem} key={key}>
-            <MapKeyInput
-              value={key}
-              type={{ kind: 'string' }}
-              usedKeys={keys}
-              characters={[]}
-              assets={[]}
-              onCommit={(renamed) =>
-                onChange(
-                  Object.fromEntries(
-                    Object.entries(record).map(([candidate, item]) => [
-                      candidate === key ? renamed : candidate,
-                      item,
-                    ]),
-                  ),
-                )
-              }
-            />
-            <AnyJsonFields
-              value={record[key]!}
-              engineTypes={engineTypes}
-              characters={characters}
-              assets={assets}
-              depth={depth + 1}
-              onChange={(next) => onChange({ ...record, [key]: next })}
-            />
-            <ConfirmDeleteButton
-              title={'Delete field ' + key + '?'}
-              message="The field and its value will be removed."
-              ariaLabel={'Delete Object field ' + key}
-              onConfirm={() =>
-                onChange(
-                  Object.fromEntries(Object.entries(record).filter(([name]) => name !== key)),
-                )
-              }
-            />
-          </div>
-        ))}
+          <CollectionWindowControls
+            noun="fields"
+            total={keys.length}
+            matched={matchingKeys.length}
+            visible={visibleKeys.length}
+            query={collectionQuery}
+            onQueryChange={(query) => {
+              setCollectionQuery(query);
+              setCollectionLimit(COLLECTION_WINDOW_SIZE);
+            }}
+            onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+          />
+          {keys.length === 0 && (
+            <div className={styles.structuredEmpty}>No fields. Use + to add the first field.</div>
+          )}
+          {visibleKeys.map((key) => (
+            <div className={styles.structuredMapItem} key={key}>
+              <MapKeyInput
+                value={key}
+                type={{ kind: 'string' }}
+                usedKeys={keys}
+                characters={[]}
+                assets={[]}
+                onCommit={(renamed) =>
+                  onChange(
+                    Object.fromEntries(
+                      Object.entries(record).map(([candidate, item]) => [
+                        candidate === key ? renamed : candidate,
+                        item,
+                      ]),
+                    ),
+                  )
+                }
+              />
+              <AnyJsonFields
+                value={record[key]!}
+                engineTypes={engineTypes}
+                characters={characters}
+                assets={assets}
+                depth={depth + 1}
+                onChange={(next) => onChange({ ...record, [key]: next })}
+              />
+              <ConfirmDeleteButton
+                title={'Delete field ' + key + '?'}
+                message="The field and its value will be removed."
+                ariaLabel={'Delete Object field ' + key}
+                onConfirm={() =>
+                  onChange(
+                    Object.fromEntries(Object.entries(record).filter(([name]) => name !== key)),
+                  )
+                }
+              />
+            </div>
+          ))}
         </div>
       </details>
     );
@@ -1110,10 +1122,13 @@ function AnyJsonFields({
             );
             if (!definition) return;
             onChange(
-              tagEngineObject(defaultForEngineFieldType(
-                { kind: 'object', typeName: selection.slice('engine-object:'.length) },
-                engineTypes,
-              ), definition.id),
+              tagEngineObject(
+                defaultForEngineFieldType(
+                  { kind: 'object', typeName: selection.slice('engine-object:'.length) },
+                  engineTypes,
+                ),
+                definition.id,
+              ),
             );
             return;
           }
@@ -1197,7 +1212,8 @@ function StructuredJsonFields({
         ? `Array · ${Array.isArray(value) ? value.length : 0} items`
         : type.kind === 'map'
           ? `Map · ${value !== null && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).length : 0} entries`
-          : engineTypes.find((definition) => definition.name === type.typeName)?.displayName ?? type.typeName;
+          : (engineTypes.find((definition) => definition.name === type.typeName)?.displayName ??
+            type.typeName);
     return (
       <FocusedValueEditor label={label} errorCount={diagnostics.length}>
         <StructuredJsonFields
@@ -1336,133 +1352,144 @@ function StructuredJsonFields({
           />
         </summary>
         <div className={styles.structuredArray}>
-        <CollectionWindowControls
-          noun="items"
-          total={items.length}
-          matched={matchingIndices.length}
-          visible={visibleIndices.length}
-          query={collectionQuery}
-          onQueryChange={(query) => {
-            setCollectionQuery(query);
-            setCollectionLimit(COLLECTION_WINDOW_SIZE);
-          }}
-          onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
-        />
-        {items.length === 0 && (
-          <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
-        )}
-        {visibleIndices.map((index) => {
-          const item = items[index]!;
-          return (
-          <div
-            className={`${styles.structuredArrayItem} ${
-              arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
-            }`}
-            data-drop-side={arrayDropTarget?.index === index ? arrayDropTarget.side : undefined}
-            key={index}
-            onDragOver={(event) => {
-              if (event.dataTransfer.types.includes(ARRAY_REORDER_MIME)) {
-                event.preventDefault();
-                const bounds = event.currentTarget.getBoundingClientRect();
-                setArrayDropTarget({
-                  index,
-                  side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
-                });
-              }
+          <CollectionWindowControls
+            noun="items"
+            total={items.length}
+            matched={matchingIndices.length}
+            visible={visibleIndices.length}
+            query={collectionQuery}
+            onQueryChange={(query) => {
+              setCollectionQuery(query);
+              setCollectionLimit(COLLECTION_WINDOW_SIZE);
             }}
-            onDrop={(event) => {
-              const fromIndex = readArrayDragIndex(
-                event.dataTransfer.getData(ARRAY_REORDER_MIME),
-                arrayOwnerId,
-              );
-              if (fromIndex === undefined) return;
-              event.preventDefault();
-              event.stopPropagation();
-              onChange(
-                reorderArrayItems(
-                  items,
-                  fromIndex,
-                  index,
-                  arrayDropTarget?.index === index ? arrayDropTarget.side : 'before',
-                ),
-              );
-              setArrayDropTarget(undefined);
-            }}
-          >
-            <span
-              className={styles.structuredItemLabel}
-              draggable
-              title="Drag to reorder"
-              onDragStart={(event) => {
-                event.stopPropagation();
-                setArrayDropTarget(undefined);
-                event.dataTransfer.effectAllowed = 'move';
-                event.dataTransfer.setData(
-                  ARRAY_REORDER_MIME,
-                  JSON.stringify({ ownerId: arrayOwnerId, index }),
-                );
-              }}
-              onDragEnd={() => setArrayDropTarget(undefined)}
-            >
-              [{index}]
-            </span>
-            <StructuredJsonFields
-              type={type.elementType}
-              value={item}
-              engineTypes={engineTypes}
-              characters={characters}
-              assets={assets}
-              depth={depth + 1}
-              onChange={(next) => {
-                const updated = [...items];
-                updated[index] = next;
-                onChange(updated);
-              }}
-            />
-            {diagnostics.filter((item) => item.path.startsWith(`$[${index}]`)).map((item) => (
-              <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
-                {item.message}
-              </small>
-            ))}
-            <span className={styles.structuredArrayActions}>
-              <button
-                type="button"
-                title="Insert Above"
-                aria-label={`Insert item above ${index}`}
-                onClick={() => {
-                  const updated = [...items];
-                  updated.splice(index, 0, defaultForEngineFieldType(type.elementType, engineTypes));
-                  onChange(updated);
+            onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+          />
+          {items.length === 0 && (
+            <div className={styles.structuredEmpty}>No items. Use + to add the first item.</div>
+          )}
+          {visibleIndices.map((index) => {
+            const item = items[index]!;
+            return (
+              <div
+                className={`${styles.structuredArrayItem} ${
+                  arrayDropTarget?.index === index ? styles.structuredArrayDropTarget : ''
+                }`}
+                data-drop-side={arrayDropTarget?.index === index ? arrayDropTarget.side : undefined}
+                key={index}
+                onDragOver={(event) => {
+                  if (event.dataTransfer.types.includes(ARRAY_REORDER_MIME)) {
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    setArrayDropTarget({
+                      index,
+                      side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
+                    });
+                  }
+                }}
+                onDrop={(event) => {
+                  const fromIndex = readArrayDragIndex(
+                    event.dataTransfer.getData(ARRAY_REORDER_MIME),
+                    arrayOwnerId,
+                  );
+                  if (fromIndex === undefined) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onChange(
+                    reorderArrayItems(
+                      items,
+                      fromIndex,
+                      index,
+                      arrayDropTarget?.index === index ? arrayDropTarget.side : 'before',
+                    ),
+                  );
+                  setArrayDropTarget(undefined);
                 }}
               >
-                +↑
-              </button>
-              <button
-                type="button"
-                title="Insert Below"
-                aria-label={`Insert item below ${index}`}
-                onClick={() => {
-                  const updated = [...items];
-                  updated.splice(index + 1, 0, defaultForEngineFieldType(type.elementType, engineTypes));
-                  onChange(updated);
-                }}
-              >
-                +↓
-              </button>
-              <button
-                type="button"
-                title="Delete"
-                aria-label={'Delete Array element ' + index}
-                onClick={() =>
-                  onChange(items.filter((_, itemIndex) => itemIndex !== index))
-                }
-              >
-                −
-              </button>
-            </span>
-          </div>
-          );
-        })}
+                <span
+                  className={styles.structuredItemLabel}
+                  draggable
+                  title="Drag to reorder"
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    setArrayDropTarget(undefined);
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData(
+                      ARRAY_REORDER_MIME,
+                      JSON.stringify({ ownerId: arrayOwnerId, index }),
+                    );
+                  }}
+                  onDragEnd={() => setArrayDropTarget(undefined)}
+                >
+                  [{index}]
+                </span>
+                <StructuredJsonFields
+                  type={type.elementType}
+                  value={item}
+                  engineTypes={engineTypes}
+                  characters={characters}
+                  assets={assets}
+                  depth={depth + 1}
+                  onChange={(next) => {
+                    const updated = [...items];
+                    updated[index] = next;
+                    onChange(updated);
+                  }}
+                />
+                {diagnostics
+                  .filter((item) => item.path.startsWith(`$[${index}]`))
+                  .map((item) => (
+                    <small
+                      className={styles.structuredFieldError}
+                      key={`${item.path}:${item.message}`}
+                    >
+                      {item.message}
+                    </small>
+                  ))}
+                <span className={styles.structuredArrayActions}>
+                  <button
+                    type="button"
+                    title="Insert Above"
+                    aria-label={`Insert item above ${index}`}
+                    onClick={() => {
+                      const updated = [...items];
+                      updated.splice(
+                        index,
+                        0,
+                        defaultForEngineFieldType(type.elementType, engineTypes),
+                      );
+                      onChange(updated);
+                    }}
+                  >
+                    +↑
+                  </button>
+                  <button
+                    type="button"
+                    title="Insert Below"
+                    aria-label={`Insert item below ${index}`}
+                    onClick={() => {
+                      const updated = [...items];
+                      updated.splice(
+                        index + 1,
+                        0,
+                        defaultForEngineFieldType(type.elementType, engineTypes),
+                      );
+                      onChange(updated);
+                    }}
+                  >
+                    +↓
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete"
+                    aria-label={'Delete Array element ' + index}
+                    onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}
+                  >
+                    −
+                  </button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       </details>
     );
@@ -1537,120 +1564,125 @@ function StructuredJsonFields({
           />
         </summary>
         <div className={styles.structuredMap}>
-        <CollectionWindowControls
-          noun="entries"
-          total={keys.length}
-          matched={matchingKeys.length}
-          visible={visibleKeys.length}
-          query={collectionQuery}
-          onQueryChange={(query) => {
-            setCollectionQuery(query);
-            setCollectionLimit(COLLECTION_WINDOW_SIZE);
-          }}
-          onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
-        />
-        {keys.length === 0 && (
-          <div className={styles.structuredEmpty}>No entries. Use + to add the first entry.</div>
-        )}
-        {visibleKeys.map((key) => (
-          <div
-            className={`${styles.structuredMapItem} ${styles.structuredMapEntry} ${
-              mapDropTarget?.key === key ? styles.structuredMapDropTarget : ''
-            }`}
-            data-drop-side={mapDropTarget?.key === key ? mapDropTarget.side : undefined}
-            key={key}
-            onDragOver={(event) => {
-              if (!event.dataTransfer.types.includes(MAP_REORDER_MIME)) return;
-              event.preventDefault();
-              const bounds = event.currentTarget.getBoundingClientRect();
-              setMapDropTarget({
-                key,
-                side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
-              });
+          <CollectionWindowControls
+            noun="entries"
+            total={keys.length}
+            matched={matchingKeys.length}
+            visible={visibleKeys.length}
+            query={collectionQuery}
+            onQueryChange={(query) => {
+              setCollectionQuery(query);
+              setCollectionLimit(COLLECTION_WINDOW_SIZE);
             }}
-            onDrop={(event) => {
-              const fromKey = readMapDragKey(
-                event.dataTransfer.getData(MAP_REORDER_MIME),
-                mapOwnerId,
-              );
-              if (!fromKey) return;
-              event.preventDefault();
-              event.stopPropagation();
-              onChange(
-                reorderMapEntries(
-                  record,
-                  fromKey,
+            onShowMore={() => setCollectionLimit((current) => current + COLLECTION_WINDOW_SIZE)}
+          />
+          {keys.length === 0 && (
+            <div className={styles.structuredEmpty}>No entries. Use + to add the first entry.</div>
+          )}
+          {visibleKeys.map((key) => (
+            <div
+              className={`${styles.structuredMapItem} ${styles.structuredMapEntry} ${
+                mapDropTarget?.key === key ? styles.structuredMapDropTarget : ''
+              }`}
+              data-drop-side={mapDropTarget?.key === key ? mapDropTarget.side : undefined}
+              key={key}
+              onDragOver={(event) => {
+                if (!event.dataTransfer.types.includes(MAP_REORDER_MIME)) return;
+                event.preventDefault();
+                const bounds = event.currentTarget.getBoundingClientRect();
+                setMapDropTarget({
                   key,
-                  mapDropTarget?.key === key ? mapDropTarget.side : 'before',
-                ),
-              );
-              setMapDropTarget(undefined);
-            }}
-          >
-            <span
-              className={styles.mapDragHandle}
-              draggable
-              title="Drag to reorder"
-              onDragStart={(event) => {
-                event.stopPropagation();
-                setMapDropTarget(undefined);
-                event.dataTransfer.effectAllowed = 'move';
-                event.dataTransfer.setData(
-                  MAP_REORDER_MIME,
-                  JSON.stringify({ ownerId: mapOwnerId, key }),
-                );
+                  side: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after',
+                });
               }}
-              onDragEnd={() => setMapDropTarget(undefined)}
-            >
-              ⠿
-            </span>
-            <MapKeyInput
-              value={key}
-              type={type.keyType}
-              usedKeys={keys}
-              characters={characters}
-              assets={assets}
-              onCommit={(nextKey) =>
+              onDrop={(event) => {
+                const fromKey = readMapDragKey(
+                  event.dataTransfer.getData(MAP_REORDER_MIME),
+                  mapOwnerId,
+                );
+                if (!fromKey) return;
+                event.preventDefault();
+                event.stopPropagation();
                 onChange(
-                  Object.fromEntries(
-                    Object.entries(record).map(([candidate, item]) => [
-                      candidate === key ? nextKey : candidate,
-                      item,
-                    ]),
+                  reorderMapEntries(
+                    record,
+                    fromKey,
+                    key,
+                    mapDropTarget?.key === key ? mapDropTarget.side : 'before',
                   ),
-                )
-              }
-            />
-            <StructuredJsonFields
-              type={type.valueType}
-              value={record[key]!}
-              engineTypes={engineTypes}
-              characters={characters}
-              assets={assets}
-              depth={depth + 1}
-              onChange={(next) => onChange({ ...record, [key]: next })}
-            />
-            {diagnostics.filter((item) => item.path.startsWith(`$.${key}`)).map((item) => (
-              <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
-                {item.message}
-              </small>
-            ))}
-            <button
-              type="button"
-              title="Delete"
-              aria-label={'Delete Map entry ' + key}
-              onClick={() =>
-                onChange(
-                  Object.fromEntries(
-                    Object.entries(record).filter(([candidate]) => candidate !== key),
-                  ),
-                )
-              }
+                );
+                setMapDropTarget(undefined);
+              }}
             >
-              −
-            </button>
-          </div>
-        ))}
+              <span
+                className={styles.mapDragHandle}
+                draggable
+                title="Drag to reorder"
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  setMapDropTarget(undefined);
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData(
+                    MAP_REORDER_MIME,
+                    JSON.stringify({ ownerId: mapOwnerId, key }),
+                  );
+                }}
+                onDragEnd={() => setMapDropTarget(undefined)}
+              >
+                ⠿
+              </span>
+              <MapKeyInput
+                value={key}
+                type={type.keyType}
+                usedKeys={keys}
+                characters={characters}
+                assets={assets}
+                onCommit={(nextKey) =>
+                  onChange(
+                    Object.fromEntries(
+                      Object.entries(record).map(([candidate, item]) => [
+                        candidate === key ? nextKey : candidate,
+                        item,
+                      ]),
+                    ),
+                  )
+                }
+              />
+              <StructuredJsonFields
+                type={type.valueType}
+                value={record[key]!}
+                engineTypes={engineTypes}
+                characters={characters}
+                assets={assets}
+                depth={depth + 1}
+                onChange={(next) => onChange({ ...record, [key]: next })}
+              />
+              {diagnostics
+                .filter((item) => item.path.startsWith(`$.${key}`))
+                .map((item) => (
+                  <small
+                    className={styles.structuredFieldError}
+                    key={`${item.path}:${item.message}`}
+                  >
+                    {item.message}
+                  </small>
+                ))}
+              <button
+                type="button"
+                title="Delete"
+                aria-label={'Delete Map entry ' + key}
+                onClick={() =>
+                  onChange(
+                    Object.fromEntries(
+                      Object.entries(record).filter(([candidate]) => candidate !== key),
+                    ),
+                  )
+                }
+              >
+                −
+              </button>
+            </div>
+          ))}
         </div>
       </details>
     );
@@ -1677,27 +1709,31 @@ function StructuredJsonFields({
         </span>
       </summary>
       <div className={styles.structuredObject}>
-      {(definition?.fields ?? []).map((field) => (
-        <label key={field.name} title={field.description}>
-          <span>{field.displayName}</span>
-          <StructuredJsonFields
-            type={field.type}
-            value={record[field.name] ?? field.defaultValue}
-            engineTypes={engineTypes}
-            characters={characters}
-            assets={assets}
-            depth={depth + 1}
-            nullable={field.nullable === true}
-            onChange={(next) => onChange({ ...record, [field.name]: next })}
-          />
-          {diagnostics.filter((item) => item.path.startsWith(`$.${field.name}`)).map((item) => (
-            <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
-              {item.message}
-            </small>
-          ))}
-        </label>
-      ))}
-      {!definition && <small className={styles.warning}>Missing Engine Type {type.typeName}</small>}
+        {(definition?.fields ?? []).map((field) => (
+          <label key={field.name} title={field.description}>
+            <span>{field.displayName}</span>
+            <StructuredJsonFields
+              type={field.type}
+              value={record[field.name] ?? field.defaultValue}
+              engineTypes={engineTypes}
+              characters={characters}
+              assets={assets}
+              depth={depth + 1}
+              nullable={field.nullable === true}
+              onChange={(next) => onChange({ ...record, [field.name]: next })}
+            />
+            {diagnostics
+              .filter((item) => item.path.startsWith(`$.${field.name}`))
+              .map((item) => (
+                <small className={styles.structuredFieldError} key={`${item.path}:${item.message}`}>
+                  {item.message}
+                </small>
+              ))}
+          </label>
+        ))}
+        {!definition && (
+          <small className={styles.warning}>Missing Engine Type {type.typeName}</small>
+        )}
       </div>
     </details>
   );
@@ -2641,7 +2677,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                     ? { kind: 'array', elementType: { kind: 'any' } }
                     : nextKind === 'map'
                       ? { kind: 'map', keyType: 'string', valueType: { kind: 'any' } }
-                  : ({ kind: nextKind } as ValueType),
+                      : ({ kind: nextKind } as ValueType),
               defaultValue:
                 nextKind === 'json'
                   ? defaultForEngineFieldType(
@@ -2706,7 +2742,8 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                     keyType: event.target.value as NonNullable<
                       Extract<ValueType, { kind: 'map' }>['keyType']
                     >,
-                    valueType: variable.valueType.kind === 'map' ? variable.valueType.valueType : undefined,
+                    valueType:
+                      variable.valueType.kind === 'map' ? variable.valueType.valueType : undefined,
                   },
                   defaultValue: {},
                 })
@@ -2727,7 +2764,8 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                 updateVariable(variable.id, {
                   valueType: {
                     kind: 'map',
-                    keyType: variable.valueType.kind === 'map' ? variable.valueType.keyType : 'string',
+                    keyType:
+                      variable.valueType.kind === 'map' ? variable.valueType.keyType : 'string',
                     valueType: containerValueType(event.target.value),
                   },
                   defaultValue: {},
@@ -2849,7 +2887,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                       keyType: {
                         kind:
                           variable.valueType.kind === 'map'
-                            ? variable.valueType.keyType ?? 'string'
+                            ? (variable.valueType.keyType ?? 'string')
                             : 'string',
                       },
                       valueType: valueTypeToEngineFieldType(
@@ -3688,8 +3726,7 @@ function engineFieldTypeForKind(
       typeName:
         engineTypes.find(
           (item) =>
-            item.name !== ownerName &&
-            !engineTypeReferencesName(item.name, ownerName, engineTypes),
+            item.name !== ownerName && !engineTypeReferencesName(item.name, ownerName, engineTypes),
         )?.name ?? ownerName,
     };
   }
@@ -3948,8 +3985,7 @@ function EngineTypeEditor({ definition }: { definition: EngineTypeDefinition }) 
               ...engineTypes
                 .filter((item) => item.name !== definition.name)
                 .filter(
-                  (item) =>
-                    !engineTypeReferencesName(item.name, definition.name, engineTypes),
+                  (item) => !engineTypeReferencesName(item.name, definition.name, engineTypes),
                 )
                 .map((item) => ({
                   value: `object:${item.name}`,
@@ -4280,7 +4316,7 @@ function EventEditor({ event }: { event: EventSource }) {
       onMouseDown={stopInspectorEvent}
       onWheel={stopInspectorEvent}
     >
-      <div className={styles.detailsTitle}>Project Event</div>
+      <div className={styles.detailsTitle}>External Function</div>
       <label>
         <span>Name</span>
         <ScriptNameInput
@@ -4443,7 +4479,10 @@ function EventEditor({ event }: { event: EventSource }) {
                         valueType:
                           change.target.value === 'json'
                             ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-                            : { kind: change.target.value as 'boolean' | 'number' | 'string' | 'array' | 'map' },
+                            : {
+                                kind: change.target.value as
+                                  'boolean' | 'number' | 'string' | 'array' | 'map',
+                              },
                       }
                     : candidate,
                 ),
@@ -4471,7 +4510,9 @@ function EventEditor({ event }: { event: EventSource }) {
               }
             >
               {engineTypes.map((item) => (
-                <option key={item.name} value={item.name}>{item.displayName}</option>
+                <option key={item.name} value={item.name}>
+                  {item.displayName}
+                </option>
               ))}
             </select>
           )}
@@ -4480,7 +4521,9 @@ function EventEditor({ event }: { event: EventSource }) {
             title="Remove return value"
             onClick={() =>
               updateEvent(event.id, {
-                outputs: (event.outputs ?? []).filter((_, candidateIndex) => candidateIndex !== index),
+                outputs: (event.outputs ?? []).filter(
+                  (_, candidateIndex) => candidateIndex !== index,
+                ),
               })
             }
           >
@@ -4489,10 +4532,10 @@ function EventEditor({ event }: { event: EventSource }) {
         </div>
       ))}
       <div className={styles.infoText}>
-        Events with return values wait for the engine result before continuing.
+        External Functions with return values wait for the engine result before continuing.
       </div>
       <button className={styles.dangerButton} type="button" onClick={() => removeEvent(event.id)}>
-        Delete Event
+        Delete External Function
       </button>
     </div>
   );
@@ -4669,9 +4712,9 @@ function EventTable({
 }) {
   const { selectStoryData } = useStoryGraphStore();
   const markdown = [
-    '## Events',
+    '## External Functions',
     '',
-    '| Event | Stable ID | Description |',
+    '| External Function | Stable ID | Description |',
     '| --- | --- | --- |',
     ...events.map(
       (event) =>
@@ -4692,7 +4735,7 @@ function EventTable({
       <div className={styles.eventTableTitleRow}>
         <div>
           <div className={styles.detailsTitle}>Project Interface Table</div>
-          <p>Human-readable event and signal contract for engine programmers.</p>
+          <p>Human-readable External Function and Signal contract for engine programmers.</p>
         </div>
         <CopyButton text={markdown} label="Copy Markdown" />
       </div>
@@ -4703,7 +4746,7 @@ function EventTable({
           <table className={styles.eventTable}>
             <thead>
               <tr>
-                <th>Event / Signature</th>
+                <th>External Function / Signature</th>
                 <th>Stable ID</th>
                 <th>Description</th>
               </tr>
@@ -5241,7 +5284,7 @@ export function StoryData() {
         {workspace?.project && (
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
-              <span>Project Events</span>
+              <span>External Functions</span>
               <div className={styles.sectionHeaderActions}>
                 <button
                   type="button"
@@ -5252,7 +5295,7 @@ export function StoryData() {
                 </button>
                 <NamedCreateControl
                   title="Add event"
-                  placeholder="Event name"
+                  placeholder="External Function name"
                   existingNames={events.map((item) => item.name)}
                   onCreate={(name) => {
                     const id = addEvent(name);

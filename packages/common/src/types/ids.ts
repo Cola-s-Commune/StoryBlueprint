@@ -33,6 +33,9 @@ export type CharacterId = StableId<'character'>;
 export type AssetId = StableId<'asset'>;
 export type EventId = StableId<'event'>;
 export type EventOutputId = StableId<'eventOutput'>;
+/** Stable ID for an engine-backed external function. EventId remains the storage alias. */
+export type ExternalFunctionId = EventId;
+export type ExternalFunctionOutputId = EventOutputId;
 export type SignalId = StableId<'signal'>;
 export type EngineTypeId = StableId<'engineType'>;
 export type EngineFieldId = StableId<'engineField'>;

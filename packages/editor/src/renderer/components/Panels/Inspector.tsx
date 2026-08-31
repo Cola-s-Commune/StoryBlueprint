@@ -53,6 +53,31 @@ const DialogueInkEditor = lazy(() =>
   import('./DialogueInkEditor').then((module) => ({ default: module.DialogueInkEditor })),
 );
 
+interface InkExternalDeclaration {
+  name: string;
+  parameterCount: number;
+}
+
+/** Reads Ink EXTERNAL declarations so mappings use the script's exact identifier. */
+function scanInkExternalDeclarations(source: string | undefined): InkExternalDeclaration[] {
+  if (!source) return [];
+  const declarations: InkExternalDeclaration[] = [];
+  const pattern = /^\s*EXTERNAL\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*$/gim;
+  for (const match of source.matchAll(pattern)) {
+    const parameters = match[2]!
+      .split(',')
+      .map((parameter) => parameter.trim())
+      .filter(Boolean);
+    if (parameters.every((parameter) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(parameter))) {
+      declarations.push({ name: match[1]!, parameterCount: parameters.length });
+    }
+  }
+  return declarations.filter(
+    (declaration, index) =>
+      declarations.findIndex((candidate) => candidate.name === declaration.name) === index,
+  );
+}
+
 interface PropertyFieldProps {
   label: string;
   value: string;
@@ -183,26 +208,30 @@ function PlainPropertyField({
   };
   const references = useMemo(
     () =>
-      referenceOpen ? availableVariables.flatMap((variable) => {
-        if (variable.valueType.kind !== 'json') {
-          return ['array', 'map'].includes(variable.valueType.kind)
-            ? []
-            : [{ label: variable.displayName, detail: variable.name, token: variable.name }];
-        }
-        const engineTypeName = variable.valueType.name;
-        const schema = engineTypes.find((candidate) => candidate.name === engineTypeName);
-        return (schema?.fields ?? []).flatMap((field) =>
-          ['boolean', 'number', 'string', 'enum', 'character-ref', 'asset-ref'].includes(
-            field.type.kind,
-          )
-            ? [{
-                label: `${variable.displayName} · ${field.displayName}`,
-                detail: `${variable.name}.${field.name}`,
-                token: `${variable.name}.${field.name}`,
-              }]
-            : [],
-        );
-      }) : [],
+      referenceOpen
+        ? availableVariables.flatMap((variable) => {
+            if (variable.valueType.kind !== 'json') {
+              return ['array', 'map'].includes(variable.valueType.kind)
+                ? []
+                : [{ label: variable.displayName, detail: variable.name, token: variable.name }];
+            }
+            const engineTypeName = variable.valueType.name;
+            const schema = engineTypes.find((candidate) => candidate.name === engineTypeName);
+            return (schema?.fields ?? []).flatMap((field) =>
+              ['boolean', 'number', 'string', 'enum', 'character-ref', 'asset-ref'].includes(
+                field.type.kind,
+              )
+                ? [
+                    {
+                      label: `${variable.displayName} · ${field.displayName}`,
+                      detail: `${variable.name}.${field.name}`,
+                      token: `${variable.name}.${field.name}`,
+                    },
+                  ]
+                : [],
+            );
+          })
+        : [],
     [availableVariables, engineTypes, referenceOpen],
   );
   const filteredReferences = references.filter((reference) =>
@@ -668,8 +697,16 @@ function useStringExpressionMode({
 }
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
-  const { availableVariables, projectVariables, characters, assets, engineTypes, edges, checkpoint, updateNodeData } =
-    useStoryGraphStore();
+  const {
+    availableVariables,
+    projectVariables,
+    characters,
+    assets,
+    engineTypes,
+    edges,
+    checkpoint,
+    updateNodeData,
+  } = useStoryGraphStore();
   const allVariables = [
     ...availableVariables,
     ...projectVariables,
@@ -710,9 +747,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
   const valueConnected = edges.some(
     (edge) => edge.target === nodeId && edge.targetHandle === 'value',
   );
-  const keyConnected = edges.some(
-    (edge) => edge.target === nodeId && edge.targetHandle === 'key',
-  );
+  const keyConnected = edges.some((edge) => edge.target === nodeId && edge.targetHandle === 'key');
 
   const updateValue = (source: string) =>
     updateNodeData(nodeId, StoryNodeType.SetVariable, {
@@ -772,7 +807,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
                     : (operation as 'append' | 'set-entry' | 'set-field'),
                 key:
                   operation === 'set-entry'
-                    ? data.key ?? { source: '"key"', bindings: {} }
+                    ? (data.key ?? { source: '"key"', bindings: {} })
                     : undefined,
                 fieldId:
                   operation === 'set-field' ? (schema?.fields[0]?.id ?? undefined) : undefined,
@@ -786,9 +821,9 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
                   operation === 'set-field' && schema?.fields[0]
                     ? fieldValueType(schema.fields[0])
                     : operation === 'append' && variable?.valueType.kind === 'array'
-                      ? variable.valueType.elementType ?? { kind: 'any' }
+                      ? (variable.valueType.elementType ?? { kind: 'any' })
                       : operation === 'set-entry' && variable?.valueType.kind === 'map'
-                        ? variable.valueType.valueType ?? { kind: 'any' }
+                        ? (variable.valueType.valueType ?? { kind: 'any' })
                         : variable?.valueType,
                 keyInputType:
                   operation === 'set-entry' && variable?.valueType.kind === 'map'
@@ -809,7 +844,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
             }}
           >
             <option value="set">
-              Set Entire {isArray ? 'Array' : isMap ? 'Map' : schema?.displayName ?? 'Object'}
+              Set Entire {isArray ? 'Array' : isMap ? 'Map' : (schema?.displayName ?? 'Object')}
             </option>
             {isArray && <option value="append">Add Item</option>}
             {isMap && <option value="set-entry">Set / Add Entry</option>}
@@ -847,17 +882,19 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
       )}
       {valueConnected && (
         <div className={styles.info}>
-          Value comes from a data connection. The Inspector value remains as the fallback after disconnecting.
+          Value comes from a data connection. The Inspector value remains as the fallback after
+          disconnecting.
         </div>
       )}
       {keyConnected && (
         <div className={styles.info}>
-          Key comes from a data connection. The Inspector key remains as the fallback after disconnecting.
+          Key comes from a data connection. The Inspector key remains as the fallback after
+          disconnecting.
         </div>
       )}
       {isMap &&
       data.containerOperation === 'set-entry' &&
-      (variable?.valueType.kind === 'map') &&
+      variable?.valueType.kind === 'map' &&
       (variable.valueType.keyType === 'character-ref' ||
         variable.valueType.keyType === 'asset-ref') ? (
         <label className={styles.field}>
@@ -871,12 +908,16 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
               });
             }}
           >
-            <option value="">Select {variable.valueType.keyType === 'character-ref' ? 'Character' : 'Asset'}…</option>
-            {(variable.valueType.keyType === 'character-ref' ? characters : assets).map((resource) => (
-              <option value={resource.id} key={resource.id}>
-                {resource.displayName}
-              </option>
-            ))}
+            <option value="">
+              Select {variable.valueType.keyType === 'character-ref' ? 'Character' : 'Asset'}…
+            </option>
+            {(variable.valueType.keyType === 'character-ref' ? characters : assets).map(
+              (resource) => (
+                <option value={resource.id} key={resource.id}>
+                  {resource.displayName}
+                </option>
+              ),
+            )}
           </select>
         </label>
       ) : isMap && data.containerOperation === 'set-entry' ? (
@@ -946,12 +987,12 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
             data.containerOperation === 'set-field'
               ? data.fieldValueType
               : data.containerOperation === 'append' && variable?.valueType.kind === 'array'
-                ? variable.valueType.elementType ?? { kind: 'any' }
+                ? (variable.valueType.elementType ?? { kind: 'any' })
                 : data.containerOperation === 'set-entry' && variable?.valueType.kind === 'map'
-                  ? variable.valueType.valueType ?? { kind: 'any' }
-              : data.containerOperation
-                ? { kind: 'any' }
-                : variable?.valueType
+                  ? (variable.valueType.valueType ?? { kind: 'any' })
+                  : data.containerOperation
+                    ? { kind: 'any' }
+                    : variable?.valueType
           }
           onBeginEdit={checkpoint}
           onChange={stringMode.updateExpression}
@@ -2353,6 +2394,7 @@ export function Inspector() {
     availableVariables,
     projectVariables,
     characters,
+    inkSources,
     events,
     signals,
     engineTypes,
@@ -2366,6 +2408,7 @@ export function Inspector() {
     mergeSelectedDialogues,
     storyDataSelection,
     revealWorkspaceItem,
+    convertInkBlockToNodes,
   } = useStoryGraphStore();
   const [multiNodeError, setMultiNodeError] = useState<string>();
   const [inkSourceError, setInkSourceError] = useState<string>();
@@ -2497,6 +2540,10 @@ export function Inspector() {
           ...characters.flatMap((character) => character.fields ?? []),
         ].filter((variable) => scalarKinds.includes(variable.valueType.kind));
         const variableBindings = [...(data.variableBindings ?? [])];
+        const externalFunctionBindings = [...(data.externalFunctionBindings ?? [])];
+        const inkSource =
+          data.sourceMode === 'embedded' ? data.source : inkSources[data.path];
+        const externalDeclarations = scanInkExternalDeclarations(inkSource);
         const setVariableBindings = (next: typeof variableBindings) => {
           checkpoint();
           updateNodeData(node.id, StoryNodeType.InkBlock, { variableBindings: next });
@@ -2516,6 +2563,35 @@ export function Inspector() {
           setVariableBindings([
             ...variableBindings,
             { inkName, variableId: variable.id, direction: 'two-way' },
+          ]);
+        };
+        const setExternalFunctionBindings = (next: typeof externalFunctionBindings) => {
+          checkpoint();
+          updateNodeData(node.id, StoryNodeType.InkBlock, { externalFunctionBindings: next });
+        };
+        const addExternalFunctionBinding = () => {
+          if (events.length === 0) {
+            setInkSourceError('Create an External Function in project settings first.');
+            return;
+          }
+          const declaration = externalDeclarations.find(
+            (candidate) =>
+              !externalFunctionBindings.some((binding) => binding.inkName === candidate.name),
+          );
+          if (!declaration) {
+            setInkSourceError(
+              inkSource
+                ? 'No unmapped EXTERNAL declaration remains in this Ink source.'
+                : 'Enter or load an Ink source with an EXTERNAL declaration before adding a mapping.',
+            );
+            return;
+          }
+          const definition =
+            events.find((candidate) => candidate.parameters.length === declaration.parameterCount) ??
+            events[0]!;
+          setExternalFunctionBindings([
+            ...externalFunctionBindings,
+            { inkName: declaration.name, functionId: definition.id },
           ]);
         };
         const changeInkSourceMode = async (sourceMode: InkBlockNodeData['sourceMode']) => {
@@ -2651,6 +2727,82 @@ export function Inspector() {
                 </button>
               </div>
             ))}
+            <div className={styles.groupHeader}>
+              <div className={styles.groupLabel}>Ink External Functions</div>
+              <button type="button" onClick={addExternalFunctionBinding}>
+                + Add Mapping
+              </button>
+            </div>
+            {externalFunctionBindings.length === 0 && (
+              <div className={styles.info}>
+                Map each Ink EXTERNAL declaration to a project External Function by stable ID.
+                Functions called from Ink must be synchronous in the runtime adapter.
+              </div>
+            )}
+            {externalFunctionBindings.map((binding, index) => (
+              <div className={styles.inkVariableBinding} key={`${binding.inkName}:${index}`}>
+                <label className={styles.field}>
+                  <span>Ink Function</span>
+                  <select
+                    value={binding.inkName}
+                    onFocus={() => checkpoint()}
+                    onChange={(event) =>
+                      updateNodeData(node.id, StoryNodeType.InkBlock, {
+                        externalFunctionBindings: externalFunctionBindings.map((candidate, item) =>
+                          item === index ? { ...candidate, inkName: event.target.value } : candidate,
+                        ),
+                      })
+                    }
+                  >
+                    {!externalDeclarations.some((declaration) => declaration.name === binding.inkName) && (
+                      <option value={binding.inkName}>{binding.inkName} (not declared)</option>
+                    )}
+                    {externalDeclarations.map((declaration) => (
+                      <option value={declaration.name} key={declaration.name}>
+                        {declaration.name} ({declaration.parameterCount} parameter
+                        {declaration.parameterCount === 1 ? '' : 's'})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span>External Function</span>
+                  <select
+                    value={binding.functionId}
+                    onFocus={() => checkpoint()}
+                    onChange={(event) =>
+                      updateNodeData(node.id, StoryNodeType.InkBlock, {
+                        externalFunctionBindings: externalFunctionBindings.map((candidate, item) =>
+                          item === index
+                            ? {
+                                ...candidate,
+                                functionId: event.target.value as typeof binding.functionId,
+                              }
+                            : candidate,
+                        ),
+                      })
+                    }
+                  >
+                    {events.map((event) => (
+                      <option value={event.id} key={event.id}>
+                        {event.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className={styles.removeInkVariableBinding}
+                  onClick={() =>
+                    setExternalFunctionBindings(
+                      externalFunctionBindings.filter((_, item) => item !== index),
+                    )
+                  }
+                >
+                  Remove Mapping
+                </button>
+              </div>
+            ))}
             {data.sourceMode === 'embedded' ? (
               <PropertyField
                 label="Ink Source"
@@ -2683,6 +2835,15 @@ export function Inspector() {
                 </div>
               </>
             )}
+            <div className={styles.inkConversionActions}>
+              <button type="button" onClick={() => void convertInkBlockToNodes(node.id)}>
+                Convert to Nodes…
+              </button>
+              <span>
+                Converts the supported Ink profile into a preview. Unsupported syntax leaves the
+                original Ink Block unchanged.
+              </span>
+            </div>
             {inkSourceError && <div className={styles.warning}>{inkSourceError}</div>}
           </>
         );
@@ -2721,14 +2882,22 @@ export function Inspector() {
           : undefined;
         const indexedOutputType =
           selectedVariable?.valueType.kind === 'array'
-            ? selectedVariable.valueType.elementType ?? { kind: 'any' as const }
+            ? (selectedVariable.valueType.elementType ?? { kind: 'any' as const })
             : selectedVariable?.valueType.kind === 'map'
-              ? selectedVariable.valueType.valueType ?? { kind: 'any' as const }
+              ? (selectedVariable.valueType.valueType ?? { kind: 'any' as const })
               : { kind: 'any' as const };
         const fieldValueType = (field: EngineTypeDefinition['fields'][number]): ValueType => {
           const type = field.type;
-          if (type.kind === 'object') return { kind: 'json', name: type.typeName, nullable: field.nullable };
-          if (type.kind === 'array' || type.kind === 'map' || type.kind === 'boolean' || type.kind === 'number' || type.kind === 'string' || type.kind === 'any') {
+          if (type.kind === 'object')
+            return { kind: 'json', name: type.typeName, nullable: field.nullable };
+          if (
+            type.kind === 'array' ||
+            type.kind === 'map' ||
+            type.kind === 'boolean' ||
+            type.kind === 'number' ||
+            type.kind === 'string' ||
+            type.kind === 'any'
+          ) {
             return { kind: type.kind, nullable: field.nullable } as ValueType;
           }
           if (type.kind === 'enum') {
@@ -2802,10 +2971,17 @@ export function Inspector() {
                 })}
               </div>
             )}
-            {(selectedVariable?.valueType.kind === 'array' || selectedVariable?.valueType.kind === 'map') && (
+            {(selectedVariable?.valueType.kind === 'array' ||
+              selectedVariable?.valueType.kind === 'map') && (
               <PropertyField
                 label={selectedVariable.valueType.kind === 'array' ? 'Index' : 'Key'}
-                value={data.accessor?.kind === 'index' ? data.accessor.index.source : selectedVariable.valueType.kind === 'array' ? '0' : '"key"'}
+                value={
+                  data.accessor?.kind === 'index'
+                    ? data.accessor.index.source
+                    : selectedVariable.valueType.kind === 'array'
+                      ? '0'
+                      : '"key"'
+                }
                 variableMode="expression"
                 expectedType={
                   selectedVariable.valueType.kind === 'array' ||
@@ -2814,14 +2990,16 @@ export function Inspector() {
                     : { kind: 'number' }
                 }
                 onBeginEdit={checkpoint}
-                onChange={(source) => updateNodeData(node.id, StoryNodeType.GetVariable, {
-                  accessor: {
-                    kind: 'index',
-                    index: { source, bindings: {} },
-                    valueType: indexedOutputType,
-                  },
-                  outputValueType: indexedOutputType,
-                })}
+                onChange={(source) =>
+                  updateNodeData(node.id, StoryNodeType.GetVariable, {
+                    accessor: {
+                      kind: 'index',
+                      index: { source, bindings: {} },
+                      valueType: indexedOutputType,
+                    },
+                    outputValueType: indexedOutputType,
+                  })
+                }
               />
             )}
           </>
@@ -2837,7 +3015,7 @@ export function Inspector() {
         return (
           <>
             <label className={styles.field}>
-              <span>Project Event</span>
+              <span>External Function</span>
               <select
                 value={data.eventId ?? ''}
                 onChange={(event) => {
@@ -2866,7 +3044,7 @@ export function Inspector() {
                   });
                 }}
               >
-                <option value="">Select event…</option>
+                <option value="">Select external function…</option>
                 {events.map((event) => (
                   <option value={event.id} key={event.id}>
                     {event.displayName}
@@ -2927,7 +3105,7 @@ export function Inspector() {
             <div className={styles.info}>
               {(selectedEvent?.outputs?.length ?? 0) > 0
                 ? 'Waits for the engine result, validates every return value, then continues.'
-                : 'Dispatches the event to the engine and continues when the adapter resolves.'}
+                : 'Calls the external function in the engine and continues when the adapter resolves.'}
             </div>
           </>
         );

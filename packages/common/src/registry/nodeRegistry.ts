@@ -183,7 +183,13 @@ export class NodeRegistry {
       color: '#36b5a3',
       inputs: [
         { id: 'in', label: 'Prev', kind: 'execution', direction: 'input' },
-        { id: 'value', label: 'Value', kind: 'data', direction: 'input', valueType: { kind: 'any' } },
+        {
+          id: 'value',
+          label: 'Value',
+          kind: 'data',
+          direction: 'input',
+          valueType: { kind: 'any' },
+        },
         { id: 'key', label: 'Key', kind: 'data', direction: 'input', valueType: { kind: 'any' } },
       ],
       inputValueTypeProperties: { value: 'valueInputType', key: 'keyInputType' },
@@ -194,7 +200,7 @@ export class NodeRegistry {
     this.register<StoryNodeType.CallEvent>({
       type: StoryNodeType.CallEvent,
       version: 1,
-      label: 'Call Event',
+      label: 'Call External Function',
       category: 'logic',
       color: '#d979b5',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],

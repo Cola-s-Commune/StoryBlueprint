@@ -6,6 +6,7 @@ export type {
   DialogueRequest,
   ChoiceRequest,
   EventRequest,
+  ExternalFunctionRequest,
   EventResult,
   SignalRequest,
   SignalPayload,

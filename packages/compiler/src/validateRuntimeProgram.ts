@@ -144,6 +144,26 @@ export function validateRuntimeProgram(program: RuntimeProgram): readonly Compil
             });
           }
         }
+        const externalNames = new Set<string>();
+        for (const binding of instruction.externalFunctionBindings ?? []) {
+          if (externalNames.has(binding.inkName)) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Ink instruction ${instruction.id} repeats external function ${binding.inkName}`,
+              path: instructionPath,
+            });
+          }
+          externalNames.add(binding.inkName);
+          if (binding.parameterNames.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Ink instruction ${instruction.id} has an invalid external parameter name`,
+              path: instructionPath,
+            });
+          }
+        }
       }
 
       if (instruction.op === 'call-chapter') {

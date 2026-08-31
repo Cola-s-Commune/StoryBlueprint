@@ -25,6 +25,7 @@ export type CompilerDiagnosticCode =
   | 'MISSING_CONNECTION'
   | 'EXPRESSION_ERROR'
   | 'INVALID_NODE'
+  | 'INK_WARNING'
   | 'DANGLING_EDGE'
   | 'UNREACHABLE_NODE'
   | 'MULTIPLE_ENTRY_NODES'

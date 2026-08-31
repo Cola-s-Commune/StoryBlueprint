@@ -17,7 +17,13 @@ import {
   type SourceNode,
   type StorySourceDocument,
 } from '../types/source';
-import { runtimeValueMatchesType, type RuntimeValue, type ValueType, type VariableDefinition, type VariableScope } from '../types/values';
+import {
+  runtimeValueMatchesType,
+  type RuntimeValue,
+  type ValueType,
+  type VariableDefinition,
+  type VariableScope,
+} from '../types/values';
 
 export class StoryFormatError extends Error {
   constructor(message: string) {
@@ -204,6 +210,14 @@ function serializeSourceNode(source: SourceNode): Node {
         );
         bindingNode.addArgument(binding.variableId);
         bindingNode.setProperty('direction', binding.direction);
+        target.appendNode(bindingNode);
+      }
+      for (const binding of ink.externalFunctionBindings ?? []) {
+        const bindingNode = Node.create('external-function-binding');
+        bindingNode.addArgument(
+          requiredString(binding.inkName, `${source.id}.external-function-binding.ink-name`),
+        );
+        bindingNode.addArgument(binding.functionId);
         target.appendNode(bindingNode);
       }
       break;
@@ -413,7 +427,8 @@ function valueTypeName(valueType: ValueType): string {
   ) {
     return valueType.kind;
   }
-  if (valueType.kind === 'array') return `array:${JSON.stringify(valueType.elementType ?? { kind: 'any' })}`;
+  if (valueType.kind === 'array')
+    return `array:${JSON.stringify(valueType.elementType ?? { kind: 'any' })}`;
   if (valueType.kind === 'map')
     return `map:${JSON.stringify({ keyType: valueType.keyType ?? 'string', valueType: valueType.valueType ?? { kind: 'any' } })}`;
   if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
@@ -724,7 +739,7 @@ function parseSourceNode(
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Dialogue]: ['line'],
-    [StoryNodeType.InkBlock]: ['variable-binding'],
+    [StoryNodeType.InkBlock]: ['variable-binding', 'external-function-binding'],
     [StoryNodeType.Choice]: ['option', 'binding'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: ['binding'],
@@ -823,6 +838,26 @@ function parseSourceNode(
             direction,
           };
         });
+      const externalFunctionBindings = node
+        .findNodesByName('external-function-binding')
+        .map((bindingNode, index) => {
+          assertShape(bindingNode, `${id}.external-function-binding[${index}]`, {
+            arguments: 2,
+            properties: [],
+            children: [],
+          });
+          return {
+            inkName: requiredString(
+              bindingNode.getArgument(0),
+              `${id}.external-function-binding[${index}].ink-name`,
+            ),
+            functionId: requiredId(
+              bindingNode.getArgument(1),
+              'event',
+              `${id}.external-function-binding[${index}].function-id`,
+            ),
+          };
+        });
       data =
         sourceMode === 'embedded'
           ? {
@@ -830,12 +865,14 @@ function parseSourceNode(
               source: requiredString(node.getProperty('source'), `${id}.source`),
               entryKnot: optionalString(node.getProperty('entry-knot'), `${id}.entry-knot`),
               ...(variableBindings.length > 0 ? { variableBindings } : {}),
+              ...(externalFunctionBindings.length > 0 ? { externalFunctionBindings } : {}),
             }
           : {
               sourceMode,
               path: requiredString(node.getProperty('path'), `${id}.path`),
               entryKnot: optionalString(node.getProperty('entry-knot'), `${id}.entry-knot`),
               ...(variableBindings.length > 0 ? { variableBindings } : {}),
+              ...(externalFunctionBindings.length > 0 ? { externalFunctionBindings } : {}),
             };
       break;
     }
@@ -906,10 +943,7 @@ function parseSourceNode(
             'engineField',
             `${id}.output-field[${index}].id`,
           ),
-          member: requiredString(
-            fieldNode.getArgument(1),
-            `${id}.output-field[${index}].member`,
-          ),
+          member: requiredString(fieldNode.getArgument(1), `${id}.output-field[${index}].member`),
           displayName: requiredString(
             fieldNode.getProperty('display-name'),
             `${id}.output-field[${index}].display-name`,
@@ -957,10 +991,7 @@ function parseSourceNode(
           : undefined,
         value: expressionSource(node.getProperty('value'), `${id}.value`, node, 'value'),
         containerOperation: node.getProperty('container-operation') as
-          | 'append'
-          | 'set-entry'
-          | 'set-field'
-          | undefined,
+          'append' | 'set-entry' | 'set-field' | undefined,
         key:
           node.getProperty('key') === undefined
             ? undefined
@@ -1227,11 +1258,7 @@ function parseValueType(value: unknown, path: string): ValueType {
 }
 
 function parseVariableDefault(valueType: ValueType, value: unknown, path: string): RuntimeValue {
-  if (
-    valueType.kind === 'json' ||
-    valueType.kind === 'array' ||
-    valueType.kind === 'map'
-  ) {
+  if (valueType.kind === 'json' || valueType.kind === 'array' || valueType.kind === 'map') {
     if (typeof value !== 'string') throw new StoryFormatError(`${path} must contain JSON text`);
     try {
       const parsed = JSON.parse(value) as RuntimeValue;
