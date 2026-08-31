@@ -4,6 +4,7 @@ import {
   type BranchNodeData,
   type CallSubstoryNodeData,
   type ChapterParameter,
+  type ConditionId,
   type CallEventNodeData,
   type WaitSignalNodeData,
   type ChoiceNodeData,
@@ -2397,6 +2398,7 @@ export function Inspector() {
     inkSources,
     events,
     signals,
+    conditions,
     engineTypes,
     chapters,
     activeGraphId,
@@ -2541,8 +2543,7 @@ export function Inspector() {
         ].filter((variable) => scalarKinds.includes(variable.valueType.kind));
         const variableBindings = [...(data.variableBindings ?? [])];
         const externalFunctionBindings = [...(data.externalFunctionBindings ?? [])];
-        const inkSource =
-          data.sourceMode === 'embedded' ? data.source : inkSources[data.path];
+        const inkSource = data.sourceMode === 'embedded' ? data.source : inkSources[data.path];
         const externalDeclarations = scanInkExternalDeclarations(inkSource);
         const setVariableBindings = (next: typeof variableBindings) => {
           checkpoint();
@@ -2587,8 +2588,9 @@ export function Inspector() {
             return;
           }
           const definition =
-            events.find((candidate) => candidate.parameters.length === declaration.parameterCount) ??
-            events[0]!;
+            events.find(
+              (candidate) => candidate.parameters.length === declaration.parameterCount,
+            ) ?? events[0]!;
           setExternalFunctionBindings([
             ...externalFunctionBindings,
             { inkName: declaration.name, functionId: definition.id },
@@ -2749,14 +2751,16 @@ export function Inspector() {
                     onChange={(event) =>
                       updateNodeData(node.id, StoryNodeType.InkBlock, {
                         externalFunctionBindings: externalFunctionBindings.map((candidate, item) =>
-                          item === index ? { ...candidate, inkName: event.target.value } : candidate,
+                          item === index
+                            ? { ...candidate, inkName: event.target.value }
+                            : candidate,
                         ),
                       })
                     }
                   >
-                    {!externalDeclarations.some((declaration) => declaration.name === binding.inkName) && (
-                      <option value={binding.inkName}>{binding.inkName} (not declared)</option>
-                    )}
+                    {!externalDeclarations.some(
+                      (declaration) => declaration.name === binding.inkName,
+                    ) && <option value={binding.inkName}>{binding.inkName} (not declared)</option>}
                     {externalDeclarations.map((declaration) => (
                       <option value={declaration.name} key={declaration.name}>
                         {declaration.name} ({declaration.parameterCount} parameter
@@ -2855,19 +2859,40 @@ export function Inspector() {
       case StoryNodeType.Branch: {
         const data = node.data as BranchNodeData;
         return (
-          <PropertyField
-            label="Boolean Expression"
-            value={data.condition.source}
-            multiline
-            variableMode="expression"
-            expectedType={{ kind: 'boolean' }}
-            onBeginEdit={checkpoint}
-            onChange={(source) =>
-              updateNodeData(node.id, StoryNodeType.Branch, {
-                condition: { source, bindings: {} },
-              })
-            }
-          />
+          <>
+            <label className={styles.field}>
+              <span>Condition Source</span>
+              <select
+                value={data.conditionId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateNodeData(node.id, StoryNodeType.Branch, {
+                    conditionId: (event.target.value || undefined) as ConditionId | undefined,
+                  });
+                }}
+              >
+                <option value="">Inline Expression</option>
+                {conditions.map((condition) => (
+                  <option key={condition.id} value={condition.id}>
+                    {condition.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PropertyField
+              label={data.conditionId ? 'Fallback Boolean Expression' : 'Boolean Expression'}
+              value={data.condition.source}
+              multiline
+              variableMode="expression"
+              expectedType={{ kind: 'boolean' }}
+              onBeginEdit={checkpoint}
+              onChange={(source) =>
+                updateNodeData(node.id, StoryNodeType.Branch, {
+                  condition: { source, bindings: {} },
+                })
+              }
+            />
+          </>
         );
       }
       case StoryNodeType.GetVariable: {

@@ -46,6 +46,7 @@ import {
   type StorySemanticSnapshot,
   type ChapterId,
   type ChapterSource,
+  type ConditionSource,
   type VariableId,
   type VariableDefinition,
   type ValueType,
@@ -53,6 +54,7 @@ import {
   type CharacterId,
   type CharacterSource,
   type CharacterTemplateSource,
+  type ConditionId,
   type AssetSource,
   type AssetId,
   type EventId,
@@ -231,6 +233,7 @@ interface EditorStoryWorkspaceItem extends EditorStoryResource {
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
+  conditions: ConditionSource[];
   revision: number;
 }
 
@@ -241,6 +244,7 @@ export type StoryDataSelection =
   | { kind: 'asset'; id: AssetId }
   | { kind: 'event'; id: EventId }
   | { kind: 'signal'; id: SignalId }
+  | { kind: 'condition'; id: import('@story-blueprint/common').ConditionId }
   | { kind: 'engine-type'; name: string };
 
 export interface EngineTypeMigrationPreview {
@@ -327,6 +331,7 @@ function editorStoryItemFromOpenedStory(
     variables: [...source.variables],
     characters: [...source.characters],
     assets: [...source.assets],
+    conditions: [...(source.conditions ?? [])],
     revision: recovered.dirty ? 1 : 0,
   };
 }
@@ -343,6 +348,7 @@ interface EditorHistoryState {
   variables: VariableDefinition[];
   characters: CharacterSource[];
   assets: AssetSource[];
+  conditions: ConditionSource[];
   projectResources: ProjectResourceSnapshot;
   workspaceStories: EditorStoryWorkspaceItem[];
   projectVariables: readonly VariableDefinition[];
@@ -472,6 +478,7 @@ interface StoryGraphStoreValue {
   assets: AssetSource[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  conditions: readonly ConditionSource[];
   engineTypes: readonly EngineTypeDefinition[];
   semanticSnapshot: StorySemanticSnapshot;
   executeBlueprintCommands: (
@@ -553,6 +560,9 @@ interface StoryGraphStoreValue {
   addSignal: (name?: string) => SignalId | undefined;
   updateSignal: (id: SignalId, update: Partial<SignalSource>) => void;
   removeSignal: (id: SignalId) => void;
+  addCondition: (name?: string) => ConditionId | undefined;
+  updateCondition: (id: ConditionId, update: Partial<ConditionSource>) => void;
+  removeCondition: (id: ConditionId) => void;
   addEngineType: (name?: string) => string | undefined;
   updateEngineType: (name: string, update: EngineTypeDefinition) => boolean;
   removeEngineType: (name: string) => void;
@@ -616,9 +626,7 @@ function linkedInkPaths(source: StorySourceDocument): string[] {
   return [...paths];
 }
 
-async function loadLinkedInkSources(
-  paths: Iterable<string>,
-): Promise<Record<string, string>> {
+async function loadLinkedInkSources(paths: Iterable<string>): Promise<Record<string, string>> {
   const api = window.electronAPI;
   if (!api) return {};
   const uniquePaths = new Set(paths);
@@ -678,9 +686,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         (change): change is Extract<NodeChange<EditorGraphNode>, { type: 'position' }> =>
           change.type === 'position' && change.dragging === false,
       );
-      const immediateChanges = changes.filter(
-        (change) => change.type !== 'position',
-      );
+      const immediateChanges = changes.filter((change) => change.type !== 'position');
 
       if (draggingChanges.length > 0) {
         const transaction = nodeDragTransactionRef.current;
@@ -720,6 +726,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [variables, setVariables] = useState<VariableDefinition[]>([]);
   const [characters, setCharacters] = useState<CharacterSource[]>([]);
   const [assets, setAssets] = useState<AssetSource[]>([]);
+  const [conditions, setConditions] = useState<ConditionSource[]>([]);
   const rootGraphRef = useRef<EditorGraphState>(structuredClone(initialGraph));
   const [chapters, setChapters] = useState<EditorChapter[]>([]);
   const [activeGraphId, setActiveGraphId] = useState<ActiveGraphId>('root');
@@ -813,6 +820,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
       characters,
       assets,
+      ...(conditions.length > 0 ? { conditions } : {}),
       events: [],
     }),
     [
@@ -820,6 +828,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets,
       chapters,
       characters,
+      conditions,
       document.displayName,
       document.id,
       document.name,
@@ -828,10 +837,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
   const [inkSources, setInkSources] = useState<Readonly<Record<string, string>>>({});
-  const linkedInkPathKey = useMemo(
-    () => linkedInkPaths(source).sort().join('\0'),
-    [source],
-  );
+  const linkedInkPathKey = useMemo(() => linkedInkPaths(source).sort().join('\0'), [source]);
   useEffect(() => {
     const paths = linkedInkPathKey ? linkedInkPathKey.split('\0') : [];
     if (paths.length === 0) {
@@ -863,6 +869,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       events,
       signals,
       engineTypes,
+      conditions,
       characterTemplates: [
         ...BUILTIN_CHARACTER_TEMPLATES,
         ...(workspace?.characterTemplates.map((item) => item.template) ?? []),
@@ -874,6 +881,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       resolvedAssets,
       resolvedCharacters,
       signals,
+      conditions,
       workspace?.characterTemplates,
     ],
   );
@@ -1188,6 +1196,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           variables,
           characters: resolvedCharacters,
           assets,
+          conditions: structuredClone(conditions),
           projectResources: projectResourceSnapshot,
           workspaceStories,
           projectVariables,
@@ -1215,6 +1224,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       activeGraphId,
       assets,
       chapters,
+      conditions,
       document,
       events,
       graph,
@@ -1398,6 +1408,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables,
       characters: resolvedCharacters,
       assets,
+      conditions: structuredClone(conditions),
       projectResources: projectResourceSnapshot,
       workspaceStories,
       projectVariables,
@@ -1426,6 +1437,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       events,
       graph,
       hasActiveStory,
+      conditions,
       projectResourceSnapshot,
       projectVariables,
       resolvedCharacters,
@@ -1448,6 +1460,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setVariables(next.variables);
       restoreCharactersFromHistory(next.characters, next.projectResources);
       setAssets(structuredClone(next.assets));
+      setConditions(structuredClone(next.conditions));
       setWorkspaceStories(structuredClone(next.workspaceStories));
       const targetStoryFiles = new Map(
         next.storyFiles.map((file) => [file.relativePath, file.content]),
@@ -1882,8 +1895,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       const node = graph.nodes.find((candidate) => candidate.id === nodeId);
       if (!node || node.type !== StoryNodeType.InkBlock) return;
       const data = node.data as InkBlockNodeData;
-      const sourceLabel =
-        data.sourceMode === 'linked' ? data.path : 'Embedded Ink Block';
+      const sourceLabel = data.sourceMode === 'linked' ? data.path : 'Embedded Ink Block';
       let inkSource: string | undefined;
       if (data.sourceMode === 'embedded') {
         inkSource = data.source;
@@ -3627,6 +3639,103 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [checkpoint, signals, writeProjectSignals],
   );
 
+  const addCondition = useCallback(
+    (requestedName?: string): ConditionId | undefined => {
+      if (!hasActiveStory) {
+        setWorkspaceError('Open or create a Story before adding conditions.');
+        return undefined;
+      }
+      const used = new Set(conditions.map((condition) => condition.name));
+      let index = conditions.length + 1;
+      let name = requestedName?.trim() || `condition${index}`;
+      while (used.has(name)) name = `condition${++index}`;
+      const id = createStableId('condition');
+      checkpoint(undefined, 'Add Condition');
+      setConditions((current) => [
+        ...current,
+        {
+          id,
+          name,
+          displayName: name,
+          root: { kind: 'expression', expression: { source: 'true', bindings: {} } },
+        },
+      ]);
+      markDirty();
+      return id;
+    },
+    [conditions, hasActiveStory, markDirty, checkpoint],
+  );
+
+  const updateCondition = useCallback(
+    (id: ConditionId, update: Partial<ConditionSource>) => {
+      const previous = conditions.find((condition) => condition.id === id);
+      if (!previous) return;
+      const nextName = update.name?.trim();
+      if (
+        nextName &&
+        conditions.some((condition) => condition.id !== id && condition.name === nextName)
+      ) {
+        setWorkspaceError(`Condition name already exists: ${nextName}`);
+        return;
+      }
+      checkpoint(undefined, 'Edit Condition');
+      setConditions((current) =>
+        current.map((condition) =>
+          condition.id === id
+            ? {
+                ...condition,
+                ...update,
+                ...(nextName ? { name: nextName } : {}),
+                ...(nextName && update.displayName === undefined ? { displayName: nextName } : {}),
+                id,
+              }
+            : condition,
+        ),
+      );
+      markDirty();
+    },
+    [conditions, markDirty, checkpoint],
+  );
+
+  const removeCondition = useCallback(
+    (id: ConditionId) => {
+      const condition = conditions.find((candidate) => candidate.id === id);
+      if (!condition) return;
+      const treeUses = (tree: import('@story-blueprint/common').ConditionTreeNode): boolean => {
+        if (tree.kind === 'reference') return tree.conditionId === id;
+        if (tree.kind === 'not') return treeUses(tree.child);
+        if (tree.kind === 'all' || tree.kind === 'any') return tree.children.some(treeUses);
+        return false;
+      };
+      const branchUses = currentStoryItemsRef
+        .current()
+        .some((story) =>
+          [story.rootGraph, ...story.chapters.map((chapter) => chapter.graph)].some((candidate) =>
+            candidate.nodes.some(
+              (node) =>
+                node.type === StoryNodeType.Branch &&
+                (node.data as StoryNodeDataMap[StoryNodeType.Branch]).conditionId === id,
+            ),
+          ),
+        );
+      const conditionUses = conditions.some(
+        (candidate) => candidate.id !== id && treeUses(candidate.root),
+      );
+      if (branchUses || conditionUses) {
+        setWorkspaceError('Condition is still referenced. Remove its references first.');
+        return;
+      }
+      if (!window.confirm(`Delete condition "${condition.displayName}"?`)) return;
+      checkpoint(undefined, 'Delete Condition');
+      setStoryDataSelection((current) =>
+        current?.kind === 'condition' && current.id === id ? undefined : current,
+      );
+      setConditions((current) => current.filter((candidate) => candidate.id !== id));
+      markDirty();
+    },
+    [conditions, markDirty, checkpoint],
+  );
+
   const writeEngineTypes = useCallback(
     (
       nextEngineTypes: readonly EngineTypeDefinition[],
@@ -3846,12 +3955,12 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               const variable = visibleVariables.find((item) => item.id === data.variableId);
               if (variable?.valueType.kind !== 'json' || !data.exposedFields?.length) return node;
               const engineTypeName = variable.valueType.name;
-              const definition = nextEngineTypes.find(
-                (item) => item.name === engineTypeName,
-              );
+              const definition = nextEngineTypes.find((item) => item.name === engineTypeName);
               if (!definition) return node;
               const exposedFields = data.exposedFields.flatMap((exposed) => {
-                const field = definition.fields.find((candidate) => candidate.id === exposed.fieldId);
+                const field = definition.fields.find(
+                  (candidate) => candidate.id === exposed.fieldId,
+                );
                 if (!field) return [];
                 const type = field.type;
                 const valueType: ValueType =
@@ -3872,12 +3981,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                             nullable: field.nullable,
                           }
                         : { kind: 'string', nullable: field.nullable };
-                return [{
-                  fieldId: field.id,
-                  member: field.name,
-                  displayName: field.displayName,
-                  valueType,
-                }];
+                return [
+                  {
+                    fieldId: field.id,
+                    member: field.name,
+                    displayName: field.displayName,
+                    valueType,
+                  },
+                ];
               });
               return JSON.stringify(exposedFields) === JSON.stringify(data.exposedFields)
                 ? node
@@ -3892,9 +4003,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 data.fieldId
               ) {
                 const engineTypeName = variable.valueType.name;
-                const definition = nextEngineTypes.find(
-                  (item) => item.name === engineTypeName,
-                );
+                const definition = nextEngineTypes.find((item) => item.name === engineTypeName);
                 const field = definition?.fields.find((candidate) => candidate.id === data.fieldId);
                 if (!field) {
                   return {
@@ -4296,9 +4405,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables: structuredClone(variables),
       characters: structuredClone(characters),
       assets: structuredClone(assets),
+      conditions: structuredClone(conditions),
       revision: revisionRef.current,
     }),
-    [activeGraphId, assets, chapters, characters, document, graph, variables],
+    [activeGraphId, assets, chapters, characters, conditions, document, graph, variables],
   );
 
   const storyItemToSource = useCallback(
@@ -4316,6 +4426,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables: story.variables,
       characters: story.characters,
       assets: story.assets,
+      ...(story.conditions.length > 0 ? { conditions: story.conditions } : {}),
       events: [],
     }),
     [],
@@ -4472,6 +4583,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setVariables([]);
       setCharacters([]);
       setAssets([]);
+      setConditions([]);
       setActiveGraphId('root');
       setDocument(initialDocument);
       setHasActiveStory(false);
@@ -4508,6 +4620,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setVariables(structuredClone(story.variables));
       setCharacters(structuredClone(story.characters));
       setAssets(structuredClone(story.assets));
+      setConditions(structuredClone(story.conditions));
       setDocument({ ...story.document });
       setHasActiveStory(true);
       revisionRef.current = story.revision;
@@ -4670,6 +4783,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       variables: [],
       characters: [],
       assets: [],
+      conditions: [],
       revision: 1,
     };
     checkpoint(undefined, 'New Story');
@@ -4708,6 +4822,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         variables: [...source.variables],
         characters: [...source.characters],
         assets: [...source.assets],
+        conditions: [...(source.conditions ?? [])],
         revision: recovered.dirty ? 1 : 0,
       };
     },
@@ -4806,6 +4921,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           variables: structuredClone(diskItem.variables),
           characters: structuredClone(diskItem.characters),
           assets: structuredClone(diskItem.assets),
+          conditions: structuredClone(diskItem.conditions),
           projectResources: structuredClone(projectResourceSnapshot),
           workspaceStories: structuredClone(workspaceStories),
           projectVariables: structuredClone(projectVariables),
@@ -6040,6 +6156,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       assets: resolvedAssets,
       events,
       signals,
+      conditions,
       semanticSnapshot,
       executeBlueprintCommands,
       storyDataSelection,
@@ -6088,6 +6205,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addSignal,
       updateSignal,
       removeSignal,
+      addCondition,
+      updateCondition,
+      removeCondition,
       engineTypes,
       addEngineType,
       updateEngineType,
@@ -6192,6 +6312,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       addAsset,
       addEvent,
       addSignal,
+      addCondition,
       addEngineType,
       cancelEngineTypeMigration,
       addSubstory,
@@ -6266,6 +6387,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       removeAsset,
       removeEvent,
       removeSignal,
+      removeCondition,
       removeSubstory,
       removeVariable,
       restoreGraph,
@@ -6310,6 +6432,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       updateAsset,
       updateEvent,
       updateSignal,
+      updateCondition,
       updateNode,
       updateNodeData,
       updateSubstory,
@@ -6322,6 +6445,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       engineTypes,
       engineTypeMigrationPreview,
       signals,
+      conditions,
       removeEngineType,
       confirmEngineTypeMigration,
       updateEngineType,

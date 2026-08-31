@@ -4,6 +4,7 @@ import type { NodePort, StoryNodeDataMap, StoryNodeType } from '../types/nodes';
 import type {
   AssetSource,
   CharacterSource,
+  ConditionSource,
   EventSource,
   SignalSource,
   SourceGraph,
@@ -62,6 +63,7 @@ export interface StorySemanticSnapshot {
   assets: readonly AssetSource[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
+  conditions: readonly ConditionSource[];
   engineTypes?: readonly EngineTypeDefinition[];
   graphs: readonly SemanticGraph[];
 }
@@ -127,6 +129,7 @@ export function createStorySemanticSnapshot(
     assets: clone(source.assets),
     events: clone(source.events),
     signals: clone(source.signals ?? []),
+    conditions: clone(source.conditions ?? []),
     ...(engineTypes?.length ? { engineTypes: clone(engineTypes) } : {}),
     graphs: [
       semanticGraph(source.root, {

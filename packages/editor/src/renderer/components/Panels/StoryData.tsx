@@ -12,6 +12,7 @@ import {
 import type {
   CharacterSource,
   CharacterId,
+  ConditionSource,
   EventSource,
   EngineFieldType,
   EngineMapKeyType,
@@ -4682,6 +4683,85 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
   );
 }
 
+function ConditionEditor({ condition }: { condition: ConditionSource }) {
+  const { conditions, workspaceError, updateCondition, removeCondition } = useStoryGraphStore();
+  const duplicate = conditions.some(
+    (candidate) => candidate.id !== condition.id && candidate.name === condition.name,
+  );
+  const rootExpression =
+    condition.root.kind === 'expression' ? condition.root.expression.source : undefined;
+  return (
+    <div
+      className={styles.details}
+      onKeyDown={stopInspectorEvent}
+      onKeyUp={stopInspectorEvent}
+      onPointerDown={stopInspectorEvent}
+      onMouseDown={stopInspectorEvent}
+      onWheel={stopInspectorEvent}
+    >
+      <div className={styles.detailsTitle}>Condition</div>
+      <label>
+        <span>Name</span>
+        <ScriptNameInput
+          value={condition.name}
+          onCommit={(name) => updateCondition(condition.id, { name, displayName: name })}
+        />
+      </label>
+      {duplicate && <div className={styles.warning}>Name must be unique.</div>}
+      <label>
+        <span>Display Name</span>
+        <CommitInput
+          value={condition.displayName}
+          onCommit={(displayName) => updateCondition(condition.id, { displayName })}
+        />
+      </label>
+      <CommitTextarea
+        label="Description"
+        rows={3}
+        value={condition.description ?? ''}
+        saveError={workspaceError}
+        placeholder="Explain when this condition is true."
+        onCommit={(description) =>
+          updateCondition(condition.id, { description: description || undefined })
+        }
+      />
+      {rootExpression !== undefined ? (
+        <CommitTextarea
+          label="Boolean Expression"
+          rows={5}
+          value={rootExpression}
+          saveError={workspaceError}
+          placeholder="gold >= 1 && trust > 0"
+          onCommit={(source) =>
+            updateCondition(condition.id, {
+              root: {
+                kind: 'expression',
+                expression: {
+                  source,
+                  bindings:
+                    condition.root.kind === 'expression' ? condition.root.expression.bindings : {},
+                },
+              },
+            })
+          }
+        />
+      ) : (
+        <div className={styles.infoText}>
+          This condition uses a tree. Tree editing will preserve its structure while you edit each
+          leaf.
+        </div>
+      )}
+      <button
+        className={styles.dangerButton}
+        type="button"
+        onClick={() => removeCondition(condition.id)}
+      >
+        Delete Condition
+      </button>
+    </div>
+  );
+}
+
 function eventSignature(event: EventSource): string {
   const parameters = event.parameters
     .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
@@ -4815,6 +4895,7 @@ export function StoryDataInspector() {
     assets,
     events,
     signals,
+    conditions,
     engineTypes,
   } = useStoryGraphStore();
   if (!storyDataSelection) return null;
@@ -4844,6 +4925,10 @@ export function StoryDataInspector() {
     const signal = signals.find((item) => item.id === storyDataSelection.id);
     return signal ? <SignalEditor signal={signal} /> : null;
   }
+  if (storyDataSelection.kind === 'condition') {
+    const condition = conditions.find((item) => item.id === storyDataSelection.id);
+    return condition ? <ConditionEditor condition={condition} /> : null;
+  }
   if (storyDataSelection.kind === 'engine-type') {
     const definition = engineTypes.find((item) => item.name === storyDataSelection.name);
     return definition ? <EngineTypeEditor definition={definition} /> : null;
@@ -4864,6 +4949,7 @@ export function StoryData() {
     assets,
     events,
     signals,
+    conditions,
     engineTypes,
     addVariable,
     addProjectVariable,
@@ -4876,6 +4962,7 @@ export function StoryData() {
     addAsset,
     addEvent,
     addSignal,
+    addCondition,
     addEngineType,
     checkpoint,
     storyDataSelection,
@@ -5197,6 +5284,35 @@ export function StoryData() {
                 >
                   S
                 </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {hasActiveStory && (
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span>Conditions</span>
+              <NamedCreateControl
+                title="Add condition"
+                placeholder="Condition name"
+                existingNames={conditions.map((condition) => condition.name)}
+                onCreate={(name) => {
+                  const id = addCondition(name);
+                  if (id) selectStoryData({ kind: 'condition', id });
+                }}
+              />
+            </div>
+            {conditions.length === 0 && <div className={styles.empty}>No conditions</div>}
+            {conditions.map((condition) => (
+              <div
+                key={condition.id}
+                className={`${styles.item} ${storyDataSelection?.kind === 'condition' && storyDataSelection.id === condition.id ? styles.selected : ''}`}
+                onClick={() => selectStoryData({ kind: 'condition', id: condition.id })}
+              >
+                <span className={`${styles.typeDot} ${styles.boolean}`} />
+                <span className={styles.itemName}>{condition.displayName}</span>
+                <span className={styles.itemType}>Condition</span>
               </div>
             ))}
           </section>

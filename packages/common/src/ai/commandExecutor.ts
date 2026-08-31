@@ -89,6 +89,7 @@ export interface BlueprintSemanticContext {
   assets: StorySourceDocument['assets'];
   events: StorySourceDocument['events'];
   signals: NonNullable<StorySourceDocument['signals']>;
+  conditions?: NonNullable<StorySourceDocument['conditions']>;
   characterTemplates?: readonly CharacterTemplateSource[];
   engineTypes?: readonly import('../types/project').EngineTypeDefinition[];
 }
@@ -110,6 +111,7 @@ function withSemanticContext(
         assets: context.assets,
         events: context.events,
         signals: context.signals,
+        conditions: context.conditions ?? source.conditions,
       }
     : source;
 }

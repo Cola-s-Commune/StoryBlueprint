@@ -137,6 +137,7 @@ export {
   type ExternalFunctionId,
   type ExternalFunctionOutputId,
   type SignalId,
+  type ConditionId,
   type EngineTypeId,
   type EngineFieldId,
   type DialogueLineId,
