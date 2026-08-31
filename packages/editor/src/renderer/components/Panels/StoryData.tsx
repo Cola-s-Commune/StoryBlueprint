@@ -12,6 +12,7 @@ import {
 import type {
   CharacterSource,
   CharacterId,
+  ConditionTreeNode,
   ConditionSource,
   EventSource,
   EngineFieldType,
@@ -4683,13 +4684,197 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
   );
 }
 
+function newConditionTreeNode(
+  kind: ConditionTreeNode['kind'],
+  referenceId?: ConditionSource['id'],
+): ConditionTreeNode {
+  switch (kind) {
+    case 'all':
+      return { kind, children: [] };
+    case 'any':
+      return { kind, children: [] };
+    case 'not':
+      return {
+        kind,
+        child: { kind: 'expression', expression: { source: 'true', bindings: {} } },
+      };
+    case 'reference':
+      return { kind, conditionId: referenceId ?? ('' as ConditionSource['id']) };
+    case 'expression':
+      return { kind, expression: { source: 'true', bindings: {} } };
+  }
+}
+
+function ConditionTreeEditor({
+  node,
+  ownerId,
+  conditions,
+  depth = 0,
+  onChange,
+  onRemove,
+}: {
+  node: ConditionTreeNode;
+  ownerId: ConditionSource['id'];
+  conditions: readonly ConditionSource[];
+  depth?: number;
+  onChange: (node: ConditionTreeNode) => void;
+  onRemove?: () => void;
+}) {
+  const referenceOptions = conditions.filter((candidate) => candidate.id !== ownerId);
+  const updateChild = (index: number, child: ConditionTreeNode) => {
+    if (node.kind !== 'all' && node.kind !== 'any') return;
+    onChange({
+      ...node,
+      children: node.children.map((candidate, childIndex) =>
+        childIndex === index ? child : candidate,
+      ),
+    });
+  };
+  const kindLabel =
+    node.kind === 'expression'
+      ? 'Expression'
+      : node.kind === 'reference'
+        ? 'Condition Reference'
+        : node.kind === 'not'
+          ? 'Not'
+          : node.kind === 'all'
+            ? 'All (AND)'
+            : 'Any (OR)';
+  return (
+    <div className={styles.conditionTreeNode} data-depth={depth}>
+      <div className={styles.conditionTreeNodeHeader}>
+        <span className={styles.conditionTreeNodeKind}>{kindLabel}</span>
+        <select
+          aria-label="Condition node type"
+          value={node.kind}
+          onChange={(event) => {
+            const nextKind = event.target.value as ConditionTreeNode['kind'];
+            if (nextKind === node.kind) return;
+            if (nextKind === 'reference' && referenceOptions.length === 0) return;
+            onChange(
+              newConditionTreeNode(
+                nextKind,
+                nextKind === 'reference' ? referenceOptions[0]?.id : undefined,
+              ),
+            );
+          }}
+        >
+          <option value="expression">Expression</option>
+          <option value="all">All (AND)</option>
+          <option value="any">Any (OR)</option>
+          <option value="not">Not</option>
+          <option value="reference" disabled={referenceOptions.length === 0}>
+            Condition Reference
+          </option>
+        </select>
+        {onRemove && (
+          <button type="button" title="Remove condition node" onClick={onRemove}>
+            ×
+          </button>
+        )}
+      </div>
+      {node.kind === 'expression' && (
+        <CommitTextarea
+          label="Boolean Expression"
+          rows={2}
+          value={node.expression.source}
+          placeholder="gold >= 1 && trust > 0"
+          onCommit={(source) =>
+            onChange({
+              kind: 'expression',
+              expression: { ...node.expression, source },
+            })
+          }
+        />
+      )}
+      {node.kind === 'reference' && (
+        <label>
+          <span>Referenced Condition</span>
+          <select
+            value={node.conditionId}
+            disabled={referenceOptions.length === 0}
+            onChange={(event) =>
+              onChange({
+                kind: 'reference',
+                conditionId: event.target.value as ConditionSource['id'],
+              })
+            }
+          >
+            {referenceOptions.length === 0 ? (
+              <option value="">No other conditions available</option>
+            ) : (
+              referenceOptions.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.displayName}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+      )}
+      {node.kind === 'not' && (
+        <div className={styles.conditionTreeChildren}>
+          <ConditionTreeEditor
+            node={node.child}
+            ownerId={ownerId}
+            conditions={conditions}
+            depth={depth + 1}
+            onChange={(child) => onChange({ kind: 'not', child })}
+          />
+        </div>
+      )}
+      {(node.kind === 'all' || node.kind === 'any') && (
+        <>
+          <div className={styles.conditionTreeChildren}>
+            {node.children.length === 0 && (
+              <div className={styles.conditionTreeEmpty}>
+                No child conditions. An empty {node.kind === 'all' ? 'All' : 'Any'} evaluates to{' '}
+                {node.kind === 'all' ? 'true' : 'false'}.
+              </div>
+            )}
+            {node.children.map((child, index) => (
+              <ConditionTreeEditor
+                key={index}
+                node={child}
+                ownerId={ownerId}
+                conditions={conditions}
+                depth={depth + 1}
+                onChange={(nextChild) => updateChild(index, nextChild)}
+                onRemove={() =>
+                  onChange({
+                    ...node,
+                    children: node.children.filter((_, childIndex) => childIndex !== index),
+                  })
+                }
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className={styles.conditionTreeAdd}
+            onClick={() =>
+              onChange({
+                ...node,
+                children: [
+                  ...node.children,
+                  { kind: 'expression', expression: { source: 'true', bindings: {} } },
+                ],
+              })
+            }
+          >
+            + Add child condition
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ConditionEditor({ condition }: { condition: ConditionSource }) {
   const { conditions, workspaceError, updateCondition, removeCondition } = useStoryGraphStore();
   const duplicate = conditions.some(
     (candidate) => candidate.id !== condition.id && candidate.name === condition.name,
   );
-  const rootExpression =
-    condition.root.kind === 'expression' ? condition.root.expression.source : undefined;
   return (
     <div
       className={styles.details}
@@ -4725,32 +4910,16 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
           updateCondition(condition.id, { description: description || undefined })
         }
       />
-      {rootExpression !== undefined ? (
-        <CommitTextarea
-          label="Boolean Expression"
-          rows={5}
-          value={rootExpression}
-          saveError={workspaceError}
-          placeholder="gold >= 1 && trust > 0"
-          onCommit={(source) =>
-            updateCondition(condition.id, {
-              root: {
-                kind: 'expression',
-                expression: {
-                  source,
-                  bindings:
-                    condition.root.kind === 'expression' ? condition.root.expression.bindings : {},
-                },
-              },
-            })
-          }
+      <div className={styles.conditionTreeSection}>
+        <div className={styles.conditionTreeTitle}>Condition Tree</div>
+        <ConditionTreeEditor
+          node={condition.root}
+          ownerId={condition.id}
+          conditions={conditions}
+          onChange={(root) => updateCondition(condition.id, { root })}
         />
-      ) : (
-        <div className={styles.infoText}>
-          This condition uses a tree. Tree editing will preserve its structure while you edit each
-          leaf.
-        </div>
-      )}
+      </div>
+      {workspaceError && <div className={styles.warning}>{workspaceError}</div>}
       <button
         className={styles.dangerButton}
         type="button"

@@ -667,6 +667,89 @@
   font-size: 10px;
 }
 
+.conditionTreeSection {
+  display: grid;
+  gap: 6px;
+  padding-top: 5px;
+  border-top: 1px solid #343d46;
+}
+
+.conditionTreeTitle {
+  color: #8d99a5;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.conditionTreeNode {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid #3b4651;
+  border-radius: 5px;
+  background: #20272e;
+}
+
+.conditionTreeNodeHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 5px;
+}
+
+.conditionTreeNodeHeader select {
+  min-width: 0;
+}
+
+.conditionTreeNodeHeader button {
+  width: 24px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid #594047;
+  border-radius: 4px;
+  background: #30262b;
+  color: #e39a9f;
+  cursor: pointer;
+  font: inherit;
+}
+
+.conditionTreeNodeKind {
+  display: none;
+}
+
+.conditionTreeChildren {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 2px solid #3e596f;
+}
+
+.conditionTreeEmpty {
+  padding: 5px 2px;
+  color: #74808c;
+  font-size: 10px;
+}
+
+.conditionTreeAdd {
+  justify-self: start;
+  padding: 4px 7px;
+  border: 1px solid #465563;
+  border-radius: 4px;
+  background: #27333e;
+  color: #b9c8d5;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.conditionTreeAdd:hover {
+  border-color: #5a7890;
+  color: #d2e3ef;
+}
+
 .eventTableDetails {
   display: grid;
   gap: 12px;
