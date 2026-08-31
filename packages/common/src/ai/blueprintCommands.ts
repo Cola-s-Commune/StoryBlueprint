@@ -8,7 +8,7 @@ import type {
   VariableId,
 } from '../types/ids';
 import type { DialogueLine, StoryNodeDataMap, StoryNodeType } from '../types/nodes';
-import type { CharacterSource } from '../types/source';
+import type { CharacterSource, ConditionSource, ConditionTreeNode } from '../types/source';
 import type { RuntimeValue, ValueType, VariableDefinition, VariableScope } from '../types/values';
 
 export const BLUEPRINT_COMMAND_FORMAT = 'story-blueprint-commands' as const;
@@ -89,6 +89,27 @@ export interface UpdateVariableCommand extends BlueprintCommandBase {
     valueType?: ValueType;
     defaultValue?: RuntimeValue;
   };
+}
+
+export interface AddConditionCommand extends BlueprintCommandBase {
+  kind: 'add-condition';
+  condition: ConditionSource;
+}
+
+export interface UpdateConditionCommand extends BlueprintCommandBase {
+  kind: 'update-condition';
+  conditionId: ConditionSource['id'];
+  patch: {
+    name?: string;
+    displayName?: string;
+    description?: string | null;
+    root?: ConditionTreeNode;
+  };
+}
+
+export interface RemoveConditionCommand extends BlueprintCommandBase {
+  kind: 'remove-condition';
+  conditionId: ConditionSource['id'];
 }
 
 type DialogueLineInput = Omit<DialogueLine, 'text'> & { text: string };
@@ -237,6 +258,9 @@ export type BlueprintCommand =
   | DisconnectNodesCommand
   | AddVariableCommand
   | UpdateVariableCommand
+  | AddConditionCommand
+  | UpdateConditionCommand
+  | RemoveConditionCommand
   | AddCharacterCommand
   | AddCharacterFromTemplateCommand
   | UpdateCharacterCommand
@@ -268,6 +292,8 @@ export type BlueprintCommandDiagnosticCode =
   | 'DUPLICATE_NODE_ID'
   | 'UNKNOWN_VARIABLE'
   | 'DUPLICATE_VARIABLE_ID'
+  | 'UNKNOWN_CONDITION'
+  | 'DUPLICATE_CONDITION_ID'
   | 'UNKNOWN_CHARACTER'
   | 'DUPLICATE_CHARACTER_ID'
   | 'UNKNOWN_LINE'

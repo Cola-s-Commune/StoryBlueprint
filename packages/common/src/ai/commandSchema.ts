@@ -8,6 +8,7 @@ const stableIdPatterns = {
   text: '^t_[a-z0-9][a-z0-9_-]{2,}$',
   option: '^o_[a-z0-9][a-z0-9_-]{2,}$',
   character: '^c_[a-z0-9][a-z0-9_-]{2,}$',
+  condition: '^cond_[a-z0-9][a-z0-9_-]{2,}$',
 } as const;
 
 const graph = { $ref: '#/$defs/graphTarget' } as const;
@@ -143,6 +144,29 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
               },
             },
             ['variableId', 'patch'],
+          ),
+          operation('add-condition', { condition: { $ref: '#/$defs/condition' } }, ['condition']),
+          operation(
+            'update-condition',
+            {
+              conditionId: { type: 'string', pattern: stableIdPatterns.condition },
+              patch: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  displayName: { type: 'string', minLength: 1 },
+                  description: { type: ['string', 'null'] },
+                  root: { $ref: '#/$defs/conditionTree' },
+                },
+              },
+            },
+            ['conditionId', 'patch'],
+          ),
+          operation(
+            'remove-condition',
+            { conditionId: { type: 'string', pattern: stableIdPatterns.condition } },
+            ['conditionId'],
           ),
           operation(
             'add-dialogue-line',
@@ -434,6 +458,70 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         scope: { enum: ['project', 'story', 'chapter', 'local'] },
         valueType: { $ref: '#/$defs/variableValueType' },
         defaultValue: { type: ['null', 'boolean', 'number', 'string', 'object', 'array'] },
+      },
+    },
+    conditionExpression: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['source', 'bindings'],
+      properties: {
+        source: { type: 'string' },
+        bindings: {
+          type: 'object',
+          additionalProperties: { type: 'string', pattern: stableIdPatterns.variable },
+        },
+      },
+    },
+    conditionTree: {
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'expression'],
+          properties: {
+            kind: { const: 'expression' },
+            expression: { $ref: '#/$defs/conditionExpression' },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'children'],
+          properties: {
+            kind: { enum: ['all', 'any'] },
+            children: { type: 'array', items: { $ref: '#/$defs/conditionTree' } },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'child'],
+          properties: {
+            kind: { const: 'not' },
+            child: { $ref: '#/$defs/conditionTree' },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'conditionId'],
+          properties: {
+            kind: { const: 'reference' },
+            conditionId: { type: 'string', pattern: stableIdPatterns.condition },
+          },
+        },
+      ],
+    },
+    condition: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'name', 'displayName', 'root'],
+      properties: {
+        id: { type: 'string', pattern: stableIdPatterns.condition },
+        name: { type: 'string', minLength: 1 },
+        displayName: { type: 'string', minLength: 1 },
+        description: { type: 'string' },
+        root: { $ref: '#/$defs/conditionTree' },
       },
     },
     characterField: {

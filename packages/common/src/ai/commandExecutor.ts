@@ -7,7 +7,7 @@ import {
 } from '../graph/connectionValidation';
 import { NodeRegistry } from '../registry/nodeRegistry';
 import { serializeStorySource } from '../serialization/storyKdl';
-import { isStableId, type CharacterId } from '../types/ids';
+import { isStableId, type CharacterId, type ConditionId } from '../types/ids';
 import {
   StoryNodeType,
   type ChoiceNodeData,
@@ -16,6 +16,8 @@ import {
 } from '../types/nodes';
 import type {
   CharacterSource,
+  ConditionSource,
+  ConditionTreeNode,
   SourceEdge,
   SourceGraph,
   SourceNode,
@@ -59,12 +61,13 @@ interface MutableChapter {
 
 interface MutableStory extends Omit<
   StorySourceDocument,
-  'root' | 'chapters' | 'variables' | 'characters'
+  'root' | 'chapters' | 'variables' | 'characters' | 'conditions'
 > {
   root: MutableGraph;
   chapters: MutableChapter[] & StorySourceDocument['chapters'];
   variables: VariableDefinition[];
   characters: CharacterSource[];
+  conditions: ConditionSource[];
 }
 
 export type BlueprintTransactionResult =
@@ -305,6 +308,44 @@ function validChoiceOptionInput(value: unknown): boolean {
   );
 }
 
+function validExpressionSource(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.source === 'string' &&
+    isRecord(value.bindings) &&
+    Object.values(value.bindings).every(
+      (variableId) => typeof variableId === 'string' && isStableId(variableId, 'variable'),
+    )
+  );
+}
+
+function validConditionTree(value: unknown): value is ConditionTreeNode {
+  if (!isRecord(value) || typeof value.kind !== 'string') return false;
+  if (value.kind === 'expression') return validExpressionSource(value.expression);
+  if (value.kind === 'reference') {
+    return typeof value.conditionId === 'string' && isStableId(value.conditionId, 'condition');
+  }
+  if (value.kind === 'not') return validConditionTree(value.child);
+  if (value.kind === 'all' || value.kind === 'any') {
+    return Array.isArray(value.children) && value.children.every(validConditionTree);
+  }
+  return false;
+}
+
+function validCondition(value: unknown): value is ConditionSource {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isStableId(value.id, 'condition') &&
+    typeof value.name === 'string' &&
+    value.name.trim().length > 0 &&
+    typeof value.displayName === 'string' &&
+    value.displayName.trim().length > 0 &&
+    (value.description === undefined || typeof value.description === 'string') &&
+    validConditionTree(value.root)
+  );
+}
+
 function validExpressionTarget(value: unknown): boolean {
   if (!isRecord(value)) return false;
   if (value.kind === 'branch-condition' || value.kind === 'set-variable-value') return true;
@@ -321,6 +362,9 @@ function requiresGraphTarget(kind: unknown): boolean {
   return ![
     'add-variable',
     'update-variable',
+    'add-condition',
+    'update-condition',
+    'remove-condition',
     'add-character',
     'add-character-from-template',
     'update-character',
@@ -337,6 +381,9 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   disconnect: ['operationId', 'kind', 'graph', 'from', 'to'],
   'add-variable': ['operationId', 'kind', 'variable'],
   'update-variable': ['operationId', 'kind', 'variableId', 'patch'],
+  'add-condition': ['operationId', 'kind', 'condition'],
+  'update-condition': ['operationId', 'kind', 'conditionId', 'patch'],
+  'remove-condition': ['operationId', 'kind', 'conditionId'],
   'add-character': ['operationId', 'kind', 'character'],
   'add-character-from-template': ['operationId', 'kind', 'templateName', 'character', 'fieldIds'],
   'update-character': ['operationId', 'kind', 'characterId', 'patch'],
@@ -559,6 +606,46 @@ export function validateBlueprintCommandTransaction(
               'update-variable has an invalid variableId or patch',
               operationIndex,
               path,
+            ),
+          );
+        }
+        break;
+      case 'add-condition':
+        if (!validCondition(raw.condition)) {
+          diagnostics.push(
+            invalidShape(
+              'add-condition requires a valid condition definition',
+              operationIndex,
+              path,
+            ),
+          );
+        }
+        break;
+      case 'update-condition':
+        if (
+          typeof raw.conditionId !== 'string' ||
+          !isStableId(raw.conditionId, 'condition') ||
+          !isRecord(raw.patch) ||
+          (raw.patch.name !== undefined &&
+            (typeof raw.patch.name !== 'string' || raw.patch.name.trim().length === 0)) ||
+          (raw.patch.displayName !== undefined &&
+            (typeof raw.patch.displayName !== 'string' ||
+              raw.patch.displayName.trim().length === 0)) ||
+          (raw.patch.description !== undefined &&
+            raw.patch.description !== null &&
+            typeof raw.patch.description !== 'string') ||
+          (raw.patch.root !== undefined && !validConditionTree(raw.patch.root))
+        ) {
+          diagnostics.push(invalidShape('update-condition is invalid', operationIndex, path));
+        }
+        break;
+      case 'remove-condition':
+        if (typeof raw.conditionId !== 'string' || !isStableId(raw.conditionId, 'condition')) {
+          diagnostics.push(
+            invalidShape(
+              'remove-condition requires a valid conditionId',
+              operationIndex,
+              `${path}.conditionId`,
             ),
           );
         }
@@ -918,6 +1005,30 @@ function graphReferencesVariable(story: MutableStory, variableId: string): boole
   return allGraphs(story).some((graph) => graph.nodes.some((node) => containsReference(node.data)));
 }
 
+function conditionTreeUsesId(tree: ConditionTreeNode, conditionId: ConditionId): boolean {
+  if (tree.kind === 'reference') return tree.conditionId === conditionId;
+  if (tree.kind === 'not') return conditionTreeUsesId(tree.child, conditionId);
+  if (tree.kind === 'all' || tree.kind === 'any') {
+    return tree.children.some((child) => conditionTreeUsesId(child, conditionId));
+  }
+  return false;
+}
+
+function graphReferencesCondition(story: MutableStory, conditionId: ConditionId): boolean {
+  const branchUses = allGraphs(story).some((graph) =>
+    graph.nodes.some(
+      (node) =>
+        node.type === StoryNodeType.Branch &&
+        (node.data as unknown as StoryNodeDataMap[StoryNodeType.Branch]).conditionId ===
+          conditionId,
+    ),
+  );
+  const conditionUses = story.conditions.some(
+    (condition) => condition.id !== conditionId && conditionTreeUsesId(condition.root, conditionId),
+  );
+  return branchUses || conditionUses;
+}
+
 function applyOperation(
   story: MutableStory,
   operation: BlueprintCommand,
@@ -1021,6 +1132,85 @@ function applyOperation(
       graph: { nodes, edges },
     };
     story.chapters.push(chapter as MutableChapter);
+    return undefined;
+  }
+  if (operation.kind === 'add-condition') {
+    if (story.conditions.some((condition) => condition.id === operation.condition.id)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'DUPLICATE_CONDITION_ID',
+        `Condition already exists: ${operation.condition.id}`,
+      );
+    }
+    if (story.conditions.some((condition) => condition.name === operation.condition.name)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Condition name already exists: ${operation.condition.name}`,
+      );
+    }
+    story.conditions.push(structuredClone(operation.condition));
+    return undefined;
+  }
+  if (operation.kind === 'update-condition') {
+    const index = story.conditions.findIndex((condition) => condition.id === operation.conditionId);
+    if (index < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_CONDITION',
+        `Condition does not exist: ${operation.conditionId}`,
+      );
+    }
+    const previous = story.conditions[index]!;
+    const patch = structuredClone(operation.patch);
+    if (patch.name !== undefined && patch.displayName === undefined) patch.displayName = patch.name;
+    const next: ConditionSource = {
+      ...previous,
+      ...patch,
+      description:
+        patch.description === null ? undefined : (patch.description ?? previous.description),
+      root: patch.root ?? previous.root,
+      id: previous.id,
+    };
+    if (
+      story.conditions.some(
+        (condition, candidateIndex) => candidateIndex !== index && condition.name === next.name,
+      )
+    ) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Condition name already exists: ${next.name}`,
+      );
+    }
+    story.conditions[index] = next;
+    return undefined;
+  }
+  if (operation.kind === 'remove-condition') {
+    const condition = story.conditions.find((candidate) => candidate.id === operation.conditionId);
+    if (!condition) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_CONDITION',
+        `Condition does not exist: ${operation.conditionId}`,
+      );
+    }
+    if (graphReferencesCondition(story, operation.conditionId)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Condition is still referenced: ${operation.conditionId}`,
+      );
+    }
+    story.conditions = story.conditions.filter(
+      (candidate) => candidate.id !== operation.conditionId,
+    );
     return undefined;
   }
   if (operation.kind === 'add-variable') {
@@ -1855,6 +2045,9 @@ export function executeBlueprintCommandTransaction(
       operation.kind === 'update-character',
   );
   const working = structuredClone(source) as unknown as MutableStory;
+  working.conditions = structuredClone(
+    options.semanticContext?.conditions ?? source.conditions ?? [],
+  ) as ConditionSource[];
   if (options.semanticContext && hasCharacterOperations) {
     working.characters = structuredClone(options.semanticContext.characters) as CharacterSource[];
   }

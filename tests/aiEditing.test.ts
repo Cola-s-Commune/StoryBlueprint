@@ -157,6 +157,73 @@ describe('AI semantic editing foundation', () => {
     expect(result.document.chapters[0]?.graph.nodes).toHaveLength(2);
   });
 
+  it('creates, updates, and removes reusable condition resources', () => {
+    const source = story();
+    const revision = createStorySemanticSnapshot(source).revision;
+    const add: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'add-condition',
+          kind: 'add-condition',
+          condition: {
+            id: 'cond_has_key',
+            name: 'hasKey',
+            displayName: 'Has Key',
+            root: {
+              kind: 'all',
+              children: [{ kind: 'expression', expression: { source: 'true', bindings: {} } }],
+            },
+          },
+        },
+      ],
+    };
+    expect(validateBlueprintCommandTransaction(add)).toEqual([]);
+    const added = executeBlueprintCommandTransaction(source, add);
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(added.document.conditions).toHaveLength(1);
+
+    const updated = executeBlueprintCommandTransaction(added.document, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: added.snapshot.revision,
+      operations: [
+        {
+          operationId: 'update-condition',
+          kind: 'update-condition',
+          conditionId: 'cond_has_key',
+          patch: {
+            description: 'The player owns the key.',
+            root: {
+              kind: 'not',
+              child: { kind: 'expression', expression: { source: 'false', bindings: {} } },
+            },
+          },
+        },
+      ],
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.document.conditions?.[0]).toMatchObject({
+      description: 'The player owns the key.',
+      root: { kind: 'not' },
+    });
+
+    const removed = executeBlueprintCommandTransaction(updated.document, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: updated.snapshot.revision,
+      operations: [
+        { operationId: 'remove-condition', kind: 'remove-condition', conditionId: 'cond_has_key' },
+      ],
+    });
+    expect(removed.ok).toBe(true);
+    if (removed.ok) expect(removed.document.conditions).toEqual([]);
+  });
+
   it('creates a stable semantic view without editor layout fields', () => {
     const snapshot = createStorySemanticSnapshot(story());
     const json = JSON.stringify(snapshot);
