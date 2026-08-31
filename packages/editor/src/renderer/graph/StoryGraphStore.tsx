@@ -109,6 +109,7 @@ import {
   bindVariableReferencesInNode,
   renameVariableReferencesInNode,
   renameVariableReferencesInCondition,
+  renameCharacterFieldReferencesInCondition,
   renameCharacterFieldReferencesInNode,
   bindCharacterFieldReferencesInNode,
   type VariableReference,
@@ -2460,31 +2461,35 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           .find((candidate) => candidate.id === id);
       if (!variable) return [];
       if (variable.scope !== 'project') {
-        return collectVariableReferences(variable, variableReferenceGraphs());
+        return collectVariableReferences(variable, variableReferenceGraphs(), conditions);
       }
       const loadedStories = currentStoryItemsRef.current();
       const loadedStoryIds = new Set(loadedStories.map((story) => story.document.id));
       const liveReferences = loadedStories.flatMap((story) =>
-        collectVariableReferences(variable, [
-          {
-            storyId: story.document.id,
-            storyPath: workspace?.project?.stories.find(
-              (candidate) => candidate.id === story.document.id,
-            )?.path,
-            id: 'root',
-            label: `${story.document.displayName} / Main Story`,
-            graph: story.rootGraph,
-          },
-          ...story.chapters.map((chapter) => ({
-            storyId: story.document.id,
-            storyPath: workspace?.project?.stories.find(
-              (candidate) => candidate.id === story.document.id,
-            )?.path,
-            id: chapter.id,
-            label: `${story.document.displayName} / ${chapter.displayName}`,
-            graph: chapter.graph,
-          })),
-        ]),
+        collectVariableReferences(
+          variable,
+          [
+            {
+              storyId: story.document.id,
+              storyPath: workspace?.project?.stories.find(
+                (candidate) => candidate.id === story.document.id,
+              )?.path,
+              id: 'root',
+              label: `${story.document.displayName} / Main Story`,
+              graph: story.rootGraph,
+            },
+            ...story.chapters.map((chapter) => ({
+              storyId: story.document.id,
+              storyPath: workspace?.project?.stories.find(
+                (candidate) => candidate.id === story.document.id,
+              )?.path,
+              id: chapter.id,
+              label: `${story.document.displayName} / ${chapter.displayName}`,
+              graph: chapter.graph,
+            })),
+          ],
+          story.conditions,
+        ),
       );
       const indexedReferences =
         projectVariableReferenceScan.variableId === id
@@ -2499,6 +2504,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       projectVariableReferenceScan.variableId,
       projectVariables,
       chapters,
+      conditions,
       resolvedCharacters,
       variableReferenceGraphs,
       variables,
@@ -2929,9 +2935,35 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             ...chapter,
             graph: rewrite(chapter.graph),
           })),
+          conditions: story.conditions.map((condition) =>
+            renames.reduce(
+              (current, rename) =>
+                renameCharacterFieldReferencesInCondition(
+                  current,
+                  rename.fieldId,
+                  rename.oldQualifiedName,
+                  rename.newQualifiedName,
+                ),
+              condition,
+            ),
+          ),
           document: { ...story.document, dirty: true },
           revision: story.revision + 1,
         })),
+      );
+      setConditions((current) =>
+        current.map((condition) =>
+          renames.reduce(
+            (nextCondition, rename) =>
+              renameCharacterFieldReferencesInCondition(
+                nextCondition,
+                rename.fieldId,
+                rename.oldQualifiedName,
+                rename.newQualifiedName,
+              ),
+            condition,
+          ),
+        ),
       );
       markDirty();
     },
@@ -4740,6 +4772,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const focusVariableReference = useCallback(
     async (reference: VariableReference): Promise<boolean> => {
+      if (reference.conditionId) {
+        if (!reference.storyId || reference.storyId === document.id) {
+          if (!conditions.some((condition) => condition.id === reference.conditionId)) return false;
+          setStoryDataSelection({ kind: 'condition', id: reference.conditionId });
+          return true;
+        }
+        let target = currentStoryItemsRef
+          .current()
+          .find((story) => story.document.id === reference.storyId);
+        if (!target && reference.storyPath && window.electronAPI) {
+          try {
+            const opened = await window.electronAPI.openWorkspaceStory(reference.storyPath);
+            if (!opened.canceled) target = editorStoryItemFromOpenedStory(opened);
+          } catch (error) {
+            setWorkspaceError(error instanceof Error ? error.message : String(error));
+            return false;
+          }
+        }
+        if (
+          !target ||
+          !target.conditions.some((condition) => condition.id === reference.conditionId)
+        ) {
+          return false;
+        }
+        loadStory(target);
+        setStoryDataSelection({ kind: 'condition', id: reference.conditionId });
+        return true;
+      }
       if (!reference.storyId || reference.storyId === document.id) {
         return focusGraphNode(reference.graphId, reference.nodeId);
       }
@@ -4786,7 +4846,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setProblemFocus({ nodeId: reference.nodeId, nonce: Date.now() });
       return true;
     },
-    [captureActiveStory, document.id, focusGraphNode, hasActiveStory, loadStory],
+    [captureActiveStory, conditions, document.id, focusGraphNode, hasActiveStory, loadStory],
   );
 
   const newStory = useCallback(() => {

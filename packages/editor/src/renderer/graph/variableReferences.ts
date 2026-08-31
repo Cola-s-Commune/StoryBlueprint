@@ -8,6 +8,7 @@ import {
   parseStorySource,
   serializeStorySource,
   type CharacterSource,
+  type ConditionId,
   type ConditionSource,
   type ConditionTreeNode,
   type TextTemplateSource,
@@ -33,6 +34,7 @@ export interface VariableReference {
   nodeLabel: string;
   field: string;
   kind: VariableReferenceKind;
+  conditionId?: ConditionId;
 }
 
 export interface VariableReferenceGraph {
@@ -417,6 +419,7 @@ export function templateEntries(
 export function findVariableReferences(
   variable: Pick<VariableDefinition, 'id' | 'name'>,
   graphs: readonly VariableReferenceGraph[],
+  conditions: readonly ConditionSource[] = [],
 ): VariableReference[] {
   const references: VariableReference[] = [];
   const add = (
@@ -462,6 +465,36 @@ export function findVariableReferences(
       }
     }
   }
+  const owner = graphs[0];
+  if (owner && conditions.length > 0) {
+    const conditionExpressions = (tree: ConditionTreeNode): ExpressionSource[] => {
+      if (tree.kind === 'expression') return [tree.expression];
+      if (tree.kind === 'not') return conditionExpressions(tree.child);
+      if (tree.kind === 'all' || tree.kind === 'any')
+        return tree.children.flatMap(conditionExpressions);
+      return [];
+    };
+    for (const condition of conditions) {
+      if (
+        !conditionExpressions(condition.root).some((expression) =>
+          expressionReferencesVariable(expression, variable),
+        )
+      )
+        continue;
+      references.push({
+        storyId: owner.storyId,
+        storyPath: owner.storyPath,
+        graphId: 'root',
+        graphLabel: `${owner.label} / Conditions`,
+        nodeId: condition.id as unknown as NodeId,
+        nodeType: StoryNodeType.Branch,
+        nodeLabel: condition.displayName,
+        field: 'Condition Expression',
+        kind: 'expression',
+        conditionId: condition.id,
+      });
+    }
+  }
   return references;
 }
 
@@ -471,22 +504,26 @@ export function findProjectVariableReferences(
 ): VariableReference[] {
   return stories.flatMap((story) => {
     const source = parseStorySource(story.content);
-    return findVariableReferences(variable, [
-      {
-        storyId: source.id,
-        storyPath: story.path,
-        id: 'root',
-        label: `${source.displayName} / Main Story`,
-        graph: fromSourceGraph(source.root),
-      },
-      ...source.chapters.map((chapter) => ({
-        storyId: source.id,
-        storyPath: story.path,
-        id: chapter.id,
-        label: `${source.displayName} / ${chapter.displayName}`,
-        graph: fromSourceGraph(chapter.graph),
-      })),
-    ]);
+    return findVariableReferences(
+      variable,
+      [
+        {
+          storyId: source.id,
+          storyPath: story.path,
+          id: 'root',
+          label: `${source.displayName} / Main Story`,
+          graph: fromSourceGraph(source.root),
+        },
+        ...source.chapters.map((chapter) => ({
+          storyId: source.id,
+          storyPath: story.path,
+          id: chapter.id,
+          label: `${source.displayName} / ${chapter.displayName}`,
+          graph: fromSourceGraph(chapter.graph),
+        })),
+      ],
+      source.conditions ?? [],
+    );
   });
 }
 
@@ -536,6 +573,33 @@ export function renameVariableReferencesInCondition(
       return {
         kind: 'expression',
         expression: renameExpressionVariable(tree.expression, variableId, oldName, newName),
+      };
+    }
+    if (tree.kind === 'not') return { kind: 'not', child: renameTree(tree.child) };
+    if (tree.kind === 'all' || tree.kind === 'any') {
+      return { kind: tree.kind, children: tree.children.map(renameTree) };
+    }
+    return tree;
+  };
+  return { ...condition, root: renameTree(condition.root) };
+}
+
+export function renameCharacterFieldReferencesInCondition(
+  condition: ConditionSource,
+  fieldId: VariableId,
+  oldQualifiedName: string,
+  newQualifiedName: string,
+): ConditionSource {
+  const renameTree = (tree: ConditionTreeNode): ConditionTreeNode => {
+    if (tree.kind === 'expression') {
+      return {
+        kind: 'expression',
+        expression: renameCharacterFieldExpression(
+          tree.expression,
+          fieldId,
+          oldQualifiedName,
+          newQualifiedName,
+        ),
       };
     }
     if (tree.kind === 'not') return { kind: 'not', child: renameTree(tree.child) };
