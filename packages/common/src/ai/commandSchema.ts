@@ -230,6 +230,14 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
                   text: { type: 'string' },
                   visibleIf: { type: ['string', 'null'] },
                   enabledIf: { type: ['string', 'null'] },
+                  visibleConditionId: {
+                    type: ['string', 'null'],
+                    pattern: stableIdPatterns.condition,
+                  },
+                  enabledConditionId: {
+                    type: ['string', 'null'],
+                    pattern: stableIdPatterns.condition,
+                  },
                 },
               },
             },
@@ -613,6 +621,8 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         text: { type: 'string' },
         visibleIf: { type: 'string' },
         enabledIf: { type: 'string' },
+        visibleConditionId: { type: 'string', pattern: stableIdPatterns.condition },
+        enabledConditionId: { type: 'string', pattern: stableIdPatterns.condition },
       },
     },
     expressionTarget: {

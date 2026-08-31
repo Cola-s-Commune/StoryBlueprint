@@ -124,6 +124,9 @@ export interface ChoiceOption {
   id: OptionId;
   visibleIf?: ExpressionSource;
   enabledIf?: ExpressionSource;
+  /** Optional reusable conditions. When present they take precedence over inline expressions. */
+  visibleConditionId?: ConditionId;
+  enabledConditionId?: ConditionId;
 }
 
 /** Data for Branch node — conditional routing (engine-evaluated) */

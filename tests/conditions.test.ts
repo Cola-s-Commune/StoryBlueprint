@@ -110,6 +110,88 @@ describe('Condition resources', () => {
     expect(parseStorySource(serialized).conditions).toEqual(source.conditions);
   });
 
+  it('round-trips reusable condition references on Choice options', () => {
+    const source = conditionStory();
+    source.root = {
+      ...source.root,
+      nodes: [
+        ...source.root.nodes,
+        {
+          id: 'n_choice',
+          type: StoryNodeType.Choice,
+          definitionVersion: 1,
+          position: { x: 720, y: 0 },
+          data: {
+            prompt: { source: 'Choose', bindings: {} },
+            options: [
+              {
+                id: 'o_buy',
+                text: { source: 'Buy', bindings: {} },
+                visibleConditionId: 'cond_can_buy',
+                enabledConditionId: 'cond_has_gold',
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const parsed = parseStorySource(serializeStorySource(source));
+    const option = (
+      parsed.root.nodes.find((node) => node.id === 'n_choice')?.data as {
+        options: readonly {
+          visibleConditionId?: string;
+          enabledConditionId?: string;
+        }[];
+      }
+    ).options[0];
+    expect(option).toMatchObject({
+      visibleConditionId: 'cond_can_buy',
+      enabledConditionId: 'cond_has_gold',
+    });
+
+    const choiceGraph = {
+      ...source.root,
+      nodes: [
+        source.root.nodes[0]!,
+        {
+          id: 'n_choice_runtime',
+          type: StoryNodeType.Choice,
+          definitionVersion: 1,
+          position: { x: 240, y: 0 },
+          data: {
+            prompt: { source: 'Choose', bindings: {} },
+            options: [
+              {
+                id: 'o_runtime',
+                text: { source: 'Buy', bindings: {} },
+                visibleConditionId: 'cond_can_buy',
+              },
+            ],
+          },
+        },
+        {
+          id: 'n_choice_end',
+          type: StoryNodeType.End,
+          definitionVersion: 1,
+          position: { x: 480, y: 0 },
+          data: { title: 'End' },
+        },
+      ],
+      edges: [
+        {
+          from: { nodeId: 'n_start', portId: 'out' },
+          to: { nodeId: 'n_choice_runtime', portId: 'in' },
+        },
+        {
+          from: { nodeId: 'n_choice_runtime', portId: 'o_runtime' },
+          to: { nodeId: 'n_choice_end', portId: 'in' },
+        },
+      ],
+    };
+    const compiled = compileStory({ ...source, root: choiceGraph });
+    expect(compiled.ok, compiled.ok ? undefined : compiled.diagnostics).toBe(true);
+  });
+
   it('compiles a referenced condition tree to a boolean expression', () => {
     const result = compileStory(conditionStory());
     expect(result.ok, result.ok ? undefined : result.diagnostics).toBe(true);

@@ -108,6 +108,7 @@ import {
   rewriteProjectVariableReferences,
   bindVariableReferencesInNode,
   renameVariableReferencesInNode,
+  renameVariableReferencesInCondition,
   renameCharacterFieldReferencesInNode,
   bindCharacterFieldReferencesInNode,
   type VariableReference,
@@ -1760,6 +1761,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           result.document.variables.filter((variable) => variable.scope !== 'project'),
         ),
       );
+      setConditions([...structuredClone(result.document.conditions ?? [])]);
       if (JSON.stringify(nextProjectVariables) !== JSON.stringify(projectVariables)) {
         writeProjectVariables(nextProjectVariables);
       }
@@ -2338,6 +2340,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setActiveGraphId(nextActiveGraphId);
       restoreGraph(structuredClone(nextGraph));
       setVariables([...structuredClone(merged.variables)]);
+      setConditions([...structuredClone(merged.conditions ?? [])]);
       revisionRef.current += 1;
       window.electronAPI.setStoryDirty(false);
       if (gitConflictRevision) {
@@ -2607,6 +2610,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           if (affectedStoryIds.has(document.id)) {
             setNodes((current) => rewrite({ nodes: current, edges }).nodes);
             updateInactiveGraphs(rewrite);
+            setConditions((current) =>
+              current.map((condition) =>
+                renameVariableReferencesInCondition(condition, id, previous.name, normalized.name!),
+              ),
+            );
             markDirty();
           }
           if (affectedStoryIds.size > 0) {
@@ -2620,7 +2628,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                         ...chapter,
                         graph: rewrite(chapter.graph),
                       })),
-                      document: { ...story.document, dirty: true },
+                      document: {
+                        ...story.document,
+                        dirty: true,
+                      },
+                      conditions: story.conditions.map((condition) =>
+                        renameVariableReferencesInCondition(
+                          condition,
+                          id,
+                          previous.name,
+                          normalized.name!,
+                        ),
+                      ),
                       revision: story.revision + 1,
                     }
                   : story,
@@ -2676,6 +2695,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             renameVariableReferencesInNode(node, id, previous.name, nextUpdate.name!),
           ),
         }));
+        setConditions((current) =>
+          current.map((condition) =>
+            renameVariableReferencesInCondition(condition, id, previous.name, nextUpdate.name!),
+          ),
+        );
       }
       setVariables((current) =>
         current.map((variable) =>
@@ -2701,6 +2725,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       rewriteProjectVariableReferences,
       setNodes,
       updateInactiveGraphs,
+      renameVariableReferencesInCondition,
       updateSubstory,
       variables,
       writeProjectVariables,

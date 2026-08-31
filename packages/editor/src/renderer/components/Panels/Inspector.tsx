@@ -1185,8 +1185,17 @@ function SignalMatchEditor({
 }
 
 function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }) {
-  const { nodes, edges, setEdges, checkpoint, updateNodeData, source, activeGraphId, saveStory } =
-    useStoryGraphStore();
+  const {
+    nodes,
+    edges,
+    setEdges,
+    checkpoint,
+    updateNodeData,
+    source,
+    activeGraphId,
+    saveStory,
+    conditions,
+  } = useStoryGraphStore();
   const [draggedOptionId, setDraggedOptionId] = useState<OptionId>();
   const [dragTargetOptionId, setDragTargetOptionId] = useState<OptionId>();
   const [expandedOptionIds, setExpandedOptionIds] = useState<Set<OptionId>>(() => new Set());
@@ -1493,7 +1502,7 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                       onChange={(source) => updateOption(option.id, { text: { source } })}
                     />
                     <PropertyField
-                      label="Visible If"
+                      label={option.visibleConditionId ? 'Visible If (Fallback)' : 'Visible If'}
                       value={option.visibleIf?.source ?? ''}
                       variableMode="expression"
                       expectedType={{ kind: 'boolean' }}
@@ -1504,8 +1513,29 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                         })
                       }
                     />
+                    <label className={styles.field}>
+                      <span>Visible Condition</span>
+                      <select
+                        value={option.visibleConditionId ?? ''}
+                        onChange={(event) => {
+                          checkpoint();
+                          updateOption(option.id, {
+                            visibleConditionId: event.target.value
+                              ? (event.target.value as ConditionId)
+                              : undefined,
+                          });
+                        }}
+                      >
+                        <option value="">Inline expression</option>
+                        {conditions.map((condition) => (
+                          <option key={condition.id} value={condition.id}>
+                            {condition.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <PropertyField
-                      label="Enabled If"
+                      label={option.enabledConditionId ? 'Enabled If (Fallback)' : 'Enabled If'}
                       value={option.enabledIf?.source ?? ''}
                       variableMode="expression"
                       expectedType={{ kind: 'boolean' }}
@@ -1516,6 +1546,27 @@ function ChoiceEditor({ nodeId, data }: { nodeId: NodeId; data: ChoiceNodeData }
                         })
                       }
                     />
+                    <label className={styles.field}>
+                      <span>Enabled Condition</span>
+                      <select
+                        value={option.enabledConditionId ?? ''}
+                        onChange={(event) => {
+                          checkpoint();
+                          updateOption(option.id, {
+                            enabledConditionId: event.target.value
+                              ? (event.target.value as ConditionId)
+                              : undefined,
+                          });
+                        }}
+                      >
+                        <option value="">Inline expression</option>
+                        {conditions.map((condition) => (
+                          <option key={condition.id} value={condition.id}>
+                            {condition.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <div className={styles.stableIds}>
                       <code>{option.id}</code>
                     </div>

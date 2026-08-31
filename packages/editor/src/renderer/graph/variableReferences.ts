@@ -8,6 +8,8 @@ import {
   parseStorySource,
   serializeStorySource,
   type CharacterSource,
+  type ConditionSource,
+  type ConditionTreeNode,
   type TextTemplateSource,
   type VariableDefinition,
   type VariableId,
@@ -509,6 +511,9 @@ export function rewriteProjectVariableReferences(
         path: story.path,
         content: serializeStorySource({
           ...source,
+          conditions: source.conditions?.map((condition) =>
+            renameVariableReferencesInCondition(condition, variableId, oldName, newName),
+          ),
           root: toSourceGraph(rewrite(fromSourceGraph(source.root))),
           chapters: source.chapters.map((chapter) => ({
             ...chapter,
@@ -518,6 +523,28 @@ export function rewriteProjectVariableReferences(
       },
     ];
   });
+}
+
+export function renameVariableReferencesInCondition(
+  condition: ConditionSource,
+  variableId: VariableId,
+  oldName: string,
+  newName: string,
+): ConditionSource {
+  const renameTree = (tree: ConditionTreeNode): ConditionTreeNode => {
+    if (tree.kind === 'expression') {
+      return {
+        kind: 'expression',
+        expression: renameExpressionVariable(tree.expression, variableId, oldName, newName),
+      };
+    }
+    if (tree.kind === 'not') return { kind: 'not', child: renameTree(tree.child) };
+    if (tree.kind === 'all' || tree.kind === 'any') {
+      return { kind: tree.kind, children: tree.children.map(renameTree) };
+    }
+    return tree;
+  };
+  return { ...condition, root: renameTree(condition.root) };
 }
 
 export function renameVariableReferencesInNode(

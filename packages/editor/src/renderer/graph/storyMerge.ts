@@ -151,7 +151,7 @@ export function unresolvedStoryMergeConflicts(
 
 export type MergeableStoryDocument = Pick<
   StorySourceDocument,
-  'id' | 'variables' | 'root' | 'chapters'
+  'id' | 'variables' | 'conditions' | 'root' | 'chapters'
 >;
 
 const missing = Symbol('missing');
@@ -281,6 +281,7 @@ function orderMatters(path: string): boolean {
     field === 'options' ||
     field === 'chapters' ||
     field === 'variables' ||
+    field === 'conditions' ||
     field === 'parameters'
   );
 }
@@ -491,6 +492,7 @@ export function mergeableStory(source: StorySourceDocument): MergeableStoryDocum
   return {
     id: source.id,
     variables: clone(source.variables),
+    conditions: clone(source.conditions ?? []),
     root: clone(source.root),
     chapters: clone(source.chapters),
   };

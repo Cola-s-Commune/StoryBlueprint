@@ -235,6 +235,24 @@ function serializeSourceNode(source: SourceNode): Node {
         appendBindings(optionNode, 'text', option.text.bindings);
         if (option.visibleIf?.source) optionNode.setProperty('visible-if', option.visibleIf.source);
         if (option.enabledIf?.source) optionNode.setProperty('enabled-if', option.enabledIf.source);
+        if (option.visibleConditionId)
+          optionNode.setProperty(
+            'visible-condition-ref',
+            requiredId(
+              option.visibleConditionId,
+              'condition',
+              `${source.id}.option.visible-condition-ref`,
+            ),
+          );
+        if (option.enabledConditionId)
+          optionNode.setProperty(
+            'enabled-condition-ref',
+            requiredId(
+              option.enabledConditionId,
+              'condition',
+              `${source.id}.option.enabled-condition-ref`,
+            ),
+          );
         appendBindings(optionNode, 'visible-if', option.visibleIf?.bindings);
         appendBindings(optionNode, 'enabled-if', option.enabledIf?.bindings);
         target.appendNode(optionNode);
@@ -732,6 +750,18 @@ function validateStoryReferences(source: StorySourceDocument): void {
           );
         }
       }
+      if (node.type === StoryNodeType.Choice) {
+        const choice = node.data as unknown as StoryNodeDataMap[StoryNodeType.Choice];
+        for (const option of choice.options) {
+          for (const conditionId of [option.visibleConditionId, option.enabledConditionId]) {
+            if (conditionId && !conditionIds.has(conditionId)) {
+              throw new StoryFormatError(
+                `${node.id} option ${option.id} references missing condition ${conditionId}`,
+              );
+            }
+          }
+        }
+      }
       if (node.type !== StoryNodeType.FlowJump) continue;
       const targetNodeId = (node.data as StoryNodeDataMap[StoryNodeType.FlowJump]).targetNodeId;
       if (!targetNodeId) continue;
@@ -994,7 +1024,12 @@ function parseSourceNode(
       const options = node.findNodesByName('option').map((optionNode): ChoiceOption => {
         assertShape(optionNode, `${id}.option`, {
           arguments: 2,
-          properties: ['visible-if', 'enabled-if'],
+          properties: [
+            'visible-if',
+            'enabled-if',
+            'visible-condition-ref',
+            'enabled-condition-ref',
+          ],
           children: ['binding'],
         });
         assertBindingTargets(optionNode, ['text', 'visible-if', 'enabled-if'], `${id}.option`);
@@ -1009,6 +1044,8 @@ function parseSourceNode(
           optionNode.getProperty('enabled-if'),
           `${optionId}.enabled-if`,
         );
+        const visibleCondition = optionNode.getProperty('visible-condition-ref');
+        const enabledCondition = optionNode.getProperty('enabled-condition-ref');
         return {
           id: optionId,
           text: textTemplateSource(
@@ -1023,6 +1060,24 @@ function parseSourceNode(
           enabledIf: enabled
             ? expressionSource(enabled, `${optionId}.enabled-if`, optionNode, 'enabled-if')
             : undefined,
+          ...(visibleCondition === undefined
+            ? {}
+            : {
+                visibleConditionId: requiredId(
+                  visibleCondition,
+                  'condition',
+                  `${optionId}.visible-condition-ref`,
+                ),
+              }),
+          ...(enabledCondition === undefined
+            ? {}
+            : {
+                enabledConditionId: requiredId(
+                  enabledCondition,
+                  'condition',
+                  `${optionId}.enabled-condition-ref`,
+                ),
+              }),
         };
       });
       data = {

@@ -1,7 +1,9 @@
 import {
   createStableId,
+  isStableId,
   type ChoiceNodeData,
   type ChoiceOption,
+  type ConditionId,
   type ExpressionSource,
 } from '@story-blueprint/common';
 import type { DialogueInkDiagnostic } from './dialogueInk';
@@ -58,6 +60,8 @@ function optionSignature(option: ChoiceOptionDraft): string {
     text: option.text.source,
     visibleIf: option.visibleIf?.source ?? null,
     enabledIf: option.enabledIf?.source ?? null,
+    visibleConditionId: option.visibleConditionId ?? null,
+    enabledConditionId: option.enabledConditionId ?? null,
   });
 }
 
@@ -96,6 +100,8 @@ export function formatChoiceInk(data: ChoiceNodeData): string {
       const tags = [
         option.visibleIf ? `visible-if:${escapeSegment(option.visibleIf.source)}` : undefined,
         option.enabledIf ? `enabled-if:${escapeSegment(option.enabledIf.source)}` : undefined,
+        option.visibleConditionId ? `visible-condition:${option.visibleConditionId}` : undefined,
+        option.enabledConditionId ? `enabled-condition:${option.enabledConditionId}` : undefined,
       ].filter((tag): tag is string => Boolean(tag));
       return `* ${escapeSegment(option.text.source)}${tags.map((tag) => ` # ${tag}`).join('')}`;
     }),
@@ -145,7 +151,27 @@ export function parseChoiceInk(source: string, current: ChoiceNodeData): ChoiceI
       const value = separator < 0 ? '' : tag.slice(separator + 1).trim();
       if (key === 'visible-if') draft.visibleIf = expression(value);
       else if (key === 'enabled-if') draft.enabledIf = expression(value);
-      else {
+      else if (key === 'visible-condition') {
+        if (isStableId(value, 'condition')) draft.visibleConditionId = value as ConditionId;
+        else {
+          diagnostics.push({
+            line,
+            column: Math.max(1, sourceLine.indexOf(tag) + 1),
+            endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
+            message: `Invalid visible condition ID “${value}”.`,
+          });
+        }
+      } else if (key === 'enabled-condition') {
+        if (isStableId(value, 'condition')) draft.enabledConditionId = value as ConditionId;
+        else {
+          diagnostics.push({
+            line,
+            column: Math.max(1, sourceLine.indexOf(tag) + 1),
+            endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
+            message: `Invalid enabled condition ID “${value}”.`,
+          });
+        }
+      } else {
         diagnostics.push({
           line,
           column: Math.max(1, sourceLine.indexOf(tag) + 1),

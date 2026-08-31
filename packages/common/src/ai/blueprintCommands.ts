@@ -2,6 +2,7 @@ import type {
   ChapterId,
   AssetId,
   CharacterId,
+  ConditionId,
   DialogueLineId,
   NodeId,
   OptionId,
@@ -148,6 +149,8 @@ export interface AddChoiceOptionCommand extends BlueprintGraphCommandBase {
     text: string;
     visibleIf?: string;
     enabledIf?: string;
+    visibleConditionId?: ConditionId;
+    enabledConditionId?: ConditionId;
   };
   afterOptionId?: OptionId;
 }
@@ -160,6 +163,8 @@ export interface UpdateChoiceOptionCommand extends BlueprintGraphCommandBase {
     text?: string;
     visibleIf?: string | null;
     enabledIf?: string | null;
+    visibleConditionId?: ConditionId | null;
+    enabledConditionId?: ConditionId | null;
   };
 }
 

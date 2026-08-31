@@ -304,7 +304,13 @@ function validChoiceOptionInput(value: unknown): boolean {
     isStableId(value.id, 'option') &&
     typeof value.text === 'string' &&
     (value.visibleIf === undefined || typeof value.visibleIf === 'string') &&
-    (value.enabledIf === undefined || typeof value.enabledIf === 'string')
+    (value.enabledIf === undefined || typeof value.enabledIf === 'string') &&
+    (value.visibleConditionId === undefined ||
+      (typeof value.visibleConditionId === 'string' &&
+        isStableId(value.visibleConditionId, 'condition'))) &&
+    (value.enabledConditionId === undefined ||
+      (typeof value.enabledConditionId === 'string' &&
+        isStableId(value.enabledConditionId, 'condition')))
   );
 }
 
@@ -718,7 +724,15 @@ export function validateBlueprintCommandTransaction(
             typeof raw.patch.visibleIf !== 'string') ||
           (raw.patch.enabledIf !== undefined &&
             raw.patch.enabledIf !== null &&
-            typeof raw.patch.enabledIf !== 'string')
+            typeof raw.patch.enabledIf !== 'string') ||
+          (raw.patch.visibleConditionId !== undefined &&
+            raw.patch.visibleConditionId !== null &&
+            (typeof raw.patch.visibleConditionId !== 'string' ||
+              !isStableId(raw.patch.visibleConditionId, 'condition'))) ||
+          (raw.patch.enabledConditionId !== undefined &&
+            raw.patch.enabledConditionId !== null &&
+            (typeof raw.patch.enabledConditionId !== 'string' ||
+              !isStableId(raw.patch.enabledConditionId, 'condition')))
         ) {
           diagnostics.push(invalidShape('update-choice-option is invalid', operationIndex, path));
         }
@@ -1018,9 +1032,15 @@ function graphReferencesCondition(story: MutableStory, conditionId: ConditionId)
   const branchUses = allGraphs(story).some((graph) =>
     graph.nodes.some(
       (node) =>
-        node.type === StoryNodeType.Branch &&
-        (node.data as unknown as StoryNodeDataMap[StoryNodeType.Branch]).conditionId ===
-          conditionId,
+        (node.type === StoryNodeType.Branch &&
+          (node.data as unknown as StoryNodeDataMap[StoryNodeType.Branch]).conditionId ===
+            conditionId) ||
+        (node.type === StoryNodeType.Choice &&
+          (node.data as unknown as ChoiceNodeData).options.some(
+            (option) =>
+              option.visibleConditionId === conditionId ||
+              option.enabledConditionId === conditionId,
+          )),
     ),
   );
   const conditionUses = story.conditions.some(
@@ -1702,6 +1722,8 @@ function applyOperation(
       enabledIf: operation.option.enabledIf
         ? { source: operation.option.enabledIf, bindings: {} }
         : undefined,
+      visibleConditionId: operation.option.visibleConditionId,
+      enabledConditionId: operation.option.enabledConditionId,
     };
     node.data = { ...data, options: insertAfter(data.options, option, afterIndex) };
     return undefined;
@@ -1731,6 +1753,11 @@ function applyOperation(
       const value = operation.patch[property];
       if (value === null) delete next[property];
       else if (value !== undefined) next[property] = { source: value, bindings: {} };
+    }
+    for (const property of ['visibleConditionId', 'enabledConditionId'] as const) {
+      const value = operation.patch[property];
+      if (value === null) delete next[property];
+      else if (value !== undefined) next[property] = value;
     }
     node.data = {
       ...data,

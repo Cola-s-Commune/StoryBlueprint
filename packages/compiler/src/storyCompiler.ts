@@ -1214,16 +1214,34 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 ),
               );
               if (!text) return [];
-              const visibleIf = option.visibleIf
+              const visibleIf = option.visibleConditionId
                 ? compileSafe(node, () =>
-                    compileExpression(option.visibleIf!, visibleVariables, source.characters),
+                    compileConditionTree(
+                      { kind: 'reference', conditionId: option.visibleConditionId! },
+                      source.conditions ?? [],
+                      visibleVariables,
+                      source.characters,
+                    ),
                   )
-                : undefined;
-              const enabledIf = option.enabledIf
+                : option.visibleIf
+                  ? compileSafe(node, () =>
+                      compileExpression(option.visibleIf!, visibleVariables, source.characters),
+                    )
+                  : undefined;
+              const enabledIf = option.enabledConditionId
                 ? compileSafe(node, () =>
-                    compileExpression(option.enabledIf!, visibleVariables, source.characters),
+                    compileConditionTree(
+                      { kind: 'reference', conditionId: option.enabledConditionId! },
+                      source.conditions ?? [],
+                      visibleVariables,
+                      source.characters,
+                    ),
                   )
-                : undefined;
+                : option.enabledIf
+                  ? compileSafe(node, () =>
+                      compileExpression(option.enabledIf!, visibleVariables, source.characters),
+                    )
+                  : undefined;
               return [{ id: option.id, text, visibleIf, enabledIf, target }];
             });
             const prompt = data.prompt.source
