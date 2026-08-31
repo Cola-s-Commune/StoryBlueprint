@@ -22,6 +22,7 @@ import {
 import {
   NodeFactory,
   createStorySemanticSnapshot,
+  findConditionReferenceCycle,
   executeBlueprintCommandTransaction,
   parseStorySource,
   serializeStorySource,
@@ -3735,20 +3736,25 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         setWorkspaceError(`Condition name already exists: ${nextName}`);
         return;
       }
-      checkpoint(undefined, 'Edit Condition');
-      setConditions((current) =>
-        current.map((condition) =>
-          condition.id === id
-            ? {
-                ...condition,
-                ...update,
-                ...(nextName ? { name: nextName } : {}),
-                ...(nextName && update.displayName === undefined ? { displayName: nextName } : {}),
-                id,
-              }
-            : condition,
-        ),
+      const nextConditions = conditions.map((condition) =>
+        condition.id === id
+          ? {
+              ...condition,
+              ...update,
+              ...(nextName ? { name: nextName } : {}),
+              ...(nextName && update.displayName === undefined ? { displayName: nextName } : {}),
+              id,
+            }
+          : condition,
       );
+      const cycle = findConditionReferenceCycle(nextConditions);
+      if (cycle) {
+        setWorkspaceError(`Condition reference cycle detected: ${cycle.join(' -> ')}`);
+        return;
+      }
+      setWorkspaceError(undefined);
+      checkpoint(undefined, 'Edit Condition');
+      setConditions(nextConditions);
       markDirty();
     },
     [conditions, markDirty, checkpoint],

@@ -224,6 +224,43 @@ describe('AI semantic editing foundation', () => {
     if (removed.ok) expect(removed.document.conditions).toEqual([]);
   });
 
+  it('rejects condition reference cycles while applying AI operations', () => {
+    const source = story();
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'add-condition-a',
+          kind: 'add-condition',
+          condition: {
+            id: 'cond_aaa',
+            name: 'a',
+            displayName: 'A',
+            root: { kind: 'reference', conditionId: 'cond_bbb' },
+          },
+        },
+        {
+          operationId: 'add-condition-b',
+          kind: 'add-condition',
+          condition: {
+            id: 'cond_bbb',
+            name: 'b',
+            displayName: 'B',
+            root: { kind: 'reference', conditionId: 'cond_aaa' },
+          },
+        },
+      ],
+    };
+    const result = executeBlueprintCommandTransaction(source, transaction);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain(
+      'Condition reference cycle detected: cond_aaa -> cond_bbb -> cond_aaa',
+    );
+    expect(result.document.conditions ?? []).toEqual([]);
+  });
+
   it('creates a stable semantic view without editor layout fields', () => {
     const snapshot = createStorySemanticSnapshot(story());
     const json = JSON.stringify(snapshot);

@@ -1,4 +1,5 @@
 import { Document, Node, format, parse } from '@bgotink/kdl';
+import { findConditionReferenceCycle } from '../conditionValidation';
 import { isStableId, type StableId, type StableIdKind } from '../types/ids';
 import {
   StoryNodeType,
@@ -672,6 +673,10 @@ function validateStoryReferences(source: StorySourceDocument): void {
       throw new StoryFormatError(`Duplicate condition name: ${condition.name}`);
     conditionNames.add(condition.name);
   }
+  const referenceCycle = findConditionReferenceCycle(conditions);
+  if (referenceCycle) {
+    throw new StoryFormatError(`Condition cycle detected: ${referenceCycle.join(' -> ')}`);
+  }
   const validateConditionTree = (
     tree: ConditionTreeNode,
     ownerId: ConditionSource['id'],
@@ -687,7 +692,7 @@ function validateStoryReferences(source: StorySourceDocument): void {
           `Condition cycle detected: ${[...stack, target.id].join(' -> ')}`,
         );
       }
-      validateConditionTree(target.root, ownerId, [...stack, target.id]);
+      validateConditionTree(target.root, target.id, [...stack, target.id]);
       return;
     }
     if (tree.kind === 'not') {

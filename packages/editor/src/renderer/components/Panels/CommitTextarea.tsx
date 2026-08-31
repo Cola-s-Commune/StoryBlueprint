@@ -60,6 +60,8 @@ export function CommitTextarea({
         rows={rows}
         placeholder={placeholder}
         value={draft}
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
         onFocus={() => {
           editingRef.current = true;
           beforeEditRef.current = value;

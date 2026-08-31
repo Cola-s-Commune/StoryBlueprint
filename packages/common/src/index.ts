@@ -32,6 +32,7 @@ export {
   type NodeDefinition,
 } from './types/nodes';
 export { type ConditionTreeNode, type ConditionSource } from './types/source';
+export { findConditionReferenceCycle } from './conditionValidation';
 
 // ---- Registry ----
 export { NodeRegistry, nodeRegistry } from './registry/nodeRegistry';

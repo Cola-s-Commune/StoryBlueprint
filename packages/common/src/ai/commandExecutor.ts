@@ -40,6 +40,7 @@ import {
   type BlueprintLayoutRequest,
 } from './blueprintCommands';
 import { createStorySemanticSnapshot, type StorySemanticSnapshot } from './semanticModel';
+import { findConditionReferenceCycle } from '../conditionValidation';
 
 const commandRegistry = new NodeRegistry();
 commandRegistry.registerBuiltins();
@@ -1171,7 +1172,17 @@ function applyOperation(
         `Condition name already exists: ${operation.condition.name}`,
       );
     }
-    story.conditions.push(structuredClone(operation.condition));
+    const nextConditions = [...story.conditions, structuredClone(operation.condition)];
+    const cycle = findConditionReferenceCycle(nextConditions);
+    if (cycle) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Condition reference cycle detected: ${cycle.join(' -> ')}`,
+      );
+    }
+    story.conditions = nextConditions;
     return undefined;
   }
   if (operation.kind === 'update-condition') {
@@ -1207,7 +1218,19 @@ function applyOperation(
         `Condition name already exists: ${next.name}`,
       );
     }
-    story.conditions[index] = next;
+    const nextConditions = story.conditions.map((condition, candidateIndex) =>
+      candidateIndex === index ? next : condition,
+    );
+    const cycle = findConditionReferenceCycle(nextConditions);
+    if (cycle) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Condition reference cycle detected: ${cycle.join(' -> ')}`,
+      );
+    }
+    story.conditions = nextConditions;
     return undefined;
   }
   if (operation.kind === 'remove-condition') {

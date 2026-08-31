@@ -98,6 +98,28 @@
   font-size: 12px;
 }
 
+.field input:not([type='checkbox']),
+.field textarea {
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.field select {
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: pointer;
+}
+
+.field input::selection,
+.field textarea::selection,
+.field select::selection {
+  background: #2f78a8;
+  color: #f5fbff;
+}
+
 .field textarea {
   resize: vertical;
   line-height: 1.45;

@@ -24,6 +24,16 @@
     12px/1.45 Consolas,
     'Cascadia Mono',
     monospace;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.editor input::selection,
+.editor textarea::selection {
+  background: #2f78a8;
+  color: #f5fbff;
 }
 
 .editor textarea {

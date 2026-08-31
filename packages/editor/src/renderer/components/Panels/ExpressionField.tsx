@@ -161,6 +161,10 @@ export function ExpressionField({
     ref: controlRef as React.Ref<HTMLInputElement> & React.Ref<HTMLTextAreaElement>,
     value,
     spellCheck: false,
+    onPointerDown: (event: React.PointerEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      event.stopPropagation(),
+    onMouseDown: (event: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      event.stopPropagation(),
     onFocus: () => {
       setFocused(true);
       updateCursor();

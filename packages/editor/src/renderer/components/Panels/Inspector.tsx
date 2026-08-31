@@ -197,6 +197,10 @@ function PlainPropertyField({
       controlRef.current = control;
     },
     value,
+    onPointerDown: (event: React.PointerEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      event.stopPropagation(),
+    onMouseDown: (event: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      event.stopPropagation(),
     onBlur: handleBlur,
     onDragOver: (event: DragEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (variableMode && readStoryDataDrag(event.dataTransfer)?.kind === 'variable') {

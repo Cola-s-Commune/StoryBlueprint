@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  findConditionReferenceCycle,
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
   StoryFormatError,
@@ -102,6 +103,24 @@ function conditionStory(): StorySourceDocument {
 }
 
 describe('Condition resources', () => {
+  it('reports the complete path for reusable condition reference cycles', () => {
+    const conditions = [
+      {
+        id: 'cond_a',
+        name: 'a',
+        displayName: 'A',
+        root: { kind: 'reference' as const, conditionId: 'cond_b' },
+      },
+      {
+        id: 'cond_b',
+        name: 'b',
+        displayName: 'B',
+        root: { kind: 'reference' as const, conditionId: 'cond_a' },
+      },
+    ];
+    expect(findConditionReferenceCycle(conditions)).toEqual(['cond_a', 'cond_b', 'cond_a']);
+  });
+
   it('round-trips condition trees and Branch references in KDL', () => {
     const source = conditionStory();
     const serialized = serializeStorySource(source);

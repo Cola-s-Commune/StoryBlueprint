@@ -536,6 +536,8 @@
   display: grid;
   gap: 9px;
   padding: 11px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .detailsTitle {
@@ -567,6 +569,21 @@
   padding: 6px 7px;
   font: inherit;
   font-size: 11px;
+}
+
+.details input:not([type='checkbox']),
+.details textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.details ::selection,
+.details input::selection,
+.details textarea::selection,
+.details select::selection {
+  background: #2f78a8 !important;
+  color: #f5fbff !important;
 }
 
 .details input:focus,
@@ -670,6 +687,7 @@
 .conditionTreeSection {
   display: grid;
   gap: 6px;
+  container-type: inline-size;
   padding-top: 5px;
   border-top: 1px solid #343d46;
 }
@@ -682,50 +700,187 @@
   text-transform: uppercase;
 }
 
-.conditionTreeNode {
-  display: grid;
-  gap: 7px;
+.conditionTreeGroup {
   min-width: 0;
-  padding: 7px;
-  border: 1px solid #3b4651;
-  border-radius: 5px;
-  background: #20272e;
 }
 
-.conditionTreeNodeHeader {
+.conditionTreeGroup > summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.9fr) 24px;
   align-items: center;
   gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 3px;
+  color: #a9bac7;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  list-style-position: inside;
+  user-select: none;
 }
 
-.conditionTreeNodeHeader select {
+.conditionTreeGroup > summary > select,
+.conditionTreeGroup > summary > button {
+  position: relative;
+  z-index: 1;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.conditionTreeGroup > summary:hover {
+  border-radius: 3px;
+  background: #222b32;
+}
+
+.conditionTreeGroup > summary > select {
   min-width: 0;
 }
 
-.conditionTreeNodeHeader button {
-  width: 24px;
-  height: 25px;
-  padding: 0;
-  border: 1px solid #594047;
-  border-radius: 4px;
-  background: #30262b;
-  color: #e39a9f;
-  cursor: pointer;
-  font: inherit;
+.conditionTreeSummaryLabel {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
 }
 
-.conditionTreeNodeKind {
-  display: none;
+.conditionTreeSummaryLabel > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conditionTreeSummaryLabel small {
+  flex: 0 0 auto;
+  color: #687783;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.conditionTreeGroup > summary > button,
+.conditionTreeRemove {
+  width: 24px;
+  min-width: 24px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 1px solid #4a5661;
+  border-radius: 3px;
+  background: #29323a;
+  color: #b9c6d0;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.conditionTreeGroup > summary > button:hover,
+.conditionTreeRemove:hover {
+  border-color: #a85c63;
+  background: #442a2e;
+  color: #ffc0c4;
 }
 
 .conditionTreeChildren {
   display: grid;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
-  margin-left: 4px;
-  padding-left: 8px;
-  border-left: 2px solid #3e596f;
+  margin: 2px 0 4px 4px;
+  padding-left: 12px;
+}
+
+.conditionTreeLeaf {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 34px 6px 3px;
+  border-bottom: 1px solid #293640;
+}
+
+.conditionTreeLeaf > select {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.conditionTreeLeafContent {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  user-select: text;
+}
+
+.conditionTreeValueHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+  color: #858e9b;
+  font-size: 10px;
+}
+
+.conditionTreeValueHeader select {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  width: 100%;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.conditionTreeLeafContent > label {
+  position: relative;
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.conditionTreeLeafContent > label > span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.conditionTreeLeafContent textarea {
+  position: relative;
+  z-index: 2;
+  min-height: 28px;
+  height: 28px;
+  resize: vertical;
+  pointer-events: auto;
+  user-select: text;
+  cursor: text;
+}
+
+.conditionTreeLeafContent textarea::selection,
+.conditionTreeLeafContent input::selection,
+.conditionTreeLeafContent select::selection {
+  background: #3d6f94;
+  color: #f5fbff;
+}
+
+.conditionTreeLeafContent input,
+.conditionTreeLeafContent select {
+  pointer-events: auto;
+  user-select: text;
+}
+
+.conditionTreeLeaf > .conditionTreeRemove {
+  position: absolute;
+  top: 5px;
+  right: 3px;
 }
 
 .conditionTreeEmpty {
@@ -736,18 +891,56 @@
 
 .conditionTreeAdd {
   justify-self: start;
-  padding: 4px 7px;
-  border: 1px solid #465563;
-  border-radius: 4px;
-  background: #27333e;
-  color: #b9c8d5;
+  margin: 1px 0 3px 24px;
+  padding: 3px 6px;
+  border: 1px solid #465867;
+  border-radius: 3px;
+  background: #26323b;
+  color: #a8c6da;
   cursor: pointer;
   font-size: 10px;
 }
 
 .conditionTreeAdd:hover {
-  border-color: #5a7890;
-  color: #d2e3ef;
+  border-color: #6392b2;
+  background: #304453;
+  color: #c1e2f5;
+}
+
+@container (max-width: 360px) {
+  .conditionTreeGroup > summary {
+    grid-template-columns: minmax(0, 1fr) 24px;
+  }
+
+  .conditionTreeGroup > summary > select {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .conditionTreeGroup > summary > button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .conditionTreeLeaf {
+    grid-template-columns: minmax(0, 1fr);
+    padding-right: 34px;
+  }
+
+  .conditionTreeLeaf > select {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .conditionTreeLeafContent {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .conditionTreeLeaf > button {
+    grid-column: 1;
+    grid-row: 1;
+  }
 }
 
 .eventTableDetails {
@@ -970,6 +1163,20 @@
 .jsonStructuredEditor > .structuredMap,
 .jsonStructuredEditor > .anyJsonValue {
   width: 100%;
+}
+
+.jsonStructuredEditor input:not([type='checkbox']),
+.jsonStructuredEditor textarea {
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.jsonStructuredEditor input::selection,
+.jsonStructuredEditor textarea::selection {
+  background: #2f78a8;
+  color: #f5fbff;
 }
 
 .jsonRawEditor {

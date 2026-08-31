@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ENGINE_OBJECT_TYPE_MARKER,
@@ -1979,6 +1979,8 @@ function ScriptNameInput({
     <input
       disabled={disabled}
       value={draft}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
       onFocus={() => {
         beforeEdit.current = value;
         editing.current = true;
@@ -2171,6 +2173,8 @@ function CommitInput({
     <input
       type={type}
       value={draft}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
       onFocus={() => {
         editing.current = true;
       }}
@@ -4709,6 +4713,7 @@ function ConditionTreeEditor({
   node,
   ownerId,
   conditions,
+  booleanVariables,
   depth = 0,
   onChange,
   onRemove,
@@ -4716,6 +4721,7 @@ function ConditionTreeEditor({
   node: ConditionTreeNode;
   ownerId: ConditionSource['id'];
   conditions: readonly ConditionSource[];
+  booleanVariables: readonly { name: string; displayName: string }[];
   depth?: number;
   onChange: (node: ConditionTreeNode) => void;
   onRemove?: () => void;
@@ -4740,84 +4746,170 @@ function ConditionTreeEditor({
           : node.kind === 'all'
             ? 'All (AND)'
             : 'Any (OR)';
-  return (
-    <div className={styles.conditionTreeNode} data-depth={depth}>
-      <div className={styles.conditionTreeNodeHeader}>
-        <span className={styles.conditionTreeNodeKind}>{kindLabel}</span>
-        <select
-          aria-label="Condition node type"
-          value={node.kind}
-          onChange={(event) => {
-            const nextKind = event.target.value as ConditionTreeNode['kind'];
-            if (nextKind === node.kind) return;
-            if (nextKind === 'reference' && referenceOptions.length === 0) return;
-            onChange(
-              newConditionTreeNode(
-                nextKind,
-                nextKind === 'reference' ? referenceOptions[0]?.id : undefined,
-              ),
-            );
-          }}
-        >
-          <option value="expression">Expression</option>
-          <option value="all">All (AND)</option>
-          <option value="any">Any (OR)</option>
-          <option value="not">Not</option>
-          <option value="reference" disabled={referenceOptions.length === 0}>
-            Condition Reference
-          </option>
-        </select>
-        {onRemove && (
-          <button type="button" title="Remove condition node" onClick={onRemove}>
-            ×
-          </button>
-        )}
+  const selectKind = (event: ChangeEvent<HTMLSelectElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const nextKind = event.target.value as ConditionTreeNode['kind'];
+    if (nextKind === node.kind) return;
+    if (nextKind === 'reference' && referenceOptions.length === 0) return;
+    onChange(
+      newConditionTreeNode(
+        nextKind,
+        nextKind === 'reference' ? referenceOptions[0]?.id : undefined,
+      ),
+    );
+  };
+  const kindSelect = (
+    <select
+      aria-label="Condition node type"
+      value={node.kind}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+      }}
+      onMouseDown={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+      }}
+      onChange={selectKind}
+    >
+      <option value="expression">Expression</option>
+      <option value="all">All (AND)</option>
+      <option value="any">Any (OR)</option>
+      <option value="not">Not</option>
+      <option value="reference" disabled={referenceOptions.length === 0}>
+        Condition Reference
+      </option>
+    </select>
+  );
+  const removeButton = onRemove && (
+    <button
+      type="button"
+      className={styles.conditionTreeRemove}
+      title="Remove condition node"
+      aria-label="Remove condition node"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onRemove();
+      }}
+    >
+      ×
+    </button>
+  );
+
+  if (node.kind === 'expression' || node.kind === 'reference') {
+    const expressionSource = node.kind === 'expression' ? node.expression.source.trim() : '';
+    const selectedBooleanValue =
+      expressionSource === 'true' || expressionSource === 'false'
+        ? expressionSource
+        : booleanVariables.some((variable) => variable.name === expressionSource)
+          ? expressionSource
+          : '';
+    return (
+      <div className={styles.conditionTreeLeaf} data-depth={depth}>
+        {kindSelect}
+        <div className={styles.conditionTreeLeafContent}>
+          {node.kind === 'expression' && (
+            <>
+              <div className={styles.conditionTreeValueHeader}>
+                <span>Value</span>
+                <select
+                  aria-label="Boolean value"
+                  value={selectedBooleanValue}
+                  onChange={(event) =>
+                    onChange({
+                      kind: 'expression',
+                      expression: { ...node.expression, source: event.target.value },
+                    })
+                  }
+                >
+                  <option value="">Manual expression</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                  {booleanVariables.map((variable) => (
+                    <option key={variable.name} value={variable.name}>
+                      {variable.displayName} · {variable.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedBooleanValue === '' && (
+                <CommitTextarea
+                  label="Boolean Expression"
+                  rows={1}
+                  value={node.expression.source}
+                  placeholder="gold >= 1 && trust > 0"
+                  onCommit={(source) =>
+                    onChange({
+                      kind: 'expression',
+                      expression: { ...node.expression, source },
+                    })
+                  }
+                />
+              )}
+            </>
+          )}
+          {node.kind === 'reference' && (
+            <label>
+              <span>Referenced Condition</span>
+              <select
+                value={node.conditionId}
+                disabled={referenceOptions.length === 0}
+                onChange={(event) =>
+                  onChange({
+                    kind: 'reference',
+                    conditionId: event.target.value as ConditionSource['id'],
+                  })
+                }
+              >
+                {referenceOptions.length === 0 ? (
+                  <option value="">No other conditions available</option>
+                ) : (
+                  referenceOptions.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.displayName}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          )}
+        </div>
+        {removeButton}
       </div>
-      {node.kind === 'expression' && (
-        <CommitTextarea
-          label="Boolean Expression"
-          rows={2}
-          value={node.expression.source}
-          placeholder="gold >= 1 && trust > 0"
-          onCommit={(source) =>
-            onChange({
-              kind: 'expression',
-              expression: { ...node.expression, source },
-            })
+    );
+  }
+
+  const childCount = node.kind === 'not' ? 1 : node.children.length;
+  return (
+    <details className={styles.conditionTreeGroup} open>
+      <summary
+        onClick={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest('select,button')) {
+            event.preventDefault();
+            event.stopPropagation();
           }
-        />
-      )}
-      {node.kind === 'reference' && (
-        <label>
-          <span>Referenced Condition</span>
-          <select
-            value={node.conditionId}
-            disabled={referenceOptions.length === 0}
-            onChange={(event) =>
-              onChange({
-                kind: 'reference',
-                conditionId: event.target.value as ConditionSource['id'],
-              })
-            }
-          >
-            {referenceOptions.length === 0 ? (
-              <option value="">No other conditions available</option>
-            ) : (
-              referenceOptions.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.displayName}
-                </option>
-              ))
-            )}
-          </select>
-        </label>
-      )}
+        }}
+      >
+        <span className={styles.conditionTreeSummaryLabel}>
+          <span>{kindLabel}</span>
+          <small>
+            {childCount} {childCount === 1 ? 'child' : 'children'}
+          </small>
+        </span>
+        {kindSelect}
+        {removeButton}
+      </summary>
       {node.kind === 'not' && (
         <div className={styles.conditionTreeChildren}>
           <ConditionTreeEditor
             node={node.child}
             ownerId={ownerId}
             conditions={conditions}
+            booleanVariables={booleanVariables}
             depth={depth + 1}
             onChange={(child) => onChange({ kind: 'not', child })}
           />
@@ -4838,6 +4930,7 @@ function ConditionTreeEditor({
                 node={child}
                 ownerId={ownerId}
                 conditions={conditions}
+                booleanVariables={booleanVariables}
                 depth={depth + 1}
                 onChange={(nextChild) => updateChild(index, nextChild)}
                 onRemove={() =>
@@ -4866,12 +4959,41 @@ function ConditionTreeEditor({
           </button>
         </>
       )}
-    </div>
+    </details>
   );
 }
 
 function ConditionEditor({ condition }: { condition: ConditionSource }) {
-  const { conditions, workspaceError, updateCondition, removeCondition } = useStoryGraphStore();
+  const {
+    conditions,
+    workspaceError,
+    updateCondition,
+    removeCondition,
+    availableVariables,
+    projectVariables,
+    characters,
+  } = useStoryGraphStore();
+  const booleanVariables = useMemo(() => {
+    const options = new Map<string, { name: string; displayName: string }>();
+    for (const variable of [...availableVariables, ...projectVariables]) {
+      if (variable.valueType.kind === 'boolean') {
+        options.set(variable.name, { name: variable.name, displayName: variable.displayName });
+      }
+    }
+    for (const character of characters) {
+      for (const field of character.fields ?? []) {
+        if (field.valueType.kind === 'boolean') {
+          options.set(`${character.name}.${field.name}`, {
+            name: `${character.name}.${field.name}`,
+            displayName: `${character.displayName}.${field.displayName}`,
+          });
+        }
+      }
+    }
+    return [...options.values()].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName),
+    );
+  }, [availableVariables, characters, projectVariables]);
   const duplicate = conditions.some(
     (candidate) => candidate.id !== condition.id && candidate.name === condition.name,
   );
@@ -4880,8 +5002,6 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
       className={styles.details}
       onKeyDown={stopInspectorEvent}
       onKeyUp={stopInspectorEvent}
-      onPointerDown={stopInspectorEvent}
-      onMouseDown={stopInspectorEvent}
       onWheel={stopInspectorEvent}
     >
       <div className={styles.detailsTitle}>Condition</div>
@@ -4916,6 +5036,7 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
           node={condition.root}
           ownerId={condition.id}
           conditions={conditions}
+          booleanVariables={booleanVariables}
           onChange={(root) => updateCondition(condition.id, { root })}
         />
       </div>
