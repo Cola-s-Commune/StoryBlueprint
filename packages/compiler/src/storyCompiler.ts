@@ -16,6 +16,8 @@ import {
   type CallEventNodeData,
   type ChapterId,
   type ChoiceNodeData,
+  type ConditionSource,
+  type ConditionTreeNode,
   type DialogueNodeData,
   type ExpressionSource,
   type InkBlockNodeData,
@@ -164,6 +166,66 @@ function compileAuthoredValue(
       throw jsonError;
     }
   }
+}
+
+function compileConditionTree(
+  tree: ConditionTreeNode,
+  conditions: readonly ConditionSource[],
+  variables: readonly VariableDefinition[],
+  characters: StorySourceDocument['characters'],
+  stack: readonly string[] = [],
+): TypedExpression {
+  if (tree.kind === 'expression') {
+    const expression = compileExpression(tree.expression, variables, characters);
+    if (expression.valueType.kind !== 'boolean' && expression.valueType.kind !== 'any') {
+      throw new ExpressionCompileError('Condition expression must be boolean', 0);
+    }
+    return expression;
+  }
+  if (tree.kind === 'reference') {
+    const condition = conditions.find((candidate) => candidate.id === tree.conditionId);
+    if (!condition) throw new ExpressionCompileError(`Missing condition ${tree.conditionId}`, 0);
+    if (stack.includes(condition.id)) {
+      throw new ExpressionCompileError(
+        `Condition reference cycle detected: ${[...stack, condition.id].join(' -> ')}`,
+        0,
+      );
+    }
+    return compileConditionTree(condition.root, conditions, variables, characters, [
+      ...stack,
+      condition.id,
+    ]);
+  }
+  if (tree.kind === 'not') {
+    const child = compileConditionTree(tree.child, conditions, variables, characters, stack);
+    if (child.valueType.kind !== 'boolean' && child.valueType.kind !== 'any') {
+      throw new ExpressionCompileError('Condition child must be boolean', 0);
+    }
+    return { kind: 'unary', operator: 'not', operand: child, valueType: { kind: 'boolean' } };
+  }
+  const children = tree.children.map((child) =>
+    compileConditionTree(child, conditions, variables, characters, stack),
+  );
+  if (children.length === 0) {
+    return {
+      kind: 'literal',
+      value: tree.kind === 'all',
+      valueType: { kind: 'boolean' },
+    };
+  }
+  if (children.some((child) => !['boolean', 'any'].includes(child.valueType.kind))) {
+    throw new ExpressionCompileError('Condition children must be boolean', 0);
+  }
+  return children.slice(1).reduce(
+    (left, right) => ({
+      kind: 'binary',
+      operator: tree.kind === 'all' ? 'and' : 'or',
+      left,
+      right,
+      valueType: { kind: 'boolean' },
+    }),
+    children[0]!,
+  );
 }
 
 function jump(node: SourceNode, target: BlockId): RuntimeInstruction {
@@ -1187,7 +1249,14 @@ export class DefaultStoryCompiler implements StoryCompiler {
               connectedCondition.value ??
               (!connectedCondition.connected
                 ? compileSafe(node, () =>
-                    compileExpression(data.condition, visibleVariables, source.characters),
+                    data.conditionId
+                      ? compileConditionTree(
+                          { kind: 'reference', conditionId: data.conditionId },
+                          source.conditions ?? [],
+                          visibleVariables,
+                          source.characters,
+                        )
+                      : compileExpression(data.condition, visibleVariables, source.characters),
                   )
                 : undefined);
             if (whenTrue && whenFalse && condition) {

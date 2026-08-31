@@ -2,6 +2,7 @@ import type {
   AssetId,
   ChapterId,
   CharacterId,
+  ConditionId,
   EventId,
   EventOutputId,
   SignalId,
@@ -129,6 +130,22 @@ export interface SignalSource {
   parameters: readonly { name: string; valueType: ValueType }[];
 }
 
+/** A reusable boolean condition authored as a small, composable tree. */
+export type ConditionTreeNode =
+  | { kind: 'expression'; expression: ExpressionSource }
+  | { kind: 'all'; children: readonly ConditionTreeNode[] }
+  | { kind: 'any'; children: readonly ConditionTreeNode[] }
+  | { kind: 'not'; child: ConditionTreeNode }
+  | { kind: 'reference'; conditionId: ConditionId };
+
+export interface ConditionSource {
+  id: ConditionId;
+  name: string;
+  displayName: string;
+  description?: string;
+  root: ConditionTreeNode;
+}
+
 export interface LocalizedTextSource {
   id: TextId;
   default: string;
@@ -147,6 +164,7 @@ export interface StorySourceDocument {
   assets: readonly AssetSource[];
   events: readonly EventSource[];
   signals?: readonly SignalSource[];
+  conditions?: readonly ConditionSource[];
 }
 
 export interface BoundExpressionSource {

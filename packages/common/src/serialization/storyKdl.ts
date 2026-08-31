@@ -12,6 +12,8 @@ import {
   type AssetSource,
   type CharacterSource,
   type ChapterSource,
+  type ConditionSource,
+  type ConditionTreeNode,
   type SourceEdge,
   type SourceGraph,
   type SourceNode,
@@ -239,20 +241,22 @@ function serializeSourceNode(source: SourceNode): Node {
       }
       break;
     }
-    case StoryNodeType.Branch:
-      target.setProperty(
-        'condition',
-        requiredString(
-          (data as StoryNodeDataMap[StoryNodeType.Branch]).condition.source,
-          `${source.id}.condition`,
-        ),
-      );
-      appendBindings(
-        target,
-        'condition',
-        (data as StoryNodeDataMap[StoryNodeType.Branch]).condition.bindings,
-      );
+    case StoryNodeType.Branch: {
+      const branch = data as StoryNodeDataMap[StoryNodeType.Branch];
+      if (branch.conditionId) {
+        target.setProperty(
+          'condition-ref',
+          requiredId(branch.conditionId, 'condition', `${source.id}.condition-ref`),
+        );
+      } else {
+        target.setProperty(
+          'condition',
+          requiredString(branch.condition.source, `${source.id}.condition`),
+        );
+        appendBindings(target, 'condition', branch.condition.bindings);
+      }
       break;
+    }
     case StoryNodeType.GetVariable: {
       const getVariable = data as StoryNodeDataMap[StoryNodeType.GetVariable];
       const variableId = getVariable.variableId;
@@ -559,6 +563,56 @@ function serializeAssets(assets: readonly AssetSource[]): Node | undefined {
   return container;
 }
 
+function serializeConditionTree(tree: ConditionTreeNode): Node {
+  switch (tree.kind) {
+    case 'expression': {
+      const node = Node.create('expression');
+      node.addArgument(requiredString(tree.expression.source, 'condition.expression'));
+      appendBindings(node, 'value', tree.expression.bindings);
+      return node;
+    }
+    case 'all': {
+      const node = Node.create('all');
+      for (const child of tree.children) node.appendNode(serializeConditionTree(child));
+      return node;
+    }
+    case 'any': {
+      const node = Node.create('any');
+      for (const child of tree.children) node.appendNode(serializeConditionTree(child));
+      return node;
+    }
+    case 'not': {
+      const node = Node.create('not');
+      node.appendNode(serializeConditionTree(tree.child));
+      return node;
+    }
+    case 'reference': {
+      const node = Node.create('reference');
+      node.addArgument(requiredId(tree.conditionId, 'condition', 'condition.reference'));
+      return node;
+    }
+  }
+}
+
+function serializeConditions(conditions: readonly ConditionSource[]): Node | undefined {
+  if (conditions.length === 0) return undefined;
+  const container = Node.create('conditions');
+  for (const condition of conditions) {
+    const node = Node.create('condition');
+    node.addArgument(requiredId(condition.id, 'condition', 'condition.id'));
+    node.setProperty('name', requiredString(condition.name, `${condition.id}.name`));
+    if (condition.displayName !== condition.name)
+      node.setProperty(
+        'display-name',
+        requiredString(condition.displayName, `${condition.id}.display-name`),
+      );
+    if (condition.description) node.setProperty('description', condition.description);
+    node.appendNode(serializeConditionTree(condition.root));
+    container.appendNode(node);
+  }
+  return container;
+}
+
 function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined {
   if (chapters.length === 0) return undefined;
   const container = Node.create('chapters');
@@ -592,6 +646,47 @@ function serializeChapters(chapters: readonly ChapterSource[]): Node | undefined
 function validateStoryReferences(source: StorySourceDocument): void {
   const chapterIds = new Set(source.chapters.map((chapter) => chapter.id));
   const characterIds = new Set(source.characters.map((character) => character.id));
+  const conditions = source.conditions ?? [];
+  const conditionById = new Map(conditions.map((condition) => [condition.id, condition]));
+  const conditionNames = new Set<string>();
+  for (const condition of conditions) {
+    if (conditionNames.has(condition.name))
+      throw new StoryFormatError(`Duplicate condition name: ${condition.name}`);
+    conditionNames.add(condition.name);
+  }
+  const validateConditionTree = (
+    tree: ConditionTreeNode,
+    ownerId: ConditionSource['id'],
+    stack: readonly ConditionSource['id'][] = [ownerId],
+  ): void => {
+    if (tree.kind === 'reference') {
+      const target = conditionById.get(tree.conditionId);
+      if (!target) {
+        throw new StoryFormatError(`${ownerId} references missing condition ${tree.conditionId}`);
+      }
+      if (stack.includes(target.id)) {
+        throw new StoryFormatError(
+          `Condition cycle detected: ${[...stack, target.id].join(' -> ')}`,
+        );
+      }
+      validateConditionTree(target.root, ownerId, [...stack, target.id]);
+      return;
+    }
+    if (tree.kind === 'not') {
+      validateConditionTree(tree.child, ownerId, stack);
+      return;
+    }
+    if (tree.kind === 'all' || tree.kind === 'any') {
+      for (const child of tree.children) validateConditionTree(child, ownerId, stack);
+    }
+  };
+  const conditionIds = new Set<string>();
+  for (const condition of conditions) {
+    if (conditionIds.has(condition.id))
+      throw new StoryFormatError(`Duplicate condition ID: ${condition.id}`);
+    conditionIds.add(condition.id);
+    validateConditionTree(condition.root, condition.id);
+  }
   for (const character of source.characters) {
     for (const targetId of Object.keys(character.relationships ?? {})) {
       if (!characterIds.has(targetId as CharacterSource['id'])) {
@@ -627,6 +722,14 @@ function validateStoryReferences(source: StorySourceDocument): void {
           }
           allLineIds.add(line.id);
           allTextIds.add(line.textId);
+        }
+      }
+      if (node.type === StoryNodeType.Branch) {
+        const branch = node.data as unknown as StoryNodeDataMap[StoryNodeType.Branch];
+        if (branch.conditionId && !conditionIds.has(branch.conditionId)) {
+          throw new StoryFormatError(
+            `${node.id} references missing condition ${branch.conditionId}`,
+          );
         }
       }
       if (node.type !== StoryNodeType.FlowJump) continue;
@@ -682,10 +785,12 @@ export function serializeStorySource(source: StorySourceDocument): string {
   const variables = serializeVariables(source.variables);
   const characters = serializeCharacters(source.characters);
   const assets = serializeAssets(source.assets);
+  const conditions = serializeConditions(source.conditions ?? []);
   const chapters = serializeChapters(source.chapters);
   if (variables) story.appendNode(variables);
   if (characters) story.appendNode(characters);
   if (assets) story.appendNode(assets);
+  if (conditions) story.appendNode(conditions);
   if (chapters) story.appendNode(chapters);
   story.appendNode(serializeGraph(source.root));
   return format(new Document([story]));
@@ -709,7 +814,7 @@ function parseSourceNode(
     [StoryNodeType.Dialogue]: [],
     [StoryNodeType.InkBlock]: ['source-mode', 'source', 'path', 'entry-knot'],
     [StoryNodeType.Choice]: ['prompt'],
-    [StoryNodeType.Branch]: ['condition'],
+    [StoryNodeType.Branch]: ['condition', 'condition-ref'],
     [StoryNodeType.GetVariable]: [
       'variable',
       'member',
@@ -788,13 +893,21 @@ function parseSourceNode(
           id: lineId,
           textId,
           text: textTemplateSource(lineNode.getArgument(2), `${lineId}.text`, lineNode, 'text'),
-          speakerId: lineNode.getProperty('speaker')
-            ? requiredId(lineNode.getProperty('speaker'), 'character', `${lineId}.speaker`)
-            : undefined,
-          voiceId: lineNode.getProperty('voice')
-            ? requiredId(lineNode.getProperty('voice'), 'asset', `${lineId}.voice`)
-            : undefined,
-          emotion: optionalString(lineNode.getProperty('emotion'), `${lineId}.emotion`),
+          ...(lineNode.getProperty('speaker')
+            ? {
+                speakerId: requiredId(
+                  lineNode.getProperty('speaker'),
+                  'character',
+                  `${lineId}.speaker`,
+                ),
+              }
+            : {}),
+          ...(lineNode.getProperty('voice')
+            ? { voiceId: requiredId(lineNode.getProperty('voice'), 'asset', `${lineId}.voice`) }
+            : {}),
+          ...(lineNode.getProperty('emotion') !== undefined
+            ? { emotion: optionalString(lineNode.getProperty('emotion'), `${lineId}.emotion`) }
+            : {}),
           ...(tags.length > 0 ? { tags } : {}),
         };
       });
@@ -919,17 +1032,24 @@ function parseSourceNode(
       assertBindingTargets(node, ['prompt'], id);
       break;
     }
-    case StoryNodeType.Branch:
+    case StoryNodeType.Branch: {
       assertBindingTargets(node, ['condition'], id);
+      const conditionRef = node.getProperty('condition-ref');
+      const condition = node.getProperty('condition');
+      if (conditionRef === undefined && condition === undefined) {
+        throw new StoryFormatError(`${id} must define condition or condition-ref`);
+      }
       data = {
-        condition: expressionSource(
-          node.getProperty('condition'),
-          `${id}.condition`,
-          node,
-          'condition',
-        ),
+        condition:
+          condition === undefined
+            ? { source: 'true', bindings: {} }
+            : expressionSource(condition, `${id}.condition`, node, 'condition'),
+        ...(conditionRef === undefined
+          ? {}
+          : { conditionId: requiredId(conditionRef, 'condition', `${id}.condition-ref`) }),
       };
       break;
+    }
     case StoryNodeType.GetVariable:
       assertBindingTargets(node, ['index'], id);
       const exposedFields = node.findNodesByName('output-field').map((fieldNode, index) => {
@@ -1458,14 +1578,23 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
       id,
       name,
       displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
-      description: optionalString(node.getProperty('description'), `${id}.description`),
-      dialogueStyle: optionalString(node.getProperty('dialogue-style'), `${id}.dialogue-style`),
+      ...(node.getProperty('description') !== undefined
+        ? { description: optionalString(node.getProperty('description'), `${id}.description`) }
+        : {}),
+      ...(node.getProperty('dialogue-style') !== undefined
+        ? {
+            dialogueStyle: optionalString(
+              node.getProperty('dialogue-style'),
+              `${id}.dialogue-style`,
+            ),
+          }
+        : {}),
       ...(tags.length > 0 ? { tags } : {}),
       ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
       ...(Object.keys(relationships).length > 0 ? { relationships } : {}),
-      defaultPortraitId: node.getProperty('portrait')
-        ? requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`)
-        : undefined,
+      ...(node.getProperty('portrait')
+        ? { defaultPortraitId: requiredId(node.getProperty('portrait'), 'asset', `${id}.portrait`) }
+        : {}),
       emotions,
       ...(fields.length > 0 ? { fields } : {}),
     };
@@ -1500,7 +1629,77 @@ function parseAssets(container: Node | undefined): AssetSource[] {
       name: requiredString(node.getProperty('name'), `${id}.name`),
       displayName: requiredString(node.getProperty('display-name'), `${id}.display-name`),
       kind,
-      locales: Object.keys(locales).length > 0 ? locales : undefined,
+      ...(Object.keys(locales).length > 0 ? { locales } : {}),
+    };
+  });
+}
+
+function parseConditionTree(node: Node, path: string): ConditionTreeNode {
+  switch (node.getName()) {
+    case 'expression':
+      assertShape(node, path, { arguments: 1, children: ['binding'] });
+      assertBindingTargets(node, ['value'], path);
+      return {
+        kind: 'expression',
+        expression: expressionSource(node.getArgument(0), `${path}.source`, node, 'value'),
+      };
+    case 'all':
+    case 'any': {
+      assertShape(node, path, {
+        arguments: 0,
+        children: ['expression', 'all', 'any', 'not', 'reference'],
+      });
+      const children = (node.children?.nodes ?? []).map((child, index) =>
+        parseConditionTree(child, `${path}.${node.getName()}[${index}]`),
+      );
+      return node.getName() === 'all' ? { kind: 'all', children } : { kind: 'any', children };
+    }
+    case 'not': {
+      assertShape(node, path, {
+        arguments: 0,
+        children: ['expression', 'all', 'any', 'not', 'reference'],
+      });
+      const children = node.children?.nodes ?? [];
+      if (children.length !== 1) throw new StoryFormatError(`${path} must contain one child`);
+      return { kind: 'not', child: parseConditionTree(children[0]!, `${path}.child`) };
+    }
+    case 'reference':
+      assertShape(node, path, { arguments: 1 });
+      return {
+        kind: 'reference',
+        conditionId: requiredId(node.getArgument(0), 'condition', `${path}.condition`),
+      };
+    default:
+      throw new StoryFormatError(`${path} contains unsupported condition node ${node.getName()}`);
+  }
+}
+
+function parseConditions(container: Node | undefined): ConditionSource[] {
+  if (!container) return [];
+  assertShape(container, 'story.conditions', { arguments: 0, children: ['condition'] });
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  return container.findNodesByName('condition').map((node, index) => {
+    const path = `story.conditions.condition[${index}]`;
+    assertShape(node, path, {
+      arguments: 1,
+      properties: ['name', 'display-name', 'description'],
+      children: ['expression', 'all', 'any', 'not', 'reference'],
+    });
+    const id = requiredId(node.getArgument(0), 'condition', `${path}.id`);
+    const name = requiredString(node.getProperty('name'), `${id}.name`);
+    if (ids.has(id)) throw new StoryFormatError(`Duplicate condition ID: ${id}`);
+    if (names.has(name)) throw new StoryFormatError(`Duplicate condition name: ${name}`);
+    const children = node.children?.nodes ?? [];
+    if (children.length !== 1) throw new StoryFormatError(`${path} must contain one root node`);
+    ids.add(id);
+    names.add(name);
+    return {
+      id,
+      name,
+      displayName: optionalString(node.getProperty('display-name'), `${id}.display-name`) ?? name,
+      description: optionalString(node.getProperty('description'), `${id}.description`),
+      root: parseConditionTree(children[0]!, `${path}.root`),
     };
   });
 }
@@ -1623,12 +1822,12 @@ export function parseStorySource(text: string): StorySourceDocument {
   assertShape(story, 'story', {
     arguments: 1,
     properties: ['format', 'version', 'name', 'display-name'],
-    children: ['variables', 'characters', 'assets', 'chapters', 'graph'],
+    children: ['variables', 'characters', 'assets', 'conditions', 'chapters', 'graph'],
   });
   if (story.findNodesByName('graph').length !== 1) {
     throw new StoryFormatError('Story must contain exactly one graph');
   }
-  for (const section of ['variables', 'characters', 'assets', 'chapters'] as const) {
+  for (const section of ['variables', 'characters', 'assets', 'conditions', 'chapters'] as const) {
     if (story.findNodesByName(section).length > 1) {
       throw new StoryFormatError(`Story may contain at most one ${section} section`);
     }
@@ -1641,6 +1840,7 @@ export function parseStorySource(text: string): StorySourceDocument {
     );
   }
   const name = requiredString(story.getProperty('name'), 'story.name');
+  const conditionsContainer = story.findNodeByName('conditions');
   const source: StorySourceDocument = {
     format: STORY_SOURCE_FORMAT,
     version: STORY_SOURCE_VERSION,
@@ -1651,6 +1851,7 @@ export function parseStorySource(text: string): StorySourceDocument {
     variables: parseVariables(story.findNodeByName('variables')),
     characters: parseCharacters(story.findNodeByName('characters')),
     assets: parseAssets(story.findNodeByName('assets')),
+    ...(conditionsContainer ? { conditions: parseConditions(conditionsContainer) } : {}),
     chapters: parseChapters(story.findNodeByName('chapters')),
     events: [],
   };

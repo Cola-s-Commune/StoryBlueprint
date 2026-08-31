@@ -10,6 +10,7 @@ const stableIdPrefixes = {
   event: 'ev',
   eventOutput: 'evo',
   signal: 'sig',
+  condition: 'cond',
   engineType: 'et',
   engineField: 'ef',
   line: 'ln',
@@ -37,6 +38,7 @@ export type EventOutputId = StableId<'eventOutput'>;
 export type ExternalFunctionId = EventId;
 export type ExternalFunctionOutputId = EventOutputId;
 export type SignalId = StableId<'signal'>;
+export type ConditionId = StableId<'condition'>;
 export type EngineTypeId = StableId<'engineType'>;
 export type EngineFieldId = StableId<'engineField'>;
 export type DialogueLineId = StableId<'line'>;

@@ -31,6 +31,7 @@ export {
   type StoryNodeDataMap,
   type NodeDefinition,
 } from './types/nodes';
+export { type ConditionTreeNode, type ConditionSource } from './types/source';
 
 // ---- Registry ----
 export { NodeRegistry, nodeRegistry } from './registry/nodeRegistry';

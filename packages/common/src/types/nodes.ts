@@ -6,6 +6,7 @@ import type {
   AssetId,
   ChapterId,
   CharacterId,
+  ConditionId,
   EventId,
   EventOutputId,
   SignalId,
@@ -129,6 +130,8 @@ export interface ChoiceOption {
 export interface BranchNodeData {
   /** Human-readable description of the branch condition */
   condition: ExpressionSource;
+  /** Optional reusable Condition resource. When present, it takes precedence over `condition`. */
+  conditionId?: ConditionId;
 }
 
 /** Reads a story variable as a typed data value. */
