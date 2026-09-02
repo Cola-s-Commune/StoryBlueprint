@@ -1361,7 +1361,9 @@ export function StoryGraph() {
                   parameter.name,
                   {
                     source:
-                      parameter.valueType.kind === 'string'
+                      parameter.valueType.kind === 'string' ||
+                      parameter.valueType.kind === 'character-ref' ||
+                      parameter.valueType.kind === 'asset-ref'
                         ? '""'
                         : parameter.valueType.kind === 'boolean'
                           ? 'false'

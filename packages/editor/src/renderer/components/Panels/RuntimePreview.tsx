@@ -16,6 +16,7 @@ import {
   type OptionId,
   type RuntimeValue,
   type RuntimeProgram,
+  type ValueType,
   type VariableDefinition,
 } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
@@ -25,13 +26,15 @@ import styles from './RuntimePreview.module.css';
 type HistoryItem =
   | { kind: 'dialogue'; speaker?: string; emotion?: string; text: string }
   | { kind: 'choice'; text: string }
-  | { kind: 'event'; name: string; arguments: Readonly<Record<string, RuntimeValue>> };
+  | { kind: 'event'; name: string; arguments: Readonly<Record<string, RuntimeValue>> }
+  | { kind: 'story-control'; action: string; storyId?: string; instanceId?: string };
 
 interface PreviewSession {
   runtime: StoryRuntime;
   program: RuntimeProgram;
   result: RuntimeRunResult;
   characters: readonly CharacterSource[];
+  assets: readonly { id: string }[];
   variables: readonly VariableDefinition[];
   events: readonly EventSource[];
   signals: readonly SignalSource[];
@@ -61,6 +64,34 @@ function valueLabel(value: RuntimeValue): string {
   return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
+function previewDefaultValue(
+  type: ValueType,
+  characters: readonly CharacterSource[],
+  assets: readonly { id: string }[],
+): RuntimeValue {
+  if (type.nullable || type.kind === 'any') return null;
+  switch (type.kind) {
+    case 'boolean':
+      return false;
+    case 'number':
+      return 0;
+    case 'string':
+      return '';
+    case 'character-ref':
+      return characters[0]?.id ?? null;
+    case 'asset-ref':
+      return assets[0]?.id ?? null;
+    case 'array':
+      return [];
+    case 'map':
+    case 'json':
+    case 'struct':
+      return {};
+    case 'enum':
+      return type.values[0] ?? '';
+  }
+}
+
 export function RuntimePreview() {
   const {
     hasActiveStory,
@@ -81,6 +112,7 @@ export function RuntimePreview() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'loaded' | 'failed'>('idle');
   const [previewLocale, setPreviewLocale] = useState('');
   const dispatchedEventResult = useRef<RuntimeRunResult>();
+  const dispatchedStoryControlResult = useRef<RuntimeRunResult>();
   const authoringVariables = useMemo(
     () => [...source.variables, ...projectVariables],
     [projectVariables, source.variables],
@@ -94,6 +126,7 @@ export function RuntimePreview() {
     setSavedStateJson('');
     setSaveStatus('idle');
     dispatchedEventResult.current = undefined;
+    dispatchedStoryControlResult.current = undefined;
   }, [projectVariables, source]);
 
   const characterNames = useMemo(
@@ -155,6 +188,7 @@ export function RuntimePreview() {
         ),
         sourceLocale: workspace?.localization?.document.sourceLocale,
         inkSources,
+        availableStoryIds: workspace?.project?.stories.map((story) => story.id),
         localeFallbacks: Object.fromEntries(
           (workspace?.localization?.document.locales ?? []).flatMap((locale) =>
             locale.fallback ? [[locale.locale, locale.fallback]] : [],
@@ -178,6 +212,7 @@ export function RuntimePreview() {
       program: compiled.program,
       result: runtime.runUntilPause(),
       characters,
+      assets,
       variables: compiled.program.variables,
       events,
       signals,
@@ -212,6 +247,7 @@ export function RuntimePreview() {
         program: entry.program,
         result: runtime.runUntilPause(),
         characters: entry.characters,
+        assets: entry.assets,
         variables: entry.program.variables,
         events: project.events,
         signals: project.signals,
@@ -316,11 +352,7 @@ export function RuntimePreview() {
         (definition?.parameters ?? []).map((parameter) => [
           parameter.name,
           interaction.request.matches[parameter.name] ??
-            (parameter.valueType.kind === 'boolean'
-              ? false
-              : parameter.valueType.kind === 'number'
-                ? 0
-                : ''),
+            previewDefaultValue(parameter.valueType, session.characters, session.assets),
         ]),
       ),
     );
@@ -345,19 +377,26 @@ export function RuntimePreview() {
         Object.fromEntries(
           interaction.request.outputs.map((output) => [
             output.id,
-            output.valueType.kind === 'boolean'
-              ? false
-              : output.valueType.kind === 'number'
-                ? 0
-                : output.valueType.kind === 'array'
-                  ? []
-                  : output.valueType.kind === 'map' || output.valueType.kind === 'json'
-                    ? {}
-                    : '',
+            previewDefaultValue(output.valueType, session.characters, session.assets),
           ]),
         ),
       ),
     );
+  }, [acceptResult, interaction, session]);
+  useEffect(() => {
+    if (!session || interaction?.kind !== 'story-control') return;
+    if (dispatchedStoryControlResult.current === session.result) return;
+    dispatchedStoryControlResult.current = session.result;
+    setHistory((current) => [
+      ...current,
+      {
+        kind: 'story-control',
+        action: interaction.request.action,
+        storyId: interaction.request.storyId,
+        instanceId: interaction.request.instanceId,
+      },
+    ]);
+    acceptResult(session.runtime, session.runtime.continueStoryControl({}));
   }, [acceptResult, interaction, session]);
   const errorText = [
     result?.kind === 'failed'
@@ -470,9 +509,13 @@ export function RuntimePreview() {
                   <div key={index} className={styles.historyChoice}>
                     › {item.text}
                   </div>
-                ) : (
+                ) : item.kind === 'event' ? (
                   <div key={index} className={styles.historyChoice}>
                     ⚡ {item.name}({Object.values(item.arguments).map(valueLabel).join(', ')})
+                  </div>
+                ) : (
+                  <div key={index} className={styles.historyChoice}>
+                    ↔ {item.action} {item.storyId ?? item.instanceId ?? ''}
                   </div>
                 ),
               )}

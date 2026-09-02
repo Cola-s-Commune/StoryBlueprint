@@ -68,6 +68,19 @@ export class StoryRuntimeDriver {
               this.runtime.runUntilPause();
             break;
           }
+          case 'story-control': {
+            if (!this.adapter.controlStory) {
+              return this.runtime.failAdapterResult(
+                'Story Control requires an adapter.controlStory implementation',
+              );
+            }
+            const controlResult = await this.adapter.controlStory(
+              result.interaction.request,
+              signal,
+            );
+            result = this.runtime.continueStoryControl(controlResult);
+            break;
+          }
         }
       } catch (cause) {
         if (signal.aborted) return this.runtime.abort();

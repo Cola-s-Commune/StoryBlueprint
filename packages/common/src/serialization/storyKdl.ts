@@ -21,7 +21,9 @@ import {
   type StorySourceDocument,
 } from '../types/source';
 import {
+  parseValueTypeDescriptor,
   runtimeValueMatchesType,
+  serializeValueTypeDescriptor,
   type RuntimeValue,
   type ValueType,
   type VariableDefinition,
@@ -385,6 +387,45 @@ function serializeSourceNode(source: SourceNode): Node {
       }
       break;
     }
+    case StoryNodeType.StartStory:
+    case StoryNodeType.SwitchStory:
+    case StoryNodeType.ResumeStory:
+    case StoryNodeType.EndStoryInstance: {
+      const control = data as StoryNodeDataMap[
+        | StoryNodeType.StartStory
+        | StoryNodeType.SwitchStory
+        | StoryNodeType.ResumeStory
+        | StoryNodeType.EndStoryInstance];
+      if ('storyId' in control && control.storyId) target.setProperty('story', control.storyId);
+      if (control.instanceId) {
+        target.setProperty('instance-id', control.instanceId.source);
+        appendBindings(target, 'instance-id', control.instanceId.bindings);
+      }
+      if ('instanceVariableId' in control && control.instanceVariableId) {
+        target.setProperty('instance-variable', control.instanceVariableId);
+      }
+      if ('waitForCompletion' in control && control.waitForCompletion) {
+        target.setProperty('wait-for-completion', 'true');
+      }
+      for (const [parameterId, value] of Object.entries(
+        'arguments' in control ? (control.arguments ?? {}) : {},
+      ).sort(([left], [right]) => left.localeCompare(right))) {
+        const argument = Node.create('argument');
+        argument.addArgument(parameterId);
+        argument.addArgument(value.source);
+        appendBindings(argument, 'value', value.bindings);
+        target.appendNode(argument);
+      }
+      for (const [outputId, variableId] of Object.entries(control.resultVariableIds ?? {}).sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        const result = Node.create('result');
+        result.addArgument(outputId);
+        result.addArgument(variableId);
+        target.appendNode(result);
+      }
+      break;
+    }
     case StoryNodeType.FlowAnchor:
       target.setProperty(
         'label',
@@ -441,28 +482,22 @@ function serializeGraph(source: SourceGraph): Node {
 }
 
 function valueTypeName(valueType: ValueType): string {
-  if (
-    valueType.kind === 'boolean' ||
-    valueType.kind === 'number' ||
-    valueType.kind === 'string' ||
-    (valueType.kind === 'array' && !valueType.elementType) ||
-    (valueType.kind === 'map' && !valueType.keyType && !valueType.valueType)
-  ) {
-    return valueType.kind;
+  try {
+    return serializeValueTypeDescriptor(valueType);
+  } catch (error) {
+    throw new StoryFormatError(
+      `Unsupported variable type ${valueType.kind}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  if (valueType.kind === 'array')
-    return `array:${JSON.stringify(valueType.elementType ?? { kind: 'any' })}`;
-  if (valueType.kind === 'map')
-    return `map:${JSON.stringify({ keyType: valueType.keyType ?? 'string', valueType: valueType.valueType ?? { kind: 'any' } })}`;
-  if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
-  throw new StoryFormatError(`Unsupported variable type ${valueType.kind}`);
 }
 
 function serializeVariableDefault(variable: VariableDefinition): null | boolean | number | string {
   if (
+    variable.valueType.kind === 'any' ||
     variable.valueType.kind === 'json' ||
     variable.valueType.kind === 'array' ||
-    variable.valueType.kind === 'map'
+    variable.valueType.kind === 'map' ||
+    variable.valueType.kind === 'struct'
   )
     return JSON.stringify(variable.defaultValue);
   if (
@@ -539,15 +574,10 @@ function serializeCharacters(characters: readonly CharacterSource[]): Node | und
       if (field.displayName !== field.name)
         fieldNode.setProperty('display-name', field.displayName);
       fieldNode.setProperty('type', valueTypeName(field.valueType));
-      if (
-        field.defaultValue !== null &&
-        typeof field.defaultValue !== 'boolean' &&
-        typeof field.defaultValue !== 'number' &&
-        typeof field.defaultValue !== 'string'
-      ) {
-        throw new StoryFormatError(`${field.id}.default must be a scalar`);
+      if (!runtimeValueMatchesType(field.defaultValue, field.valueType)) {
+        throw new StoryFormatError(`${field.id}.default must match ${field.valueType.kind}`);
       }
-      fieldNode.setProperty('default', field.defaultValue as null | boolean | number | string);
+      fieldNode.setProperty('default', serializeVariableDefault(field));
       node.appendNode(fieldNode);
     }
     for (const [key, emotion] of Object.entries(character.emotions)) {
@@ -871,6 +901,20 @@ function parseSourceNode(
     [StoryNodeType.CallEvent]: ['event'],
     [StoryNodeType.WaitSignal]: ['signal'],
     [StoryNodeType.CallSubstory]: ['chapter', 'result-variable'],
+    [StoryNodeType.StartStory]: [
+      'story',
+      'instance-id',
+      'instance-variable',
+      'wait-for-completion',
+    ],
+    [StoryNodeType.SwitchStory]: [
+      'story',
+      'instance-id',
+      'instance-variable',
+      'wait-for-completion',
+    ],
+    [StoryNodeType.ResumeStory]: ['instance-id', 'instance-variable', 'wait-for-completion'],
+    [StoryNodeType.EndStoryInstance]: ['instance-id'],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: ['label'],
     [StoryNodeType.FlowJump]: ['target'],
@@ -888,6 +932,10 @@ function parseSourceNode(
     [StoryNodeType.CallEvent]: ['argument', 'result'],
     [StoryNodeType.WaitSignal]: ['match'],
     [StoryNodeType.CallSubstory]: ['argument', 'result'],
+    [StoryNodeType.StartStory]: ['argument', 'result', 'binding'],
+    [StoryNodeType.SwitchStory]: ['argument', 'result', 'binding'],
+    [StoryNodeType.ResumeStory]: ['result', 'binding'],
+    [StoryNodeType.EndStoryInstance]: ['result', 'binding'],
     [StoryNodeType.Reroute]: [],
     [StoryNodeType.FlowAnchor]: [],
     [StoryNodeType.FlowJump]: [],
@@ -1283,6 +1331,67 @@ function parseSourceNode(
         ),
       };
       break;
+    case StoryNodeType.StartStory:
+    case StoryNodeType.SwitchStory:
+    case StoryNodeType.ResumeStory:
+    case StoryNodeType.EndStoryInstance: {
+      const isResume = type === StoryNodeType.ResumeStory;
+      const isEnd = type === StoryNodeType.EndStoryInstance;
+      const instanceValue = node.getProperty('instance-id');
+      if (!instanceValue && (isResume || isEnd)) {
+        throw new StoryFormatError(`${id}.instance-id is required`);
+      }
+      if (instanceValue) assertBindingTargets(node, ['instance-id'], id);
+      const argumentsValue = Object.fromEntries(
+        node.findNodesByName('argument').map((argument, index) => {
+          const path = `${id}.argument[${index}]`;
+          assertShape(argument, path, { arguments: 2, children: ['binding'] });
+          assertBindingTargets(argument, ['value'], path);
+          return [
+            requiredId(argument.getArgument(0), 'variable', `${path}.parameter`),
+            expressionSource(argument.getArgument(1), `${path}.value`, argument, 'value'),
+          ];
+        }),
+      );
+      const resultVariableIds = Object.fromEntries(
+        node.findNodesByName('result').map((result, index) => {
+          const path = `${id}.result[${index}]`;
+          assertShape(result, path, { arguments: 2 });
+          return [
+            requiredString(result.getArgument(0), `${path}.output`),
+            requiredId(result.getArgument(1), 'variable', `${path}.variable`),
+          ];
+        }),
+      );
+      const instanceId = instanceValue
+        ? expressionSource(instanceValue, `${id}.instance-id`, node, 'instance-id')
+        : undefined;
+      const instanceVariableId = node.getProperty('instance-variable')
+        ? requiredId(node.getProperty('instance-variable'), 'variable', `${id}.instance-variable`)
+        : undefined;
+      if (isEnd) {
+        data = { instanceId, resultVariableIds } as StoryNodeDataMap[typeof type];
+      } else if (isResume) {
+        data = {
+          instanceId,
+          resultVariableIds,
+          instanceVariableId,
+          waitForCompletion: node.getProperty('wait-for-completion') === 'true',
+        } as StoryNodeDataMap[typeof type];
+      } else {
+        data = {
+          storyId: node.getProperty('story')
+            ? requiredId(node.getProperty('story'), 'story', `${id}.story`)
+            : undefined,
+          instanceId,
+          arguments: argumentsValue,
+          resultVariableIds,
+          instanceVariableId,
+          waitForCompletion: node.getProperty('wait-for-completion') === 'true',
+        } as StoryNodeDataMap[typeof type];
+      }
+      break;
+    }
     case StoryNodeType.Reroute:
       data = {};
       break;
@@ -1405,40 +1514,32 @@ function parseGraph(graph: Node, legacyOutputId?: VariableDefinition['id']): Sou
 }
 
 function parseValueType(value: unknown, path: string): ValueType {
-  const kind = requiredString(value, path);
-  if (
-    kind === 'boolean' ||
-    kind === 'number' ||
-    kind === 'string' ||
-    kind === 'array' ||
-    kind === 'map'
-  )
-    return { kind };
-  if (kind.startsWith('json:') && kind.slice(5).trim())
-    return { kind: 'json', name: kind.slice(5) };
-  if (kind.startsWith('array:')) {
-    try {
-      return { kind: 'array', elementType: JSON.parse(kind.slice(6)) as ValueType };
-    } catch {
-      throw new StoryFormatError(`${path} contains invalid Array element type`);
-    }
+  const serialized = requiredString(value, path);
+  try {
+    return parseValueTypeDescriptor(serialized);
+  } catch (error) {
+    throw new StoryFormatError(
+      `${path} contains unsupported type: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  if (kind.startsWith('map:')) {
-    try {
-      const detail = JSON.parse(kind.slice(4)) as {
-        keyType?: 'string' | 'number' | 'character-ref' | 'asset-ref';
-        valueType?: ValueType;
-      };
-      return { kind: 'map', keyType: detail.keyType, valueType: detail.valueType };
-    } catch {
-      throw new StoryFormatError(`${path} contains invalid Map type`);
-    }
-  }
-  throw new StoryFormatError(`${path} contains unsupported type ${kind}`);
 }
 
 function parseVariableDefault(valueType: ValueType, value: unknown, path: string): RuntimeValue {
-  if (valueType.kind === 'json' || valueType.kind === 'array' || valueType.kind === 'map') {
+  if (valueType.kind === 'any') {
+    if (typeof value !== 'string') return value as RuntimeValue;
+    try {
+      return JSON.parse(value) as RuntimeValue;
+    } catch {
+      // Accept early files that stored an Any string without JSON encoding.
+      return value;
+    }
+  }
+  if (
+    valueType.kind === 'json' ||
+    valueType.kind === 'array' ||
+    valueType.kind === 'map' ||
+    valueType.kind === 'struct'
+  ) {
     if (typeof value !== 'string') throw new StoryFormatError(`${path} must contain JSON text`);
     try {
       const parsed = JSON.parse(value) as RuntimeValue;
@@ -1446,7 +1547,7 @@ function parseVariableDefault(valueType: ValueType, value: unknown, path: string
         throw new StoryFormatError(`${path} must contain a JSON array`);
       }
       if (
-        valueType.kind === 'map' &&
+        (valueType.kind === 'map' || valueType.kind === 'struct') &&
         (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
       ) {
         throw new StoryFormatError(`${path} must contain a JSON object`);
@@ -1466,6 +1567,9 @@ function parseVariableDefault(valueType: ValueType, value: unknown, path: string
     typeof value === 'number' ||
     typeof value === 'string'
   ) {
+    if (!runtimeValueMatchesType(value, valueType)) {
+      throw new StoryFormatError(`${path} contains a value that does not match ${valueType.kind}`);
+    }
     return value;
   }
   throw new StoryFormatError(`${path} must be a scalar`);
@@ -1562,10 +1666,11 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
       fieldIds.add(fieldId);
       fieldNames.add(fieldName);
       const valueType = parseValueType(fieldNode.getProperty('type'), `${fieldId}.type`);
-      const defaultValue = fieldNode.getProperty('default');
-      if (typeof defaultValue !== valueType.kind) {
-        throw new StoryFormatError(`${fieldId}.default must be ${valueType.kind}`);
-      }
+      const defaultValue = parseVariableDefault(
+        valueType,
+        fieldNode.getProperty('default'),
+        `${fieldId}.default`,
+      );
       return {
         id: fieldId,
         name: fieldName,
@@ -1574,7 +1679,7 @@ function parseCharacters(container: Node | undefined): CharacterSource[] {
           fieldName,
         scope: 'character' as const,
         valueType,
-        defaultValue: defaultValue as RuntimeValue,
+        defaultValue,
       };
     });
     const emotions: CharacterSource['emotions'] = Object.fromEntries(

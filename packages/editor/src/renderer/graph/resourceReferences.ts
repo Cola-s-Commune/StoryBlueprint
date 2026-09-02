@@ -1,5 +1,6 @@
 import {
   collectEngineResourceValueReferences,
+  isStableId,
   StoryNodeType,
   type AssetId,
   type ChapterId,
@@ -15,6 +16,7 @@ import {
   type StoryNodeDataMap,
   type VariableDefinition,
   type VariableId,
+  type ValueType,
 } from '@story-blueprint/common';
 import type { EditorGraphNode, EditorGraphState } from './editorGraph';
 import {
@@ -141,6 +143,43 @@ function visitEngineResourceReferences(
   }
 }
 
+function visitTypedResourceReferences(
+  value: RuntimeValue,
+  type: ValueType,
+  path: string,
+  visit: (kind: 'character' | 'asset', id: string, path: string) => void,
+): void {
+  if (value === null) return;
+  if (
+    type.kind === 'character-ref' &&
+    typeof value === 'string' &&
+    isStableId(value, 'character')
+  ) {
+    visit('character', value, path);
+    return;
+  }
+  if (type.kind === 'asset-ref' && typeof value === 'string' && isStableId(value, 'asset')) {
+    visit('asset', value, path);
+    return;
+  }
+  if (type.kind === 'array' && Array.isArray(value) && type.elementType) {
+    value.forEach((item, index) =>
+      visitTypedResourceReferences(item, type.elementType!, `${path}[${index}]`, visit),
+    );
+    return;
+  }
+  if (type.kind === 'map' && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (type.keyType === 'character-ref' && isStableId(key, 'character'))
+        visit('character', key, `${path}.${key}.[key]`);
+      if (type.keyType === 'asset-ref' && isStableId(key, 'asset'))
+        visit('asset', key, `${path}.${key}.[key]`);
+      if (type.valueType)
+        visitTypedResourceReferences(item, type.valueType, `${path}.${key}`, visit);
+    }
+  }
+}
+
 export function buildStoryResourceReferenceIndex(
   stories: readonly ResourceReferenceStory[],
   characters: readonly ResourceReferenceCharacter[],
@@ -185,6 +224,23 @@ export function buildStoryResourceReferenceIndex(
   ) => {
     if (variable.valueType.kind === 'json') {
       addEngineReferences(variable.defaultValue, variable.valueType.name, reference, 'Default');
+    }
+    if (
+      variable.valueType.kind === 'character-ref' ||
+      variable.valueType.kind === 'asset-ref' ||
+      variable.valueType.kind === 'array' ||
+      variable.valueType.kind === 'map'
+    ) {
+      visitTypedResourceReferences(
+        variable.defaultValue,
+        variable.valueType,
+        'Default',
+        (kind, id, path) => {
+          if (kind === 'character')
+            addReference(characterIndex, id as CharacterId, reference(path));
+          else addReference(assetIndex, id as AssetId, reference(path));
+        },
+      );
     }
   };
   for (const variable of context.projectVariables) {
@@ -276,10 +332,23 @@ export function buildStoryResourceReferenceIndex(
           valueType: VariableDefinition['valueType'] | undefined,
           field: string,
         ) => {
-          if (!expression || valueType?.kind !== 'json') return;
+          if (!expression || !valueType) return;
           const value = parseJsonValue(expression.source);
           if (value === undefined) return;
-          addEngineReferences(value, valueType.name, reference, field);
+          if (valueType.kind === 'json')
+            addEngineReferences(value, valueType.name, reference, field);
+          else if (
+            valueType.kind === 'character-ref' ||
+            valueType.kind === 'asset-ref' ||
+            valueType.kind === 'array' ||
+            valueType.kind === 'map'
+          ) {
+            visitTypedResourceReferences(value, valueType, field, (kind, id, path) => {
+              if (kind === 'character')
+                addReference(characterIndex, id as CharacterId, reference(path));
+              else addReference(assetIndex, id as AssetId, reference(path));
+            });
+          }
         };
         if (node.type === StoryNodeType.SetVariable) {
           const data = node.data as StoryNodeDataMap[StoryNodeType.SetVariable];
@@ -319,6 +388,21 @@ export function buildStoryResourceReferenceIndex(
               chapter?.parameters?.find((parameter) => parameter.id === id)?.valueType,
               `Substory Input.${id}`,
             );
+          }
+        }
+        if (
+          node.type === StoryNodeType.StartStory ||
+          node.type === StoryNodeType.SwitchStory ||
+          node.type === StoryNodeType.ResumeStory ||
+          node.type === StoryNodeType.EndStoryInstance
+        ) {
+          const data = node.data as {
+            instanceId?: { source: string };
+            arguments?: Readonly<Record<string, { source: string }>>;
+          };
+          scanExpression(data.instanceId, { kind: 'any' }, 'Story Instance ID');
+          for (const [id, expression] of Object.entries(data.arguments ?? {})) {
+            scanExpression(expression, { kind: 'any' }, `Story Argument.${id}`);
           }
         }
         if (node.type === StoryNodeType.Return && graph.id !== 'root') {

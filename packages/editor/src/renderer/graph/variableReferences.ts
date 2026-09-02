@@ -384,6 +384,23 @@ export function expressionEntries(
       return Object.entries(
         (node.data as StoryNodeDataMap[StoryNodeType.CallSubstory]).arguments ?? {},
       ).map(([parameterId, value]) => [`Substory Argument ${parameterId}`, value]);
+    case StoryNodeType.StartStory:
+    case StoryNodeType.SwitchStory:
+    case StoryNodeType.ResumeStory:
+    case StoryNodeType.EndStoryInstance: {
+      const data = node.data as {
+        instanceId?: ExpressionSource;
+        arguments?: Record<string, ExpressionSource>;
+      };
+      return [
+        ...(data.instanceId
+          ? [['Story Instance ID', data.instanceId] as [string, ExpressionSource]]
+          : []),
+        ...Object.entries(data.arguments ?? {}).map(
+          ([id, value]) => [`Story Argument ${id}`, value] as [string, ExpressionSource],
+        ),
+      ];
+    }
     case StoryNodeType.Return: {
       return Object.entries((node.data as StoryNodeDataMap[StoryNodeType.Return]).values ?? {}).map(
         ([outputId, value]) => [`Return Output ${outputId}`, value],
@@ -617,6 +634,34 @@ export function renameVariableReferencesInNode(
   oldName: string,
   newName: string,
 ): EditorGraphNode {
+  if (
+    [
+      StoryNodeType.StartStory,
+      StoryNodeType.SwitchStory,
+      StoryNodeType.ResumeStory,
+      StoryNodeType.EndStoryInstance,
+    ].includes(node.type)
+  ) {
+    const data = node.data as {
+      instanceId?: ExpressionSource;
+      arguments?: Record<string, ExpressionSource>;
+    };
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        instanceId: data.instanceId
+          ? renameExpressionVariable(data.instanceId, variableId, oldName, newName)
+          : undefined,
+        arguments: Object.fromEntries(
+          Object.entries(data.arguments ?? {}).map(([id, value]) => [
+            id,
+            renameExpressionVariable(value, variableId, oldName, newName),
+          ]),
+        ),
+      },
+    };
+  }
   switch (node.type) {
     case StoryNodeType.Dialogue: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
@@ -743,6 +788,29 @@ export function bindVariableReferencesInNode(
   const bindExpression = (expression: ExpressionSource) =>
     bindVariableExpression(expression, variables);
   const bindTemplate = (template: TextTemplateSource) => bindVariableTemplate(template, variables);
+  if (
+    [
+      StoryNodeType.StartStory,
+      StoryNodeType.SwitchStory,
+      StoryNodeType.ResumeStory,
+      StoryNodeType.EndStoryInstance,
+    ].includes(node.type)
+  ) {
+    const data = node.data as {
+      instanceId?: ExpressionSource;
+      arguments?: Record<string, ExpressionSource>;
+    };
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        instanceId: data.instanceId ? bindExpression(data.instanceId) : undefined,
+        arguments: Object.fromEntries(
+          Object.entries(data.arguments ?? {}).map(([id, value]) => [id, bindExpression(value)]),
+        ),
+      },
+    };
+  }
   switch (node.type) {
     case StoryNodeType.Dialogue: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
@@ -841,6 +909,27 @@ export function renameCharacterFieldReferencesInNode(
     renameCharacterFieldExpression(expression, fieldId, oldQualifiedName, newQualifiedName);
   const renameTemplate = (template: TextTemplateSource) =>
     renameCharacterFieldTemplate(template, fieldId, oldQualifiedName, newQualifiedName);
+  if (
+    node.type === StoryNodeType.StartStory ||
+    node.type === StoryNodeType.SwitchStory ||
+    node.type === StoryNodeType.ResumeStory ||
+    node.type === StoryNodeType.EndStoryInstance
+  ) {
+    const data = node.data as {
+      instanceId?: ExpressionSource;
+      arguments?: Record<string, ExpressionSource>;
+    };
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        instanceId: data.instanceId ? renameExpression(data.instanceId) : undefined,
+        arguments: Object.fromEntries(
+          Object.entries(data.arguments ?? {}).map(([id, value]) => [id, renameExpression(value)]),
+        ),
+      },
+    };
+  }
   switch (node.type) {
     case StoryNodeType.Dialogue: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
@@ -940,6 +1029,27 @@ export function bindCharacterFieldReferencesInNode(
     bindCharacterFieldExpression(expression, characters);
   const bindTemplate = (template: TextTemplateSource) =>
     bindCharacterFieldTemplate(template, characters);
+  if (
+    node.type === StoryNodeType.StartStory ||
+    node.type === StoryNodeType.SwitchStory ||
+    node.type === StoryNodeType.ResumeStory ||
+    node.type === StoryNodeType.EndStoryInstance
+  ) {
+    const data = node.data as {
+      instanceId?: ExpressionSource;
+      arguments?: Record<string, ExpressionSource>;
+    };
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        instanceId: data.instanceId ? bindExpression(data.instanceId) : undefined,
+        arguments: Object.fromEntries(
+          Object.entries(data.arguments ?? {}).map(([id, value]) => [id, bindExpression(value)]),
+        ),
+      },
+    };
+  }
   switch (node.type) {
     case StoryNodeType.Dialogue: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];

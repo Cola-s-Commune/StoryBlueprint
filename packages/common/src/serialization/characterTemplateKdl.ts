@@ -1,16 +1,24 @@
 import { Document, Node, format, parse } from '@bgotink/kdl';
 import type { CharacterTemplateSource } from '../types/characterTemplate';
-import type { RuntimeValue, ValueType } from '../types/values';
+import { runtimeValueMatchesType, type RuntimeValue, type ValueType } from '../types/values';
 import { StoryFormatError } from './storyKdl';
 
 export const STORY_CHARACTER_TEMPLATE_FORMAT = 'story-blueprint-character-template';
 export const STORY_CHARACTER_TEMPLATE_VERSION = 1;
 
-function scalarType(value: unknown, path: string): ValueType {
-  if (value !== 'boolean' && value !== 'number' && value !== 'string') {
-    throw new StoryFormatError(`${path} must be boolean, number, or string`);
+function scalarType(value: unknown, path: string, nullable = false): ValueType {
+  if (
+    value !== 'boolean' &&
+    value !== 'number' &&
+    value !== 'string' &&
+    value !== 'character-ref' &&
+    value !== 'asset-ref'
+  ) {
+    throw new StoryFormatError(
+      `${path} must be boolean, number, string, character-ref, or asset-ref`,
+    );
   }
-  return { kind: value };
+  return { kind: value, ...(nullable ? { nullable: true } : {}) };
 }
 
 function requiredString(value: unknown, path: string): string {
@@ -49,7 +57,8 @@ export function serializeCharacterTemplate(template: CharacterTemplateSource): s
       requiredString(field.displayName, 'template.field.displayName'),
     );
     node.setProperty('type', field.valueType.kind);
-    node.setProperty('default', field.defaultValue as boolean | number | string);
+    if (field.valueType.nullable) node.setProperty('nullable', true);
+    node.setProperty('default', field.defaultValue as null | boolean | number | string);
     root.appendNode(node);
   }
   for (const [key, emotion] of Object.entries(template.emotions).sort(([a], [b]) =>
@@ -95,9 +104,13 @@ export function parseCharacterTemplate(text: string): CharacterTemplateSource {
   );
   const fields = root.findNodesByName('field').map((node) => {
     const name = requiredString(node.getArgument(0), 'field.name');
-    const valueType = scalarType(node.getProperty('type'), `${name}.type`);
+    const nullable = node.getProperty('nullable');
+    if (nullable !== undefined && typeof nullable !== 'boolean') {
+      throw new StoryFormatError(`${name}.nullable must be a boolean`);
+    }
+    const valueType = scalarType(node.getProperty('type'), `${name}.type`, nullable === true);
     const defaultValue = node.getProperty('default');
-    if (typeof defaultValue !== valueType.kind) {
+    if (!runtimeValueMatchesType(defaultValue as RuntimeValue, valueType)) {
       throw new StoryFormatError(`${name}.default must be ${valueType.kind}`);
     }
     return {

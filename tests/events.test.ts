@@ -5,6 +5,7 @@ import {
   StoryNodeType,
   parseStorySource,
   serializeStorySource,
+  runtimeValueMatchesType,
   type StorySourceDocument,
 } from '../packages/common/src';
 import { compileStory } from '../packages/compiler/src';
@@ -99,6 +100,82 @@ function eventStory(): StorySourceDocument {
 }
 
 describe('project events', () => {
+  it('supports CharacterRef and AssetRef event contracts as stable IDs', () => {
+    const source = eventStory();
+    source.characters = [{ id: 'c_hero', name: 'hero', displayName: 'Hero', emotions: {} }];
+    source.assets = [{ id: 'a_sword', kind: 'other', name: 'sword', displayName: 'Sword' }];
+    source.variables.push({
+      id: 'v_hero',
+      name: 'heroRef',
+      displayName: 'Hero Ref',
+      scope: 'story',
+      valueType: { kind: 'character-ref' },
+      defaultValue: 'c_hero',
+    });
+    source.events[0] = {
+      ...source.events[0]!,
+      parameters: [
+        { name: 'actor', valueType: { kind: 'character-ref' } },
+        { name: 'item', valueType: { kind: 'asset-ref' } },
+      ],
+      outputs: [
+        {
+          id: 'evo_actor',
+          name: 'actor',
+          displayName: 'Actor',
+          valueType: { kind: 'character-ref' },
+        },
+      ],
+    };
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    eventNode.data = {
+      ...eventNode.data,
+      arguments: {
+        actor: { source: 'heroRef', bindings: {} },
+        item: { source: '"a_sword"', bindings: {} },
+      },
+      resultVariableIds: { evo_actor: 'v_hero' },
+    };
+    expect(runtimeValueMatchesType('c_hero', { kind: 'character-ref' })).toBe(true);
+    expect(runtimeValueMatchesType('a_sword', { kind: 'asset-ref' })).toBe(true);
+    expect(runtimeValueMatchesType('hero', { kind: 'character-ref' })).toBe(false);
+    const compiled = compileStory(source);
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    const waiting = runtime.runUntilPause();
+    expect(waiting.kind).toBe('waiting');
+    if (waiting.kind !== 'waiting' || waiting.interaction.kind !== 'event') return;
+    expect(waiting.interaction.request.arguments).toEqual({ actor: 'c_hero', item: 'a_sword' });
+    expect(runtime.continueEvent({ evo_actor: 'c_hero' }).kind).toBe('completed');
+  });
+
+  it('rejects arithmetic and ordered comparisons on resource references', () => {
+    const source = eventStory();
+    source.variables.push({
+      id: 'v_hero',
+      name: 'heroRef',
+      displayName: 'Hero Ref',
+      scope: 'story',
+      valueType: { kind: 'character-ref' },
+      defaultValue: 'c_hero',
+    });
+    source.events[0] = {
+      ...source.events[0]!,
+      parameters: [{ name: 'actor', valueType: { kind: 'character-ref' } }],
+    };
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    eventNode.data = {
+      ...eventNode.data,
+      arguments: { actor: { source: 'heroRef + "x"', bindings: {} } },
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok).toBe(false);
+    expect(
+      compiled.diagnostics.some((item) => item.message.includes('only support equality')),
+    ).toBe(true);
+  });
+
   it('rejects passing a differently named Engine JSON contract', () => {
     const source = eventStory();
     source.variables.push({
@@ -110,7 +187,9 @@ describe('project events', () => {
       defaultValue: {},
     });
     const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
-    (eventNode.data as { arguments: Record<string, { source: string; bindings: object }> }).arguments.payload = {
+    (
+      eventNode.data as { arguments: Record<string, { source: string; bindings: object }> }
+    ).arguments.payload = {
       source: 'otherPayload',
       bindings: {},
     };
@@ -126,6 +205,58 @@ describe('project events', () => {
         }),
       ]),
     );
+  });
+
+  it('passes recursive Struct event arguments and supports Struct member expressions', () => {
+    const source = eventStory();
+    const payloadType = {
+      kind: 'struct' as const,
+      name: 'RewardPayload',
+      fields: {
+        itemId: { kind: 'string' as const },
+        amount: { kind: 'number' as const },
+        nested: {
+          kind: 'struct' as const,
+          name: 'NestedReward',
+          fields: { bonus: { kind: 'number' as const } },
+        },
+      },
+    };
+    source.variables = source.variables.map((variable) =>
+      variable.id === 'v_rewardpayload'
+        ? {
+            ...variable,
+            valueType: payloadType,
+            defaultValue: { itemId: 'gold', amount: 3, nested: { bonus: 2 } },
+          }
+        : variable,
+    );
+    source.events[0] = {
+      ...source.events[0]!,
+      parameters: [
+        { name: 'payload', valueType: payloadType },
+        { name: 'bonus', valueType: { kind: 'number' } },
+      ],
+    };
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    eventNode.data = {
+      ...eventNode.data,
+      arguments: {
+        payload: { source: 'rewardPayload', bindings: {} },
+        bonus: { source: 'rewardPayload.nested.bonus', bindings: {} },
+      },
+    };
+    const compiled = compileStory(source);
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    const waiting = runtime.runUntilPause();
+    expect(waiting.kind).toBe('waiting');
+    if (waiting.kind !== 'waiting' || waiting.interaction.kind !== 'event') return;
+    expect(waiting.interaction.request.arguments).toEqual({
+      payload: { itemId: 'gold', amount: 3, nested: { bonus: 2 } },
+      bonus: 2,
+    });
   });
 
   it('round-trips Call Event nodes through Story KDL', () => {
@@ -292,9 +423,14 @@ describe('project events', () => {
                 data: {
                   ...node.data,
                   arguments: {
-                    ...(node.data as {
-                      arguments: Record<string, { source: string; bindings: Record<string, never> }>;
-                    }).arguments,
+                    ...(
+                      node.data as {
+                        arguments: Record<
+                          string,
+                          { source: string; bindings: Record<string, never> }
+                        >;
+                      }
+                    ).arguments,
                     payload: { source: '{broken', bindings: {} },
                   },
                 },
@@ -346,7 +482,9 @@ describe('project events', () => {
         ],
       },
     };
-    const parsed = parseStorySource(serializeStorySource({ ...withSignal, events: [], signals: [] }));
+    const parsed = parseStorySource(
+      serializeStorySource({ ...withSignal, events: [], signals: [] }),
+    );
     expect(parsed.root.nodes.find((node) => node.id === 'n_wait')?.data).toEqual(
       withSignal.root.nodes.find((node) => node.id === 'n_wait')?.data,
     );

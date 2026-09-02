@@ -151,10 +151,55 @@ describe('AI semantic editing foundation', () => {
     };
     expect(validateBlueprintCommandTransaction(transaction)).toEqual([]);
     const result = executeBlueprintCommandTransaction(source, transaction, { dryRun: true });
-    expect(result.ok).toBe(true);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
     if (!result.ok) return;
     expect(result.document.chapters).toHaveLength(1);
     expect(result.document.chapters[0]?.graph.nodes).toHaveLength(2);
+  });
+
+  it('accepts recursive Struct variables', () => {
+    const source = story();
+    source.characters = [{ id: 'c_hero', name: 'hero', displayName: 'Hero', emotions: {} }];
+    const revision = createStorySemanticSnapshot(source).revision;
+    const payloadType = {
+      kind: 'struct' as const,
+      name: 'Payload',
+      fields: {
+        actor: { kind: 'character-ref' as const },
+        scores: {
+          kind: 'map' as const,
+          keyType: 'string' as const,
+          valueType: { kind: 'number' as const },
+        },
+      },
+    };
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'add-struct-variable',
+          kind: 'add-variable',
+          variable: {
+            id: 'v_payload',
+            name: 'payload',
+            displayName: 'Payload',
+            scope: 'story',
+            valueType: payloadType,
+            defaultValue: { actor: 'c_hero', scores: { affinity: 1 } },
+          },
+        },
+      ],
+    };
+    expect(validateBlueprintCommandTransaction(transaction)).toEqual([]);
+    const result = executeBlueprintCommandTransaction(source, transaction);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.variables[0]).toMatchObject({
+      valueType: payloadType,
+      defaultValue: { actor: 'c_hero', scores: { affinity: 1 } },
+    });
   });
 
   it('creates, updates, and removes reusable condition resources', () => {
@@ -259,6 +304,59 @@ describe('AI semantic editing foundation', () => {
       'Condition reference cycle detected: cond_aaa -> cond_bbb -> cond_aaa',
     );
     expect(result.document.conditions ?? []).toEqual([]);
+  });
+
+  it('rejects removing a condition that is referenced by the graph or another condition', () => {
+    const source = story();
+    const sourceWithReferences: StorySourceDocument = {
+      ...source,
+      conditions: [
+        {
+          id: 'cond_child',
+          name: 'child',
+          displayName: 'Child',
+          root: { kind: 'expression', expression: { source: 'true', bindings: {} } },
+        },
+        {
+          id: 'cond_parent',
+          name: 'parent',
+          displayName: 'Parent',
+          root: { kind: 'reference', conditionId: 'cond_child' },
+        },
+      ],
+      root: {
+        ...source.root,
+        nodes: [
+          ...source.root.nodes,
+          {
+            id: 'n_branch_ref',
+            type: StoryNodeType.Branch,
+            definitionVersion: 1,
+            position: { x: 820, y: 50 },
+            data: {
+              condition: { source: 'true', bindings: {} },
+              conditionId: 'cond_child',
+            },
+          },
+        ],
+      },
+    };
+    const result = executeBlueprintCommandTransaction(sourceWithReferences, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(sourceWithReferences).revision,
+      operations: [
+        {
+          operationId: 'remove-referenced-condition',
+          kind: 'remove-condition',
+          conditionId: 'cond_child',
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics[0]?.message).toBe('Condition is still referenced: cond_child');
+    expect(result.document.conditions).toHaveLength(2);
   });
 
   it('creates a stable semantic view without editor layout fields', () => {
@@ -610,6 +708,20 @@ describe('AI semantic editing foundation', () => {
             name: 'Bob',
             displayName: 'Bob',
             emotions: {},
+            fields: [
+              {
+                id: 'v_profile',
+                name: 'profile',
+                displayName: 'Profile',
+                scope: 'character',
+                valueType: {
+                  kind: 'struct',
+                  name: 'Profile',
+                  fields: { rank: { kind: 'number' } },
+                },
+                defaultValue: { rank: 1 },
+              },
+            ],
           },
         },
         {

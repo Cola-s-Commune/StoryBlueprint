@@ -259,6 +259,13 @@ export class DefaultProjectCompiler implements ProjectCompiler {
         },
         {
           ...options,
+          availableStoryIds: project.stories.map((candidate) => candidate.id),
+          storyVariablesById: Object.fromEntries(
+            stories.map((candidate) => [
+              candidate.source.id,
+              [...candidate.source.variables, ...(project.variables ?? [])],
+            ]),
+          ),
           contentVersion: options.contentVersion ?? 'project-build',
           translations: localizationTranslationsForStory(options.localization, story.source.id),
           sourceLocale: options.localization?.sourceLocale ?? options.sourceLocale,

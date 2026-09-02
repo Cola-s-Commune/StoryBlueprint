@@ -1712,6 +1712,32 @@
   gap: 5px;
 }
 
+.inlineStructEditor,
+.inlineNestedType {
+  display: grid;
+  gap: 6px;
+  margin: 5px 0;
+  padding: 7px;
+  border-left: 2px solid #3e596f;
+  background: #1d242a;
+}
+
+.inlineStructField {
+  display: grid;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #354451;
+  background: #202a31;
+}
+
+.inlineStructEditor > label,
+.inlineNestedType > label {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
 .checkboxRow {
   display: flex !important;
   grid-template-columns: none !important;

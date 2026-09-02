@@ -1,7 +1,12 @@
 import { Document, Node, format, parse } from '@bgotink/kdl';
 import { isStableId } from '../types/ids';
 import type { AssetSource, CharacterSource } from '../types/source';
-import type { RuntimeValue, ValueType, VariableDefinition } from '../types/values';
+import {
+  runtimeValueMatchesType,
+  type RuntimeValue,
+  type ValueType,
+  type VariableDefinition,
+} from '../types/values';
 import { StoryFormatError } from './storyKdl';
 
 export const STORY_CHARACTER_FORMAT = 'story-blueprint-character';
@@ -60,8 +65,10 @@ function assertShape(
 }
 
 function scalarTypeName(valueType: ValueType): string {
-  if (['boolean', 'number', 'string'].includes(valueType.kind)) return valueType.kind;
-  if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}`;
+  const suffix = valueType.nullable ? '?' : '';
+  if (['boolean', 'number', 'string', 'character-ref', 'asset-ref'].includes(valueType.kind))
+    return `${valueType.kind}${suffix}`;
+  if (valueType.kind === 'json' && valueType.name.trim()) return `json:${valueType.name}${suffix}`;
   throw new StoryFormatError(`Unsupported character field type ${valueType.kind}`);
 }
 
@@ -72,6 +79,9 @@ function serializeCharacterField(field: VariableDefinition): Node {
   node.setProperty('name', field.name);
   if (field.displayName !== field.name) node.setProperty('display-name', field.displayName);
   node.setProperty('type', scalarTypeName(field.valueType));
+  if (!runtimeValueMatchesType(field.defaultValue, field.valueType)) {
+    throw new StoryFormatError(`${field.id}.default must match ${field.valueType.kind}`);
+  }
   node.setProperty(
     'default',
     field.valueType.kind === 'json'
@@ -86,23 +96,36 @@ function parseCharacterField(node: Node, characterId: string): VariableDefinitio
   const id = stringValue(node.getArgument(0), `${characterId}.field.id`);
   if (!isStableId(id, 'variable')) throw new StoryFormatError(`${id} is not a valid field ID`);
   const name = stringValue(node.getProperty('name'), `${id}.name`);
-  const type = stringValue(node.getProperty('type'), `${id}.type`);
-  if (!['boolean', 'number', 'string'].includes(type) && !type.startsWith('json:')) {
+  const serializedType = stringValue(node.getProperty('type'), `${id}.type`);
+  const nullable = serializedType.endsWith('?');
+  const type = nullable ? serializedType.slice(0, -1) : serializedType;
+  if (
+    !['boolean', 'number', 'string', 'character-ref', 'asset-ref'].includes(type) &&
+    !type.startsWith('json:')
+  ) {
     throw new StoryFormatError(`${id}.type is unsupported`);
   }
   const valueType: ValueType = type.startsWith('json:')
-    ? { kind: 'json', name: type.slice(5) }
-    : { kind: type as 'boolean' | 'number' | 'string' };
+    ? { kind: 'json', name: type.slice(5), ...(nullable ? { nullable: true } : {}) }
+    : {
+        kind: type as 'boolean' | 'number' | 'string' | 'character-ref' | 'asset-ref',
+        ...(nullable ? { nullable: true } : {}),
+      };
   const serializedDefault = node.getProperty('default');
-  const defaultValue = valueType.kind === 'json'
-    ? (() => {
-        if (typeof serializedDefault !== 'string') throw new StoryFormatError(`${id}.default must be JSON text`);
-        try { return JSON.parse(serializedDefault) as RuntimeValue; }
-        catch { throw new StoryFormatError(`${id}.default contains invalid JSON`); }
-      })()
-    : serializedDefault;
-  if (valueType.kind !== 'json' && typeof defaultValue !== valueType.kind)
-    throw new StoryFormatError(`${id}.default must be ${valueType.kind}`);
+  const defaultValue =
+    valueType.kind === 'json'
+      ? (() => {
+          if (typeof serializedDefault !== 'string')
+            throw new StoryFormatError(`${id}.default must be JSON text`);
+          try {
+            return JSON.parse(serializedDefault) as RuntimeValue;
+          } catch {
+            throw new StoryFormatError(`${id}.default contains invalid JSON`);
+          }
+        })()
+      : serializedDefault;
+  if (!runtimeValueMatchesType(defaultValue as RuntimeValue, valueType))
+    throw new StoryFormatError(`${id}.default must match ${valueType.kind}`);
   return {
     id,
     name,

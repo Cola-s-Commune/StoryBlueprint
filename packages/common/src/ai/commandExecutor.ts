@@ -152,15 +152,51 @@ function validGraphTarget(value: unknown): boolean {
   );
 }
 
-function validScalarType(value: unknown): value is ValueType {
-  return (
-    isRecord(value) &&
-    (value.kind === 'boolean' ||
-      value.kind === 'number' ||
-      value.kind === 'string' ||
-      (value.kind === 'json' && typeof value.name === 'string' && value.name.trim().length > 0)) &&
-    (value.nullable === undefined || typeof value.nullable === 'boolean')
-  );
+function validValueType(value: unknown): value is ValueType {
+  if (!isRecord(value) || typeof value.kind !== 'string') return false;
+  if (value.nullable !== undefined && typeof value.nullable !== 'boolean') return false;
+  switch (value.kind) {
+    case 'any':
+    case 'boolean':
+    case 'number':
+    case 'string':
+    case 'character-ref':
+    case 'asset-ref':
+      return true;
+    case 'json':
+      return typeof value.name === 'string' && value.name.trim().length > 0;
+    case 'enum':
+      return (
+        typeof value.name === 'string' &&
+        value.name.trim().length > 0 &&
+        Array.isArray(value.values) &&
+        value.values.length > 0 &&
+        new Set(value.values).size === value.values.length &&
+        value.values.every((item) => typeof item === 'string' && item.length > 0)
+      );
+    case 'array':
+      return value.elementType === undefined || validValueType(value.elementType);
+    case 'map':
+      return (
+        (value.keyType === undefined ||
+          value.keyType === 'string' ||
+          value.keyType === 'number' ||
+          value.keyType === 'character-ref' ||
+          value.keyType === 'asset-ref') &&
+        (value.valueType === undefined || validValueType(value.valueType))
+      );
+    case 'struct':
+      return (
+        typeof value.name === 'string' &&
+        value.name.trim().length > 0 &&
+        isRecord(value.fields) &&
+        Object.entries(value.fields).every(
+          ([name, fieldType]) => name.trim().length > 0 && validValueType(fieldType),
+        )
+      );
+    default:
+      return false;
+  }
 }
 
 function validRuntimeValue(value: unknown): value is RuntimeValue {
@@ -187,7 +223,7 @@ function validVariable(value: unknown): value is VariableDefinition {
       value.scope === 'story' ||
       value.scope === 'chapter' ||
       value.scope === 'local') &&
-    validScalarType(value.valueType) &&
+    validValueType(value.valueType) &&
     validRuntimeValue(value.defaultValue)
   );
 }
@@ -201,6 +237,7 @@ function validCharacterField(value: unknown): value is VariableDefinition {
     validVariable({ ...(isRecord(value) ? value : {}), scope: 'story' }) &&
     isRecord(value) &&
     value.scope === 'character' &&
+    validValueType(value.valueType) &&
     isRecord(value.valueType) &&
     runtimeValueMatchesType(value.defaultValue as RuntimeValue, value.valueType as ValueType)
   );
@@ -605,7 +642,7 @@ export function validateBlueprintCommandTransaction(
             raw.patch.scope !== 'story' &&
             raw.patch.scope !== 'chapter' &&
             raw.patch.scope !== 'local') ||
-          (raw.patch.valueType !== undefined && !validScalarType(raw.patch.valueType)) ||
+          (raw.patch.valueType !== undefined && !validValueType(raw.patch.valueType)) ||
           (raw.patch.defaultValue !== undefined && !validRuntimeValue(raw.patch.defaultValue))
         ) {
           diagnostics.push(

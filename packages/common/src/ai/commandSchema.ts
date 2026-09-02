@@ -440,20 +440,61 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
       additionalProperties: false,
       required: ['kind'],
       properties: {
-        kind: { enum: ['boolean', 'number', 'string', 'json'] },
+        kind: { enum: ['boolean', 'number', 'string', 'character-ref', 'asset-ref', 'json'] },
         name: { type: 'string', minLength: 1 },
         nullable: { type: 'boolean' },
       },
     },
     variableValueType: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['kind'],
-      properties: {
-        kind: { enum: ['boolean', 'number', 'string', 'array', 'map', 'json'] },
-        name: { type: 'string', minLength: 1 },
-        nullable: { type: 'boolean' },
-      },
+      oneOf: [
+        { $ref: '#/$defs/scalarValueType' },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind'],
+          properties: {
+            kind: { const: 'array' },
+            elementType: { $ref: '#/$defs/variableValueType' },
+            nullable: { type: 'boolean' },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind'],
+          properties: {
+            kind: { const: 'map' },
+            keyType: { enum: ['string', 'number', 'character-ref', 'asset-ref'] },
+            valueType: { $ref: '#/$defs/variableValueType' },
+            nullable: { type: 'boolean' },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'name', 'values'],
+          properties: {
+            kind: { const: 'enum' },
+            name: { type: 'string', minLength: 1 },
+            values: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string' } },
+            nullable: { type: 'boolean' },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'name', 'fields'],
+          properties: {
+            kind: { const: 'struct' },
+            name: { type: 'string', minLength: 1 },
+            fields: {
+              type: 'object',
+              additionalProperties: { $ref: '#/$defs/variableValueType' },
+            },
+            nullable: { type: 'boolean' },
+          },
+        },
+      ],
     },
     variable: {
       type: 'object',
@@ -541,8 +582,8 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
         name: { type: 'string', minLength: 1 },
         displayName: { type: 'string', minLength: 1 },
         scope: { const: 'character' },
-        valueType: { $ref: '#/$defs/scalarValueType' },
-        defaultValue: { type: ['boolean', 'number', 'string', 'object', 'array'] },
+        valueType: { $ref: '#/$defs/variableValueType' },
+        defaultValue: { type: ['null', 'boolean', 'number', 'string', 'object', 'array'] },
       },
     },
     emotions: {
@@ -730,6 +771,46 @@ export const BLUEPRINT_NODE_CATALOG = [
     },
     inputPorts: ['in'],
     outputPorts: ['out'],
+  },
+  {
+    type: StoryNodeType.StartStory,
+    data: {
+      storyId: 's_existing',
+      arguments: {},
+      resultVariableIds: {},
+      waitForCompletion: false,
+      instanceVariableId: 'v_instance',
+    },
+    inputPorts: ['in'],
+    outputPorts: ['out'],
+  },
+  {
+    type: StoryNodeType.SwitchStory,
+    data: {
+      storyId: 's_existing',
+      arguments: {},
+      resultVariableIds: {},
+      waitForCompletion: false,
+      instanceVariableId: 'v_instance',
+    },
+    inputPorts: ['in'],
+    outputPorts: ['out'],
+  },
+  {
+    type: StoryNodeType.ResumeStory,
+    data: {
+      instanceId: { source: 'instance_id', bindings: {} },
+      resultVariableIds: {},
+      instanceVariableId: 'v_instance',
+    },
+    inputPorts: ['in'],
+    outputPorts: ['out'],
+  },
+  {
+    type: StoryNodeType.EndStoryInstance,
+    data: { instanceId: { source: 'instance_id', bindings: {} }, resultVariableIds: {} },
+    inputPorts: ['in'],
+    outputPorts: [],
   },
   { type: StoryNodeType.Reroute, data: {}, inputPorts: ['in'], outputPorts: ['out'] },
   {

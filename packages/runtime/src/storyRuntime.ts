@@ -24,6 +24,8 @@ import type {
   ExternalFunctionRequest,
   SignalRequest,
   SignalPayload,
+  StoryControlRequest,
+  StoryControlResult,
   RuntimeDiagnostic,
   RuntimeState,
 } from './types';
@@ -32,7 +34,8 @@ export type RuntimeInteraction =
   | { kind: 'dialogue'; request: DialogueRequest }
   | { kind: 'choice'; request: ChoiceRequest }
   | { kind: 'event'; request: EventRequest }
-  | { kind: 'signal'; request: SignalRequest };
+  | { kind: 'signal'; request: SignalRequest }
+  | { kind: 'story-control'; request: StoryControlRequest };
 
 export type RuntimeRunResult =
   | { kind: 'waiting'; state: RuntimeState; interaction: RuntimeInteraction }
@@ -374,6 +377,76 @@ export class StoryRuntime {
     return this.runUntilPause();
   }
 
+  /** Completes a Story Control interaction and applies any Adapter-returned values. */
+  continueStoryControl(result: StoryControlResult = {}): RuntimeRunResult {
+    const instruction = this.currentInstruction();
+    if (
+      this.currentState.pending?.kind !== 'story-control' ||
+      !instruction ||
+      !['start-story', 'switch-story', 'resume-story', 'end-story-instance'].includes(
+        instruction.op,
+      )
+    ) {
+      return this.fail({
+        code: 'INVALID_ADAPTER_RESULT',
+        severity: 'error',
+        message: 'Runtime is not waiting for Story Control',
+        location: this.location(),
+      });
+    }
+    const controlInstruction = instruction as Extract<
+      RuntimeInstruction,
+      { op: 'start-story' | 'switch-story' | 'resume-story' | 'end-story-instance' }
+    >;
+    const mappings = controlInstruction.resultVariableIds;
+    if (result.instanceId !== undefined) {
+      if (typeof result.instanceId !== 'string') {
+        return this.failAdapterResult('Story Control instanceId must be a string');
+      }
+      const instanceVariableId =
+        'instanceVariableId' in controlInstruction
+          ? controlInstruction.instanceVariableId
+          : undefined;
+      if (instanceVariableId) {
+        const definition = this.variableDefinitions.get(instanceVariableId);
+        if (!definition || definition.valueType.kind !== 'string') {
+          return this.failAdapterResult('Story Control instance variable must be a String');
+        }
+        this.writeVariable(instanceVariableId, result.instanceId);
+      }
+    }
+    const outputs = result.outputs ?? {};
+    for (const [outputId, variableId] of Object.entries(mappings)) {
+      if (!(outputId in outputs)) continue;
+      const definition =
+        this.variableDefinitions.get(variableId as VariableId) ??
+        (() => {
+          const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
+          const chapter = frame ? this.program.chapters[frame.chapterId] : undefined;
+          return [...(chapter?.parameters ?? []), ...(chapter?.localVariables ?? [])].find(
+            (candidate) =>
+              ('variableId' in candidate ? candidate.variableId : candidate.id) === variableId,
+          );
+        })();
+      if (!definition) {
+        return this.failAdapterResult(
+          `Story Control result references missing variable ${variableId}`,
+        );
+      }
+      const value = outputs[outputId]!;
+      if (!runtimeValueMatchesType(value, definition.valueType)) {
+        return this.failAdapterResult(
+          `Story Control result ${outputId} does not match ${definition.valueType.kind}`,
+        );
+      }
+      this.writeVariable(variableId as VariableId, value);
+    }
+    this.currentState.pending = undefined;
+    this.currentState.status = 'running';
+    this.currentState.instructionIndex += 1;
+    return this.runUntilPause();
+  }
+
   /** Delivers a signal. Early signals are buffered in serializable runtime state. */
   sendSignal(signalId: SignalId, payload: SignalPayload = {}): RuntimeRunResult | undefined {
     if (
@@ -595,6 +668,57 @@ export class StoryRuntime {
         this.jump(instruction.target);
         return undefined;
       }
+      case 'start-story':
+      case 'switch-story':
+      case 'resume-story':
+      case 'end-story-instance': {
+        const instanceExpression = instruction.instanceId;
+        const instanceValue = instanceExpression
+          ? evaluateExpression(instanceExpression, this.readVariable)
+          : undefined;
+        if (instanceValue !== undefined && typeof instanceValue !== 'string') {
+          throw new TypeError('Story instance ID must be a string');
+        }
+        const argumentsValue =
+          instruction.op === 'resume-story' || instruction.op === 'end-story-instance'
+            ? {}
+            : Object.fromEntries(
+                Object.entries(instruction.arguments).map(([key, expression]) => [
+                  key,
+                  evaluateExpression(expression, this.readVariable),
+                ]),
+              );
+        const request: StoryControlRequest = {
+          requestId: instruction.id,
+          action:
+            instruction.op === 'start-story'
+              ? 'start'
+              : instruction.op === 'switch-story'
+                ? 'switch'
+                : instruction.op === 'resume-story'
+                  ? 'resume'
+                  : 'end',
+          ...(instruction.op === 'start-story' || instruction.op === 'switch-story'
+            ? { storyId: instruction.storyId }
+            : {}),
+          ...(instanceValue === undefined ? {} : { instanceId: instanceValue }),
+          arguments: argumentsValue,
+          waitForCompletion:
+            instruction.op === 'end-story-instance'
+              ? false
+              : 'waitForCompletion' in instruction
+                ? instruction.waitForCompletion
+                : false,
+        };
+        this.currentState.pending = {
+          kind: 'story-control',
+          requestId: instruction.id,
+          instructionId: instruction.id,
+          action: request.action,
+        };
+        this.currentState.status = 'waiting';
+        return this.waiting({ kind: 'story-control', request });
+      }
       case 'return': {
         const values = Object.fromEntries(
           Object.entries(instruction.values).map(([outputId, expression]) => [
@@ -711,6 +835,14 @@ export class StoryRuntime {
           matches: this.currentState.pending.matches,
         },
       };
+    }
+    if (
+      this.currentState.pending?.kind === 'story-control' &&
+      instruction &&
+      ['start-story', 'switch-story', 'resume-story', 'end-story-instance'].includes(instruction.op)
+    ) {
+      const result = this.execute(instruction);
+      return result?.kind === 'waiting' ? result.interaction : undefined;
     }
     return undefined;
   }
@@ -864,6 +996,28 @@ export class StoryRuntime {
       }
     } else if (state.pending?.kind === 'ink-dialogue' || state.pending?.kind === 'ink-choice') {
       throw new TypeError('Runtime pending Ink interaction is missing its snapshot');
+    }
+    if (state.pending?.kind === 'story-control') {
+      const instruction = this.program.blocks[state.blockId]?.instructions[state.instructionIndex];
+      const expectedAction =
+        instruction?.op === 'start-story'
+          ? 'start'
+          : instruction?.op === 'switch-story'
+            ? 'switch'
+            : instruction?.op === 'resume-story'
+              ? 'resume'
+              : instruction?.op === 'end-story-instance'
+                ? 'end'
+                : undefined;
+      if (
+        !expectedAction ||
+        state.pending.instructionId !== instruction?.id ||
+        state.pending.action !== expectedAction
+      ) {
+        throw new TypeError(
+          'Runtime pending Story Control interaction does not match its instruction',
+        );
+      }
     }
   }
 

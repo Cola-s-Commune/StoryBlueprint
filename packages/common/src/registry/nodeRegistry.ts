@@ -239,6 +239,68 @@ export class NodeRegistry {
       defaultData: () => ({ arguments: {}, resultVariableIds: {} }),
     });
 
+    this.register<StoryNodeType.StartStory>({
+      type: StoryNodeType.StartStory,
+      version: 1,
+      label: 'Start Story',
+      category: 'flow',
+      color: '#3f9a80',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Started', kind: 'execution', direction: 'output' }],
+      dynamicInputs: {
+        sourceProperty: 'arguments',
+        idProperty: '',
+        labelProperty: '',
+        kind: 'data',
+        valueType: { kind: 'any' },
+        recordEntries: true,
+        idPrefix: 'argument:',
+      },
+      defaultData: () => ({ arguments: {}, resultVariableIds: {}, waitForCompletion: false }),
+    });
+
+    this.register<StoryNodeType.SwitchStory>({
+      type: StoryNodeType.SwitchStory,
+      version: 1,
+      label: 'Switch Story',
+      category: 'flow',
+      color: '#3f9a80',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Switched', kind: 'execution', direction: 'output' }],
+      dynamicInputs: {
+        sourceProperty: 'arguments',
+        idProperty: '',
+        labelProperty: '',
+        kind: 'data',
+        valueType: { kind: 'any' },
+        recordEntries: true,
+        idPrefix: 'argument:',
+      },
+      defaultData: () => ({ arguments: {}, resultVariableIds: {}, waitForCompletion: false }),
+    });
+
+    this.register<StoryNodeType.ResumeStory>({
+      type: StoryNodeType.ResumeStory,
+      version: 1,
+      label: 'Resume Story',
+      category: 'flow',
+      color: '#3f9a80',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Resumed', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({ resultVariableIds: {}, waitForCompletion: false }),
+    });
+
+    this.register<StoryNodeType.EndStoryInstance>({
+      type: StoryNodeType.EndStoryInstance,
+      version: 1,
+      label: 'End Story Instance',
+      category: 'flow',
+      color: '#c75f5f',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Ended', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({ resultVariableIds: {} }),
+    });
+
     this.register<StoryNodeType.Reroute>({
       type: StoryNodeType.Reroute,
       version: 1,

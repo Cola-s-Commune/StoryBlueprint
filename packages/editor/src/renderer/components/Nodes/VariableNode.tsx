@@ -98,7 +98,11 @@ export function SetVariableNode({ data }: NodeProps) {
     d.keyInputType ??
     (variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
       ? { kind: 'number' as const }
-      : { kind: 'string' as const });
+      : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'character-ref'
+        ? { kind: 'character-ref' as const }
+        : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'asset-ref'
+          ? { kind: 'asset-ref' as const }
+          : { kind: 'string' as const });
   const displayValue =
     variable?.valueType.kind === 'string'
       ? (expressionToTextTemplate(
@@ -118,7 +122,7 @@ export function SetVariableNode({ data }: NodeProps) {
               ? 'Set Map Entry'
               : d.containerOperation === 'set-field'
                 ? 'Set Object Field'
-              : 'Set Variable'}
+                : 'Set Variable'}
         </span>
         <span className={styles.typeIcon}>S</span>
       </div>

@@ -7,6 +7,7 @@ import {
   parseStorySource,
   serializeStorySource,
   type StorySourceDocument,
+  type ValueType,
 } from '../packages/common/src';
 
 function sourceDocument(): StorySourceDocument {
@@ -125,6 +126,108 @@ describe('story KDL v5', () => {
 
     const serialized = serializeStorySource(source);
     expect(serialized).toContain('type=json:QuestPayload');
+    expect(parseStorySource(serialized).variables.at(-1)).toEqual(source.variables.at(-1));
+  });
+
+  it('round-trips nullable CharacterRef and AssetRef values', () => {
+    const source = sourceDocument();
+    source.variables.push(
+      {
+        id: 'v_actor',
+        name: 'actor',
+        displayName: 'Actor',
+        scope: 'story',
+        valueType: { kind: 'character-ref', nullable: true },
+        defaultValue: null,
+      },
+      {
+        id: 'v_portrait',
+        name: 'portrait',
+        displayName: 'Portrait',
+        scope: 'story',
+        valueType: { kind: 'asset-ref' },
+        defaultValue: 'a_portrait',
+      },
+    );
+    source.characters[0]!.fields = [
+      {
+        id: 'v_target',
+        name: 'target',
+        displayName: 'Target',
+        scope: 'character',
+        valueType: { kind: 'character-ref', nullable: true },
+        defaultValue: null,
+      },
+    ];
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('type=character-ref?');
+    expect(parseStorySource(serialized).variables.slice(-2)).toEqual(source.variables.slice(-2));
+    expect(parseStorySource(serialized).characters[0]!.fields).toEqual(
+      source.characters[0]!.fields,
+    );
+  });
+
+  it('round-trips recursive Struct, Array, and Map value types', () => {
+    const source = sourceDocument();
+    const payloadType: ValueType = {
+      kind: 'struct',
+      name: 'QuestPayload',
+      fields: {
+        actor: { kind: 'character-ref' },
+        rewards: {
+          kind: 'array',
+          elementType: {
+            kind: 'struct',
+            name: 'Reward',
+            fields: { amount: { kind: 'number' }, item: { kind: 'string' } },
+          },
+        },
+        byLocale: { kind: 'map', keyType: 'string', valueType: { kind: 'number' } },
+      },
+    };
+    const payload = {
+      actor: 'c_arys',
+      rewards: [{ amount: 3, item: 'gold' }],
+      byLocale: { default: 3 },
+    };
+    source.variables.push({
+      id: 'v_payload',
+      name: 'payload',
+      displayName: 'Payload',
+      scope: 'story',
+      valueType: payloadType,
+      defaultValue: payload,
+    });
+    source.characters[0]!.fields = [
+      {
+        id: 'v_profile',
+        name: 'profile',
+        displayName: 'Profile',
+        scope: 'character',
+        valueType: payloadType,
+        defaultValue: payload,
+      },
+    ];
+
+    const serialized = serializeStorySource(source);
+    expect(serialized).toContain('type="struct:');
+    const parsed = parseStorySource(serialized);
+    expect(parsed.variables.at(-1)).toEqual(source.variables.at(-1));
+    expect(parsed.characters[0]?.fields?.[0]).toEqual(source.characters[0]?.fields?.[0]);
+    expect(serializeStorySource(parsed)).toBe(serialized);
+  });
+
+  it('preserves arbitrary top-level Any values through JSON encoding', () => {
+    const source = sourceDocument();
+    source.variables.push({
+      id: 'v_any',
+      name: 'payload',
+      displayName: 'Payload',
+      scope: 'story',
+      valueType: { kind: 'any' },
+      defaultValue: { enabled: true, values: [1, 'two'] },
+    });
+    const serialized = serializeStorySource(source);
     expect(parseStorySource(serialized).variables.at(-1)).toEqual(source.variables.at(-1));
   });
 

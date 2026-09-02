@@ -14,7 +14,9 @@ import {
 } from '../types/project';
 import type { EventSource, SignalSource } from '../types/source';
 import {
+  parseValueTypeDescriptor,
   runtimeValueMatchesType,
+  serializeValueTypeDescriptor,
   type RuntimeValue,
   type ValueType,
   type VariableDefinition,
@@ -64,6 +66,45 @@ function assertChildren(node: Node, path: string, allowed: readonly string[]): v
     if (!names.has(child.getName())) {
       throw new StoryFormatError(`${path} contains unsupported child ${child.getName()}`);
     }
+  }
+}
+
+function supportedParameterType(type: ValueType): boolean {
+  switch (type.kind) {
+    case 'any':
+    case 'boolean':
+    case 'number':
+    case 'string':
+    case 'character-ref':
+    case 'asset-ref':
+      return true;
+    case 'json':
+      return type.name.trim().length > 0;
+    case 'enum':
+      return (
+        type.name.trim().length > 0 &&
+        type.values.length > 0 &&
+        new Set(type.values).size === type.values.length &&
+        type.values.every((value) => value.trim().length > 0)
+      );
+    case 'array':
+      return !type.elementType || supportedParameterType(type.elementType);
+    case 'map':
+      return (
+        (!type.valueType || supportedParameterType(type.valueType)) &&
+        (!type.keyType ||
+          type.keyType === 'string' ||
+          type.keyType === 'number' ||
+          type.keyType === 'character-ref' ||
+          type.keyType === 'asset-ref')
+      );
+    case 'struct':
+      return (
+        type.name.trim().length > 0 &&
+        Object.keys(type.fields).every(
+          (name) => name.trim().length > 0 && supportedParameterType(type.fields[name]!),
+        )
+      );
   }
 }
 
@@ -320,19 +361,8 @@ function validateProject(project: StoryProjectDocument): void {
     if (variableIds.has(variable.id) || variableNames.has(variable.name)) {
       throw new StoryFormatError(`Duplicate project variable ${variable.name}`);
     }
-    if (
-      !['boolean', 'number', 'string', 'array', 'map', 'json'].includes(variable.valueType.kind) ||
-      (variable.valueType.kind === 'json' && !variable.valueType.name.trim())
-    ) {
+    if (!supportedParameterType(variable.valueType)) {
       throw new StoryFormatError(`Unsupported project variable type in ${variable.name}`);
-    }
-    if (
-      variable.valueType.kind !== 'json' &&
-      variable.valueType.kind !== 'array' &&
-      variable.valueType.kind !== 'map' &&
-      typeof variable.defaultValue !== variable.valueType.kind
-    ) {
-      throw new StoryFormatError(`Invalid default value for project variable ${variable.name}`);
     }
     if (!runtimeValueMatchesType(variable.defaultValue, variable.valueType)) {
       throw new StoryFormatError(`Invalid default value for project variable ${variable.name}`);
@@ -380,9 +410,7 @@ function validateProject(project: StoryProjectDocument): void {
       }
       outputIds.add(output.id);
       outputNames.add(output.name);
-      if (
-        !['boolean', 'number', 'string', 'array', 'map', 'json'].includes(output.valueType.kind)
-      ) {
+      if (!supportedParameterType(output.valueType)) {
         throw new StoryFormatError(`Unsupported output type in event ${event.name}`);
       }
     }
@@ -392,10 +420,7 @@ function validateProject(project: StoryProjectDocument): void {
         throw new StoryFormatError(`Invalid or duplicate parameter in event ${event.name}`);
       }
       parameterNames.add(parameter.name);
-      if (
-        !['boolean', 'number', 'string', 'json'].includes(parameter.valueType.kind) ||
-        (parameter.valueType.kind === 'json' && !parameter.valueType.name.trim())
-      ) {
+      if (!supportedParameterType(parameter.valueType)) {
         throw new StoryFormatError(`Unsupported parameter type in event ${event.name}`);
       }
     }
@@ -418,10 +443,7 @@ function validateProject(project: StoryProjectDocument): void {
         throw new StoryFormatError(`Invalid or duplicate parameter in signal ${signal.name}`);
       }
       parameterNames.add(parameter.name);
-      if (
-        !['boolean', 'number', 'string', 'json'].includes(parameter.valueType.kind) ||
-        (parameter.valueType.kind === 'json' && !parameter.valueType.name.trim())
-      ) {
+      if (!supportedParameterType(parameter.valueType)) {
         throw new StoryFormatError(`Unsupported parameter type in signal ${signal.name}`);
       }
     }
@@ -429,21 +451,23 @@ function validateProject(project: StoryProjectDocument): void {
 }
 
 function scalarValueType(name: string, path: string): ValueType {
-  if (
-    name === 'boolean' ||
-    name === 'number' ||
-    name === 'string' ||
-    name === 'array' ||
-    name === 'map'
-  )
-    return { kind: name };
-  if (name.startsWith('json:') && name.slice(5).trim())
-    return { kind: 'json', name: name.slice(5) };
-  throw new StoryFormatError(`${path} has unsupported value type ${name}`);
+  try {
+    return parseValueTypeDescriptor(name);
+  } catch (error) {
+    throw new StoryFormatError(
+      `${path} has unsupported value type ${name}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function projectValueTypeName(valueType: ValueType): string {
-  return valueType.kind === 'json' ? `json:${valueType.name}` : valueType.kind;
+  try {
+    return serializeValueTypeDescriptor(valueType);
+  } catch (error) {
+    throw new StoryFormatError(
+      `Unsupported project value type ${valueType.kind}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function engineFieldTypeName(type: EngineFieldType): string {
@@ -691,9 +715,11 @@ export function serializeStoryProject(project: StoryProjectDocument): string {
       node.setProperty('type', projectValueTypeName(variable.valueType));
       node.setProperty(
         'default',
-        variable.valueType.kind === 'json' ||
-        variable.valueType.kind === 'array' ||
-        variable.valueType.kind === 'map'
+        variable.valueType.kind === 'any' ||
+          variable.valueType.kind === 'json' ||
+          variable.valueType.kind === 'array' ||
+          variable.valueType.kind === 'map' ||
+          variable.valueType.kind === 'struct'
           ? JSON.stringify(variable.defaultValue)
           : (variable.defaultValue as boolean | number | string),
       );
@@ -995,27 +1021,33 @@ export function parseStoryProject(text: string): StoryProjectDocument {
     );
     const serializedDefault = node.getProperty('default');
     const defaultValue =
-      valueType.kind === 'json' || valueType.kind === 'array' || valueType.kind === 'map'
-        ? (() => {
-            if (typeof serializedDefault !== 'string')
-              throw new StoryFormatError(`${path}.default must be JSON text`);
-            try {
-              return JSON.parse(serializedDefault) as RuntimeValue;
-            } catch {
-              throw new StoryFormatError(`${path}.default contains invalid JSON`);
-            }
-          })()
-        : serializedDefault;
+      valueType.kind === 'any'
+        ? typeof serializedDefault === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(serializedDefault) as RuntimeValue;
+              } catch {
+                // Accept early files that stored an Any string without JSON encoding.
+                return serializedDefault;
+              }
+            })()
+          : serializedDefault
+        : valueType.kind === 'json' ||
+            valueType.kind === 'array' ||
+            valueType.kind === 'map' ||
+            valueType.kind === 'struct'
+          ? (() => {
+              if (typeof serializedDefault !== 'string')
+                throw new StoryFormatError(`${path}.default must be JSON text`);
+              try {
+                return JSON.parse(serializedDefault) as RuntimeValue;
+              } catch {
+                throw new StoryFormatError(`${path}.default contains invalid JSON`);
+              }
+            })()
+          : serializedDefault;
     if (!runtimeValueMatchesType(defaultValue as RuntimeValue, valueType)) {
       throw new StoryFormatError(`${path}.default must match ${valueType.kind}`);
-    }
-    if (
-      valueType.kind !== 'json' &&
-      valueType.kind !== 'array' &&
-      valueType.kind !== 'map' &&
-      typeof defaultValue !== valueType.kind
-    ) {
-      throw new StoryFormatError(`${path}.default must be ${valueType.kind}`);
     }
     return {
       id: requiredId(node.getArgument(0), 'variable', `${path}.id`),
@@ -1084,8 +1116,7 @@ export function parseStoryProject(text: string): StoryProjectDocument {
           return {
             id: requiredId(output.getArgument(0), 'eventOutput', `${outputPath}.id`),
             name: outputName,
-            displayName:
-              (output.getProperty('display-name') as string | undefined) ?? outputName,
+            displayName: (output.getProperty('display-name') as string | undefined) ?? outputName,
             valueType: scalarValueType(
               requiredString(output.getProperty('type'), `${outputPath}.type`),
               outputPath,

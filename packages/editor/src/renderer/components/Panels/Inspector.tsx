@@ -3,6 +3,10 @@ import {
   StoryNodeType,
   type BranchNodeData,
   type CallSubstoryNodeData,
+  type StartStoryNodeData,
+  type SwitchStoryNodeData,
+  type ResumeStoryNodeData,
+  type EndStoryInstanceNodeData,
   type ChapterParameter,
   type ConditionId,
   type CallEventNodeData,
@@ -46,7 +50,15 @@ import {
   stringValueModeText,
   switchStringValueMode,
 } from './expressionAuthoring';
-import { JsonValueInput, NamedCreateControl, StoryDataInspector } from './StoryData';
+import {
+  JsonValueInput,
+  InlineValueTypeEditor,
+  NamedCreateControl,
+  ReferenceValueInput,
+  StoryDataInspector,
+  ValueTypeJsonInput,
+  defaultForValueType,
+} from './StoryData';
 import panelStyles from './Panel.module.css';
 import styles from './Inspector.module.css';
 
@@ -57,6 +69,15 @@ const DialogueInkEditor = lazy(() =>
 interface InkExternalDeclaration {
   name: string;
   parameterCount: number;
+}
+
+function defaultExpressionForValueType(type: ValueType): string {
+  if (type.kind === 'boolean') return 'false';
+  if (type.kind === 'number') return '0';
+  if (type.kind === 'string' || type.kind === 'character-ref' || type.kind === 'asset-ref') {
+    return '""';
+  }
+  return JSON.stringify(defaultForValueType(type));
 }
 
 /** Reads Ink EXTERNAL declarations so mappings use the script's exact identifier. */
@@ -736,6 +757,8 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
       type.kind === 'boolean' ||
       type.kind === 'number' ||
       type.kind === 'string' ||
+      type.kind === 'character-ref' ||
+      type.kind === 'asset-ref' ||
       type.kind === 'any'
     )
       return { kind: type.kind, nullable: field.nullable } as ValueType;
@@ -753,6 +776,14 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
     (edge) => edge.target === nodeId && edge.targetHandle === 'value',
   );
   const keyConnected = edges.some((edge) => edge.target === nodeId && edge.targetHandle === 'key');
+  const defaultMapKeySource =
+    variable?.valueType.kind === 'map' && variable.valueType.keyType === 'character-ref'
+      ? JSON.stringify(characters[0]?.id ?? '')
+      : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'asset-ref'
+        ? JSON.stringify(assets[0]?.id ?? '')
+        : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
+          ? '0'
+          : '"key"';
 
   const updateValue = (source: string) =>
     updateNodeData(nodeId, StoryNodeType.SetVariable, {
@@ -812,7 +843,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
                     : (operation as 'append' | 'set-entry' | 'set-field'),
                 key:
                   operation === 'set-entry'
-                    ? (data.key ?? { source: '"key"', bindings: {} })
+                    ? (data.key ?? { source: defaultMapKeySource, bindings: {} })
                     : undefined,
                 fieldId:
                   operation === 'set-field' ? (schema?.fields[0]?.id ?? undefined) : undefined,
@@ -834,7 +865,11 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
                   operation === 'set-entry' && variable?.valueType.kind === 'map'
                     ? variable.valueType.keyType === 'number'
                       ? { kind: 'number' }
-                      : { kind: 'string' }
+                      : variable.valueType.keyType === 'character-ref'
+                        ? { kind: 'character-ref' }
+                        : variable.valueType.keyType === 'asset-ref'
+                          ? { kind: 'asset-ref' }
+                          : { kind: 'string' }
                     : undefined,
                 value:
                   operation === 'set'
@@ -902,38 +937,63 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
       variable?.valueType.kind === 'map' &&
       (variable.valueType.keyType === 'character-ref' ||
         variable.valueType.keyType === 'asset-ref') ? (
-        <label className={styles.field}>
-          <span>Entry Key</span>
-          <select
-            value={decodeStringLiteral(data.key?.source ?? '') ?? ''}
-            onChange={(event) => {
-              checkpoint();
+        <>
+          <label className={styles.field}>
+            <span>Entry Key Resource</span>
+            <select
+              value={decodeStringLiteral(data.key?.source ?? '') ?? '__expression__'}
+              onChange={(event) => {
+                if (event.target.value === '__expression__') return;
+                checkpoint();
+                updateNodeData(nodeId, StoryNodeType.SetVariable, {
+                  key: { source: JSON.stringify(event.target.value), bindings: {} },
+                });
+              }}
+            >
+              <option value="__expression__">Use expression or variable…</option>
+              {decodeStringLiteral(data.key?.source ?? '') &&
+                !(variable.valueType.keyType === 'character-ref' ? characters : assets).some(
+                  (resource) => resource.id === decodeStringLiteral(data.key?.source ?? ''),
+                ) && (
+                  <option value={decodeStringLiteral(data.key?.source ?? '')!}>
+                    Missing: {decodeStringLiteral(data.key?.source ?? '')}
+                  </option>
+                )}
+              {(variable.valueType.keyType === 'character-ref' ? characters : assets).map(
+                (resource) => (
+                  <option value={resource.id} key={resource.id}>
+                    {resource.displayName}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+          <PropertyField
+            label="Entry Key Expression"
+            value={data.key?.source ?? defaultMapKeySource}
+            variableMode="expression"
+            expectedType={{ kind: variable.valueType.keyType }}
+            onBeginEdit={checkpoint}
+            onChange={(source) =>
               updateNodeData(nodeId, StoryNodeType.SetVariable, {
-                key: { source: JSON.stringify(event.target.value), bindings: {} },
-              });
-            }}
-          >
-            <option value="">
-              Select {variable.valueType.keyType === 'character-ref' ? 'Character' : 'Asset'}…
-            </option>
-            {(variable.valueType.keyType === 'character-ref' ? characters : assets).map(
-              (resource) => (
-                <option value={resource.id} key={resource.id}>
-                  {resource.displayName}
-                </option>
-              ),
-            )}
-          </select>
-        </label>
+                key: { source, bindings: {} },
+              })
+            }
+          />
+        </>
       ) : isMap && data.containerOperation === 'set-entry' ? (
         <PropertyField
           label="Entry Key"
-          value={data.key?.source ?? '"key"'}
+          value={data.key?.source ?? defaultMapKeySource}
           variableMode="expression"
           expectedType={
             variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
               ? { kind: 'number' }
-              : { kind: 'string' }
+              : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'character-ref'
+                ? { kind: 'character-ref' }
+                : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'asset-ref'
+                  ? { kind: 'asset-ref' }
+                  : { kind: 'string' }
           }
           onBeginEdit={checkpoint}
           onChange={(source) =>
@@ -1010,22 +1070,33 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
 function EventArgumentEditor({
   nodeId,
   name,
-  kind,
-  typeName,
+  valueType,
   value,
   argumentsByName,
 }: {
   nodeId: NodeId;
   name: string;
-  kind: 'boolean' | 'number' | 'string' | 'json';
-  typeName?: string;
+  valueType: ValueType;
   value?: CallEventNodeData['arguments'][string];
   argumentsByName: CallEventNodeData['arguments'];
 }) {
-  const { checkpoint, updateNodeData } = useStoryGraphStore();
-  const source =
-    value?.source ??
-    (kind === 'json' ? '{}' : kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
+  const { checkpoint, updateNodeData, characters, assets } = useStoryGraphStore();
+  const source = value?.source ?? defaultExpressionForValueType(valueType);
+  const structured = ['json', 'array', 'map', 'struct'].includes(valueType.kind);
+  const parsedLiteral = useMemo(() => {
+    if (!structured) return undefined;
+    try {
+      return JSON.parse(source) as RuntimeValue;
+    } catch {
+      return undefined;
+    }
+  }, [source, structured]);
+  const [mode, setMode] = useState<'literal' | 'expression'>(
+    structured && parsedLiteral !== undefined ? 'literal' : 'expression',
+  );
+  useEffect(() => {
+    if (structured && parsedLiteral !== undefined) setMode('literal');
+  }, [parsedLiteral, structured]);
 
   const updateSource = (nextSource: string) =>
     updateNodeData(nodeId, StoryNodeType.CallEvent, {
@@ -1036,38 +1107,87 @@ function EventArgumentEditor({
     });
   const stringMode = useStringExpressionMode({
     source,
-    identity: `${nodeId}:${name}:${kind}`,
+    identity: `${nodeId}:${name}:${valueType.kind}`,
     checkpoint,
     updateSource,
   });
 
   return (
     <>
-      {kind === 'string' && (
+      {(valueType.kind === 'character-ref' || valueType.kind === 'asset-ref') && (
+        <label className={styles.field}>
+          <span>{name} Resource</span>
+          <select
+            value={decodeStringLiteral(source) ?? '__expression__'}
+            onChange={(event) => {
+              if (event.target.value === '__expression__') return;
+              checkpoint();
+              updateSource(JSON.stringify(event.target.value));
+            }}
+          >
+            <option value="__expression__">Use expression or variable…</option>
+            {(valueType.kind === 'character-ref' ? characters : assets).map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+            {decodeStringLiteral(source) &&
+              !(valueType.kind === 'character-ref' ? characters : assets).some(
+                (item) => item.id === decodeStringLiteral(source),
+              ) && (
+                <option value={decodeStringLiteral(source)!}>
+                  Missing: {decodeStringLiteral(source)}
+                </option>
+              )}
+          </select>
+        </label>
+      )}
+      {(valueType.kind === 'string' || structured) && (
         <label className={styles.field}>
           <span>{name} Mode</span>
           <select
-            value={stringMode.mode}
-            onChange={(event) =>
-              stringMode.switchMode(event.target.value as 'literal' | 'expression')
-            }
+            value={structured ? mode : stringMode.mode}
+            onChange={(event) => {
+              const nextMode = event.target.value as 'literal' | 'expression';
+              if (!structured) {
+                stringMode.switchMode(nextMode);
+                return;
+              }
+              checkpoint();
+              setMode(nextMode);
+              if (nextMode === 'literal' && parsedLiteral === undefined) updateSource('{}');
+              if (nextMode === 'expression' && parsedLiteral !== undefined) updateSource('');
+            }}
           >
             <option value="literal" disabled={!stringMode.canConvertToText}>
-              {stringMode.canConvertToText ? 'Text' : 'Text (literal only)'}
+              {structured
+                ? 'Literal'
+                : stringMode.canConvertToText
+                  ? 'Text'
+                  : 'Text (literal only)'}
             </option>
             <option value="expression">Expression</option>
           </select>
         </label>
       )}
-      {kind === 'json' ? (
+      {valueType.kind === 'json' ? (
         <EngineJsonSourceEditor
-          label={`${name} · JSON or ${typeName || 'Engine JSON'} variable`}
-          typeName={typeName ?? ''}
+          label={`${name} · JSON or ${valueType.name} variable`}
+          typeName={valueType.name}
           source={source}
           onBeginEdit={checkpoint}
           onChange={updateSource}
         />
-      ) : kind === 'string' && stringMode.mode === 'literal' ? (
+      ) : structured && mode === 'literal' ? (
+        <ValueTypeJsonInput
+          value={parsedLiteral ?? {}}
+          valueType={valueType}
+          onCommit={(next) => {
+            checkpoint();
+            updateSource(JSON.stringify(next));
+          }}
+        />
+      ) : valueType.kind === 'string' && stringMode.mode === 'literal' ? (
         <PropertyField
           label={`${name} · string`}
           value={stringMode.textValue}
@@ -1077,10 +1197,10 @@ function EventArgumentEditor({
         />
       ) : (
         <PropertyField
-          label={`${name} · ${kind}`}
+          label={`${name} · ${valueType.kind}`}
           value={source}
           variableMode="expression"
-          expectedType={{ kind }}
+          expectedType={valueType}
           onBeginEdit={checkpoint}
           onChange={stringMode.updateExpression}
         />
@@ -1092,23 +1212,34 @@ function EventArgumentEditor({
 function SignalMatchEditor({
   nodeId,
   name,
-  kind,
-  typeName,
+  valueType,
   value,
   matches,
 }: {
   nodeId: NodeId;
   name: string;
-  kind: 'boolean' | 'number' | 'string' | 'json';
-  typeName?: string;
+  valueType: ValueType;
   value?: WaitSignalNodeData['matches'][string];
   matches: WaitSignalNodeData['matches'];
 }) {
-  const { checkpoint, updateNodeData } = useStoryGraphStore();
+  const { checkpoint, updateNodeData, characters, assets } = useStoryGraphStore();
   const enabled = value !== undefined;
-  const source =
-    value?.source ??
-    (kind === 'json' ? '{}' : kind === 'string' ? '""' : kind === 'boolean' ? 'false' : '0');
+  const source = value?.source ?? defaultExpressionForValueType(valueType);
+  const structured = ['json', 'array', 'map', 'struct'].includes(valueType.kind);
+  const parsedLiteral = useMemo(() => {
+    if (!structured) return undefined;
+    try {
+      return JSON.parse(source) as RuntimeValue;
+    } catch {
+      return undefined;
+    }
+  }, [source, structured]);
+  const [mode, setMode] = useState<'literal' | 'expression'>(
+    structured && parsedLiteral !== undefined ? 'literal' : 'expression',
+  );
+  useEffect(() => {
+    if (structured && parsedLiteral !== undefined) setMode('literal');
+  }, [parsedLiteral, structured]);
 
   const updateSource = (nextSource: string) =>
     updateNodeData(nodeId, StoryNodeType.WaitSignal, {
@@ -1116,7 +1247,7 @@ function SignalMatchEditor({
     });
   const stringMode = useStringExpressionMode({
     source,
-    identity: `${nodeId}:${name}:${kind}`,
+    identity: `${nodeId}:${name}:${valueType.kind}`,
     checkpoint,
     updateSource,
   });
@@ -1141,32 +1272,81 @@ function SignalMatchEditor({
           <option value="match">Match</option>
         </select>
       </label>
-      {enabled && kind === 'string' && (
+      {enabled && (valueType.kind === 'character-ref' || valueType.kind === 'asset-ref') && (
+        <label className={styles.field}>
+          <span>{name} Resource</span>
+          <select
+            value={decodeStringLiteral(source) ?? '__expression__'}
+            onChange={(event) => {
+              if (event.target.value === '__expression__') return;
+              checkpoint();
+              updateSource(JSON.stringify(event.target.value));
+            }}
+          >
+            <option value="__expression__">Use expression or variable…</option>
+            {(valueType.kind === 'character-ref' ? characters : assets).map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+            {decodeStringLiteral(source) &&
+              !(valueType.kind === 'character-ref' ? characters : assets).some(
+                (item) => item.id === decodeStringLiteral(source),
+              ) && (
+                <option value={decodeStringLiteral(source)!}>
+                  Missing: {decodeStringLiteral(source)}
+                </option>
+              )}
+          </select>
+        </label>
+      )}
+      {enabled && (valueType.kind === 'string' || structured) && (
         <label className={styles.field}>
           <span>{name} Mode</span>
           <select
-            value={stringMode.mode}
-            onChange={(event) =>
-              stringMode.switchMode(event.target.value as 'literal' | 'expression')
-            }
+            value={structured ? mode : stringMode.mode}
+            onChange={(event) => {
+              const nextMode = event.target.value as 'literal' | 'expression';
+              if (!structured) {
+                stringMode.switchMode(nextMode);
+                return;
+              }
+              checkpoint();
+              setMode(nextMode);
+              if (nextMode === 'literal' && parsedLiteral === undefined) updateSource('{}');
+              if (nextMode === 'expression' && parsedLiteral !== undefined) updateSource('');
+            }}
           >
-            <option value="literal" disabled={!stringMode.canConvertToText}>
-              {stringMode.canConvertToText ? 'Text' : 'Text (literal only)'}
+            <option value="literal" disabled={structured ? false : !stringMode.canConvertToText}>
+              {structured
+                ? 'Literal'
+                : stringMode.canConvertToText
+                  ? 'Text'
+                  : 'Text (literal only)'}
             </option>
             <option value="expression">Expression</option>
           </select>
         </label>
       )}
       {enabled &&
-        (kind === 'json' ? (
+        (valueType.kind === 'json' ? (
           <EngineJsonSourceEditor
-            label={`${name} · JSON or ${typeName || 'Engine JSON'} variable`}
-            typeName={typeName ?? ''}
+            label={`${name} · JSON or ${valueType.name} variable`}
+            typeName={valueType.name}
             source={source}
             onBeginEdit={checkpoint}
             onChange={updateSource}
           />
-        ) : kind === 'string' && stringMode.mode === 'literal' ? (
+        ) : structured && mode === 'literal' ? (
+          <ValueTypeJsonInput
+            value={parsedLiteral ?? {}}
+            valueType={valueType}
+            onCommit={(next) => {
+              checkpoint();
+              updateSource(JSON.stringify(next));
+            }}
+          />
+        ) : valueType.kind === 'string' && stringMode.mode === 'literal' ? (
           <PropertyField
             label={`${name} · string`}
             value={stringMode.textValue}
@@ -1176,10 +1356,10 @@ function SignalMatchEditor({
           />
         ) : (
           <PropertyField
-            label={`${name} · ${kind}`}
+            label={`${name} · ${valueType.kind}`}
             value={source}
             variableMode="expression"
-            expectedType={{ kind }}
+            expectedType={valueType}
             onBeginEdit={checkpoint}
             onChange={stringMode.updateExpression}
           />
@@ -2083,7 +2263,8 @@ function DialogueEditor({ nodeId, data }: { nodeId: NodeId; data: DialogueNodeDa
 }
 
 type ScalarKind = 'boolean' | 'number' | 'string';
-type InterfaceKind = ScalarKind | 'json';
+type InterfaceKind =
+  ScalarKind | 'json' | 'array' | 'map' | 'struct' | 'character-ref' | 'asset-ref';
 
 function defaultValueFor(kind: ScalarKind): RuntimeValue {
   if (kind === 'boolean') return false;
@@ -2108,11 +2289,11 @@ function InterfaceVariableRow({
   onChange: (variable: VariableDefinition) => void;
   onRemove: () => void;
 }) {
-  const { engineTypes } = useStoryGraphStore();
+  const { engineTypes, characters, assets } = useStoryGraphStore();
   const [name, setName] = useState(variable.name);
   const [displayName, setDisplayName] = useState(variable.displayName);
   const [defaultValue, setDefaultValue] = useState(
-    variable.valueType.kind === 'json'
+    ['json', 'array', 'map', 'struct'].includes(variable.valueType.kind)
       ? JSON.stringify(variable.defaultValue, null, 2)
       : String(variable.defaultValue),
   );
@@ -2121,7 +2302,7 @@ function InterfaceVariableRow({
   useEffect(
     () =>
       setDefaultValue(
-        variable.valueType.kind === 'json'
+        ['json', 'array', 'map', 'struct'].includes(variable.valueType.kind)
           ? JSON.stringify(variable.defaultValue, null, 2)
           : String(variable.defaultValue),
       ),
@@ -2196,7 +2377,13 @@ function InterfaceVariableRow({
               valueType:
                 nextKind === 'json'
                   ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-                  : { kind: nextKind },
+                  : nextKind === 'array'
+                    ? { kind: 'array', elementType: { kind: 'any' } }
+                    : nextKind === 'map'
+                      ? { kind: 'map', keyType: 'string', valueType: { kind: 'any' } }
+                      : nextKind === 'struct'
+                        ? { kind: 'struct', name: 'Payload', fields: {} }
+                        : { kind: nextKind },
               defaultValue:
                 nextKind === 'json'
                   ? Object.fromEntries(
@@ -2205,16 +2392,46 @@ function InterfaceVariableRow({
                         structuredClone(field.defaultValue),
                       ]),
                     )
-                  : defaultValueFor(nextKind),
+                  : ['array', 'map', 'struct'].includes(nextKind)
+                    ? defaultForValueType(
+                        nextKind === 'array'
+                          ? { kind: 'array', elementType: { kind: 'any' } }
+                          : nextKind === 'map'
+                            ? { kind: 'map', keyType: 'string', valueType: { kind: 'any' } }
+                            : { kind: 'struct', name: 'Payload', fields: {} },
+                        engineTypes,
+                      )
+                    : nextKind === 'character-ref' || nextKind === 'asset-ref'
+                      ? null
+                      : defaultValueFor(nextKind as ScalarKind),
             });
           }}
         >
           <option value="boolean">Boolean</option>
           <option value="number">Number</option>
           <option value="string">String</option>
+          <option value="character-ref">Character Reference</option>
+          <option value="asset-ref">Asset Reference</option>
+          <option value="array">Array</option>
+          <option value="map">Map / Dictionary</option>
+          <option value="struct">Struct</option>
           <option value="json">Engine JSON</option>
         </select>
       </label>
+      {(variable.valueType.kind === 'struct' ||
+        variable.valueType.kind === 'array' ||
+        variable.valueType.kind === 'map') && (
+        <InlineValueTypeEditor
+          valueType={variable.valueType}
+          onChange={(valueType) =>
+            onChange({
+              ...variable,
+              valueType,
+              defaultValue: defaultForValueType(valueType, engineTypes),
+            })
+          }
+        />
+      )}
       {variable.valueType.kind === 'json' && (
         <label className={styles.field}>
           <span>Engine Type</span>
@@ -2250,6 +2467,20 @@ function InterfaceVariableRow({
             value={variable.defaultValue}
             schema={engineTypes.find((item) => item.name === interfaceEngineTypeName)}
             engineTypes={engineTypes}
+            onCommit={(next) => onChange({ ...variable, defaultValue: next })}
+          />
+        ) : kind === 'array' || kind === 'map' || kind === 'struct' ? (
+          <ValueTypeJsonInput
+            value={variable.defaultValue}
+            valueType={variable.valueType}
+            onCommit={(next) => onChange({ ...variable, defaultValue: next })}
+          />
+        ) : kind === 'character-ref' || kind === 'asset-ref' ? (
+          <ReferenceValueInput
+            kind={kind}
+            value={variable.defaultValue}
+            characters={characters}
+            assets={assets}
             onCommit={(next) => onChange({ ...variable, defaultValue: next })}
           />
         ) : kind === 'boolean' ? (
@@ -2456,6 +2687,8 @@ export function Inspector() {
     conditions,
     engineTypes,
     chapters,
+    stories,
+    workspace,
     activeGraphId,
     checkpoint,
     updateNode,
@@ -2976,6 +3209,8 @@ export function Inspector() {
             type.kind === 'boolean' ||
             type.kind === 'number' ||
             type.kind === 'string' ||
+            type.kind === 'character-ref' ||
+            type.kind === 'asset-ref' ||
             type.kind === 'any'
           ) {
             return { kind: type.kind, nullable: field.nullable } as ValueType;
@@ -3064,10 +3299,15 @@ export function Inspector() {
                 }
                 variableMode="expression"
                 expectedType={
-                  selectedVariable.valueType.kind === 'array' ||
-                  selectedVariable.valueType.keyType !== 'number'
-                    ? { kind: selectedVariable.valueType.kind === 'array' ? 'number' : 'string' }
-                    : { kind: 'number' }
+                  selectedVariable.valueType.kind === 'array'
+                    ? { kind: 'number' }
+                    : selectedVariable.valueType.keyType === 'number'
+                      ? { kind: 'number' }
+                      : selectedVariable.valueType.keyType === 'character-ref'
+                        ? { kind: 'character-ref' }
+                        : selectedVariable.valueType.keyType === 'asset-ref'
+                          ? { kind: 'asset-ref' }
+                          : { kind: 'string' }
                 }
                 onBeginEdit={checkpoint}
                 onChange={(source) =>
@@ -3108,14 +3348,7 @@ export function Inspector() {
                       (definition?.parameters ?? []).map((parameter) => [
                         parameter.name,
                         data.arguments[parameter.name] ?? {
-                          source:
-                            parameter.valueType.kind === 'string'
-                              ? '""'
-                              : parameter.valueType.kind === 'boolean'
-                                ? 'false'
-                                : parameter.valueType.kind === 'json'
-                                  ? '{}'
-                                  : '0',
+                          source: defaultExpressionForValueType(parameter.valueType),
                           bindings: {},
                         },
                       ]),
@@ -3140,10 +3373,7 @@ export function Inspector() {
                 key={`${data.eventId}-${parameter.name}`}
                 nodeId={node.id}
                 name={parameter.name}
-                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string' | 'json'}
-                typeName={
-                  parameter.valueType.kind === 'json' ? parameter.valueType.name : undefined
-                }
+                valueType={parameter.valueType}
                 value={data.arguments[parameter.name]}
                 argumentsByName={data.arguments}
               />
@@ -3190,6 +3420,104 @@ export function Inspector() {
           </>
         );
       }
+      case StoryNodeType.StartStory:
+      case StoryNodeType.SwitchStory:
+      case StoryNodeType.ResumeStory:
+      case StoryNodeType.EndStoryInstance: {
+        const data = node.data as unknown as {
+          storyId?: StartStoryNodeData['storyId'];
+          instanceId?: StartStoryNodeData['instanceId'];
+          arguments?: Record<VariableId, ExpressionSource>;
+          resultVariableIds?: Record<string, VariableId>;
+          instanceVariableId?: VariableId;
+          waitForCompletion?: boolean;
+        };
+        const targetStories =
+          workspace?.project?.stories ??
+          stories.map((story) => ({
+            id: story.document.id,
+            displayName: story.document.displayName,
+          }));
+        const isResume = node.type === StoryNodeType.ResumeStory;
+        const isEnd = node.type === StoryNodeType.EndStoryInstance;
+        const update = (next: Partial<typeof data>) => updateNodeData(node.id, node.type, next);
+        return (
+          <>
+            {!isResume && !isEnd && (
+              <label className={styles.field}>
+                <span>Target Story</span>
+                <select
+                  value={('storyId' in data && data.storyId) || ''}
+                  onChange={(event) => {
+                    checkpoint();
+                    update({
+                      storyId: (event.target.value || undefined) as StartStoryNodeData['storyId'],
+                    });
+                  }}
+                >
+                  <option value="">Select Story…</option>
+                  {targetStories.map((story) => (
+                    <option value={story.id} key={story.id}>
+                      {story.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <PropertyField
+              label="Instance ID"
+              value={data.instanceId?.source ?? ''}
+              variableMode="expression"
+              expectedType={{ kind: 'string' }}
+              onBeginEdit={checkpoint}
+              onChange={(source) =>
+                update({ instanceId: source ? { source, bindings: {} } : undefined })
+              }
+            />
+            {!isEnd && (
+              <label className={styles.field}>
+                <span>Store Instance ID</span>
+                <select
+                  value={data.instanceVariableId ?? ''}
+                  onChange={(event) => {
+                    checkpoint();
+                    update({
+                      instanceVariableId: (event.target.value || undefined) as
+                        VariableId | undefined,
+                    });
+                  }}
+                >
+                  <option value="">Do not store generated ID</option>
+                  {[...availableVariables, ...projectVariables]
+                    .filter((variable) => variable.valueType.kind === 'string')
+                    .map((variable) => (
+                      <option value={variable.id} key={variable.id}>
+                        {variable.displayName}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+            {!isResume && !isEnd && (
+              <label className={styles.checkboxField}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(data.waitForCompletion)}
+                  onChange={(event) => {
+                    checkpoint();
+                    update({ waitForCompletion: event.target.checked });
+                  }}
+                />
+                <span>Wait for completion</span>
+              </label>
+            )}
+            <div className={styles.info}>
+              Story Control is handled by the engine Adapter. Arguments and returned values are
+              serialized JSON contracts and do not execute inside the editor.
+            </div>
+          </>
+        );
+      }
       case StoryNodeType.WaitSignal: {
         const data = node.data as WaitSignalNodeData;
         const selectedSignal = signals.find((candidate) => candidate.id === data.signalId);
@@ -3223,10 +3551,7 @@ export function Inspector() {
                 key={`${data.signalId}-${parameter.name}`}
                 nodeId={node.id}
                 name={parameter.name}
-                kind={parameter.valueType.kind as 'boolean' | 'number' | 'string' | 'json'}
-                typeName={
-                  parameter.valueType.kind === 'json' ? parameter.valueType.name : undefined
-                }
+                valueType={parameter.valueType}
                 value={(data.matches ?? {})[parameter.name]}
                 matches={data.matches ?? {}}
               />
@@ -3286,6 +3611,33 @@ export function Inspector() {
                     }
                   />
                 );
+              }
+              if (
+                parameter.variable.valueType.kind === 'array' ||
+                parameter.variable.valueType.kind === 'map' ||
+                parameter.variable.valueType.kind === 'struct'
+              ) {
+                try {
+                  const parsed = JSON.parse(source) as RuntimeValue;
+                  return (
+                    <ValueTypeJsonInput
+                      key={parameter.variable.id}
+                      value={parsed}
+                      valueType={parameter.variable.valueType}
+                      onCommit={(next) => {
+                        checkpoint();
+                        updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                          arguments: {
+                            ...(data.arguments ?? {}),
+                            [parameter.variable.id]: { source: JSON.stringify(next), bindings: {} },
+                          },
+                        });
+                      }}
+                    />
+                  );
+                } catch {
+                  // Expression mode is handled by the field below.
+                }
               }
               return (
                 <PropertyField
@@ -3445,34 +3797,61 @@ export function Inspector() {
                 }
               />
             ))}
-            {chapter.outputs.map((output) =>
-              output.variable.valueType.kind === 'json' ? (
-                <EngineJsonSourceEditor
-                  key={output.variable.id}
-                  label={`Output · ${output.variable.displayName} · JSON or ${output.variable.valueType.name} variable`}
-                  typeName={output.variable.valueType.name}
-                  source={
-                    data.values?.[output.variable.id]?.source ??
-                    expressionForDefault(output.variable.defaultValue).source
-                  }
-                  onBeginEdit={checkpoint}
-                  onChange={(source) =>
-                    updateNodeData(node.id, StoryNodeType.Return, {
-                      values: {
-                        ...(data.values ?? {}),
-                        [output.variable.id]: { source, bindings: {} },
-                      },
-                    })
-                  }
-                />
-              ) : (
+            {chapter.outputs.map((output) => {
+              const outputSource =
+                data.values?.[output.variable.id]?.source ??
+                expressionForDefault(output.variable.defaultValue).source;
+              if (output.variable.valueType.kind === 'json') {
+                return (
+                  <EngineJsonSourceEditor
+                    key={output.variable.id}
+                    label={`Output · ${output.variable.displayName} · JSON or ${output.variable.valueType.name} variable`}
+                    typeName={output.variable.valueType.name}
+                    source={outputSource}
+                    onBeginEdit={checkpoint}
+                    onChange={(source) =>
+                      updateNodeData(node.id, StoryNodeType.Return, {
+                        values: {
+                          ...(data.values ?? {}),
+                          [output.variable.id]: { source, bindings: {} },
+                        },
+                      })
+                    }
+                  />
+                );
+              }
+              if (
+                output.variable.valueType.kind === 'array' ||
+                output.variable.valueType.kind === 'map' ||
+                output.variable.valueType.kind === 'struct'
+              ) {
+                try {
+                  const parsed = JSON.parse(outputSource) as RuntimeValue;
+                  return (
+                    <ValueTypeJsonInput
+                      key={output.variable.id}
+                      value={parsed}
+                      valueType={output.variable.valueType}
+                      onCommit={(next) => {
+                        checkpoint();
+                        updateNodeData(node.id, StoryNodeType.Return, {
+                          values: {
+                            ...(data.values ?? {}),
+                            [output.variable.id]: { source: JSON.stringify(next), bindings: {} },
+                          },
+                        });
+                      }}
+                    />
+                  );
+                } catch {
+                  // Expression mode is handled by the field below.
+                }
+              }
+              return (
                 <PropertyField
                   key={output.variable.id}
                   label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
-                  value={
-                    data.values?.[output.variable.id]?.source ??
-                    expressionForDefault(output.variable.defaultValue).source
-                  }
+                  value={outputSource}
                   variableMode="expression"
                   expectedType={output.variable.valueType}
                   onBeginEdit={checkpoint}
@@ -3485,8 +3864,8 @@ export function Inspector() {
                     })
                   }
                 />
-              ),
-            )}
+              );
+            })}
             <div className={styles.info}>Returns these outputs to the Call Substory node.</div>
           </>
         );

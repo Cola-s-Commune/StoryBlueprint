@@ -50,6 +50,12 @@ export interface CompileOptions {
   localeFallbacks?: Readonly<Record<string, string>>;
   /** Project-relative linked Ink sources resolved by the editor/build host. */
   inkSources?: Readonly<Record<string, string>>;
+  /** Story IDs available to Story Control nodes during a project build. */
+  availableStoryIds?: readonly StoryId[];
+  /** Story variable contracts used by Start/Switch Story argument validation. */
+  storyVariablesById?: Readonly<
+    Record<string, readonly import('@story-blueprint/common').VariableDefinition[]>
+  >;
 }
 
 export type CompileResult =

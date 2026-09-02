@@ -280,13 +280,13 @@
 - [x] Render
 - [x] Boolean Expression 文本编辑与变量拖入
 - [x] 固定 True / False 输出
-- [ ] Condition 资源：稳定 ID、Name / Display Name / Description、作用域与显式输入
-- [ ] Bool 输入支持 Inline Expression / Condition Reference 两种模式，并提供搜索与跳转编辑
-- [ ] Condition Tree 图形化编辑：All / Any / Not / Expression Leaf / Condition Leaf
+- [x] Condition 资源：稳定 ID、Name / Display Name / Description、Story 作用域与显式输入
+- [x] Bool 输入支持 Inline Expression / Condition Reference 两种模式，并提供搜索与跳转编辑
+- [x] Condition Tree 图形化编辑：All / Any / Not / Expression Leaf / Condition Reference Leaf
 - [ ] Condition Tree 与 Bool Expression 在语义可保持时双向转换；无法无损转换时保留原表示并提示
-- [ ] Condition 引用循环检测、作用域校验、引用索引、重命名安全、Undo/Redo 与 Git Diff
-- [ ] Compiler 将 Condition / Condition Tree 降级为普通 Boolean Typed Expression AST，Runtime 不增加树解释器
-- [ ] AI Command 支持 Condition 的创建、更新和引用，并纳入 Dry Run 与语义快照
+- [x] Condition 引用循环检测、作用域校验、引用索引、重命名安全、Undo/Redo 与 Git Diff
+- [x] Compiler 将 Condition / Condition Tree 降级为普通 Boolean Typed Expression AST，Runtime 不增加树解释器
+- [x] AI Command 支持 Condition 的创建、更新和引用，并纳入 Dry Run 与语义快照
 
 ---
 
@@ -310,13 +310,13 @@
 - [x] Event Reference 使用稳定 ID，参数重命名同步更新已打开 Story 的节点绑定
 - [x] 第一阶段 Boolean / Number / String 参数及 Literal / Expression / Variable 表达式绑定
 - [x] Call Event 固定为派发后立即继续；无返回值、完成状态或失败分支
-- [x] Event / Signal 支持带引擎类型名的 opaque JSON 参数；编辑器只校验完整 JSON 并原样交给 Adapter，不开放成员访问或 Story 编程
+- [x] Event / Signal 支持带引擎类型名的 opaque JSON 参数；编辑器只校验完整 JSON 并原样交给 Adapter，不把 Engine JSON 拆成 Story 逻辑
 - [x] Event 支持多个稳定 ID 返回值；Adapter Promise 按 Output ID 返回并在 Runtime 校验后写入指定变量
 - [x] Boolean / Number / String / Array / Map / Engine JSON 返回值
-- [ ] CharacterRef / AssetRef 参数与返回值
-- [ ] Struct 递归复杂参数，编译产物使用 JSON 兼容值
-- [ ] 参数支持 Literal、Expression、Variable Binding 和结构化编辑
-- [ ] Raw JSON 仅作为复杂参数的逃生编辑方式
+- [x] CharacterRef / AssetRef 参数与返回值：Runtime 传递稳定资源 ID，Inspector 提供角色/资产选择器，Adapter 不接收完整资源对象；引用类型仅支持同类相等比较
+- [x] Struct 递归复杂参数，编译产物使用 JSON 兼容值；Struct 成员可在表达式中按类型访问
+- [x] 参数支持 Literal、Expression、Variable Binding 和结构化编辑，Array / Map / Struct 可递归嵌套
+- [x] Raw JSON 仅作为复杂参数的逃生编辑方式，提交前执行完整类型校验
 - [x] Ink External Function 映射为 External Function Definition / Call External Function（稳定 ID、参数数量校验、显式绑定）
 
 ## Wait for Signal Node
@@ -327,7 +327,7 @@
 - [x] RuntimeState 序列化提前到达的 Signal Payload 队列；Wait 节点消费第一条匹配项
 - [x] Pending Signal 可保存、恢复和通过 AbortSignal 取消 Adapter 等待
 - [x] Boolean / Number / String Signal Payload；Wait 参数可逐项选择 Any 或 Match Expression
-- [x] Engine JSON Signal Payload 支持 Any 或完整结构深比较，不把复杂对象拆成表达式逻辑
+- [x] Engine JSON Signal Payload 支持 Any 或完整结构深比较，不把 opaque Engine JSON 拆成表达式逻辑
 - [x] Engine JSON 可作为 Variable、Character Field 与 Substory Input / Output / Local 整值存储和传递；同名引擎类型才能连接或赋值，不提供成员访问和运算
 - [x] 项目级 Engine Type Schema 资源：Name、Display Name、Description 与图形化字段定义
 - [x] Engine Type Schema Designer：图形化增删、改名、排序字段并修改 Boolean / Number / String / Enum / Object / Array / Map 类型
@@ -360,12 +360,12 @@
 
 ## Story Control Nodes（跨 Story）
 
-- [ ] `Start Story`：启动另一个 Story 实例并传入参数
-- [ ] `Switch Story`：结束/挂起当前 Story 并切换到目标 Story
-- [ ] `Resume Story`：恢复已有 Story 实例或存档
-- [ ] `End Story`：显式结束指定 Story 实例
-- [ ] Story Control 的 Adapter、参数、存档边界、返回策略和失败诊断
-- [ ] Story 与 Substory 的调用边界和生命周期文档化；不把 Story Control 当作 Substory Call / Return
+- [x] `Start Story`：启动另一个 Story 实例并传入参数
+- [x] `Switch Story`：通过 Adapter 请求切换到目标 Story 实例
+- [x] `Resume Story`：通过 Adapter 恢复已有 Story 实例或存档
+- [x] `End Story Instance`：通过 Adapter 结束指定 Story 实例并继续当前流程
+- [x] Story Control 的 Adapter、参数、存档边界、返回策略和失败诊断；Start / Switch / Resume 可把 Adapter 生成的实例 ID 写入 String 变量
+- [x] Story 与 Substory 的调用边界和生命周期文档化；不把 Story Control 当作 Substory Call / Return
 
 ---
 
@@ -456,7 +456,7 @@
 - [x] Emotion 重命名同步 Dialogue Line 引用，删除时安全清理引用
 - [x] Default Portrait 与 Emotion Portrait 选择器及编译期回退
 - [x] Character / Emotion 跨 Story 引用列表、节点跳转与删除保护
-- [x] Character Field（Boolean / Number / String）定义、KDL 存储与稳定字段 ID
+- [x] Character Field（基础类型、CharacterRef / AssetRef、递归 Array / Map / Struct）定义、KDL 存储与稳定字段 ID
 - [x] `CharacterName.fieldName` 表达式解析及 Get / Set Variable 选择
 - [x] Character Field Runtime Adapter 读取、缓存与暂停点回写
 - [x] Character Field 跨 Story 引用索引、字段 ID Binding 持久化与安全重命名
@@ -524,7 +524,9 @@
 - [x] Boolean / Number / String
 - [x] Character 外部 Scope
 - [ ] Project 外部 Scope
-- [ ] Enum / Struct / Nullable
+- [ ] Enum
+- [x] Struct variables and recursive Array / Map element types
+- [x] Nullable CharacterRef / AssetRef and nullable nested Struct fields
 - [x] Variable 引用索引、安全重命名、删除保护与跨 Graph 节点跳转
 
 ---
@@ -689,6 +691,7 @@
 - [x] Typed Return Value
 - [x] 无返回值 Substory Call Stack / Return
 - [x] End Story
+- [x] Story Control 指令通过可序列化 PendingInteraction 交给 Adapter；Start / Switch / Resume / End Instance 的结果可按输出 ID 写回变量
 - [x] 稳定点 Save / Load（Preview 本地槽验证 RuntimeState 契约）
 - [x] Pending Dialogue / Choice / Signal 与 Signal Inbox JSON 往返恢复
 - [x] Ink Block 子运行时的暂停、选择、恢复与终止（稳定交互 ID、可序列化 Ink 状态、陈旧 Choice 拒绝、END / Abort 验证）
@@ -704,6 +707,7 @@
 - [x] Event Registry 与 Typed Parameters / 多 Result
 - [x] `callEvent(eventId, arguments, signal)` 异步调用协议
 - [x] 游戏引擎按稳定 Event ID 注册具体 Handler
+- [x] Story Control 统一 Adapter 控制请求：Story ID、实例 ID、参数、等待策略与 JSON 返回值
 - [ ] Wait / Fire-and-forget、返回值与 Failed 分支语义
 - [ ] Text / Voice / Asset 解析
 - [x] External Variable 读写

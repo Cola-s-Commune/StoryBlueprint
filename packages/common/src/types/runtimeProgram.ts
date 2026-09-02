@@ -96,6 +96,7 @@ export interface CallEventInstruction extends RuntimeInstructionBase {
   arguments: Readonly<Record<string, TypedExpression>>;
   outputs: readonly { id: string; name: string; valueType: ValueType }[];
   resultVariableIds: Readonly<Record<string, VariableId>>;
+  instanceVariableId?: VariableId;
 }
 
 export interface WaitSignalInstruction extends RuntimeInstructionBase {
@@ -139,6 +140,44 @@ export interface CallChapterInstruction extends RuntimeInstructionBase {
   resultVariableIds: Readonly<Record<VariableId, VariableId>>;
 }
 
+export interface StoryControlArgumentSet {
+  readonly [key: string]: TypedExpression;
+}
+
+export interface StartStoryInstruction extends RuntimeInstructionBase {
+  op: 'start-story';
+  storyId: import('./ids').StoryId;
+  instanceId?: TypedExpression;
+  arguments: StoryControlArgumentSet;
+  resultVariableIds: Readonly<Record<string, VariableId>>;
+  instanceVariableId?: VariableId;
+  waitForCompletion: boolean;
+}
+
+export interface SwitchStoryInstruction extends RuntimeInstructionBase {
+  op: 'switch-story';
+  storyId: import('./ids').StoryId;
+  instanceId?: TypedExpression;
+  arguments: StoryControlArgumentSet;
+  resultVariableIds: Readonly<Record<string, VariableId>>;
+  instanceVariableId?: VariableId;
+  waitForCompletion: boolean;
+}
+
+export interface ResumeStoryInstruction extends RuntimeInstructionBase {
+  op: 'resume-story';
+  instanceId: TypedExpression;
+  resultVariableIds: Readonly<Record<string, VariableId>>;
+  instanceVariableId?: VariableId;
+  waitForCompletion: boolean;
+}
+
+export interface EndStoryInstanceInstruction extends RuntimeInstructionBase {
+  op: 'end-story-instance';
+  instanceId: TypedExpression;
+  resultVariableIds: Readonly<Record<string, VariableId>>;
+}
+
 export interface ReturnInstruction extends RuntimeInstructionBase {
   op: 'return';
   values: Readonly<Record<VariableId, TypedExpression>>;
@@ -159,6 +198,10 @@ export type RuntimeInstruction =
   | BranchInstruction
   | JumpInstruction
   | CallChapterInstruction
+  | StartStoryInstruction
+  | SwitchStoryInstruction
+  | ResumeStoryInstruction
+  | EndStoryInstanceInstruction
   | ReturnInstruction
   | EndStoryInstruction;
 

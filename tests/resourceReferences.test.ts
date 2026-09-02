@@ -278,23 +278,63 @@ describe('character and asset reference index', () => {
         { ...jsonVariable, id: 'v_characterpayload', scope: 'character' },
       ],
     };
-    const index = buildStoryResourceReferenceIndex(
-      [story],
-      [{ character: characterWithJson }],
-      { engineTypes: [payload], projectVariables: [], events: [], signals: [] },
-    );
+    const index = buildStoryResourceReferenceIndex([story], [{ character: characterWithJson }], {
+      engineTypes: [payload],
+      projectVariables: [],
+      events: [],
+      signals: [],
+    });
     expect(index.characters.get('c_alice')).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ field: 'Default.owner', target: { kind: 'variable', variableId: 'v_payload', storyId: 's_jsonrefs' } }),
-        expect.objectContaining({ field: 'Set Variable.owner', target: expect.objectContaining({ kind: 'node', nodeId: 'n_setpayload' }) }),
+        expect.objectContaining({
+          field: 'Default.owner',
+          target: { kind: 'variable', variableId: 'v_payload', storyId: 's_jsonrefs' },
+        }),
+        expect.objectContaining({
+          field: 'Set Variable.owner',
+          target: expect.objectContaining({ kind: 'node', nodeId: 'n_setpayload' }),
+        }),
       ]),
     );
     expect(index.assets.get('a_happy')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ field: 'Default.byKey.happy' }),
         expect.objectContaining({ field: 'Set Variable.byKey.happy' }),
-        expect.objectContaining({ field: 'Payload.Default.byKey.happy', target: expect.objectContaining({ kind: 'character' }) }),
+        expect.objectContaining({
+          field: 'Payload.Default.byKey.happy',
+          target: expect.objectContaining({ kind: 'character' }),
+        }),
       ]),
     );
+  });
+
+  it('indexes top-level CharacterRef and AssetRef variable defaults', () => {
+    const story: ResourceReferenceStory = {
+      id: 's_typedrefs',
+      label: 'Typed Ref Story',
+      variables: [
+        {
+          id: 'v_actor',
+          name: 'actor',
+          displayName: 'Actor',
+          scope: 'story',
+          valueType: { kind: 'character-ref' },
+          defaultValue: 'c_alice',
+        },
+        {
+          id: 'v_voice',
+          name: 'voice',
+          displayName: 'Voice',
+          scope: 'story',
+          valueType: { kind: 'asset-ref' },
+          defaultValue: 'a_voice',
+        },
+      ],
+      rootGraph: graph([]),
+      chapters: [],
+    };
+    const index = buildStoryResourceReferenceIndex([story], [{ character }]);
+    expect(index.characters.get('c_alice')?.[0]?.field).toBe('Default');
+    expect(index.assets.get('a_voice')?.[0]?.field).toBe('Default');
   });
 });

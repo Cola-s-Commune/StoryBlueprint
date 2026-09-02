@@ -192,7 +192,8 @@ function projectDocument(): StoryProjectDocument {
 
 describe('story project KDL', () => {
   it('migrates legacy arrays without an item type to Any JSON', () => {
-    const parsed = parseStoryProject(`project prj_legacy_array format=story-blueprint-project version=1 name=legacy display-name=Legacy {
+    const parsed =
+      parseStoryProject(`project prj_legacy_array format=story-blueprint-project version=1 name=legacy display-name=Legacy {
       engine-types {
         engine-type Payload id=et_legacy_array {
           field Items id=ef_legacy_array type=array:undefined default="[]"
@@ -235,6 +236,43 @@ describe('story project KDL', () => {
     expect(serialized).toContain('description="Adds a reward to the player inventory."');
     expect(serialized).toContain('signal sig_animationfinished');
     expect(serialized).toContain('parameter animation type=string');
+  });
+
+  it('round-trips recursive Struct types in project variables and event contracts', () => {
+    const project = projectDocument();
+    const payloadType = {
+      kind: 'struct' as const,
+      name: 'QuestPayload',
+      fields: {
+        actor: { kind: 'character-ref' as const },
+        rewards: {
+          kind: 'array' as const,
+          elementType: { kind: 'number' as const },
+        },
+      },
+    };
+    project.variables.push({
+      id: 'v_payload',
+      name: 'payload',
+      displayName: 'Payload',
+      scope: 'project',
+      valueType: payloadType,
+      defaultValue: { actor: 'c_trader', rewards: [1, 2] },
+    });
+    project.events[0] = {
+      ...project.events[0]!,
+      parameters: [
+        ...project.events[0]!.parameters,
+        { name: 'typedPayload', valueType: payloadType },
+      ],
+    };
+    const serialized = serializeStoryProject(project);
+    const parsed = parseStoryProject(serialized);
+    expect(parsed.variables.find((variable) => variable.id === 'v_payload')).toEqual(
+      project.variables.find((variable) => variable.id === 'v_payload'),
+    );
+    expect(parsed.events[0]?.parameters.at(-1)).toEqual(project.events[0]?.parameters.at(-1));
+    expect(serializeStoryProject(parsed)).toBe(serialized);
   });
 
   it('rejects paths outside the project and dangling resource usage', () => {

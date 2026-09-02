@@ -7,12 +7,17 @@ import {
   choiceOptionTextId,
   choicePromptTextId,
   collectInkReservedTagGroups,
+  isStableId,
   parseInkDialogueMetadata,
   runtimeValueMatchesType,
   stripEngineObjectTypeMarkers,
   type BlockId,
   type BranchNodeData,
   type CallSubstoryNodeData,
+  type StartStoryNodeData,
+  type SwitchStoryNodeData,
+  type ResumeStoryNodeData,
+  type EndStoryInstanceNodeData,
   type CallEventNodeData,
   type ChapterId,
   type ChoiceNodeData,
@@ -90,7 +95,7 @@ function scanInkExternalDeclarations(source: string): InkExternalDeclaration[] {
 
 function compileOpaqueJson(
   source: string,
-  valueType: Extract<ValueType, { kind: 'json' | 'array' | 'map' }>,
+  valueType: Extract<ValueType, { kind: 'json' | 'array' | 'map' | 'struct' }>,
 ): TypedExpression {
   let value: RuntimeValue;
   try {
@@ -105,10 +110,13 @@ function compileOpaqueJson(
     throw new ExpressionCompileError('Array value must be a JSON array', 0);
   }
   if (
-    valueType.kind === 'map' &&
+    (valueType.kind === 'map' || valueType.kind === 'struct') &&
     (value === null || typeof value !== 'object' || Array.isArray(value))
   ) {
-    throw new ExpressionCompileError('Map value must be a JSON object', 0);
+    throw new ExpressionCompileError(
+      `${valueType.kind === 'struct' ? 'Struct' : 'Map'} value must be a JSON object`,
+      0,
+    );
   }
   if (!runtimeValueMatchesType(value, valueType)) {
     throw new ExpressionCompileError(
@@ -136,6 +144,16 @@ function valueTypesMatch(actual: ValueType, expected: ValueType): boolean {
         !actual.valueType ||
         valueTypesMatch(actual.valueType, expected.valueType))
     );
+  if (actual.kind === 'struct' && expected.kind === 'struct') {
+    const expectedFields = Object.entries(expected.fields);
+    return (
+      actual.name === expected.name &&
+      expectedFields.every(([name, expectedType]) => {
+        const actualType = actual.fields[name];
+        return Boolean(actualType && valueTypesMatch(actualType, expectedType));
+      })
+    );
+  }
   return true;
 }
 
@@ -145,7 +163,35 @@ function compileAuthoredValue(
   variables: readonly VariableDefinition[],
   characters: StorySourceDocument['characters'],
 ): TypedExpression {
-  if (expectedType.kind !== 'json' && expectedType.kind !== 'array' && expectedType.kind !== 'map')
+  if (expectedType.kind === 'character-ref' || expectedType.kind === 'asset-ref') {
+    const bareSource = expression.source.trim();
+    if (isStableId(bareSource, expectedType.kind === 'character-ref' ? 'character' : 'asset')) {
+      return {
+        kind: 'literal',
+        value: bareSource,
+        valueType: expectedType,
+      };
+    }
+    const compiled = compileExpression(expression, variables, characters);
+    if (valueTypesMatch(compiled.valueType, expectedType)) return compiled;
+    if (
+      compiled.kind === 'literal' &&
+      typeof compiled.value === 'string' &&
+      isStableId(compiled.value, expectedType.kind === 'character-ref' ? 'character' : 'asset')
+    ) {
+      return { ...compiled, valueType: expectedType };
+    }
+    throw new ExpressionCompileError(
+      `Value must be a valid ${expectedType.kind === 'character-ref' ? 'Character' : 'Asset'} ID`,
+      0,
+    );
+  }
+  if (
+    expectedType.kind !== 'json' &&
+    expectedType.kind !== 'array' &&
+    expectedType.kind !== 'map' &&
+    expectedType.kind !== 'struct'
+  )
     return compileExpression(expression, variables, characters);
   try {
     return compileOpaqueJson(expression.source, expectedType);
@@ -313,7 +359,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
         fieldNames.add(field.name);
         if (
           field.scope !== 'character' ||
-          !['boolean', 'number', 'string', 'json'].includes(field.valueType.kind)
+          !['boolean', 'number', 'string', 'character-ref', 'asset-ref', 'json'].includes(
+            field.valueType.kind,
+          )
         ) {
           diagnostics.push({
             code: 'INVALID_NODE',
@@ -986,7 +1034,13 @@ export class DefaultStoryCompiler implements StoryCompiler {
                         data.key!,
                         variable.valueType.kind === 'map' && variable.valueType.keyType === 'number'
                           ? { kind: 'number' }
-                          : { kind: 'string' },
+                          : variable.valueType.kind === 'map' &&
+                              variable.valueType.keyType === 'character-ref'
+                            ? { kind: 'character-ref' }
+                            : variable.valueType.kind === 'map' &&
+                                variable.valueType.keyType === 'asset-ref'
+                              ? { kind: 'asset-ref' }
+                              : { kind: 'string' },
                         visibleVariables,
                         source.characters,
                       ),
@@ -1390,6 +1444,164 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 returnTo: { blockId: returnBlock, instructionIndex: 0 },
                 resultVariableIds,
               });
+            }
+            break;
+          }
+          case StoryNodeType.StartStory:
+          case StoryNodeType.SwitchStory:
+          case StoryNodeType.ResumeStory:
+          case StoryNodeType.EndStoryInstance: {
+            const data = node.data as unknown as {
+              storyId?: StartStoryNodeData['storyId'];
+              instanceId?: StartStoryNodeData['instanceId'];
+              arguments?: Record<VariableId, ExpressionSource>;
+              resultVariableIds?: Record<string, VariableId>;
+              instanceVariableId?: VariableId;
+              waitForCompletion?: boolean;
+            };
+            const isStart = node.type === StoryNodeType.StartStory;
+            const isSwitch = node.type === StoryNodeType.SwitchStory;
+            const isResume = node.type === StoryNodeType.ResumeStory;
+            const isEnd = node.type === StoryNodeType.EndStoryInstance;
+            const storyId = !isResume && !isEnd && 'storyId' in data ? data.storyId : undefined;
+            if (!isResume && !isEnd) {
+              if (!storyId) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `${isStart ? 'Start' : 'Switch'} Story does not reference a Story`,
+                  sourceNodeId: node.id,
+                });
+              } else if (
+                options.availableStoryIds &&
+                !options.availableStoryIds.includes(storyId)
+              ) {
+                diagnostics.push({
+                  code: 'MISSING_STORY',
+                  severity: 'error',
+                  message: `Story Control references missing Story ${storyId}`,
+                  sourceNodeId: node.id,
+                });
+              }
+            }
+            const instanceId = data.instanceId
+              ? compileSafe(node, () =>
+                  compileAuthoredValue(
+                    data.instanceId!,
+                    { kind: 'string' },
+                    visibleVariables,
+                    source.characters,
+                  ),
+                )
+              : isResume || isEnd
+                ? undefined
+                : undefined;
+            if ((isResume || isEnd) && !instanceId) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: `${isResume ? 'Resume' : 'End'} Story Instance requires an instance ID`,
+                sourceNodeId: node.id,
+              });
+            }
+            const argumentsSource = 'arguments' in data ? (data.arguments ?? {}) : {};
+            const argumentsValue: Record<string, TypedExpression> = {};
+            const targetVariables = storyId ? options.storyVariablesById?.[storyId] : undefined;
+            for (const [argumentId, expression] of Object.entries(argumentsSource)) {
+              const targetVariable = targetVariables?.find(
+                (variable) => variable.id === argumentId,
+              );
+              if (targetVariables && !targetVariable) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Story Control references missing target variable ${argumentId}`,
+                  sourceNodeId: node.id,
+                });
+                continue;
+              }
+              const compiled = compileSafe(node, () =>
+                targetVariable
+                  ? compileAuthoredValue(
+                      expression,
+                      targetVariable.valueType,
+                      visibleVariables,
+                      source.characters,
+                    )
+                  : compileExpression(expression, visibleVariables, source.characters),
+              );
+              if (compiled) {
+                if (
+                  targetVariable &&
+                  !valueTypesMatch(compiled.valueType, targetVariable.valueType)
+                ) {
+                  diagnostics.push({
+                    code: 'EXPRESSION_ERROR',
+                    severity: 'error',
+                    message: `Story Control argument ${targetVariable.name} must be ${targetVariable.valueType.kind}`,
+                    sourceNodeId: node.id,
+                  });
+                } else argumentsValue[argumentId] = compiled;
+              }
+            }
+            const resultVariableIds = data.resultVariableIds ?? {};
+            const instanceVariableId = data.instanceVariableId;
+            if (instanceVariableId) {
+              const instanceVariable = visibleVariables.find(
+                (variable) => variable.id === instanceVariableId,
+              );
+              if (!instanceVariable || instanceVariable.valueType.kind !== 'string') {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: 'Story Control instance variable must be an existing String variable',
+                  sourceNodeId: node.id,
+                });
+              }
+            }
+            for (const variableId of Object.values(resultVariableIds)) {
+              if (!visibleVariables.some((variable) => variable.id === variableId)) {
+                diagnostics.push({
+                  code: 'INVALID_NODE',
+                  severity: 'error',
+                  message: `Story Control result references missing variable ${variableId}`,
+                  sourceNodeId: node.id,
+                });
+              }
+            }
+            if (
+              (isStart || isSwitch || isResume) &&
+              (isResume ? Boolean(instanceId) : Boolean(storyId))
+            ) {
+              const target = requireTarget(node, 'out');
+              if (target) {
+                instructions.push({
+                  id: instructionId(node.id),
+                  op: isStart ? 'start-story' : isSwitch ? 'switch-story' : 'resume-story',
+                  ...(storyId ? { storyId } : {}),
+                  ...(instanceId ? { instanceId } : {}),
+                  arguments: argumentsValue,
+                  resultVariableIds: { ...resultVariableIds },
+                  ...(instanceVariableId ? { instanceVariableId } : {}),
+                  waitForCompletion:
+                    'waitForCompletion' in data ? (data.waitForCompletion ?? false) : false,
+                } as RuntimeInstruction);
+                instructions.push(jump(node, target));
+              }
+            } else if (isEnd && instanceId) {
+              instructions.push({
+                id: instructionId(node.id),
+                op: 'end-story-instance',
+                instanceId,
+                resultVariableIds: { ...resultVariableIds },
+                ...(instanceVariableId ? { instanceVariableId } : {}),
+              });
+              const target = resolveTarget(node.id, 'out');
+              instructions.push(
+                target
+                  ? jump(node, target)
+                  : { id: instructionId(node.id, 'end'), op: 'end-story' },
+              );
             }
             break;
           }

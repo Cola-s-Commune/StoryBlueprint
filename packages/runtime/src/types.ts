@@ -59,6 +59,12 @@ export type PendingInteraction =
       instructionId: InstructionId;
       signalId: SignalId;
       matches: SignalPayload;
+    }
+  | {
+      kind: 'story-control';
+      requestId: string;
+      instructionId: InstructionId;
+      action: 'start' | 'switch' | 'resume' | 'end';
     };
 
 export type SignalPayload = Readonly<Record<string, RuntimeValue>>;
@@ -129,6 +135,22 @@ export interface SignalRequest {
   matches: SignalPayload;
 }
 
+export type StoryControlAction = 'start' | 'switch' | 'resume' | 'end';
+
+export interface StoryControlRequest {
+  requestId: string;
+  action: StoryControlAction;
+  storyId?: import('@story-blueprint/common').StoryId;
+  instanceId?: string;
+  arguments: Readonly<Record<string, RuntimeValue>>;
+  waitForCompletion: boolean;
+}
+
+export interface StoryControlResult {
+  instanceId?: string;
+  outputs?: Readonly<Record<string, RuntimeValue>>;
+}
+
 export interface StoryAdapter {
   showDialogue(request: DialogueRequest, signal: AbortSignal): Promise<void>;
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
@@ -138,6 +160,8 @@ export interface StoryAdapter {
   callExternalFunctionSync?(request: ExternalFunctionRequest): RuntimeValue;
   /** Resolves when the engine observes the requested signal. */
   waitForSignal(request: SignalRequest, signal: AbortSignal): Promise<SignalPayload>;
+  /** Starts, switches, resumes, or ends independent Story runtime instances. */
+  controlStory?(request: StoryControlRequest, signal: AbortSignal): Promise<StoryControlResult>;
   resolveText(textId: TextId, locale: string): Promise<string | undefined>;
   readExternalVariable(variable: VariableDefinition): Promise<RuntimeValue>;
   writeExternalVariable(variable: VariableDefinition, value: RuntimeValue): Promise<void>;

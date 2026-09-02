@@ -69,4 +69,32 @@ describe('project resource KDL', () => {
       /Invalid asset ID/,
     );
   });
+
+  it('round-trips character and asset reference fields', () => {
+    const withReferences: CharacterSource = {
+      ...character,
+      fields: [
+        {
+          id: 'v_favoritecharacter',
+          name: 'favoriteCharacter',
+          displayName: 'Favorite Character',
+          scope: 'character',
+          valueType: { kind: 'character-ref' },
+          defaultValue: 'c_bob',
+        },
+        {
+          id: 'v_voiceasset',
+          name: 'voiceAsset',
+          displayName: 'Voice Asset',
+          scope: 'character',
+          valueType: { kind: 'asset-ref', nullable: true },
+          defaultValue: null,
+        },
+      ],
+    };
+    const text = serializeCharacterResource(withReferences);
+    expect(text).toContain('type=character-ref');
+    expect(text).toContain('type=asset-ref?');
+    expect(parseCharacterResource(text)).toEqual(withReferences);
+  });
 });

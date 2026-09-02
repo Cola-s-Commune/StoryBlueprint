@@ -203,17 +203,112 @@ describe('project resource reference replacement', () => {
       count: 1,
     });
     expect(
-      clearEngineResourceValueReferences(
-        value,
-        { kind: 'any' },
-        [],
-        'asset',
-        'a_portrait',
-      ),
+      clearEngineResourceValueReferences(value, { kind: 'any' }, [], 'asset', 'a_portrait'),
     ).toEqual({
       value: { owner: 'c_old', portrait: null, nested: ['c_keep'] },
       count: 1,
       blocked: 0,
     });
+  });
+
+  it('updates top-level typed references and protects required Map keys', () => {
+    const typedSource: StorySourceDocument = {
+      ...source(),
+      variables: [
+        {
+          id: 'v_owner',
+          name: 'owner',
+          displayName: 'Owner',
+          scope: 'story',
+          valueType: { kind: 'character-ref', nullable: true },
+          defaultValue: 'c_old',
+        },
+        {
+          id: 'v_relations',
+          name: 'relations',
+          displayName: 'Relations',
+          scope: 'story',
+          valueType: {
+            kind: 'map',
+            keyType: 'character-ref',
+            valueType: { kind: 'string' },
+          },
+          defaultValue: { c_old: 'hostile' },
+        },
+      ],
+    };
+    const context = { engineTypes: [], projectVariables: [], events: [], signals: [] };
+    const replaced = replaceStoryResourceReferences(
+      typedSource,
+      context,
+      'character',
+      'c_old',
+      'c_new',
+    );
+    expect(replaced.source.variables[0]?.defaultValue).toBe('c_new');
+    expect(replaced.source.variables[1]?.defaultValue).toEqual({ c_new: 'hostile' });
+    const cleared = clearStoryResourceReferences(typedSource, context, 'character', 'c_old');
+    expect(cleared.source.variables[0]?.defaultValue).toBeNull();
+    expect(cleared.source.variables[1]?.defaultValue).toEqual({ c_old: 'hostile' });
+    expect(cleared.blocked).toBe(1);
+  });
+
+  it('updates typed references authored as expressions, including nested containers', () => {
+    const typedSource: StorySourceDocument = {
+      ...source(),
+      root: {
+        ...source().root,
+        nodes: [
+          {
+            id: 'n_set_ref',
+            type: StoryNodeType.SetVariable,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: {
+              variableId: 'v_owner',
+              value: { source: 'c_old', bindings: {} },
+            },
+          },
+          {
+            id: 'n_set_array',
+            type: StoryNodeType.SetVariable,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: {
+              variableId: 'v_owners',
+              value: { source: '["c_old", "c_keep"]', bindings: {} },
+            },
+          },
+        ],
+      },
+      variables: [
+        {
+          id: 'v_owner',
+          name: 'owner',
+          displayName: 'Owner',
+          scope: 'story',
+          valueType: { kind: 'character-ref', nullable: true },
+          defaultValue: 'c_old',
+        },
+        {
+          id: 'v_owners',
+          name: 'owners',
+          displayName: 'Owners',
+          scope: 'story',
+          valueType: { kind: 'array', elementType: { kind: 'character-ref' } },
+          defaultValue: ['c_old', 'c_keep'],
+        },
+      ],
+    };
+    const result = replaceStoryResourceReferences(
+      typedSource,
+      { engineTypes: [], projectVariables: [], events: [], signals: [] },
+      'character',
+      'c_old',
+      'c_new',
+    );
+    expect(result.source.root.nodes[0]?.data.value.source).toBe('c_new');
+    expect(result.source.root.nodes[1]?.data.value.source).toBe('["c_new","c_keep"]');
+    expect(result.count).toBe(4);
   });
 });

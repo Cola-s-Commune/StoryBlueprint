@@ -23,6 +23,10 @@ export {
   type CallEventNodeData,
   type WaitSignalNodeData,
   type CallSubstoryNodeData,
+  type StartStoryNodeData,
+  type SwitchStoryNodeData,
+  type ResumeStoryNodeData,
+  type EndStoryInstanceNodeData,
   type RerouteNodeData,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
@@ -159,7 +163,11 @@ export type {
   VariableScope,
   VariableDefinition,
 } from './types/values';
-export { runtimeValueMatchesType } from './types/values';
+export {
+  runtimeValueMatchesType,
+  serializeValueTypeDescriptor,
+  parseValueTypeDescriptor,
+} from './types/values';
 export type {
   ExpressionSource,
   TextTemplateSource,
@@ -272,6 +280,11 @@ export {
   type BranchInstruction,
   type JumpInstruction,
   type CallChapterInstruction,
+  type StoryControlArgumentSet,
+  type StartStoryInstruction,
+  type SwitchStoryInstruction,
+  type ResumeStoryInstruction,
+  type EndStoryInstanceInstruction,
   type ReturnInstruction,
   type EndStoryInstruction,
   type RuntimeInstruction,

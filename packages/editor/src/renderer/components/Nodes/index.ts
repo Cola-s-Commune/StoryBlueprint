@@ -10,6 +10,7 @@ import { GetVariableNode, SetVariableNode } from './VariableNode';
 import { CallSubstoryNode, ReturnNode } from './SubstoryNode';
 import { FlowAnchorNode, FlowJumpNode, RerouteNode } from './FlowNode';
 import { CallEventNode, WaitSignalNode } from './EventNode';
+import { StoryControlNode } from './StoryControlNode';
 
 /** React Flow nodeTypes mapping — pass to <ReactFlow nodeTypes={...}> */
 export const nodeTypes: NodeTypes = {
@@ -23,6 +24,10 @@ export const nodeTypes: NodeTypes = {
   [StoryNodeType.CallEvent]: CallEventNode,
   [StoryNodeType.WaitSignal]: WaitSignalNode,
   [StoryNodeType.CallSubstory]: CallSubstoryNode,
+  [StoryNodeType.StartStory]: StoryControlNode,
+  [StoryNodeType.SwitchStory]: StoryControlNode,
+  [StoryNodeType.ResumeStory]: StoryControlNode,
+  [StoryNodeType.EndStoryInstance]: StoryControlNode,
   [StoryNodeType.Reroute]: RerouteNode,
   [StoryNodeType.FlowAnchor]: FlowAnchorNode,
   [StoryNodeType.FlowJump]: FlowJumpNode,

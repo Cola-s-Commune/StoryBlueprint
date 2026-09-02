@@ -41,7 +41,8 @@ const JsonMonacoEditor = lazy(() =>
 
 type ScalarKind = 'boolean' | 'number' | 'string';
 type EditableKind = ScalarKind | 'json';
-type VariableEditableKind = EditableKind | 'array' | 'map';
+type ReferenceKind = 'character-ref' | 'asset-ref';
+type VariableEditableKind = EditableKind | 'array' | 'map' | 'struct' | ReferenceKind;
 
 const stopInspectorEvent = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
@@ -55,33 +56,397 @@ function defaultForType(kind: ScalarKind): RuntimeValue {
   return '';
 }
 
+function valueTypeLabel(kind: ValueType['kind']): string {
+  switch (kind) {
+    case 'character-ref':
+      return 'Character Reference';
+    case 'asset-ref':
+      return 'Asset Reference';
+    case 'json':
+      return 'Engine JSON';
+    case 'array':
+      return 'Array';
+    case 'map':
+      return 'Map';
+    case 'struct':
+      return 'Struct';
+    default:
+      return kind[0]!.toUpperCase() + kind.slice(1);
+  }
+}
+
+function valueTypeFromSelection(
+  selection: string,
+  engineTypes: readonly EngineTypeDefinition[],
+): ValueType {
+  if (selection === 'json') return { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' };
+  if (selection === 'character-ref' || selection === 'asset-ref') {
+    return { kind: selection, nullable: true };
+  }
+  if (selection === 'array') return { kind: 'array', elementType: { kind: 'any' } };
+  if (selection === 'map') return { kind: 'map', keyType: 'string', valueType: { kind: 'any' } };
+  if (selection === 'struct') {
+    return { kind: 'struct', name: 'Payload', fields: {} };
+  }
+  if (selection === 'boolean' || selection === 'number' || selection === 'string') {
+    return { kind: selection };
+  }
+  return { kind: 'string' };
+}
+
+export function ReferenceValueInput({
+  kind,
+  value,
+  characters,
+  assets,
+  onCommit,
+}: {
+  kind: ReferenceKind;
+  value: RuntimeValue;
+  characters: readonly CharacterSource[];
+  assets: readonly AssetSource[];
+  onCommit: (value: RuntimeValue) => void;
+}) {
+  const options =
+    kind === 'character-ref'
+      ? characters.map((item) => ({ id: item.id, label: item.displayName }))
+      : assets.map((item) => ({ id: item.id, label: `${item.displayName} · ${item.kind}` }));
+  const current = typeof value === 'string' ? value : '';
+  const hasCurrent = current !== '' && options.some((option) => option.id === current);
+  return (
+    <select value={current} onChange={(event) => onCommit(event.target.value || null)}>
+      <option value="">None</option>
+      {!hasCurrent && current && <option value={current}>Missing: {current}</option>}
+      {options.map((option) => (
+        <option value={option.id} key={option.id}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function containerTypeSelection(type: ValueType | undefined): string {
   if (!type) return 'any';
   return type.kind === 'json' ? `json:${type.name}` : type.kind;
 }
 
 function containerValueType(selection: string): ValueType {
+  if (selection === 'struct') return { kind: 'struct', name: 'Nested', fields: {} };
   return selection.startsWith('json:')
     ? { kind: 'json', name: selection.slice(5) }
     : ({ kind: selection } as ValueType);
 }
 
-function valueTypeToEngineFieldType(type: ValueType | undefined): EngineFieldType {
-  if (!type || type.kind === 'any') return { kind: 'any' };
-  if (type.kind === 'json') return { kind: 'object', typeName: type.name };
-  if (type.kind === 'array') {
-    return { kind: 'array', elementType: valueTypeToEngineFieldType(type.elementType) };
+function structTypeName(type: Extract<ValueType, { kind: 'struct' }>, path: string): string {
+  const slug = `${type.name}_${path}`.replace(/[^A-Za-z0-9_]/g, '_');
+  return `__story_blueprint_struct_${slug}`;
+}
+
+function materializeValueTypeSchemas(
+  type: ValueType,
+  definitions: readonly EngineTypeDefinition[],
+): { fieldType: EngineFieldType; engineTypes: readonly EngineTypeDefinition[] } {
+  const synthetic: EngineTypeDefinition[] = [];
+  const materialize = (current: ValueType, path: string): EngineFieldType => {
+    if (current.kind === 'struct') {
+      const name = structTypeName(current, path);
+      if (!synthetic.some((definition) => definition.name === name)) {
+        synthetic.push({
+          id: `engineType_struct_${name}` as EngineTypeDefinition['id'],
+          name,
+          displayName: current.name,
+          fields: Object.entries(current.fields).map(([fieldName, fieldType], index) => ({
+            id: `engineField_struct_${name}_${index}` as EngineTypeDefinition['fields'][number]['id'],
+            name: fieldName,
+            displayName: fieldName,
+            type: materialize(fieldType, `${path}_${fieldName}`),
+            nullable: fieldType.nullable || undefined,
+            defaultValue: defaultForValueType(fieldType, definitions),
+          })),
+        });
+      }
+      return { kind: 'object', typeName: name };
+    }
+    if (current.kind === 'array') {
+      return {
+        kind: 'array',
+        elementType: materialize(current.elementType ?? { kind: 'any' }, `${path}_item`),
+      };
+    }
+    if (current.kind === 'map') {
+      return {
+        kind: 'map',
+        keyType: { kind: current.keyType ?? 'string' },
+        valueType: materialize(current.valueType ?? { kind: 'any' }, `${path}_value`),
+      };
+    }
+    if (current.kind === 'json') return { kind: 'object', typeName: current.name };
+    if (current.kind === 'enum') return { kind: 'enum', values: current.values };
+    return { kind: current.kind };
+  };
+  const fieldType = materialize(type, 'root');
+  return { fieldType, engineTypes: [...definitions, ...synthetic] };
+}
+
+export function defaultForValueType(
+  type: ValueType,
+  definitions: readonly EngineTypeDefinition[] = [],
+): RuntimeValue {
+  if (type.nullable) return null;
+  switch (type.kind) {
+    case 'any':
+    case 'json':
+      return {};
+    case 'boolean':
+      return false;
+    case 'number':
+      return 0;
+    case 'string':
+    case 'character-ref':
+    case 'asset-ref':
+      return type.kind === 'string' ? '' : null;
+    case 'enum':
+      return type.values[0] ?? '';
+    case 'array':
+      return [];
+    case 'map':
+      return {};
+    case 'struct':
+      return Object.fromEntries(
+        Object.entries(type.fields).map(([name, fieldType]) => [
+          name,
+          defaultForValueType(fieldType, definitions),
+        ]),
+      );
   }
-  if (type.kind === 'map') {
-    return {
-      kind: 'map',
-      keyType: { kind: type.keyType ?? 'string' },
-      valueType: valueTypeToEngineFieldType(type.valueType),
-    };
+}
+
+const INLINE_VALUE_TYPE_OPTIONS = [
+  { value: 'boolean', label: 'Boolean' },
+  { value: 'number', label: 'Number' },
+  { value: 'string', label: 'String' },
+  { value: 'character-ref', label: 'Character Reference' },
+  { value: 'asset-ref', label: 'Asset Reference' },
+  { value: 'array', label: 'Array' },
+  { value: 'map', label: 'Map / Dictionary' },
+  { value: 'struct', label: 'Struct' },
+];
+
+function inlineValueTypeFromSelection(selection: string): ValueType {
+  if (selection === 'array') return { kind: 'array', elementType: { kind: 'string' } };
+  if (selection === 'map') return { kind: 'map', keyType: 'string', valueType: { kind: 'string' } };
+  if (selection === 'struct') return { kind: 'struct', name: 'Nested', fields: {} };
+  if (selection === 'character-ref' || selection === 'asset-ref') {
+    return { kind: selection, nullable: true };
   }
-  if (type.kind === 'enum') return { kind: 'enum', values: type.values };
-  if (type.kind === 'struct') return { kind: 'any' };
-  return { kind: type.kind };
+  if (selection === 'boolean' || selection === 'number' || selection === 'string') {
+    return { kind: selection };
+  }
+  return { kind: 'string' };
+}
+
+/** Graphical editor for inline recursive parameter Struct schemas. */
+export function InlineValueTypeEditor({
+  valueType,
+  onChange,
+  depth = 0,
+}: {
+  valueType: ValueType;
+  onChange: (valueType: ValueType) => void;
+  depth?: number;
+}) {
+  if (depth > 5)
+    return <small className={styles.warning}>Maximum nested Struct depth reached.</small>;
+  if (valueType.kind === 'struct') {
+    const fields = Object.entries(valueType.fields);
+    return (
+      <div className={styles.inlineStructEditor}>
+        <label>
+          <span>Struct Name</span>
+          <input
+            value={valueType.name}
+            onChange={(event) => onChange({ ...valueType, name: event.target.value })}
+          />
+        </label>
+        <div className={styles.parameterHeader}>
+          <span>Fields</span>
+          <NamedCreateControl
+            title="Add Struct field"
+            placeholder="Field name"
+            existingNames={fields.map(([name]) => name)}
+            buttonLabel="+"
+            typeOptions={INLINE_VALUE_TYPE_OPTIONS}
+            defaultType="string"
+            onCreate={(name, selectedType) =>
+              onChange({
+                ...valueType,
+                fields: {
+                  ...valueType.fields,
+                  [name]: inlineValueTypeFromSelection(selectedType ?? 'string'),
+                },
+              })
+            }
+          />
+        </div>
+        {fields.length === 0 && (
+          <div className={styles.empty}>No fields. Add one to define the struct.</div>
+        )}
+        {fields.map(([name, fieldType], index) => (
+          <div className={styles.inlineStructField} key={name}>
+            <div className={styles.parameterRow}>
+              <ScriptNameInput
+                value={name}
+                onCommit={(nextName) => {
+                  if (nextName === name) return true;
+                  if (nextName in valueType.fields) return false;
+                  const nextFields = Object.fromEntries(
+                    fields.map(([candidate, candidateType]) => [
+                      candidate === name ? nextName : candidate,
+                      candidateType,
+                    ]),
+                  );
+                  onChange({ ...valueType, fields: nextFields });
+                  return true;
+                }}
+              />
+              <select
+                value={fieldType.kind}
+                onChange={(event) =>
+                  onChange({
+                    ...valueType,
+                    fields: {
+                      ...valueType.fields,
+                      [name]: inlineValueTypeFromSelection(event.target.value),
+                    },
+                  })
+                }
+              >
+                {INLINE_VALUE_TYPE_OPTIONS.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                title="Move field up"
+                disabled={index === 0}
+                onClick={() => {
+                  const nextFields = [...fields];
+                  [nextFields[index - 1], nextFields[index]] = [
+                    nextFields[index]!,
+                    nextFields[index - 1]!,
+                  ];
+                  onChange({ ...valueType, fields: Object.fromEntries(nextFields) });
+                }}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                title="Move field down"
+                disabled={index === fields.length - 1}
+                onClick={() => {
+                  const nextFields = [...fields];
+                  [nextFields[index], nextFields[index + 1]] = [
+                    nextFields[index + 1]!,
+                    nextFields[index]!,
+                  ];
+                  onChange({ ...valueType, fields: Object.fromEntries(nextFields) });
+                }}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                title="Remove Struct field"
+                onClick={() => {
+                  const nextFields = Object.fromEntries(
+                    fields.filter(([candidate]) => candidate !== name),
+                  );
+                  onChange({ ...valueType, fields: nextFields });
+                }}
+              >
+                −
+              </button>
+            </div>
+            {(fieldType.kind === 'struct' ||
+              fieldType.kind === 'array' ||
+              fieldType.kind === 'map') && (
+              <InlineValueTypeEditor
+                valueType={fieldType}
+                depth={depth + 1}
+                onChange={(nextType) =>
+                  onChange({ ...valueType, fields: { ...valueType.fields, [name]: nextType } })
+                }
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (valueType.kind === 'array') {
+    return (
+      <div className={styles.inlineNestedType}>
+        <span>Element Type</span>
+        <select
+          value={valueType.elementType?.kind ?? 'any'}
+          onChange={(event) =>
+            onChange({
+              ...valueType,
+              elementType: inlineValueTypeFromSelection(event.target.value),
+            })
+          }
+        >
+          <option value="any">Any JSON</option>
+          {INLINE_VALUE_TYPE_OPTIONS.map((option) => (
+            <option value={option.value} key={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {valueType.elementType &&
+          ['struct', 'array', 'map'].includes(valueType.elementType.kind) && (
+            <InlineValueTypeEditor
+              valueType={valueType.elementType}
+              depth={depth + 1}
+              onChange={(elementType) => onChange({ ...valueType, elementType })}
+            />
+          )}
+      </div>
+    );
+  }
+  if (valueType.kind === 'map') {
+    return (
+      <div className={styles.inlineNestedType}>
+        <label>
+          <span>Key Type</span>
+          <select
+            value={valueType.keyType ?? 'string'}
+            onChange={(event) =>
+              onChange({
+                ...valueType,
+                keyType: event.target.value as NonNullable<typeof valueType.keyType>,
+              })
+            }
+          >
+            <option value="string">String</option>
+            <option value="number">Number</option>
+            <option value="character-ref">Character Reference</option>
+            <option value="asset-ref">Asset Reference</option>
+          </select>
+        </label>
+        <InlineValueTypeEditor
+          valueType={valueType.valueType ?? { kind: 'any' }}
+          depth={depth + 1}
+          onChange={(value) => onChange({ ...valueType, valueType: value })}
+        />
+      </div>
+    );
+  }
+  return null;
 }
 
 function defaultForEngineFieldType(
@@ -257,6 +622,7 @@ function ConfirmDeleteButton({
   title,
   message,
   ariaLabel,
+  className,
   buttonText = '−',
   buttonTitle = 'Delete',
   confirmText = 'Delete',
@@ -266,6 +632,7 @@ function ConfirmDeleteButton({
   title: string;
   message: string;
   ariaLabel: string;
+  className?: string;
   buttonText?: ReactNode;
   buttonTitle?: string;
   confirmText?: string;
@@ -277,6 +644,7 @@ function ConfirmDeleteButton({
     <>
       <button
         type="button"
+        className={className}
         title={buttonTitle}
         aria-label={ariaLabel}
         disabled={disabled}
@@ -1943,6 +2311,32 @@ export function JsonValueInput({
   );
 }
 
+/** Structured literal editor for recursive authoring ValueTypes (Struct/Array/Map). */
+export function ValueTypeJsonInput({
+  value,
+  valueType,
+  onCommit,
+}: {
+  value: RuntimeValue;
+  valueType: ValueType;
+  onCommit: (value: RuntimeValue) => void;
+}) {
+  const { engineTypes } = useStoryGraphStore();
+  const materialized = useMemo(
+    () => materializeValueTypeSchemas(valueType, engineTypes),
+    [engineTypes, valueType],
+  );
+  return (
+    <JsonValueInput
+      value={value}
+      fieldType={materialized.fieldType}
+      engineTypes={materialized.engineTypes}
+      nullable={valueType.nullable === true}
+      onCommit={(next) => onCommit(stripEngineObjectTypeMarkers(next))}
+    />
+  );
+}
+
 function ScriptNameInput({
   value,
   onCommit,
@@ -2606,6 +3000,8 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
     engineTypes,
     addEngineType,
     selectStoryData,
+    characters,
+    assets,
   } = useStoryGraphStore();
   const substory = chapters.find((chapter) =>
     [
@@ -2683,7 +3079,11 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                     ? { kind: 'array', elementType: { kind: 'any' } }
                     : nextKind === 'map'
                       ? { kind: 'map', keyType: 'string', valueType: { kind: 'any' } }
-                      : ({ kind: nextKind } as ValueType),
+                      : nextKind === 'struct'
+                        ? { kind: 'struct', name: 'Payload', fields: {} }
+                        : nextKind === 'character-ref' || nextKind === 'asset-ref'
+                          ? { kind: nextKind, nullable: true }
+                          : ({ kind: nextKind } as ValueType),
               defaultValue:
                 nextKind === 'json'
                   ? defaultForEngineFieldType(
@@ -2694,15 +3094,22 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                     ? []
                     : nextKind === 'map'
                       ? {}
-                      : defaultForType(nextKind),
+                      : nextKind === 'struct'
+                        ? {}
+                        : nextKind === 'character-ref' || nextKind === 'asset-ref'
+                          ? null
+                          : defaultForType(nextKind as ScalarKind),
             });
           }}
         >
           <option value="boolean">Boolean</option>
           <option value="number">Number</option>
           <option value="string">String</option>
+          <option value="character-ref">Character Reference</option>
+          <option value="asset-ref">Asset Reference</option>
           <option value="array">Array</option>
           <option value="map">Map / Dictionary</option>
+          <option value="struct">Struct</option>
           <option value="json">Engine JSON</option>
         </select>
       </label>
@@ -2726,12 +3133,27 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
             <option value="boolean">Boolean</option>
             <option value="number">Number</option>
             <option value="string">String</option>
+            <option value="character-ref">Character Reference</option>
+            <option value="asset-ref">Asset Reference</option>
+            <option value="struct">Struct</option>
             {engineTypes.map((item) => (
               <option value={`json:${item.name}`} key={item.id}>
                 Object · {item.displayName}
               </option>
             ))}
           </select>
+          {variable.valueType.elementType &&
+            ['struct', 'array', 'map'].includes(variable.valueType.elementType.kind) && (
+              <InlineValueTypeEditor
+                valueType={variable.valueType.elementType}
+                onChange={(elementType) =>
+                  updateVariable(variable.id, {
+                    valueType: { kind: 'array', elementType },
+                    defaultValue: variable.defaultValue,
+                  })
+                }
+              />
+            )}
         </label>
       )}
       {variable.valueType.kind === 'map' && (
@@ -2782,14 +3204,47 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
               <option value="boolean">Boolean</option>
               <option value="number">Number</option>
               <option value="string">String</option>
+              <option value="character-ref">Character Reference</option>
+              <option value="asset-ref">Asset Reference</option>
+              <option value="struct">Struct</option>
               {engineTypes.map((item) => (
                 <option value={`json:${item.name}`} key={item.id}>
                   Object · {item.displayName}
                 </option>
               ))}
             </select>
+            {(variable.valueType as Extract<ValueType, { kind: 'map' }>).valueType &&
+              ['struct', 'array', 'map'].includes(
+                (variable.valueType as Extract<ValueType, { kind: 'map' }>).valueType!.kind,
+              ) && (
+                <InlineValueTypeEditor
+                  valueType={(variable.valueType as Extract<ValueType, { kind: 'map' }>).valueType!}
+                  onChange={(valueType) =>
+                    updateVariable(variable.id, {
+                      valueType: {
+                        kind: 'map',
+                        keyType: (variable.valueType as Extract<ValueType, { kind: 'map' }>)
+                          .keyType,
+                        valueType,
+                      },
+                      defaultValue: variable.defaultValue,
+                    })
+                  }
+                />
+              )}
           </label>
         </>
+      )}
+      {variable.valueType.kind === 'struct' && (
+        <InlineValueTypeEditor
+          valueType={variable.valueType}
+          onChange={(valueType) =>
+            updateVariable(variable.id, {
+              valueType,
+              defaultValue: defaultForValueType(valueType, engineTypes),
+            })
+          }
+        />
       )}
       {variable.valueType.kind === 'json' && (
         <div className={styles.engineTypeBinding}>
@@ -2873,38 +3328,18 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
       </label>
       <div className={styles.fieldGroup}>
         <span>Default</span>
-        {kind === 'json' || kind === 'array' || kind === 'map' ? (
-          <JsonValueInput
+        {kind === 'character-ref' || kind === 'asset-ref' ? (
+          <ReferenceValueInput
+            kind={kind}
             value={variable.defaultValue}
-            schema={engineTypes.find((item) => item.name === engineTypeName(variable.valueType))}
-            fieldType={
-              kind === 'array'
-                ? {
-                    kind: 'array',
-                    elementType: valueTypeToEngineFieldType(
-                      variable.valueType.kind === 'array'
-                        ? variable.valueType.elementType
-                        : undefined,
-                    ),
-                  }
-                : kind === 'map'
-                  ? {
-                      kind: 'map',
-                      keyType: {
-                        kind:
-                          variable.valueType.kind === 'map'
-                            ? (variable.valueType.keyType ?? 'string')
-                            : 'string',
-                      },
-                      valueType: valueTypeToEngineFieldType(
-                        variable.valueType.kind === 'map'
-                          ? variable.valueType.valueType
-                          : undefined,
-                      ),
-                    }
-                  : undefined
-            }
-            engineTypes={engineTypes}
+            characters={characters}
+            assets={assets}
+            onCommit={(defaultValue) => updateVariable(variable.id, { defaultValue })}
+          />
+        ) : kind === 'json' || kind === 'array' || kind === 'map' || kind === 'struct' ? (
+          <ValueTypeJsonInput
+            value={variable.defaultValue}
+            valueType={variable.valueType}
             onCommit={(defaultValue) => updateVariable(variable.id, { defaultValue })}
           />
         ) : kind === 'boolean' ? (
@@ -3055,7 +3490,8 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
       fields: fields.map((field) => (field.id === id ? { ...field, ...patch } : field)),
     });
   const addField = (name: string, requestedKind?: string) => {
-    const kind = (requestedKind ?? 'string') as EditableKind;
+    const kind = (requestedKind ?? 'string') as EditableKind | ReferenceKind;
+    const isReference = kind === 'character-ref' || kind === 'asset-ref';
     updateCharacter(character.id, {
       fields: [
         ...fields,
@@ -3067,8 +3503,11 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
           valueType:
             kind === 'json'
               ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-              : { kind },
-          defaultValue: kind === 'json' ? {} : defaultForType(kind),
+              : isReference
+                ? { kind, nullable: true }
+                : { kind },
+          defaultValue:
+            kind === 'json' ? {} : isReference ? null : defaultForType(kind as ScalarKind),
         },
       ],
     });
@@ -3375,13 +3814,15 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
             { value: 'boolean', label: 'Boolean' },
             { value: 'number', label: 'Number' },
             { value: 'string', label: 'String' },
+            { value: 'character-ref', label: 'Character Reference' },
+            { value: 'asset-ref', label: 'Asset Reference' },
             ...(engineTypes.length > 0 ? [{ value: 'json', label: 'Engine JSON' }] : []),
           ]}
         />
       </div>
       <div className={styles.emotionList}>
         {fields.map((field) => {
-          const kind = field.valueType.kind as EditableKind;
+          const kind = field.valueType.kind as EditableKind | ReferenceKind;
           const fieldReferences = findCharacterFieldReferences(field.id);
           return (
             <div className={styles.characterFieldBlock} key={field.id}>
@@ -3412,19 +3853,29 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                         : undefined
                     }
                     onChange={(event) => {
-                      const nextKind = event.target.value as EditableKind;
+                      const nextKind = event.target.value as EditableKind | ReferenceKind;
+                      const isReference = nextKind === 'character-ref' || nextKind === 'asset-ref';
                       updateField(field.id, {
                         valueType:
                           nextKind === 'json'
                             ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-                            : { kind: nextKind },
-                        defaultValue: nextKind === 'json' ? {} : defaultForType(nextKind),
+                            : isReference
+                              ? { kind: nextKind, nullable: true }
+                              : { kind: nextKind },
+                        defaultValue:
+                          nextKind === 'json'
+                            ? {}
+                            : isReference
+                              ? null
+                              : defaultForType(nextKind as ScalarKind),
                       });
                     }}
                   >
                     <option value="boolean">Boolean</option>
                     <option value="number">Number</option>
                     <option value="string">String</option>
+                    <option value="character-ref">Character Reference</option>
+                    <option value="asset-ref">Asset Reference</option>
                     <option value="json">Engine JSON</option>
                   </select>
                 </label>
@@ -3460,7 +3911,15 @@ function CharacterEditor({ character }: { character: CharacterSource }) {
                 )}
                 <div className={styles.fieldGroup}>
                   <span>Default</span>
-                  {kind === 'json' ? (
+                  {kind === 'character-ref' || kind === 'asset-ref' ? (
+                    <ReferenceValueInput
+                      kind={kind}
+                      value={field.defaultValue}
+                      characters={characters}
+                      assets={assets}
+                      onCommit={(defaultValue) => updateField(field.id, { defaultValue })}
+                    />
+                  ) : kind === 'json' ? (
                     <JsonValueInput
                       value={field.defaultValue}
                       schema={engineTypes.find(
@@ -4381,10 +4840,7 @@ function EventEditor({ event }: { event: EventSource }) {
                   candidateIndex === index
                     ? {
                         ...candidate,
-                        valueType:
-                          change.target.value === 'json'
-                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-                            : { kind: change.target.value as ScalarKind },
+                        valueType: valueTypeFromSelection(change.target.value, engineTypes),
                       }
                     : candidate,
                 ),
@@ -4394,8 +4850,27 @@ function EventEditor({ event }: { event: EventSource }) {
             <option value="boolean">Boolean</option>
             <option value="number">Number</option>
             <option value="string">String</option>
+            <option value="character-ref">Character Reference</option>
+            <option value="asset-ref">Asset Reference</option>
+            <option value="array">Array</option>
+            <option value="map">Map / Dictionary</option>
+            <option value="struct">Struct</option>
             <option value="json">Engine JSON</option>
           </select>
+          {(parameter.valueType.kind === 'struct' ||
+            parameter.valueType.kind === 'array' ||
+            parameter.valueType.kind === 'map') && (
+            <InlineValueTypeEditor
+              valueType={parameter.valueType}
+              onChange={(valueType) =>
+                updateEvent(event.id, {
+                  parameters: event.parameters.map((candidate, candidateIndex) =>
+                    candidateIndex === index ? { ...candidate, valueType } : candidate,
+                  ),
+                })
+              }
+            />
+          )}
           {parameter.valueType.kind === 'json' && (
             <select
               value={parameter.valueType.name}
@@ -4482,13 +4957,7 @@ function EventEditor({ event }: { event: EventSource }) {
                   candidateIndex === index
                     ? {
                         ...candidate,
-                        valueType:
-                          change.target.value === 'json'
-                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-                            : {
-                                kind: change.target.value as
-                                  'boolean' | 'number' | 'string' | 'array' | 'map',
-                              },
+                        valueType: valueTypeFromSelection(change.target.value, engineTypes),
                       }
                     : candidate,
                 ),
@@ -4498,10 +4967,27 @@ function EventEditor({ event }: { event: EventSource }) {
             <option value="boolean">Boolean</option>
             <option value="number">Number</option>
             <option value="string">String</option>
+            <option value="character-ref">Character Reference</option>
+            <option value="asset-ref">Asset Reference</option>
             <option value="array">Array</option>
             <option value="map">Map</option>
+            <option value="struct">Struct</option>
             <option value="json">Engine JSON</option>
           </select>
+          {(output.valueType.kind === 'struct' ||
+            output.valueType.kind === 'array' ||
+            output.valueType.kind === 'map') && (
+            <InlineValueTypeEditor
+              valueType={output.valueType}
+              onChange={(valueType) =>
+                updateEvent(event.id, {
+                  outputs: (event.outputs ?? []).map((candidate, candidateIndex) =>
+                    candidateIndex === index ? { ...candidate, valueType } : candidate,
+                  ),
+                })
+              }
+            />
+          )}
           {output.valueType.kind === 'json' && (
             <select
               value={output.valueType.name}
@@ -4620,10 +5106,7 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
                   candidateIndex === index
                     ? {
                         ...candidate,
-                        valueType:
-                          change.target.value === 'json'
-                            ? { kind: 'json', name: engineTypes[0]?.name ?? 'EnginePayload' }
-                            : { kind: change.target.value as ScalarKind },
+                        valueType: valueTypeFromSelection(change.target.value, engineTypes),
                       }
                     : candidate,
                 ),
@@ -4633,8 +5116,27 @@ function SignalEditor({ signal }: { signal: SignalSource }) {
             <option value="boolean">Boolean</option>
             <option value="number">Number</option>
             <option value="string">String</option>
+            <option value="character-ref">Character Reference</option>
+            <option value="asset-ref">Asset Reference</option>
+            <option value="array">Array</option>
+            <option value="map">Map / Dictionary</option>
+            <option value="struct">Struct</option>
             <option value="json">Engine JSON</option>
           </select>
+          {(parameter.valueType.kind === 'struct' ||
+            parameter.valueType.kind === 'array' ||
+            parameter.valueType.kind === 'map') && (
+            <InlineValueTypeEditor
+              valueType={parameter.valueType}
+              onChange={(valueType) =>
+                updateSignal(signal.id, {
+                  parameters: signal.parameters.map((candidate, candidateIndex) =>
+                    candidateIndex === index ? { ...candidate, valueType } : candidate,
+                  ),
+                })
+              }
+            />
+          )}
           {parameter.valueType.kind === 'json' && (
             <select
               value={parameter.valueType.name}
@@ -5041,30 +5543,33 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
         />
       </div>
       {workspaceError && <div className={styles.warning}>{workspaceError}</div>}
-      <button
+      <ConfirmDeleteButton
+        title="Delete Condition?"
+        message={`Delete condition "${condition.displayName}"? This cannot be undone.`}
+        ariaLabel="Delete Condition"
+        buttonText="Delete Condition"
+        buttonTitle="Delete Condition"
+        confirmText="Delete"
         className={styles.dangerButton}
-        type="button"
-        onClick={() => removeCondition(condition.id)}
-      >
-        Delete Condition
-      </button>
+        onConfirm={() => removeCondition(condition.id)}
+      />
     </div>
   );
 }
 
 function eventSignature(event: EventSource): string {
   const parameters = event.parameters
-    .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
+    .map((parameter) => `${parameter.name}: ${valueTypeLabel(parameter.valueType.kind)}`)
     .join(', ');
   const outputs = (event.outputs ?? [])
-    .map((output) => `${output.name}: ${output.valueType.kind}`)
+    .map((output) => `${output.name}: ${valueTypeLabel(output.valueType.kind)}`)
     .join(', ');
   return `${event.name}(${parameters}): ${outputs ? `{ ${outputs} }` : 'void'}`;
 }
 
 function signalSignature(signal: SignalSource): string {
   const parameters = signal.parameters
-    .map((parameter) => `${parameter.name}: ${parameter.valueType.kind}`)
+    .map((parameter) => `${parameter.name}: ${valueTypeLabel(parameter.valueType.kind)}`)
     .join(', ');
   return `${signal.name}(${parameters})`;
 }
@@ -5262,6 +5767,8 @@ export function StoryData() {
     { value: 'boolean', label: 'Boolean' },
     { value: 'number', label: 'Number' },
     { value: 'string', label: 'String' },
+    { value: 'character-ref', label: 'Character Reference' },
+    { value: 'asset-ref', label: 'Asset Reference' },
     { value: 'array', label: 'Array · Any JSON items' },
     { value: 'map', label: 'Map · String keys / Any JSON values' },
     ...engineTypes.map((engineType) => ({
@@ -5272,6 +5779,8 @@ export function StoryData() {
   const variableTypeAndDefault = (selection?: string): [ValueType, RuntimeValue] => {
     if (selection === 'boolean') return [{ kind: 'boolean' }, false];
     if (selection === 'number') return [{ kind: 'number' }, 0];
+    if (selection === 'character-ref') return [{ kind: 'character-ref', nullable: true }, null];
+    if (selection === 'asset-ref') return [{ kind: 'asset-ref', nullable: true }, null];
     if (selection === 'array') return [{ kind: 'array', elementType: { kind: 'any' } }, []];
     if (selection === 'map')
       return [{ kind: 'map', keyType: 'string', valueType: { kind: 'any' } }, {}];
@@ -5285,7 +5794,11 @@ export function StoryData() {
     return [{ kind: 'string' }, ''];
   };
   const activeChapter = chapters.find((chapter) => chapter.id === activeGraphId);
-  const addSubstoryVariable = (kind: 'parameter' | 'local', name: string) => {
+  const addSubstoryVariable = (
+    kind: 'parameter' | 'local',
+    name: string,
+    selectedType?: string,
+  ) => {
     if (!activeChapter) return;
     const used = new Set(
       [
@@ -5297,13 +5810,14 @@ export function StoryData() {
       ].map((variable) => variable.name),
     );
     if (used.has(name)) return;
+    const [valueType, defaultValue] = variableTypeAndDefault(selectedType);
     const variable: VariableDefinition = {
       id: createStableId('variable'),
       name,
       displayName: name,
       scope: 'local',
-      valueType: { kind: 'string' },
-      defaultValue: '',
+      valueType,
+      defaultValue,
     };
     updateSubstory(activeChapter.id, {
       ...(kind === 'parameter'
@@ -5438,7 +5952,11 @@ export function StoryData() {
                     ...activeChapter.outputs.map((item) => item.variable),
                     ...activeChapter.localVariables,
                   ].map((variable) => variable.name)}
-                  onCreate={(name) => addSubstoryVariable('parameter', name)}
+                  typeOptions={variableTypeOptions}
+                  defaultType="string"
+                  onCreate={(name, selectedType) =>
+                    addSubstoryVariable('parameter', name, selectedType)
+                  }
                 />
               </div>
               {activeChapter.parameters.length === 0 && (
@@ -5489,7 +6007,11 @@ export function StoryData() {
                     ...activeChapter.outputs.map((item) => item.variable),
                     ...activeChapter.localVariables,
                   ].map((variable) => variable.name)}
-                  onCreate={(name) => addSubstoryVariable('local', name)}
+                  typeOptions={variableTypeOptions}
+                  defaultType="string"
+                  onCreate={(name, selectedType) =>
+                    addSubstoryVariable('local', name, selectedType)
+                  }
                 />
               </div>
               {activeChapter.localVariables.length === 0 && (

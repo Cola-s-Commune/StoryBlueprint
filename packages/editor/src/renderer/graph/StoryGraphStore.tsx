@@ -3466,7 +3466,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 parameter.name,
                 argumentsByName[parameter.name] ?? {
                   source:
-                    parameter.valueType.kind === 'string'
+                    parameter.valueType.kind === 'string' ||
+                    parameter.valueType.kind === 'character-ref' ||
+                    parameter.valueType.kind === 'asset-ref'
                       ? '""'
                       : parameter.valueType.kind === 'boolean'
                         ? 'false'
@@ -4034,6 +4036,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                         type.kind === 'boolean' ||
                         type.kind === 'number' ||
                         type.kind === 'string' ||
+                        type.kind === 'character-ref' ||
+                        type.kind === 'asset-ref' ||
                         type.kind === 'any'
                       ? ({ kind: type.kind, nullable: field.nullable } as ValueType)
                       : type.kind === 'enum'
@@ -4083,6 +4087,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                         type.kind === 'boolean' ||
                         type.kind === 'number' ||
                         type.kind === 'string' ||
+                        type.kind === 'character-ref' ||
+                        type.kind === 'asset-ref' ||
                         type.kind === 'any'
                       ? ({ kind: type.kind, nullable: field.nullable } as ValueType)
                       : type.kind === 'enum'

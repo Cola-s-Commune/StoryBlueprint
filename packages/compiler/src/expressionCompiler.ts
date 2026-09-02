@@ -13,7 +13,17 @@ import type {
   CharacterSource,
 } from '@story-blueprint/common';
 
-type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'left' | 'right' | 'left-bracket' | 'right-bracket' | 'dot' | 'eof';
+type TokenKind =
+  | 'number'
+  | 'string'
+  | 'identifier'
+  | 'operator'
+  | 'left'
+  | 'right'
+  | 'left-bracket'
+  | 'right-bracket'
+  | 'dot'
+  | 'eof';
 interface Token {
   kind: TokenKind;
   value: string;
@@ -226,7 +236,8 @@ class Parser {
       if (token.value === 'null') {
         return { kind: 'literal', value: null, valueType: { kind: 'any', nullable: true } };
       }
-      if (this.peek().kind === 'dot') {
+      const character = this.charactersByName.get(token.value);
+      if (character && this.peek().kind === 'dot') {
         this.take();
         const fieldToken = this.take();
         if (fieldToken.kind !== 'identifier') {
@@ -234,28 +245,20 @@ class Parser {
         }
         const qualifiedName = `${token.value}.${fieldToken.value}`;
         const boundId = this.bindings[qualifiedName];
-        const character = this.charactersByName.get(token.value);
         const field =
           (boundId ? this.variablesById.get(boundId) : undefined) ??
           character?.fields?.find((candidate) => candidate.name === fieldToken.value);
-        if (character) {
-          if (!field)
-            throw new ExpressionCompileError(
-              `Unknown character field ${qualifiedName}`,
-              fieldToken.offset,
-            );
-          return { kind: 'variable', variableId: field.id, valueType: field.valueType };
+        if (!field) {
+          throw new ExpressionCompileError(
+            `Unknown character field ${qualifiedName}`,
+            fieldToken.offset,
+          );
         }
-        const variable = this.variablesByName.get(token.value);
-        if (!variable || variable.valueType.kind !== 'json') {
-          throw new ExpressionCompileError(`Unknown structured value ${token.value}`, token.offset);
-        }
-        return {
-          kind: 'member',
-          target: { kind: 'variable', variableId: variable.id, valueType: variable.valueType },
-          member: fieldToken.value,
-          valueType: { kind: 'any' },
-        };
+        return this.parsePostfix({
+          kind: 'variable',
+          variableId: field.id,
+          valueType: field.valueType,
+        });
       }
       const boundId = this.bindings[token.value];
       const variable =
@@ -263,41 +266,99 @@ class Parser {
         this.variablesByName.get(token.value);
       if (!variable)
         throw new ExpressionCompileError(`Unknown variable ${token.value}`, token.offset);
-      const target: TypedExpression = {
+      return this.parsePostfix({
         kind: 'variable',
         variableId: variable.id,
         valueType: variable.valueType,
-      };
-      if (this.peek().kind !== 'left-bracket') return target;
-      if (variable.valueType.kind !== 'array' && variable.valueType.kind !== 'map') {
-        throw new ExpressionCompileError(`${token.value} is not an Array or Map`, token.offset);
-      }
-      this.take();
-      const index = this.parseBinary(0);
-      const closing = this.take();
-      if (closing.kind !== 'right-bracket') {
-        throw new ExpressionCompileError('Expected ]', closing.offset);
-      }
-      return { kind: 'index', target, index, valueType: { kind: 'any' } };
+      });
     }
     if (token.kind === 'left') {
       const expression = this.parseBinary(0);
       const closing = this.take();
       if (closing.kind !== 'right') throw new ExpressionCompileError('Expected )', closing.offset);
-      return expression;
+      return this.parsePostfix(expression);
     }
     throw new ExpressionCompileError('Expected expression', token.offset);
+  }
+
+  private parsePostfix(target: TypedExpression): TypedExpression {
+    let current = target;
+    for (;;) {
+      if (this.peek().kind === 'dot') {
+        this.take();
+        const fieldToken = this.take();
+        if (fieldToken.kind !== 'identifier') {
+          throw new ExpressionCompileError('Expected member name', fieldToken.offset);
+        }
+        if (current.valueType.kind !== 'json' && current.valueType.kind !== 'struct') {
+          throw new ExpressionCompileError(
+            'Only structured values support member access',
+            fieldToken.offset,
+          );
+        }
+        const memberType =
+          current.valueType.kind === 'struct'
+            ? current.valueType.fields[fieldToken.value]
+            : undefined;
+        if (current.valueType.kind === 'struct' && !memberType) {
+          throw new ExpressionCompileError(
+            `Unknown field ${fieldToken.value} on ${current.valueType.name}`,
+            fieldToken.offset,
+          );
+        }
+        current = {
+          kind: 'member',
+          target: current,
+          member: fieldToken.value,
+          valueType: memberType ?? { kind: 'any' },
+        };
+        continue;
+      }
+      if (this.peek().kind === 'left-bracket') {
+        this.take();
+        const index = this.parseBinary(0);
+        const closing = this.take();
+        if (closing.kind !== 'right-bracket') {
+          throw new ExpressionCompileError('Expected ]', closing.offset);
+        }
+        if (current.valueType.kind !== 'array' && current.valueType.kind !== 'map') {
+          throw new ExpressionCompileError(
+            'Only Array and Map values support indexing',
+            closing.offset,
+          );
+        }
+        const indexedType =
+          current.valueType.kind === 'array'
+            ? (current.valueType.elementType ?? { kind: 'any' as const })
+            : (current.valueType.valueType ?? { kind: 'any' as const });
+        current = { kind: 'index', target: current, index, valueType: indexedType };
+        continue;
+      }
+      return current;
+    }
   }
 
   private binary(token: Token, left: TypedExpression, right: TypedExpression): TypedExpression {
     const operator = binaryOperators[token.value];
     if (!operator) throw new ExpressionCompileError('Unknown operator', token.offset);
     if (
-      ['json', 'array', 'map'].includes(left.valueType.kind) ||
-      ['json', 'array', 'map'].includes(right.valueType.kind)
+      ['json', 'array', 'map', 'struct'].includes(left.valueType.kind) ||
+      ['json', 'array', 'map', 'struct'].includes(right.valueType.kind)
     ) {
       throw new ExpressionCompileError(
         'Structured values can only be passed or assigned as a whole',
+        token.offset,
+      );
+    }
+    if (
+      (left.valueType.kind === 'character-ref' ||
+        left.valueType.kind === 'asset-ref' ||
+        right.valueType.kind === 'character-ref' ||
+        right.valueType.kind === 'asset-ref') &&
+      !['equal', 'not-equal'].includes(operator)
+    ) {
+      throw new ExpressionCompileError(
+        'Resource references only support equality comparison',
         token.offset,
       );
     }

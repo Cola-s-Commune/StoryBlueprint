@@ -34,6 +34,10 @@ export enum StoryNodeType {
   CallEvent = 'call-event',
   WaitSignal = 'wait-signal',
   CallSubstory = 'call-substory',
+  StartStory = 'start-story',
+  SwitchStory = 'switch-story',
+  ResumeStory = 'resume-story',
+  EndStoryInstance = 'end-story-instance',
   Reroute = 'reroute',
   FlowAnchor = 'flow-anchor',
   FlowJump = 'flow-jump',
@@ -192,6 +196,45 @@ export interface CallSubstoryNodeData {
   resultVariableIds: Record<VariableId, VariableId>;
 }
 
+/** Starts an independent Story runtime instance through the engine Adapter. */
+export interface StartStoryNodeData {
+  storyId?: import('./ids').StoryId;
+  /** Optional caller-provided instance key; omitted means the Adapter creates one. */
+  instanceId?: ExpressionSource;
+  /** Values keyed by target Story variable ID. */
+  arguments: Record<VariableId, ExpressionSource>;
+  /** Store Adapter-returned output values in caller variables, keyed by output ID. */
+  resultVariableIds: Record<string, VariableId>;
+  /** Optional String variable receiving an Adapter-generated instance ID. */
+  instanceVariableId?: VariableId;
+  /** When false, the current Story continues immediately after dispatch. */
+  waitForCompletion?: boolean;
+}
+
+/** Switches execution to another independent Story instance. */
+export interface SwitchStoryNodeData {
+  storyId?: import('./ids').StoryId;
+  instanceId?: ExpressionSource;
+  arguments: Record<VariableId, ExpressionSource>;
+  resultVariableIds: Record<string, VariableId>;
+  instanceVariableId?: VariableId;
+  waitForCompletion?: boolean;
+}
+
+/** Resumes an existing Story instance or save slot through the engine Adapter. */
+export interface ResumeStoryNodeData {
+  instanceId?: ExpressionSource;
+  resultVariableIds: Record<string, VariableId>;
+  instanceVariableId?: VariableId;
+  waitForCompletion?: boolean;
+}
+
+/** Ends an independent Story instance without ending the current runtime. */
+export interface EndStoryInstanceNodeData {
+  instanceId?: ExpressionSource;
+  resultVariableIds: Record<string, VariableId>;
+}
+
 /** Pure editor routing point. The compiler removes it from executable logic. */
 export interface RerouteNodeData {}
 
@@ -231,6 +274,10 @@ export interface StoryNodeDataMap {
   [StoryNodeType.CallEvent]: CallEventNodeData;
   [StoryNodeType.WaitSignal]: WaitSignalNodeData;
   [StoryNodeType.CallSubstory]: CallSubstoryNodeData;
+  [StoryNodeType.StartStory]: StartStoryNodeData;
+  [StoryNodeType.SwitchStory]: SwitchStoryNodeData;
+  [StoryNodeType.ResumeStory]: ResumeStoryNodeData;
+  [StoryNodeType.EndStoryInstance]: EndStoryInstanceNodeData;
   [StoryNodeType.Reroute]: RerouteNodeData;
   [StoryNodeType.FlowAnchor]: FlowAnchorNodeData;
   [StoryNodeType.FlowJump]: FlowJumpNodeData;

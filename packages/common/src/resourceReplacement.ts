@@ -3,6 +3,7 @@ import {
   replaceEngineResourceValueReferences,
   type EngineTypeDefinition,
 } from './types/project';
+import { isStableId } from './types/ids';
 import type { EventSource, SignalSource, StorySourceDocument } from './types/source';
 import type { RuntimeValue, ValueType, VariableDefinition } from './types/values';
 import { StoryNodeType, type StoryNodeDataMap } from './types/nodes';
@@ -42,8 +43,69 @@ function transformStoryResourceReferences(
 ): { source: StorySourceDocument; count: number; blocked: number } {
   let count = 0;
   let blocked = 0;
+  const replaceTypedReference = (value: RuntimeValue, valueType: ValueType): RuntimeValue => {
+    if (valueType.kind === 'character-ref' || valueType.kind === 'asset-ref') {
+      if (value !== fromId) return value;
+      count += 1;
+      if (toId) return toId;
+      if (valueType.nullable) return null;
+      blocked += 1;
+      return value;
+    }
+    if (valueType.kind === 'array' && Array.isArray(value) && valueType.elementType) {
+      let changed = false;
+      const next = value.map((item) => {
+        const replaced = replaceTypedReference(item, valueType.elementType!);
+        changed ||= replaced !== item;
+        return replaced;
+      });
+      return changed ? next : value;
+    }
+    if (
+      valueType.kind === 'map' &&
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    ) {
+      let changed = false;
+      const nextEntries: [string, RuntimeValue][] = [];
+      for (const [key, item] of Object.entries(value)) {
+        let nextKey = key;
+        if (
+          (valueType.keyType === 'character-ref' && kind === 'character') ||
+          (valueType.keyType === 'asset-ref' && kind === 'asset')
+        ) {
+          if (key === fromId) {
+            count += 1;
+            if (toId) nextKey = toId;
+            else blocked += 1;
+            changed ||= nextKey !== key;
+          }
+        }
+        const replaced = valueType.valueType
+          ? replaceTypedReference(item, valueType.valueType)
+          : item;
+        changed ||= replaced !== item;
+        nextEntries.push([nextKey, replaced]);
+      }
+      const next = Object.fromEntries(nextEntries);
+      return changed ? next : value;
+    }
+    return value;
+  };
   const replaceValue = (value: RuntimeValue, valueType: ValueType | undefined): RuntimeValue => {
-    if (valueType?.kind !== 'json') return value;
+    if (!valueType) return value;
+    if (
+      valueType.kind === 'character-ref' ||
+      valueType.kind === 'asset-ref' ||
+      valueType.kind === 'array' ||
+      valueType.kind === 'map'
+    ) {
+      const replaced = replaceTypedReference(value, valueType);
+      if (replaced !== value) return replaced;
+      return value;
+    }
+    if (valueType.kind !== 'json') return value;
     const replaced = toId
       ? replaceEngineResourceValueReferences(
           value,
@@ -72,6 +134,34 @@ function transformStoryResourceReferences(
     expression: T,
     valueType: ValueType | undefined,
   ): T => {
+    if (
+      valueType?.kind === 'character-ref' ||
+      valueType?.kind === 'asset-ref' ||
+      valueType?.kind === 'array' ||
+      valueType?.kind === 'map'
+    ) {
+      const trimmed = expression.source.trim();
+      const expectedKind = valueType.kind === 'asset-ref' ? 'asset' : 'character';
+      if (
+        (valueType.kind === 'character-ref' || valueType.kind === 'asset-ref') &&
+        isStableId(trimmed, expectedKind)
+      ) {
+        if (trimmed !== fromId) return expression;
+        count += 1;
+        if (toId) return { ...expression, source: toId };
+        if (valueType.nullable) return { ...expression, source: 'null' };
+        blocked += 1;
+        return expression;
+      }
+      let value: RuntimeValue;
+      try {
+        value = JSON.parse(expression.source) as RuntimeValue;
+      } catch {
+        return expression;
+      }
+      const next = replaceValue(value, valueType);
+      return next === value ? expression : { ...expression, source: JSON.stringify(next) };
+    }
     if (valueType?.kind !== 'json') return expression;
     let value: RuntimeValue;
     try {
@@ -178,6 +268,27 @@ function transformStoryResourceReferences(
           );
           return { ...node, data: { ...data, arguments: args } };
         }
+        if (
+          node.type === StoryNodeType.StartStory ||
+          node.type === StoryNodeType.SwitchStory ||
+          node.type === StoryNodeType.ResumeStory ||
+          node.type === StoryNodeType.EndStoryInstance
+        ) {
+          const data = node.data as unknown as {
+            instanceId?: import('./types/expressions').ExpressionSource;
+            arguments?: Readonly<Record<string, import('./types/expressions').ExpressionSource>>;
+          };
+          const instanceId = data.instanceId
+            ? replaceExpression(data.instanceId, { kind: 'any' })
+            : undefined;
+          const args = Object.fromEntries(
+            Object.entries(data.arguments ?? {}).map(([id, expression]) => [
+              id,
+              replaceExpression(expression, { kind: 'any' }),
+            ]),
+          );
+          return { ...node, data: { ...data, instanceId, arguments: args } };
+        }
         if (node.type === StoryNodeType.Return && ownerChapter) {
           const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
           const values = Object.fromEntries(
@@ -185,7 +296,8 @@ function transformStoryResourceReferences(
               id,
               replaceExpression(
                 expression,
-                ownerChapter.outputs.find((output) => output.variable.id === id)?.variable.valueType,
+                ownerChapter.outputs.find((output) => output.variable.id === id)?.variable
+                  .valueType,
               ),
             ]),
           );
@@ -198,7 +310,10 @@ function transformStoryResourceReferences(
   const variables = source.variables.map(replaceVariable);
   const characters = source.characters.map((character) => {
     let next = character;
-    if (kind === 'character' && character.relationships?.[fromId as keyof typeof character.relationships]) {
+    if (
+      kind === 'character' &&
+      character.relationships?.[fromId as keyof typeof character.relationships]
+    ) {
       const relationships = { ...character.relationships };
       const relationship = relationships[fromId as keyof typeof relationships]!;
       delete relationships[fromId as keyof typeof relationships];
@@ -207,7 +322,8 @@ function transformStoryResourceReferences(
       next = { ...next, relationships };
     }
     if (kind === 'asset') {
-      const defaultPortraitId = character.defaultPortraitId === fromId ? toId : character.defaultPortraitId;
+      const defaultPortraitId =
+        character.defaultPortraitId === fromId ? toId : character.defaultPortraitId;
       if (defaultPortraitId !== character.defaultPortraitId) count += 1;
       const emotions = Object.fromEntries(
         Object.entries(character.emotions).map(([name, emotion]) => {
@@ -218,7 +334,11 @@ function transformStoryResourceReferences(
           return [name, cleared];
         }),
       );
-      next = { ...next, defaultPortraitId: defaultPortraitId as typeof character.defaultPortraitId, emotions };
+      next = {
+        ...next,
+        defaultPortraitId: defaultPortraitId as typeof character.defaultPortraitId,
+        emotions,
+      };
     }
     const fields = next.fields?.map(replaceVariable);
     return fields ? { ...next, fields } : next;
