@@ -120,7 +120,7 @@ Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式�
 - 根 Story 的所有正常可达路径必须以 End Story 结束。
 - Chapter 的所有正常可达路径必须以 Return 或 End Story 结束，不允许隐式返回。
 - Chapter 内允许使用 End Story，但编辑器必须显示警告，因为它会终止整个 Story 实例而不是只退出 Chapter。
-- 第一版不支持 Chapter 递归调用。
+- 第一版禁止 Chapter 递归调用；项目编译器建立 Substory 调用图并将自递归、互相调用等循环报告为错误。
 - Chapter 支持输入参数、局部变量和一个可选返回值；需要多个返回字段时使用结构体。
 - Return 的返回值类型必须与 Chapter 声明一致。
 

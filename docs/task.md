@@ -109,7 +109,8 @@
 - [x] Story / Substory 明确区分内部 `name` 与作者标题，在 Inspector 和资源树统一编辑、展示 `displayName` 标题
 - [x] 多选节点提取为单入口、单出口 Substory
 - [ ] Substory 文件夹、标签、收藏与按需索引（组织用途，不改变稳定 ID 所有权）
-- [ ] Substory 调用图、递归/循环依赖诊断与公共/私有可见性评估
+- [x] Substory 调用图与递归/循环依赖诊断
+- [ ] Substory 公共/私有可见性评估
 - [x] 文件系统 TreeView
 - [ ] Search
 - [ ] Context Menu

@@ -30,6 +30,7 @@ export type CompilerDiagnosticCode =
   | 'UNREACHABLE_NODE'
   | 'MULTIPLE_ENTRY_NODES'
   | 'INVALID_END_LOCATION'
+  | 'SUBSTORY_CALL_CYCLE'
   | 'TIGHT_LOOP'
   | 'MISSING_STORY'
   | 'PROJECT_ERROR';

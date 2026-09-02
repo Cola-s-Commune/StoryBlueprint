@@ -13,6 +13,7 @@ import {
   type NodeId,
   type SourceGraph,
   type SourceNode,
+  type StorySourceDocument,
   type StoryProjectDocument,
   type StoryId,
 } from '@story-blueprint/common';
@@ -210,6 +211,115 @@ function graphDiagnostics(
   return diagnostics;
 }
 
+/**
+ * Finds recursive Call Substory dependencies. The first version of the runtime
+ * has no recursion limit, so cycles are rejected during build instead of being
+ * discovered only after the call stack grows during play.
+ */
+function substoryCallDiagnostics(
+  source: StorySourceDocument,
+  story: ProjectStorySource,
+): ProjectCompilerDiagnostic[] {
+  const diagnostics: ProjectCompilerDiagnostic[] = [];
+  const chaptersById = new Map(source.chapters.map((chapter) => [chapter.id, chapter] as const));
+  const adjacency = new Map<ChapterId, Set<ChapterId>>(
+    source.chapters.map((chapter) => [chapter.id, new Set<ChapterId>()]),
+  );
+  const edgeNodes = new Map<string, NodeId>();
+
+  for (const chapter of source.chapters) {
+    for (const node of chapter.graph.nodes) {
+      if (node.type !== StoryNodeType.CallSubstory) continue;
+      const targetId = (node.data as { chapterId?: ChapterId }).chapterId;
+      if (!targetId || !chaptersById.has(targetId)) continue;
+      adjacency.get(chapter.id)!.add(targetId);
+      const edgeKey = `${chapter.id}->${targetId}`;
+      if (!edgeNodes.has(edgeKey)) edgeNodes.set(edgeKey, node.id);
+    }
+  }
+
+  const indices = new Map<ChapterId, number>();
+  const lowLinks = new Map<ChapterId, number>();
+  const stack: ChapterId[] = [];
+  const onStack = new Set<ChapterId>();
+  let nextIndex = 0;
+  const components: ChapterId[][] = [];
+  const strongConnect = (chapterId: ChapterId) => {
+    indices.set(chapterId, nextIndex);
+    lowLinks.set(chapterId, nextIndex);
+    nextIndex += 1;
+    stack.push(chapterId);
+    onStack.add(chapterId);
+    for (const targetId of adjacency.get(chapterId) ?? []) {
+      if (!indices.has(targetId)) {
+        strongConnect(targetId);
+        lowLinks.set(chapterId, Math.min(lowLinks.get(chapterId)!, lowLinks.get(targetId)!));
+      } else if (onStack.has(targetId)) {
+        lowLinks.set(chapterId, Math.min(lowLinks.get(chapterId)!, indices.get(targetId)!));
+      }
+    }
+    if (lowLinks.get(chapterId) !== indices.get(chapterId)) return;
+    const component: ChapterId[] = [];
+    let current: ChapterId | undefined;
+    do {
+      current = stack.pop();
+      if (!current) break;
+      onStack.delete(current);
+      component.push(current);
+    } while (current !== chapterId);
+    components.push(component);
+  };
+  for (const chapter of source.chapters) {
+    if (!indices.has(chapter.id)) strongConnect(chapter.id);
+  }
+
+  for (const component of components) {
+    const componentSet = new Set(component);
+    const selfRecursive =
+      component.length === 1 && (adjacency.get(component[0])?.has(component[0]) ?? false);
+    if (component.length < 2 && !selfRecursive) continue;
+
+    let cyclePath: ChapterId[] | undefined;
+    let sourceNodeId: NodeId | undefined;
+    const findCycle = (start: ChapterId, current: ChapterId, path: ChapterId[]): boolean => {
+      for (const targetId of adjacency.get(current) ?? []) {
+        if (!componentSet.has(targetId)) continue;
+        if (targetId === start) {
+          cyclePath = [...path, targetId];
+          sourceNodeId = edgeNodes.get(`${current}->${targetId}`);
+          return true;
+        }
+        if (path.includes(targetId)) continue;
+        if (findCycle(start, targetId, [...path, targetId])) {
+          if (!sourceNodeId) sourceNodeId = edgeNodes.get(`${current}->${targetId}`);
+          return true;
+        }
+      }
+      return false;
+    };
+    for (const start of component) {
+      if (findCycle(start, start, [start])) break;
+    }
+    const ids = cyclePath ?? [...component, component[0]];
+    const labels = ids.map((id) => chaptersById.get(id)?.displayName ?? id);
+    diagnostics.push({
+      code: 'SUBSTORY_CALL_CYCLE',
+      severity: 'error',
+      message: `Substory call cycle detected: ${labels.join(' -> ')}`,
+      storyId: story.source.id,
+      storyPath: story.path,
+      storyName: story.source.displayName,
+      sourceChapterId: sourceNodeId
+        ? source.chapters.find((chapter) =>
+            chapter.graph.nodes.some((node) => node.id === sourceNodeId),
+          )?.id
+        : component[0],
+      sourceNodeId,
+    });
+  }
+  return diagnostics;
+}
+
 export class DefaultProjectCompiler implements ProjectCompiler {
   compile(
     project: StoryProjectDocument,
@@ -250,6 +360,7 @@ export class DefaultProjectCompiler implements ProjectCompiler {
       for (const chapter of story.source.chapters) {
         diagnostics.push(...graphDiagnostics(chapter.graph, story, chapter.id));
       }
+      diagnostics.push(...substoryCallDiagnostics(story.source, story));
       const compiled = compileStory(
         {
           ...story.source,

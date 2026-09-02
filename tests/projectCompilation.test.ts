@@ -188,4 +188,69 @@ describe('project compilation', () => {
       ]),
     );
   });
+
+  it('rejects recursive substory call cycles with a graph diagnostic', () => {
+    const recursiveSource = story();
+    const chapter = (id: 'ch_alpha' | 'ch_beta', targetId: 'ch_alpha' | 'ch_beta') => ({
+      id,
+      name: id.slice(3),
+      displayName: id === 'ch_alpha' ? 'Alpha' : 'Beta',
+      parameters: [],
+      outputs: [],
+      localVariables: [],
+      graph: {
+        nodes: [
+          {
+            id: `n_${id}_start`,
+            type: StoryNodeType.Start,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: { title: 'Start' },
+          },
+          {
+            id: `n_${id}_call`,
+            type: StoryNodeType.CallSubstory,
+            definitionVersion: 1,
+            position: { x: 300, y: 0 },
+            data: { chapterId: targetId, arguments: {}, resultVariableIds: {} },
+          },
+          {
+            id: `n_${id}_return`,
+            type: StoryNodeType.Return,
+            definitionVersion: 1,
+            position: { x: 600, y: 0 },
+            data: { values: {} },
+          },
+        ],
+        edges: [
+          {
+            from: { nodeId: `n_${id}_start`, portId: 'out' },
+            to: { nodeId: `n_${id}_call`, portId: 'in' },
+          },
+          {
+            from: { nodeId: `n_${id}_call`, portId: 'out' },
+            to: { nodeId: `n_${id}_return`, portId: 'in' },
+          },
+        ],
+      },
+    });
+    recursiveSource.chapters = [chapter('ch_alpha', 'ch_beta'), chapter('ch_beta', 'ch_alpha')];
+
+    const result = compileProject(project(), [
+      { path: 'Stories/project.story', source: recursiveSource },
+    ]);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'SUBSTORY_CALL_CYCLE',
+          severity: 'error',
+          sourceChapterId: expect.stringMatching(/^ch_(alpha|beta)$/),
+          sourceNodeId: expect.stringMatching(/^n_ch_(alpha|beta)_call$/),
+          message: expect.stringMatching(/Alpha|Beta/),
+        }),
+      ]),
+    );
+  });
 });
