@@ -1,6 +1,7 @@
 import { resolveNodePorts } from '../graph/connectionValidation';
 import { NodeRegistry } from '../registry/nodeRegistry';
-import type { NodePort, StoryNodeDataMap, StoryNodeType } from '../types/nodes';
+import { StoryNodeType } from '../types/nodes';
+import type { NodePort, StoryNodeDataMap } from '../types/nodes';
 import type {
   AssetSource,
   CharacterSource,
@@ -78,15 +79,30 @@ function semanticGraph(
     SemanticGraph,
     'kind' | 'chapterId' | 'name' | 'displayName' | 'parameters' | 'outputs' | 'localVariables'
   >,
+  events: readonly EventSource[] = [],
 ): SemanticGraph {
   return {
     ...metadata,
     nodes: graph.nodes.map((node) => {
+      const data = clone(node.data) as StoryNodeDataMap[StoryNodeType];
+      if (node.type === StoryNodeType.CallEvent) {
+        const call = data as StoryNodeDataMap[StoryNodeType.CallEvent];
+        if (call.outputPorts === undefined) {
+          const event = events.find((candidate) => candidate.id === call.eventId);
+          if (event) {
+            call.outputPorts = (event.outputs ?? []).map((output) => ({
+              id: output.id,
+              label: output.displayName,
+              valueType: output.valueType,
+            }));
+          }
+        }
+      }
       const resolved = resolveNodePorts(
         {
           id: node.id,
           type: node.type as StoryNodeType,
-          data: node.data as StoryNodeDataMap[StoryNodeType],
+          data,
         },
         semanticRegistry,
       );
@@ -94,7 +110,7 @@ function semanticGraph(
         id: node.id,
         type: node.type as StoryNodeType,
         name: node.name,
-        data: clone(node.data) as StoryNodeDataMap[StoryNodeType],
+        data,
         ports: clone(resolved.ports),
         portDiagnostics:
           resolved.diagnostics.length > 0
@@ -136,7 +152,7 @@ export function createStorySemanticSnapshot(
         kind: 'root',
         name: 'root',
         displayName: 'Root Blueprint',
-      }),
+      }, source.events),
       ...source.chapters.map((chapter) =>
         semanticGraph(chapter.graph, {
           kind: 'chapter',
@@ -146,7 +162,7 @@ export function createStorySemanticSnapshot(
           parameters: clone(chapter.parameters.map((parameter) => parameter.variable)),
           outputs: clone(chapter.outputs.map((output) => output.variable)),
           localVariables: clone(chapter.localVariables),
-        }),
+        }, source.events),
       ),
     ],
   } as const;

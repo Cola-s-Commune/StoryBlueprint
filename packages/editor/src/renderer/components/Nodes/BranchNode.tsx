@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { BranchNodeData } from '@story-blueprint/common';
+import { valueTypeColor } from '../../graph/valueTypeColors';
 import type { CSSProperties } from 'react';
 import styles from './Node.module.css';
 
@@ -58,7 +59,7 @@ export function BranchNode({ data }: NodeProps) {
         type="target"
         position={Position.Left}
         id="condition"
-        style={{ top: 62 }}
+        style={{ top: 62, '--data-pin-color': valueTypeColor({ kind: 'boolean' }) } as CSSProperties}
       />
     </div>
   );

@@ -7,6 +7,7 @@ import {
   type BlockId,
   type ChoiceInstruction,
   type CallEventInstruction,
+  type NarrationInstruction,
   type SignalId,
   type OptionId,
   type RuntimeInstruction,
@@ -20,6 +21,7 @@ import { evaluateExpression, renderTextTemplate, resolveChoiceOptions } from './
 import type {
   ChoiceRequest,
   DialogueRequest,
+  NarrationRequest,
   EventRequest,
   ExternalFunctionRequest,
   SignalRequest,
@@ -32,6 +34,7 @@ import type {
 
 export type RuntimeInteraction =
   | { kind: 'dialogue'; request: DialogueRequest }
+  | { kind: 'narration'; request: NarrationRequest }
   | { kind: 'choice'; request: ChoiceRequest }
   | { kind: 'event'; request: EventRequest }
   | { kind: 'signal'; request: SignalRequest }
@@ -51,6 +54,12 @@ function cloneState(state: RuntimeState): RuntimeState {
       locals: { ...frame.locals },
     })),
     storyVariables: { ...state.storyVariables },
+    eventOutputs: Object.fromEntries(
+      Object.entries(state.eventOutputs ?? {}).map(([instructionId, outputs]) => [
+        instructionId,
+        { ...outputs },
+      ]),
+    ),
     signalInbox: Object.fromEntries(
       Object.entries(state.signalInbox).map(([signalId, payloads]) => [
         signalId,
@@ -118,6 +127,7 @@ export function createRuntimeState(program: RuntimeProgram): RuntimeState {
       program.variables.map((variable) => [variable.id, variable.defaultValue]),
     ),
     signalInbox: {},
+    eventOutputs: {},
     status: 'running',
   };
 }
@@ -281,6 +291,22 @@ export class StoryRuntime {
     return this.runUntilPause();
   }
 
+  continueNarration(): RuntimeRunResult {
+    const instruction = this.currentInstruction();
+    if (this.currentState.pending?.kind !== 'narration' || instruction?.op !== 'narration') {
+      return this.fail({
+        code: 'INVALID_ADAPTER_RESULT',
+        severity: 'error',
+        message: 'Runtime is not waiting for narration continuation',
+        location: this.location(),
+      });
+    }
+    this.currentState.pending = undefined;
+    this.currentState.status = 'running';
+    this.currentState.instructionIndex += 1;
+    return this.runUntilPause();
+  }
+
   choose(optionId: OptionId): RuntimeRunResult {
     const instruction = this.currentInstruction();
     if (this.currentState.pending?.kind === 'ink-choice' && instruction?.op === 'ink-block') {
@@ -367,6 +393,10 @@ export class StoryRuntime {
         });
       }
     }
+    this.currentState.eventOutputs ??= {};
+    this.currentState.eventOutputs[instruction.id] = Object.fromEntries(
+      instruction.outputs.map((output) => [output.id, result[output.id]!]),
+    );
     for (const [outputId, variableId] of Object.entries(instruction.resultVariableIds)) {
       const value = result[outputId];
       if (value !== undefined) this.writeVariable(variableId as VariableId, value);
@@ -515,6 +545,7 @@ export class StoryRuntime {
               this.locale,
               this.program.localeFallbacks,
               this.program.sourceLocale,
+              this.readEventOutput,
             ),
             voice: instruction.voice,
             emotion: instruction.emotion,
@@ -523,6 +554,17 @@ export class StoryRuntime {
           },
         });
       }
+      case 'narration':
+        this.currentState.pending = {
+          kind: 'narration',
+          requestId: instruction.id,
+          instructionId: instruction.id,
+        };
+        this.currentState.status = 'waiting';
+        return this.waiting({
+          kind: 'narration',
+          request: this.narrationRequest(instruction),
+        });
       case 'ink-block':
         return this.advanceInk(instruction);
       case 'set-variable':
@@ -533,7 +575,7 @@ export class StoryRuntime {
           }
           this.writeVariable(instruction.variableId, [
             ...current,
-            evaluateExpression(instruction.value, this.readVariable),
+            evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
           ]);
         } else if (instruction.containerOperation === 'set-entry') {
           const current = this.readVariable(instruction.variableId);
@@ -541,14 +583,14 @@ export class StoryRuntime {
             throw new Error(`Variable ${instruction.variableId} is not a Map`);
           }
           const key = instruction.key
-            ? evaluateExpression(instruction.key, this.readVariable)
+            ? evaluateExpression(instruction.key, this.readVariable, this.readEventOutput)
             : undefined;
           if (typeof key !== 'string' && typeof key !== 'number') {
             throw new Error('Map key must be a String or Number');
           }
           this.writeVariable(instruction.variableId, {
             ...current,
-            [String(key)]: evaluateExpression(instruction.value, this.readVariable),
+            [String(key)]: evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
           });
         } else if (instruction.containerOperation === 'set-field') {
           const current = this.readVariable(instruction.variableId);
@@ -558,12 +600,12 @@ export class StoryRuntime {
           if (!instruction.fieldName) throw new Error('Set Object Field is missing its field');
           this.writeVariable(instruction.variableId, {
             ...current,
-            [instruction.fieldName]: evaluateExpression(instruction.value, this.readVariable),
+            [instruction.fieldName]: evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
           });
         } else {
           this.writeVariable(
             instruction.variableId,
-            evaluateExpression(instruction.value, this.readVariable),
+            evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
           );
         }
         this.currentState.instructionIndex += 1;
@@ -582,7 +624,7 @@ export class StoryRuntime {
         const matches = Object.fromEntries(
           Object.entries(instruction.matches).map(([name, expression]) => [
             name,
-            evaluateExpression(expression, this.readVariable),
+            evaluateExpression(expression, this.readVariable, this.readEventOutput),
           ]),
         );
         const buffered = this.currentState.signalInbox[instruction.signalId] ?? [];
@@ -607,7 +649,7 @@ export class StoryRuntime {
         });
       }
       case 'branch': {
-        const condition = evaluateExpression(instruction.condition, this.readVariable);
+        const condition = evaluateExpression(instruction.condition, this.readVariable, this.readEventOutput);
         if (typeof condition !== 'boolean') throw new TypeError('Branch condition must be boolean');
         this.jump(condition ? instruction.whenTrue : instruction.whenFalse);
         return undefined;
@@ -655,7 +697,7 @@ export class StoryRuntime {
             (candidate) => candidate.variableId === variableId,
           );
           if (!parameter) throw new TypeError(`Unknown substory input ${variableId}`);
-          const value = evaluateExpression(expression, this.readVariable);
+          const value = evaluateExpression(expression, this.readVariable, this.readEventOutput);
           this.assertValueType(value, parameter, 'Substory input');
           locals[variableId] = value;
         }
@@ -674,7 +716,7 @@ export class StoryRuntime {
       case 'end-story-instance': {
         const instanceExpression = instruction.instanceId;
         const instanceValue = instanceExpression
-          ? evaluateExpression(instanceExpression, this.readVariable)
+          ? evaluateExpression(instanceExpression, this.readVariable, this.readEventOutput)
           : undefined;
         if (instanceValue !== undefined && typeof instanceValue !== 'string') {
           throw new TypeError('Story instance ID must be a string');
@@ -685,7 +727,7 @@ export class StoryRuntime {
             : Object.fromEntries(
                 Object.entries(instruction.arguments).map(([key, expression]) => [
                   key,
-                  evaluateExpression(expression, this.readVariable),
+                  evaluateExpression(expression, this.readVariable, this.readEventOutput),
                 ]),
               );
         const request: StoryControlRequest = {
@@ -723,7 +765,7 @@ export class StoryRuntime {
         const values = Object.fromEntries(
           Object.entries(instruction.values).map(([outputId, expression]) => [
             outputId,
-            evaluateExpression(expression, this.readVariable),
+            evaluateExpression(expression, this.readVariable, this.readEventOutput),
           ]),
         );
         const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
@@ -756,14 +798,17 @@ export class StoryRuntime {
         this.currentState.pending = undefined;
         this.currentState.status = 'completed';
         return this.completed();
-      default:
+      default: {
+        // Keep a runtime guard for malformed programs even though RuntimeInstruction is exhaustive.
+        const unsupported = instruction as RuntimeInstruction;
         return this.fail({
           code: 'UNSUPPORTED_INSTRUCTION',
           severity: 'error',
-          message: `Instruction ${instruction.op} is not supported by the core runtime yet`,
+          message: `Instruction ${unsupported.op} is not supported by the core runtime yet`,
           location: this.location(),
-          instructionId: instruction.id,
+          instructionId: unsupported.id,
         });
+      }
     }
   }
 
@@ -782,6 +827,7 @@ export class StoryRuntime {
             this.locale,
             this.program.localeFallbacks,
             this.program.sourceLocale,
+            this.readEventOutput,
           ),
           voice: instruction.voice,
           emotion: instruction.emotion,
@@ -789,6 +835,9 @@ export class StoryRuntime {
           tags: instruction.tags,
         },
       };
+    }
+    if (this.currentState.pending?.kind === 'narration' && instruction?.op === 'narration') {
+      return { kind: 'narration', request: this.narrationRequest(instruction) };
     }
     if (this.currentState.pending?.kind === 'ink-dialogue' && instruction?.op === 'ink-block') {
       return {
@@ -856,11 +905,27 @@ export class StoryRuntime {
         arguments: Object.fromEntries(
           Object.entries(instruction.arguments).map(([name, expression]) => [
             name,
-            evaluateExpression(expression, this.readVariable),
+            evaluateExpression(expression, this.readVariable, this.readEventOutput),
           ]),
         ),
         outputs: instruction.outputs,
       },
+    };
+  }
+
+  private narrationRequest(instruction: NarrationInstruction): NarrationRequest {
+    return {
+      requestId: instruction.id,
+      textId: instruction.text.id,
+      defaultText: renderTextTemplate(
+        instruction.text,
+        this.readVariable,
+        this.locale,
+        this.program.localeFallbacks,
+        this.program.sourceLocale,
+        this.readEventOutput,
+      ),
+      voice: instruction.voice,
     };
   }
 
@@ -878,6 +943,7 @@ export class StoryRuntime {
               this.locale,
               this.program.localeFallbacks,
               this.program.sourceLocale,
+              this.readEventOutput,
             )
           : undefined,
         options: options.map((option) => ({
@@ -897,6 +963,7 @@ export class StoryRuntime {
       this.locale,
       this.program.localeFallbacks,
       this.program.sourceLocale,
+      this.readEventOutput,
     );
   }
 
@@ -905,6 +972,14 @@ export class StoryRuntime {
     if (frame && id in frame.locals) return frame.locals[id];
     if (!(id in this.currentState.storyVariables)) throw new TypeError(`Missing variable ${id}`);
     return this.currentState.storyVariables[id];
+  };
+
+  private readonly readEventOutput = (instructionId: string, outputId: string): RuntimeValue => {
+    const outputs = this.currentState.eventOutputs?.[instructionId];
+    if (!outputs || !(outputId in outputs)) {
+      throw new TypeError(`External Function output ${outputId} is not available`);
+    }
+    return outputs[outputId]!;
   };
 
   private writeVariable(id: VariableId, value: RuntimeValue): void {
@@ -948,6 +1023,26 @@ export class StoryRuntime {
         definition,
         'Runtime state variable',
       );
+    }
+    if (state.eventOutputs !== undefined) {
+      for (const [instructionId, outputs] of Object.entries(state.eventOutputs)) {
+        if (outputs === null || typeof outputs !== 'object' || Array.isArray(outputs)) {
+          throw new TypeError(`Runtime state contains invalid Event outputs for ${instructionId}`);
+        }
+        const instruction = Object.values(this.program.blocks)
+          .flatMap((block) => block.instructions)
+          .find((candidate) => candidate.id === instructionId);
+        if (!instruction || instruction.op !== 'call-event') {
+          throw new TypeError(`Runtime state references unknown Event instruction ${instructionId}`);
+        }
+        for (const [outputId, value] of Object.entries(outputs)) {
+          const output = instruction.outputs.find((candidate) => candidate.id === outputId);
+          if (!output) throw new TypeError(`Runtime state references unknown Event output ${outputId}`);
+          if (!runtimeValueMatchesType(value, output.valueType)) {
+            throw new TypeError(`Runtime state Event output ${output.name} has an invalid type`);
+          }
+        }
+      }
     }
     for (const frame of state.callStack) {
       const chapter = this.program.chapters[frame.chapterId];

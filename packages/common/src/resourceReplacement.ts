@@ -217,6 +217,14 @@ function transformStoryResourceReferences(
           });
           return lines === data.lines ? node : { ...node, data: { ...data, lines } };
         }
+        if (node.type === StoryNodeType.Narration) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Narration];
+          if (kind !== 'asset' || data.voiceId !== fromId) return node;
+          count += 1;
+          if (toId) return { ...node, data: { ...data, voiceId: toId as typeof data.voiceId } };
+          const { voiceId: _voiceId, ...cleared } = data;
+          return { ...node, data: cleared };
+        }
         if (node.type === StoryNodeType.SetVariable) {
           const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.SetVariable];
           const value = replaceExpression(

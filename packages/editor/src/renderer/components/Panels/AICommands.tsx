@@ -146,6 +146,13 @@ function compactAISnapshot(snapshot: StorySemanticSnapshot): StorySemanticSnapsh
             },
           };
         }
+        if (node.type === StoryNodeType.Narration) {
+          const data = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+          return {
+            ...node,
+            data: { ...data, text: { ...data.text, source: compactAIValue(data.text.source) } },
+          };
+        }
         if (node.type === StoryNodeType.Choice) {
           const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
           return {
@@ -208,6 +215,8 @@ function nodeSummary(
   let content = '';
   if (node.type === StoryNodeType.Dialogue) {
     content = (node.data as StoryNodeDataMap[StoryNodeType.Dialogue]).lines[0]?.text.source ?? '';
+  } else if (node.type === StoryNodeType.Narration) {
+    content = (node.data as StoryNodeDataMap[StoryNodeType.Narration]).text.source;
   } else if (node.type === StoryNodeType.InkBlock) {
     const ink = node.data as StoryNodeDataMap[StoryNodeType.InkBlock];
     content = ink.sourceMode === 'embedded' ? ink.source : `[Linked Ink: ${ink.path}]`;
@@ -428,8 +437,8 @@ function aiContext(
       'Use the Node Catalog for add-node data and port IDs; ports are always derived by the editor.',
       'IMPORTANT TEXT SHAPES: add-node data uses { "source": "text" } as shown in the Node Catalog, but add-dialogue-line, update-dialogue-line, add-choice-option, and update-choice-option use a plain string for text.',
       'TEXT QUOTES: Do not wrap ordinary dialogue or narration in ASCII double quotes. Use the exact player-facing text; use Chinese 「」 or “ ” for quotations. If an ASCII quote is necessary inside text, JSON-escape it as \\".',
-      "DIALOGUE SEMANTICS: A line with speakerId is only that character's spoken words, without quotation marks or narration. Narration, actions, and scene description must be separate lines without speakerId. Split mixed prose such as `I entered. 「Hello.」` into a narration line and a spoken line.",
-      'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narrator; only genuine narration, action, inner thought, or scene description may omit speakerId.',
+      "DIALOGUE SEMANTICS: A Dialogue Line with speakerId is only that character's spoken words, without quotation marks or narration. Use a standalone Narration node for narration, action, inner thought, and scene description. Split mixed prose such as `I entered. 「Hello.」` into a Narration node and a spoken Dialogue node.",
+      'SPEAKER RESOLUTION: For direct speech without a source speaker, bind an existing Character only when surrounding text makes the identity unambiguous. If the text clearly introduces a new temporary role (for example, a guard or clerk), propose one transaction with add-character (stable c_ ID, minimal definition, optional temporary tag) followed by the dialogue line binding. If identity remains ambiguous, ask the author. Never silently reclassify unassigned direct speech as Narration; only genuine narration, action, inner thought, or scene description belongs in a Narration node.',
       'NOVEL ADAPTATION: When the author supplies a novel or long-form prose and asks for a Galgame adaptation, preserve the source rather than summarizing it. Keep every scene beat, spoken line, narration, action, thought, pause, description, order, and pacing. Do not invent choices or gameplay actions, and do not reduce operation count by collapsing content. If the source is too large, propose explicit sequential batches with a covered range and continuation point; never silently omit or summarize the unprocessed range.',
       toolsEnabled
         ? 'READ-ONLY CONTEXT TOOLS: If this manifest is insufficient, return command:null and toolRequest:{name,arguments}. Available tools: story.search {query}, story.get_nodes {ids:string[]}, story.get_characters {ids:string[]}, story.get_graph {graphId:"root"|chapterId}, story.validate_command {command}. After receiving a tool result, answer the original request. Tools never modify the Story.'

@@ -3,6 +3,7 @@ import { type CSSProperties } from 'react';
 import type { GetVariableNodeData, SetVariableNodeData, ValueType } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { expressionToTextTemplate } from '../Panels/expressionAuthoring';
+import { valueTypeColor } from '../../graph/valueTypeColors';
 import styles from './Node.module.css';
 
 const variableStyle = {
@@ -56,21 +57,27 @@ export function GetVariableNode({ data }: NodeProps) {
               <span>{field.displayName}</span>
               <em>{field.valueType.kind}</em>
               <Handle
-                className={`${styles.dataHandle} ${styles.dataHandleOutput}`}
+                className={`${styles.dataHandle} ${styles.variableDataHandle} ${styles.dataHandleOutput}`}
                 type="source"
                 position={Position.Right}
                 id={`field:${field.fieldId}`}
+                style={{ '--data-pin-color': valueTypeColor(field.valueType) } as CSSProperties}
               />
             </div>
           ))}
         </div>
       )}
       <Handle
-        className={`${styles.dataHandle} ${styles.dataHandleOutput}`}
+        className={`${styles.dataHandle} ${styles.variableDataHandle} ${styles.dataHandleOutput}`}
         type="source"
         position={Position.Right}
         id="value"
-        style={{ top: (d.exposedFields?.length ?? 0) > 0 ? 54 : '50%' }}
+        style={
+          {
+            top: (d.exposedFields?.length ?? 0) > 0 ? 54 : '50%',
+            '--data-pin-color': valueTypeColor(d.outputValueType),
+          } as CSSProperties
+        }
       />
     </div>
   );
@@ -136,10 +143,11 @@ export function SetVariableNode({ data }: NodeProps) {
         {d.containerOperation === 'set-entry' && (
           <div className={styles.dataInputRow}>
             <Handle
-              className={`${styles.dataHandle} ${styles.dataHandleInput}`}
+              className={`${styles.dataHandle} ${styles.variableDataHandle} ${styles.dataHandleInput}`}
               type="target"
               position={Position.Left}
               id="key"
+              style={{ '--data-pin-color': valueTypeColor(keyContract) } as CSSProperties}
             />
             <b>Key</b>
             <span className={styles.expression}>{d.key?.source || 'key'}</span>
@@ -148,10 +156,11 @@ export function SetVariableNode({ data }: NodeProps) {
         )}
         <div className={styles.dataInputRow}>
           <Handle
-            className={`${styles.dataHandle} ${styles.dataHandleInput}`}
+            className={`${styles.dataHandle} ${styles.variableDataHandle} ${styles.dataHandleInput}`}
             type="target"
             position={Position.Left}
             id="value"
+            style={{ '--data-pin-color': valueTypeColor(valueContract) } as CSSProperties}
           />
           <b>
             {d.containerOperation === 'append'

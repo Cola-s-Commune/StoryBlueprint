@@ -25,11 +25,21 @@ import type {
   ValueType,
   VariableDefinition,
 } from '@story-blueprint/common';
+import {
+  conditionTreeToExpression,
+  ConditionConversionError,
+  expressionToConditionTree,
+} from '@story-blueprint/compiler';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import type { StoryResourceReference } from '../../graph/resourceReferences';
+import {
+  bindCharacterFieldExpression,
+  bindVariableExpression,
+} from '../../graph/variableReferences';
 import { writeStoryDataDrag } from '../../graph/storyDataDrag';
 import { CopyButton } from './CopyButton';
 import { CommitTextarea } from './CommitTextarea';
+import { ExpressionField } from './ExpressionField';
 import { matchesCharacterSearch } from './storyDataSearch';
 import { BUILTIN_CHARACTER_TEMPLATES, updateCharacterTags } from '../../graph/characterManagement';
 import panelStyles from './Panel.module.css';
@@ -5474,7 +5484,24 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
     availableVariables,
     projectVariables,
     characters,
+    checkpoint,
   } = useStoryGraphStore();
+  const [mode, setMode] = useState<'tree' | 'expression'>('tree');
+  const [conversionError, setConversionError] = useState<string>();
+  useEffect(() => {
+    setMode('tree');
+    setConversionError(undefined);
+  }, [condition.id]);
+  const expressionVariables = useMemo(() => {
+    const variables = new Map<string, VariableDefinition>();
+    for (const variable of [...availableVariables, ...projectVariables]) {
+      variables.set(variable.id, variable);
+    }
+    for (const character of characters) {
+      for (const field of character.fields ?? []) variables.set(field.id, field);
+    }
+    return [...variables.values()];
+  }, [availableVariables, characters, projectVariables]);
   const booleanVariables = useMemo(() => {
     const options = new Map<string, { name: string; displayName: string }>();
     for (const variable of [...availableVariables, ...projectVariables]) {
@@ -5499,6 +5526,44 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
   const duplicate = conditions.some(
     (candidate) => candidate.id !== condition.id && candidate.name === condition.name,
   );
+  const expressionRoot = condition.root.kind === 'expression' ? condition.root : undefined;
+  const switchMode = (nextMode: 'tree' | 'expression') => {
+    if (nextMode === mode) return;
+    try {
+      if (nextMode === 'expression') {
+        const expression = conditionTreeToExpression(
+          condition.root,
+          expressionVariables,
+          characters,
+        );
+        updateCondition(condition.id, {
+          root: { kind: 'expression', expression },
+        });
+      } else {
+        if (condition.root.kind !== 'expression') {
+          setMode('tree');
+          setConversionError(undefined);
+          return;
+        }
+        const root = expressionToConditionTree(
+          condition.root.expression,
+          expressionVariables,
+          characters,
+        );
+        updateCondition(condition.id, { root });
+      }
+      setMode(nextMode);
+      setConversionError(undefined);
+    } catch (error) {
+      setConversionError(
+        error instanceof ConditionConversionError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      );
+    }
+  };
   return (
     <div
       className={styles.details}
@@ -5533,14 +5598,62 @@ function ConditionEditor({ condition }: { condition: ConditionSource }) {
         }
       />
       <div className={styles.conditionTreeSection}>
-        <div className={styles.conditionTreeTitle}>Condition Tree</div>
-        <ConditionTreeEditor
-          node={condition.root}
-          ownerId={condition.id}
-          conditions={conditions}
-          booleanVariables={booleanVariables}
-          onChange={(root) => updateCondition(condition.id, { root })}
-        />
+        <div className={styles.conditionTreeHeader}>
+          <div className={styles.conditionTreeTitle}>Condition</div>
+          <div
+            className={styles.conditionMode}
+            role="tablist"
+            aria-label="Condition authoring mode"
+          >
+            <button
+              type="button"
+              className={mode === 'tree' ? styles.conditionModeActive : undefined}
+              role="tab"
+              aria-selected={mode === 'tree'}
+              onClick={() => switchMode('tree')}
+            >
+              Tree
+            </button>
+            <button
+              type="button"
+              className={mode === 'expression' ? styles.conditionModeActive : undefined}
+              role="tab"
+              aria-selected={mode === 'expression'}
+              onClick={() => switchMode('expression')}
+            >
+              Expression
+            </button>
+          </div>
+        </div>
+        {mode === 'expression' && expressionRoot ? (
+          <ExpressionField
+            label="Boolean Expression"
+            value={expressionRoot.expression.source}
+            multiline
+            expectedType={{ kind: 'boolean' }}
+            bindings={expressionRoot.expression.bindings}
+            onBeginEdit={checkpoint}
+            onChange={(source) => {
+              const expression = bindCharacterFieldExpression(
+                bindVariableExpression(
+                  { ...expressionRoot.expression, source },
+                  expressionVariables,
+                ),
+                characters,
+              );
+              updateCondition(condition.id, { root: { kind: 'expression', expression } });
+            }}
+          />
+        ) : (
+          <ConditionTreeEditor
+            node={condition.root}
+            ownerId={condition.id}
+            conditions={conditions}
+            booleanVariables={booleanVariables}
+            onChange={(root) => updateCondition(condition.id, { root })}
+          />
+        )}
+        {conversionError && <div className={styles.warning}>{conversionError}</div>}
       </div>
       {workspaceError && <div className={styles.warning}>{workspaceError}</div>}
       <ConfirmDeleteButton
@@ -5967,29 +6080,37 @@ export function StoryData() {
                   key={variable.id}
                   className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
                   draggable
+                  title="Drag to create a Set Variable node"
                   onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
                   onDragStart={(event) =>
-                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' })
                   }
                 >
+                  <span
+                    className={styles.variableDragHandle}
+                    title="Drag variable"
+                    aria-hidden="true"
+                  >
+                    ⠿
+                  </span>
                   <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
                   <span className={styles.itemName}>{variable.name}</span>
                   <span className={styles.itemType}>{variable.valueType.kind}</span>
                   <span
-                    className={styles.setDrag}
+                    className={styles.getDrag}
                     draggable
-                    title="Drag to create Set Variable"
+                    title="Drag to create Get Variable"
                     onClick={(event) => event.stopPropagation()}
                     onDragStart={(event) => {
                       event.stopPropagation();
                       writeStoryDataDrag(event, {
                         kind: 'variable',
                         id: variable.id,
-                        action: 'set',
+                        action: 'get',
                       });
                     }}
                   >
-                    S
+                    G
                   </span>
                 </div>
               ))}
@@ -6022,29 +6143,37 @@ export function StoryData() {
                   key={variable.id}
                   className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
                   draggable
+                  title="Drag to create a Set Variable node"
                   onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
                   onDragStart={(event) =>
-                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' })
                   }
                 >
+                  <span
+                    className={styles.variableDragHandle}
+                    title="Drag variable"
+                    aria-hidden="true"
+                  >
+                    ⠿
+                  </span>
                   <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
                   <span className={styles.itemName}>{variable.name}</span>
                   <span className={styles.itemType}>{variable.valueType.kind}</span>
                   <span
-                    className={styles.setDrag}
+                    className={styles.getDrag}
                     draggable
-                    title="Drag to create Set Variable"
+                    title="Drag to create Get Variable"
                     onClick={(event) => event.stopPropagation()}
                     onDragStart={(event) => {
                       event.stopPropagation();
                       writeStoryDataDrag(event, {
                         kind: 'variable',
                         id: variable.id,
-                        action: 'set',
+                        action: 'get',
                       });
                     }}
                   >
-                    S
+                    G
                   </span>
                 </div>
               ))}
@@ -6076,25 +6205,33 @@ export function StoryData() {
                 key={variable.id}
                 className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
                 draggable
+                title="Drag to create a Set Variable node"
                 onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
                 onDragStart={(event) =>
-                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' })
                 }
               >
+                <span
+                  className={styles.variableDragHandle}
+                  title="Drag variable"
+                  aria-hidden="true"
+                >
+                  ⠿
+                </span>
                 <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
                 <span className={styles.itemName}>{variable.name}</span>
                 <span className={styles.itemType}>{variable.valueType.kind}</span>
                 <span
-                  className={styles.setDrag}
+                  className={styles.getDrag}
                   draggable
-                  title="Drag to create Set Variable"
+                  title="Drag to create Get Variable"
                   onClick={(event) => event.stopPropagation()}
                   onDragStart={(event) => {
                     event.stopPropagation();
-                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' });
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' });
                   }}
                 >
-                  S
+                  G
                 </span>
               </div>
             ))}
@@ -6184,25 +6321,33 @@ export function StoryData() {
                 key={variable.id}
                 className={`${styles.item} ${storyDataSelection?.kind === 'variable' && storyDataSelection.id === variable.id ? styles.selected : ''}`}
                 draggable
+                title="Drag to create a Set Variable node"
                 onClick={() => selectStoryData({ kind: 'variable', id: variable.id })}
                 onDragStart={(event) =>
-                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' })
+                  writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' })
                 }
               >
+                <span
+                  className={styles.variableDragHandle}
+                  title="Drag variable"
+                  aria-hidden="true"
+                >
+                  ⠿
+                </span>
                 <span className={`${styles.typeDot} ${styles[variable.valueType.kind]}`} />
                 <span className={styles.itemName}>{variable.name}</span>
                 <span className={styles.itemType}>{variable.valueType.kind}</span>
                 <span
-                  className={styles.setDrag}
+                  className={styles.getDrag}
                   draggable
-                  title="Drag to create Set Variable"
+                  title="Drag to create Get Variable"
                   onClick={(event) => event.stopPropagation()}
                   onDragStart={(event) => {
                     event.stopPropagation();
-                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'set' });
+                    writeStoryDataDrag(event, { kind: 'variable', id: variable.id, action: 'get' });
                   }}
                 >
-                  S
+                  G
                 </span>
               </div>
             ))}

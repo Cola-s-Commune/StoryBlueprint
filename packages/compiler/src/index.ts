@@ -17,5 +17,10 @@ export {
   compileExpression,
   compileTextTemplate,
 } from './expressionCompiler';
+export {
+  ConditionConversionError,
+  conditionTreeToExpression,
+  expressionToConditionTree,
+} from './conditionConversion';
 export { DefaultStoryCompiler, compileStory } from './storyCompiler';
 export { DefaultProjectCompiler, compileProject } from './projectCompiler';

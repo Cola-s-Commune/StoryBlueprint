@@ -61,10 +61,51 @@ import {
   type StorySearchEntry,
 } from '../../graph/storySearch';
 import { CopyButton } from './CopyButton';
+import { valueTypeColors } from '../../graph/valueTypeColors';
 import styles from './StoryGraph.module.css';
 
-function toGraphNodes(nodes: readonly EditorGraphNode[]): GraphNodeLike[] {
-  return nodes.map((node) => ({ id: node.id, type: node.type, data: node.data }));
+function toGraphNodes(
+  nodes: readonly EditorGraphNode[],
+  events: readonly {
+    id: string;
+    parameters: readonly { name: string; valueType: import('@story-blueprint/common').ValueType }[];
+    outputs?: readonly {
+      id: string;
+      displayName: string;
+      valueType: import('@story-blueprint/common').ValueType;
+    }[];
+  }[] = [],
+): GraphNodeLike[] {
+  return nodes.map((node) => {
+    if (node.type !== StoryNodeType.CallEvent) return { id: node.id, type: node.type, data: node.data };
+    const data = node.data as typeof node.data & {
+      eventId?: string;
+      outputPorts?: readonly { id: string; label: string; valueType: import('@story-blueprint/common').ValueType }[];
+    };
+    const event = events.find((candidate) => candidate.id === data.eventId);
+    if (!event) return { id: node.id, type: node.type, data: node.data };
+    return {
+      id: node.id,
+      type: node.type,
+      data: event
+        ? {
+            ...node.data,
+            ...(data.outputPorts === undefined
+              ? {
+                  outputPorts: (event.outputs ?? []).map((output) => ({
+                    id: output.id,
+                    label: output.displayName,
+                    valueType: output.valueType,
+                  })),
+                }
+              : {}),
+            argumentInputTypes: Object.fromEntries(
+              event.parameters.map((parameter) => [parameter.name, parameter.valueType]),
+            ),
+          }
+        : node.data,
+    };
+  });
 }
 
 function toGraphEdges(edges: readonly EditorGraphEdge[]): GraphEdgeLike[] {
@@ -84,20 +125,38 @@ function mergeValueText(value: unknown, present: boolean): string {
 }
 
 function isExecutionEdge(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): boolean {
-  const source = nodes.find((node) => node.id === edge.source);
-  if (!source) return false;
-  const sourcePort = resolveNodePorts({
-    id: source.id,
-    type: source.type,
-    data: source.data,
-  }).ports.find((port) => port.id === edge.sourceHandle);
+  const sourcePort = sourcePortForEdge(edge, nodes);
   return sourcePort?.direction === 'output' && sourcePort.kind === 'execution';
 }
 
-function replacesExistingExecutionEdge(
+function sourcePortForEdge(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]) {
+  const source = nodes.find((node) => node.id === edge.source);
+  if (!source) return undefined;
+  return resolveNodePorts({ id: source.id, type: source.type, data: source.data }).ports.find(
+    (port) => port.id === edge.sourceHandle && port.direction === 'output',
+  );
+}
+
+const edgeTypeColors: Record<string, string> = {
+  execution: '#aeb7c4',
+  ...valueTypeColors,
+};
+
+function edgeStroke(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): string {
+  const port = sourcePortForEdge(edge, nodes);
+  if (!port) return (edge.style?.stroke as string | undefined) ?? edgeTypeColors.execution!;
+  if (port.kind === 'execution') return edgeTypeColors.execution!;
+  return edgeTypeColors[port.valueType?.kind ?? 'any'] ?? edgeTypeColors.any!;
+}
+
+function replacesOccupiedConnection(
   result: ReturnType<typeof validateGraphConnection>,
 ): boolean {
-  return !result.valid && result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED';
+  return (
+    !result.valid &&
+    (result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED' ||
+      result.diagnostic.code === 'INPUT_ALREADY_CONNECTED')
+  );
 }
 
 function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -240,16 +299,16 @@ export function StoryGraph() {
           target: connection.target,
           targetPortId: connection.targetHandle ?? null,
         },
-        toGraphNodes(nodes),
+        toGraphNodes(nodes, events),
         toGraphEdges(edges),
       ),
-    [edges, nodes],
+    [edges, events, nodes],
   );
 
   const isValidConnection = useCallback(
     (connection: Connection | Edge) => {
       const result = validateConnection(connection);
-      return result.valid || replacesExistingExecutionEdge(result);
+      return result.valid || replacesOccupiedConnection(result);
     },
     [validateConnection],
   );
@@ -257,7 +316,7 @@ export function StoryGraph() {
   const onConnect = useCallback(
     (connection: Connection) => {
       const result = validateConnection(connection);
-      const replacesExisting = replacesExistingExecutionEdge(result);
+      const replacesExisting = replacesOccupiedConnection(result);
       if (
         (!result.valid && !replacesExisting) ||
         !connection.sourceHandle ||
@@ -271,13 +330,50 @@ export function StoryGraph() {
 
       checkpoint(undefined, 'Connect Nodes');
       setConnectionError(null);
+      if (connection.sourceHandle.startsWith('output:')) {
+        const sourceNode = nodes.find((node) => node.id === connection.source);
+        if (sourceNode?.type === StoryNodeType.CallEvent) {
+          const call = sourceNode.data as typeof sourceNode.data & {
+            eventId?: string;
+            outputPorts?: readonly unknown[];
+          };
+          const event = events.find((candidate) => candidate.id === call.eventId);
+          if (event && call.outputPorts === undefined) {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === sourceNode.id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        outputPorts: (event.outputs ?? []).map((output) => ({
+                          id: output.id,
+                          label: output.displayName,
+                          valueType: output.valueType,
+                        })),
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }
+        }
+      }
       setEdges((currentEdges) => {
-        const availableEdges = replacesExisting
-          ? currentEdges.filter(
-              (edge) =>
-                edge.source !== connection.source || edge.sourceHandle !== connection.sourceHandle,
-            )
-          : currentEdges;
+        const availableEdges =
+          !replacesExisting || result.valid
+            ? currentEdges
+            : result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED'
+              ? currentEdges.filter(
+                  (edge) =>
+                    edge.source !== connection.source ||
+                    edge.sourceHandle !== connection.sourceHandle,
+                )
+              : currentEdges.filter(
+                  (edge) =>
+                    edge.target !== connection.target ||
+                    edge.targetHandle !== connection.targetHandle,
+                );
         return addEdge(
           {
             ...connection,
@@ -292,7 +388,7 @@ export function StoryGraph() {
       });
       markDirty();
     },
-    [checkpoint, markDirty, setEdges, validateConnection],
+    [checkpoint, events, markDirty, nodes, setEdges, setNodes, validateConnection],
   );
 
   const onConnectEnd = useCallback<OnConnectEnd>(
@@ -308,7 +404,7 @@ export function StoryGraph() {
         target: targetHandle.nodeId,
         targetHandle: targetHandle.id ?? null,
       });
-      if (!result.valid && !replacesExistingExecutionEdge(result)) {
+      if (!result.valid && !replacesOccupiedConnection(result)) {
         setConnectionError(result.diagnostic.message);
       }
     },
@@ -348,7 +444,7 @@ export function StoryGraph() {
       if (mergePreviewActive) return;
       if (!flowInstance || !canvasRef.current) return;
       const actualEdge = edges.find((candidate) => candidate.id === edge.id);
-      if (!actualEdge || !isExecutionEdge(actualEdge, nodes)) return;
+      if (!actualEdge) return;
       const bounds = canvasRef.current.getBoundingClientRect();
       const maxHeight = Math.max(48, Math.min(150, bounds.height - 8));
       setContextMenu({
@@ -635,14 +731,25 @@ export function StoryGraph() {
 
   const insertReroute = useCallback(
     (edge: EditorGraphEdge, position: { x: number; y: number }) => {
-      if (!isExecutionEdge(edge, nodes)) return;
+      const sourcePort = sourcePortForEdge(edge, nodes);
+      if (!sourcePort) return;
       const instance = NodeFactory.create(
         NodeFactory.generateId(StoryNodeType.Reroute),
         StoryNodeType.Reroute,
         { x: Math.round(position.x - 7), y: Math.round(position.y - 7) },
       );
       if (!instance) return;
-      const reroute = { ...toEditorGraphNode(instance), selected: true };
+      const reroute = {
+        ...toEditorGraphNode(instance),
+        data:
+          sourcePort.kind === 'data'
+            ? {
+                kind: 'data' as const,
+                valueType: sourcePort.valueType ?? { kind: 'any' as const },
+              }
+            : {},
+        selected: true,
+      };
       checkpoint(undefined, 'Insert Reroute');
       setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), reroute]);
       setEdges((current) => [
@@ -1120,9 +1227,13 @@ export function StoryGraph() {
         .filter(Boolean)
         .join(' ');
       const normalizedClassName = className || undefined;
-      return edge.className === normalizedClassName
+      const stroke = edgeStroke(edge, canvasNodes);
+      const style = { ...edge.style, stroke, strokeWidth: edge.style?.strokeWidth ?? 2.25 };
+      return edge.className === normalizedClassName &&
+        edge.style?.stroke === stroke &&
+        edge.style?.strokeWidth === style.strokeWidth
         ? edge
-        : { ...edge, className: normalizedClassName };
+        : { ...edge, className: normalizedClassName, style };
     });
   }, [activeMergePreview, canvasEdges, canvasNodes]);
   const selectedMergeConflicts = useMemo(() => {
@@ -1374,6 +1485,11 @@ export function StoryGraph() {
                   },
                 ]),
               ),
+              outputPorts: (definition?.outputs ?? []).map((output) => ({
+                id: output.id,
+                label: output.displayName,
+                valueType: output.valueType,
+              })),
             });
           } else if (payload.kind === 'signal') {
             addNode(StoryNodeType.WaitSignal, position, { signalId: payload.id, matches: {} });
@@ -1458,7 +1574,7 @@ export function StoryGraph() {
           onEdgeContextMenu={openEdgeContextMenu}
           onEdgeDoubleClick={(event, edge) => {
             const actualEdge = edges.find((candidate) => candidate.id === edge.id);
-            if (!actualEdge || !flowInstance || !isExecutionEdge(actualEdge, nodes)) return;
+            if (!actualEdge || !flowInstance) return;
             event.preventDefault();
             insertReroute(
               actualEdge,
@@ -1624,7 +1740,9 @@ export function StoryGraph() {
               </strong>
               <span>
                 {aiProposal.origin.startsWith('ink') && inkImportReport?.summary
-                  ? `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
+                  ? inkImportReport.summary.mode === 'ink-block-fallback'
+                    ? 'The complete Ink source will be preserved as one embedded Ink Block. It remains editable and runnable as Ink. Move the block, then Apply or Discard.'
+                    : `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.narrationNodes} Narration · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
                   : 'Move the green nodes, then Apply or Discard. Story is unchanged.'}
               </span>
             </div>
@@ -2046,10 +2164,12 @@ export function StoryGraph() {
                   <span className={styles.contextMenuColor} style={{ background: '#8d99a8' }} />
                   Insert Reroute
                 </button>
-                <button type="button" onClick={() => convertEdgeToPortal(contextMenu.edge!)}>
-                  <span className={styles.contextMenuColor} style={{ background: '#38a6a5' }} />
-                  Convert to Flow Portal
-                </button>
+                {isExecutionEdge(contextMenu.edge, nodes) && (
+                  <button type="button" onClick={() => convertEdgeToPortal(contextMenu.edge!)}>
+                    <span className={styles.contextMenuColor} style={{ background: '#38a6a5' }} />
+                    Convert to Flow Portal
+                  </button>
+                )}
               </>
             ) : (
               <>

@@ -703,12 +703,27 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
   },
 } as const;
 
-/** Exact authoring examples for add-node data. Ports are derived and must never be sent in a command. */
+/** Exact authoring examples for add-node data. Ports are derived from node data and project resources. */
 export const BLUEPRINT_NODE_CATALOG = [
   { type: StoryNodeType.Start, data: { title: 'New Story' }, inputPorts: [], outputPorts: ['out'] },
   {
     type: StoryNodeType.Dialogue,
-    data: { lines: [{ id: 'ln_new_line', textId: 't_new_text', text: { source: 'Hello' } }] },
+    data: {
+      lines: [
+        {
+          id: 'ln_new_line',
+          textId: 't_new_text',
+          text: { source: 'Hello' },
+          speakerId: 'c_existing',
+        },
+      ],
+    },
+    inputPorts: ['in'],
+    outputPorts: ['out'],
+  },
+  {
+    type: StoryNodeType.Narration,
+    data: { textId: 't_new_narration', text: { source: 'The room falls silent.' } },
     inputPorts: ['in'],
     outputPorts: ['out'],
   },
@@ -754,7 +769,7 @@ export const BLUEPRINT_NODE_CATALOG = [
     type: StoryNodeType.CallEvent,
     data: { eventId: 'ev_existing', arguments: {} },
     inputPorts: ['in'],
-    outputPorts: ['out'],
+    outputPorts: ['out', 'output:<eventOutputId>'],
   },
   {
     type: StoryNodeType.WaitSignal,

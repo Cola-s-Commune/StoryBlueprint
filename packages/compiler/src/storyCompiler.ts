@@ -10,7 +10,9 @@ import {
   isStableId,
   parseInkDialogueMetadata,
   runtimeValueMatchesType,
+  resolveNodePorts,
   stripEngineObjectTypeMarkers,
+  valueTypesCompatible,
   type BlockId,
   type BranchNodeData,
   type CallSubstoryNodeData,
@@ -24,6 +26,7 @@ import {
   type ConditionSource,
   type ConditionTreeNode,
   type DialogueNodeData,
+  type NarrationNodeData,
   type ExpressionSource,
   type InkBlockNodeData,
   type FlowJumpNodeData,
@@ -128,33 +131,7 @@ function compileOpaqueJson(
 }
 
 function valueTypesMatch(actual: ValueType, expected: ValueType): boolean {
-  if (actual.kind === 'any' || expected.kind === 'any') return true;
-  if (actual.kind !== expected.kind) return false;
-  if (actual.kind === 'json' && expected.kind === 'json') return actual.name === expected.name;
-  if (actual.kind === 'array' && expected.kind === 'array')
-    return (
-      !expected.elementType ||
-      !actual.elementType ||
-      valueTypesMatch(actual.elementType, expected.elementType)
-    );
-  if (actual.kind === 'map' && expected.kind === 'map')
-    return (
-      (!expected.keyType || !actual.keyType || actual.keyType === expected.keyType) &&
-      (!expected.valueType ||
-        !actual.valueType ||
-        valueTypesMatch(actual.valueType, expected.valueType))
-    );
-  if (actual.kind === 'struct' && expected.kind === 'struct') {
-    const expectedFields = Object.entries(expected.fields);
-    return (
-      actual.name === expected.name &&
-      expectedFields.every(([name, expectedType]) => {
-        const actualType = actual.fields[name];
-        return Boolean(actualType && valueTypesMatch(actualType, expectedType));
-      })
-    );
-  }
-  return true;
+  return valueTypesCompatible(actual, expected);
 }
 
 function compileAuthoredValue(
@@ -287,6 +264,8 @@ export class DefaultStoryCompiler implements StoryCompiler {
         if (node.type === StoryNodeType.Dialogue) {
           for (const line of (node.data as unknown as DialogueNodeData).lines)
             usedTextIds.add(line.textId);
+        } else if (node.type === StoryNodeType.Narration) {
+          usedTextIds.add((node.data as unknown as NarrationNodeData).textId);
         } else if (node.type === StoryNodeType.Choice) {
           const choice = node.data as unknown as ChoiceNodeData;
           if (choice.prompt) usedTextIds.add(choicePromptTextId(node.id));
@@ -456,12 +435,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
       const entry = graph.nodes.find((candidate) => candidate.type === StoryNodeType.Start);
       if (entry) pendingReachability.push(entry.id);
       const isExecutionOutput = (node: SourceNode, portId: string): boolean => {
-        if (portId === 'out' || portId === 'true' || portId === 'false') return true;
-        if (node.type === StoryNodeType.Choice) {
-          const options = (node.data as unknown as ChoiceNodeData).options ?? [];
-          return options.some((option) => option.id === portId);
-        }
-        return false;
+        return resolveNodePorts({ id: node.id, type: node.type as StoryNodeType, data: node.data }).ports.some(
+          (port) => port.id === portId && port.direction === 'output' && port.kind === 'execution',
+        );
       };
       while (pendingReachability.length > 0) {
         const nodeId = pendingReachability.shift()!;
@@ -532,11 +508,67 @@ export class DefaultStoryCompiler implements StoryCompiler {
           (candidate) => candidate.to.nodeId === node.id && candidate.to.portId === portId,
         );
         if (!edge) return { connected: false };
-        const sourceNode = nodesById.get(edge.from.nodeId);
+        const resolveDataSource = (
+          nodeId: NodeId,
+          sourcePortId: string,
+          visited = new Set<NodeId>(),
+        ): { node: SourceNode; portId: string } | undefined => {
+          const sourceNode = nodesById.get(nodeId);
+          if (!sourceNode) return undefined;
+          if (sourceNode.type !== StoryNodeType.Reroute) {
+            return { node: sourceNode, portId: sourcePortId };
+          }
+          if (sourcePortId !== 'out' || visited.has(nodeId)) return undefined;
+          visited.add(nodeId);
+          const incoming = graph.edges.find(
+            (candidate) => candidate.to.nodeId === nodeId && candidate.to.portId === 'in',
+          );
+          return incoming
+            ? resolveDataSource(incoming.from.nodeId, incoming.from.portId, visited)
+            : undefined;
+        };
+        const resolvedSource = resolveDataSource(edge.from.nodeId, edge.from.portId);
+        const sourceNode = resolvedSource?.node;
+        const sourcePortId = resolvedSource?.portId ?? edge.from.portId;
+        if (sourceNode?.type === StoryNodeType.CallEvent && sourcePortId.startsWith('output:')) {
+          const outputId = sourcePortId.slice('output:'.length);
+          const call = sourceNode.data as unknown as CallEventNodeData;
+          if (!reachableNodeIds.has(sourceNode.id)) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: 'Call External Function supplying an Out value must be execution-reachable',
+              sourceNodeId: sourceNode.id,
+            });
+            return { connected: true };
+          }
+          const event = call.eventId
+            ? source.events.find((candidate) => candidate.id === call.eventId)
+            : undefined;
+          const output = event?.outputs?.find((candidate) => candidate.id === outputId);
+          if (!event || !output) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Call External Function output ${outputId} is not declared by its Event`,
+              sourceNodeId: sourceNode.id,
+            });
+            return { connected: true };
+          }
+          return {
+            connected: true,
+            value: {
+              kind: 'event-output',
+              instructionId: instructionId(sourceNode.id),
+              outputId: output.id,
+              valueType: output.valueType,
+            },
+          };
+        }
         if (
           !sourceNode ||
           sourceNode.type !== StoryNodeType.GetVariable ||
-          (edge.from.portId !== 'value' && !edge.from.portId.startsWith('field:'))
+          (sourcePortId !== 'value' && !sourcePortId.startsWith('field:'))
         ) {
           diagnostics.push({
             code: 'INVALID_NODE',
@@ -563,12 +595,12 @@ export class DefaultStoryCompiler implements StoryCompiler {
           valueType: variable.valueType,
         };
         const value = compileSafe(sourceNode, () => {
-          if (edge.from.portId.startsWith('field:')) {
-            const fieldId = edge.from.portId.slice('field:'.length);
+          if (sourcePortId.startsWith('field:')) {
+            const fieldId = sourcePortId.slice('field:'.length);
             const field = read.exposedFields?.find((candidate) => candidate.fieldId === fieldId);
             if (!field) {
               throw new ExpressionCompileError(
-                `Get Variable output ${edge.from.portId} no longer exists`,
+                `Get Variable output ${sourcePortId} no longer exists`,
                 0,
               );
             }
@@ -680,6 +712,38 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   tags: line.tags,
                 });
               }
+            }
+            const target = resolveTarget(node.id, 'out');
+            if (target) instructions.push(jump(node, target));
+            else instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            break;
+          }
+          case StoryNodeType.Narration: {
+            const data = node.data as unknown as NarrationNodeData;
+            if (data.voiceId && !source.assets.some((asset) => asset.id === data.voiceId)) {
+              diagnostics.push({
+                code: 'INVALID_NODE',
+                severity: 'error',
+                message: `Narration references missing voice asset ${data.voiceId}`,
+                sourceNodeId: node.id,
+              });
+            }
+            const text = compileSafe(node, () =>
+              compileTextTemplate(
+                data.text,
+                data.textId,
+                visibleVariables,
+                source.characters,
+                translationsFor(data.textId),
+              ),
+            );
+            if (text) {
+              instructions.push({
+                id: instructionId(node.id),
+                op: 'narration',
+                text,
+                voice: data.voiceId ? { default: data.voiceId } : undefined,
+              });
             }
             const target = resolveTarget(node.id, 'out');
             if (target) instructions.push(jump(node, target));

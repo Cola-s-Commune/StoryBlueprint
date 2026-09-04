@@ -60,6 +60,16 @@
   cursor: crosshair !important;
 }
 
+.rerouteData {
+  border-color: #4cc4d3;
+  background: #2c6870;
+}
+
+:global(.react-flow__node.selected) .rerouteData {
+  border-color: #75e0e8;
+  background: #377f88;
+}
+
 .flowNode {
   min-width: 170px;
 }
@@ -336,6 +346,105 @@
   font-weight: 600;
 }
 
+.functionBody {
+  min-width: 300px;
+}
+
+.functionNode .header {
+  min-height: 47px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.functionHeaderText {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.functionKicker {
+  overflow: hidden;
+  color: var(--node-accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.65px;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.functionName {
+  overflow: hidden;
+  color: #edf0f5;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.functionPorts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  padding: 9px 0 8px;
+}
+
+.functionPortColumn {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+
+.functionPortColumn + .functionPortColumn {
+  border-left: 1px solid #303741;
+}
+
+.functionPortRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 29px;
+  padding: 4px 12px 4px 16px;
+  color: #cfd6e0;
+  font-size: 10px;
+}
+
+.functionPortRowOutput {
+  padding-right: 16px;
+  padding-left: 12px;
+  text-align: right;
+}
+
+.functionPortRow > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.functionPortRow em {
+  color: #778396;
+  font-size: 8px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.functionExecHandle {
+  top: 24px !important;
+}
+
+.functionPortEmpty {
+  min-height: 29px;
+  padding: 8px 12px;
+  color: #697587;
+  font-size: 9px;
+  font-style: italic;
+}
+
+.functionPortEmptyOutput {
+  text-align: right;
+}
+
 .interfaceRows {
   display: grid;
   gap: 4px;
@@ -510,11 +619,22 @@
   left: 50%;
   width: 12px;
   height: 12px;
-  border: 2px solid #57cdbc;
+  border: 2px solid var(--data-pin-color, #57cdbc);
   border-radius: 50%;
   background: #20242b;
   content: '';
   transform: translate(-50%, -50%);
+}
+
+.variableDataHandle::after {
+  border-color: var(--data-pin-color, #36b5a3);
+  box-shadow: 0 0 0 1px rgb(20 24 29 / 65%);
+}
+
+.variableDataHandle:hover::after {
+  filter: drop-shadow(
+    0 0 5px color-mix(in srgb, var(--data-pin-color, #36b5a3) 72%, transparent)
+  );
 }
 
 .dataHandleOutput {

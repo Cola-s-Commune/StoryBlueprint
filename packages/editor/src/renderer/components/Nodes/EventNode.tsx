@@ -2,15 +2,23 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { CSSProperties } from 'react';
 import type { CallEventNodeData, WaitSignalNodeData } from '@story-blueprint/common';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { valueTypeColor } from '../../graph/valueTypeColors';
 import styles from './Node.module.css';
 
 export function CallEventNode({ data }: NodeProps) {
   const call = data as unknown as CallEventNodeData;
   const { events } = useStoryGraphStore();
   const event = events.find((candidate) => candidate.id === call.eventId);
+  const outputPorts =
+    call.outputPorts ??
+    (event?.outputs ?? []).map((output) => ({
+      id: output.id,
+      label: output.displayName,
+      valueType: output.valueType,
+    }));
   return (
     <div
-      className={styles.node}
+      className={`${styles.node} ${styles.functionNode}`}
       style={
         {
           '--node-accent': '#d979b5',
@@ -19,52 +27,74 @@ export function CallEventNode({ data }: NodeProps) {
       }
     >
       <div className={styles.header}>
-        <span className={styles.title}>Call External Function</span>
+        <div className={styles.functionHeaderText}>
+          <span className={styles.functionKicker}>Call External Function</span>
+          <strong className={styles.functionName}>
+            {event?.displayName ??
+              (call.eventId ? 'Missing External Function' : 'Select External Function')}
+          </strong>
+        </div>
         <span className={styles.typeIcon}>⚡</span>
       </div>
-      <div className={styles.terminalBody}>
-        <strong>
-          {event?.displayName ??
-            (call.eventId ? 'Missing External Function' : 'Select External Function')}
-        </strong>
-        {(event?.parameters.length ?? 0) > 0 && (
-          <div className={styles.interfaceRows}>
-            {event!.parameters.map((parameter) => (
-              <span key={parameter.name}>
-                <b>IN</b> {parameter.name}
-                <em>{parameter.valueType.kind}</em>
-                <Handle
-                  className={`${styles.handle} ${styles.dataHandle} ${styles.dataHandleInput}`}
-                  type="target"
-                  position={Position.Left}
-                  id={`argument:${parameter.name}`}
-                />
+      <div className={styles.functionBody}>
+        <div className={styles.functionPorts}>
+          <section className={styles.functionPortColumn} aria-label="Function parameters">
+            {(event?.parameters.length ?? 0) > 0 ? (
+              event!.parameters.map((parameter) => (
+                <div className={styles.functionPortRow} key={parameter.name}>
+                  <Handle
+                    className={`${styles.dataHandle} ${styles.dataHandleInput}`}
+                    type="target"
+                    position={Position.Left}
+                    id={`argument:${parameter.name}`}
+                    style={
+                      { '--data-pin-color': valueTypeColor(parameter.valueType) } as CSSProperties
+                    }
+                  />
+                  <span>{parameter.name}</span>
+                  <em>{parameter.valueType.kind}</em>
+                </div>
+              ))
+            ) : (
+              <span className={styles.functionPortEmpty}>No parameters</span>
+            )}
+          </section>
+          <section className={styles.functionPortColumn} aria-label="Function results">
+            {outputPorts.length > 0 ? (
+              outputPorts.map((output) => (
+                <div
+                  className={`${styles.functionPortRow} ${styles.functionPortRowOutput}`}
+                  key={output.id}
+                >
+                  <span>{output.label}</span>
+                  <em>{output.valueType.kind}</em>
+                  <Handle
+                    className={`${styles.dataHandle} ${styles.dataHandleOutput}`}
+                    type="source"
+                    position={Position.Right}
+                    id={`output:${output.id}`}
+                    style={
+                      { '--data-pin-color': valueTypeColor(output.valueType) } as CSSProperties
+                    }
+                  />
+                </div>
+              ))
+            ) : (
+              <span className={`${styles.functionPortEmpty} ${styles.functionPortEmptyOutput}`}>
+                No return values
               </span>
-            ))}
-          </div>
-        )}
-        {(event?.outputs?.length ?? 0) > 0 && (
-          <div className={styles.interfaceRows}>
-            {event!.outputs!.map((output) => (
-              <span key={output.id}>
-                <b>OUT</b> {output.displayName}
-                <em>
-                  {output.valueType.kind}
-                  {call.resultVariableIds?.[output.id] ? ' · stored' : ''}
-                </em>
-              </span>
-            ))}
-          </div>
-        )}
+            )}
+          </section>
+        </div>
       </div>
       <Handle
-        className={`${styles.handle} ${styles.handleInput}`}
+        className={`${styles.handle} ${styles.handleInput} ${styles.functionExecHandle}`}
         type="target"
         position={Position.Left}
         id="in"
       />
       <Handle
-        className={`${styles.handle} ${styles.handleOutput}`}
+        className={`${styles.handle} ${styles.handleOutput} ${styles.functionExecHandle}`}
         type="source"
         position={Position.Right}
         id="out"

@@ -3,7 +3,9 @@ import {
   StoryNodeType,
   createGraphConnectionValidator,
   nodeRegistry,
+  resolveNodePorts,
   validateGraphConnection,
+  valueTypesCompatible,
   type GraphNodeLike,
   type SourceGraph,
 } from '@story-blueprint/common';
@@ -117,6 +119,179 @@ describe('connection validation', () => {
         [],
       ),
     ).toMatchObject({ valid: false, diagnostic: { code: 'INCOMPATIBLE_DATA_TYPE' } });
+  });
+
+  it('reports an occupied data input so callers can replace its source', () => {
+    const typedNodes: GraphNodeLike[] = [
+      {
+        id: 'first-read',
+        type: StoryNodeType.GetVariable,
+        data: { variableId: 'v_first', outputValueType: { kind: 'number' } },
+      },
+      {
+        id: 'second-read',
+        type: StoryNodeType.GetVariable,
+        data: { variableId: 'v_second', outputValueType: { kind: 'number' } },
+      },
+      {
+        id: 'set-value',
+        type: StoryNodeType.SetVariable,
+        data: { variableId: 'v_target', value: { source: '0', bindings: {} } },
+      },
+    ];
+    expect(
+      validateGraphConnection(
+        {
+          source: 'second-read',
+          sourcePortId: 'value',
+          target: 'set-value',
+          targetPortId: 'value',
+        },
+        typedNodes,
+        [
+          {
+            id: 'e_first',
+            source: 'first-read',
+            sourcePortId: 'value',
+            target: 'set-value',
+            targetPortId: 'value',
+          },
+        ],
+      ),
+    ).toMatchObject({ valid: false, diagnostic: { code: 'INPUT_ALREADY_CONNECTED' } });
+  });
+
+  it('accepts typed External Function Out data pins', () => {
+    const typedNodes: GraphNodeLike[] = [
+      {
+        id: 'event-node',
+        type: StoryNodeType.CallEvent,
+        data: {
+          eventId: 'ev_test',
+          arguments: {},
+          outputPorts: [{ id: 'evo_score', label: 'Score', valueType: { kind: 'number' } }],
+          resultVariableIds: {},
+        },
+      },
+      {
+        id: 'set-node',
+        type: StoryNodeType.SetVariable,
+        data: { variableId: 'v_score', value: { source: '0', bindings: {} } },
+      },
+    ];
+    expect(
+      validateGraphConnection(
+        {
+          source: 'event-node',
+          sourcePortId: 'output:evo_score',
+          target: 'set-node',
+          targetPortId: 'value',
+        },
+        typedNodes,
+        [],
+      ),
+    ).toEqual({ valid: true });
+  });
+
+  it('resolves typed External Function argument pins for immediate validation', () => {
+    const call: GraphNodeLike = {
+      id: 'event-node',
+      type: StoryNodeType.CallEvent,
+      data: {
+        eventId: 'ev_test',
+        arguments: { animation: { source: '"idle"', bindings: {} } },
+        argumentInputTypes: { animation: { kind: 'string' } },
+        resultVariableIds: {},
+      },
+    };
+    const getNumber: GraphNodeLike = {
+      id: 'get-number',
+      type: StoryNodeType.GetVariable,
+      data: { variableId: 'v_number', outputValueType: { kind: 'number' } },
+    };
+    const ports = resolveNodePorts(call).ports;
+    expect(ports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'argument:animation',
+          kind: 'data',
+          valueType: { kind: 'string' },
+        }),
+      ]),
+    );
+    expect(
+      validateGraphConnection(
+        {
+          source: 'get-number',
+          sourcePortId: 'value',
+          target: 'event-node',
+          targetPortId: 'argument:animation',
+        },
+        [getNumber, call],
+        [],
+      ),
+    ).toMatchObject({ valid: false, diagnostic: { code: 'INCOMPATIBLE_DATA_TYPE' } });
+  });
+
+  it('uses one directional type relation for pin and compiler contracts', () => {
+    expect(valueTypesCompatible({ kind: 'number' }, { kind: 'number' })).toBe(true);
+    expect(valueTypesCompatible({ kind: 'number', nullable: true }, { kind: 'number' })).toBe(
+      false,
+    );
+    expect(
+      valueTypesCompatible(
+        { kind: 'array', elementType: { kind: 'string' } },
+        { kind: 'array', elementType: { kind: 'number' } },
+      ),
+    ).toBe(false);
+    expect(
+      valueTypesCompatible(
+        { kind: 'map', keyType: 'character-ref', valueType: { kind: 'boolean' } },
+        { kind: 'map', keyType: 'character-ref', valueType: { kind: 'boolean' } },
+      ),
+    ).toBe(true);
+    expect(valueTypesCompatible({ kind: 'any' }, { kind: 'boolean' })).toBe(true);
+  });
+
+  it('keeps data reroute pins typed like the routed value', () => {
+    const typedNodes: GraphNodeLike[] = [
+      {
+        id: 'get-node',
+        type: StoryNodeType.GetVariable,
+        data: { variableId: 'v_score', outputValueType: { kind: 'number' } },
+      },
+      {
+        id: 'reroute-node',
+        type: StoryNodeType.Reroute,
+        data: { kind: 'data', valueType: { kind: 'number' } },
+      },
+      {
+        id: 'set-node',
+        type: StoryNodeType.SetVariable,
+        data: { variableId: 'v_target', value: { source: '0', bindings: {} } },
+      },
+    ];
+    const reroutePorts = resolveNodePorts(typedNodes[1]).ports;
+    expect(reroutePorts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'in', kind: 'data', valueType: { kind: 'number' } }),
+        expect.objectContaining({ id: 'out', kind: 'data', valueType: { kind: 'number' } }),
+      ]),
+    );
+    expect(
+      validateGraphConnection(
+        { source: 'get-node', sourcePortId: 'value', target: 'reroute-node', targetPortId: 'in' },
+        typedNodes,
+        [],
+      ),
+    ).toEqual({ valid: true });
+    expect(
+      validateGraphConnection(
+        { source: 'reroute-node', sourcePortId: 'out', target: 'set-node', targetPortId: 'value' },
+        typedNodes,
+        [],
+      ),
+    ).toEqual({ valid: true });
   });
 
   it('preserves conflicting successors when loading a Git merge stage', () => {

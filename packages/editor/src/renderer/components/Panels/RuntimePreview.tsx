@@ -25,6 +25,7 @@ import styles from './RuntimePreview.module.css';
 
 type HistoryItem =
   | { kind: 'dialogue'; speaker?: string; emotion?: string; text: string }
+  | { kind: 'narration'; text: string }
   | { kind: 'choice'; text: string }
   | { kind: 'event'; name: string; arguments: Readonly<Record<string, RuntimeValue>> }
   | { kind: 'story-control'; action: string; storyId?: string; instanceId?: string };
@@ -157,6 +158,14 @@ export function RuntimePreview() {
     },
     [characterNames],
   );
+
+  const appendNarration = useCallback((interaction: RuntimeInteraction | undefined) => {
+    if (!interaction || interaction.kind !== 'narration') return;
+    setHistory((current) => [
+      ...current,
+      { kind: 'narration', text: interaction.request.defaultText },
+    ]);
+  }, []);
 
   const acceptResult = useCallback((runtime: StoryRuntime, result: RuntimeRunResult) => {
     setSession((current) => (current ? { ...current, runtime, result } : current));
@@ -330,6 +339,12 @@ export function RuntimePreview() {
     appendDialogue(session.result.kind === 'waiting' ? session.result.interaction : undefined);
     acceptResult(session.runtime, session.runtime.continueDialogue());
   }, [acceptResult, appendDialogue, session]);
+
+  const continueNarration = useCallback(() => {
+    if (!session) return;
+    appendNarration(session.result.kind === 'waiting' ? session.result.interaction : undefined);
+    acceptResult(session.runtime, session.runtime.continueNarration());
+  }, [acceptResult, appendNarration, session]);
 
   const choose = useCallback(
     (optionId: OptionId, text: string) => {
@@ -505,6 +520,10 @@ export function RuntimePreview() {
                     </div>
                     <div>{item.text}</div>
                   </article>
+                ) : item.kind === 'narration' ? (
+                  <article key={index} className={styles.historyNarration}>
+                    <div>{item.text}</div>
+                  </article>
                 ) : item.kind === 'choice' ? (
                   <div key={index} className={styles.historyChoice}>
                     › {item.text}
@@ -533,6 +552,16 @@ export function RuntimePreview() {
               </div>
               <div className={styles.dialogueText}>{interaction.request.defaultText}</div>
               <button type="button" className={styles.continueButton} onClick={continueDialogue}>
+                Continue
+              </button>
+            </div>
+          )}
+
+          {interaction?.kind === 'narration' && (
+            <div className={`${styles.currentCard} ${styles.narrationCard}`}>
+              <div className={styles.narrationLabel}>Narration</div>
+              <div className={styles.dialogueText}>{interaction.request.defaultText}</div>
+              <button type="button" className={styles.continueButton} onClick={continueNarration}>
                 Continue
               </button>
             </div>

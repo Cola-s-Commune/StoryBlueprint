@@ -3,6 +3,7 @@ import {
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
   type NodeId,
+  type RerouteNodeData,
   StoryNodeType,
 } from '@story-blueprint/common';
 import { useEffect, type CSSProperties } from 'react';
@@ -34,11 +35,16 @@ export function RerouteNode({ id }: NodeProps) {
   const next = outgoing ? nodes.find((node) => node.id === outgoing.target) : undefined;
   const inputSide = horizontalSideToward(reroute?.position, previous?.position, Position.Left);
   const outputSide = horizontalSideToward(reroute?.position, next?.position, Position.Right);
+  const rerouteData = reroute?.data as RerouteNodeData | undefined;
+  const dataReroute = rerouteData?.kind === 'data';
 
   useEffect(() => updateNodeInternals(id), [id, inputSide, outputSide, updateNodeInternals]);
 
   return (
-    <div className={styles.reroute} title="Reroute">
+    <div
+      className={`${styles.reroute} ${dataReroute ? styles.rerouteData : ''}`}
+      title={dataReroute ? `Data Reroute · ${rerouteData?.valueType?.kind ?? 'any'}` : 'Reroute'}
+    >
       <Handle
         className={styles.rerouteHandle}
         type="target"

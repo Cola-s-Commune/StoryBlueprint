@@ -5,6 +5,7 @@ import {
   StoryNodeType,
   type ChoiceOption,
   type DialogueLine,
+  type InkVariableDirection,
   type StoryNodeDataMap,
 } from '../types/nodes';
 import {
@@ -199,6 +200,14 @@ function serializeSourceNode(source: SourceNode): Node {
       }
       break;
     }
+    case StoryNodeType.Narration: {
+      const narration = data as StoryNodeDataMap[StoryNodeType.Narration];
+      target.setProperty('text-id', narration.textId);
+      target.setProperty('text', requiredString(narration.text.source, `${source.id}.text`));
+      appendBindings(target, 'text', narration.text.bindings);
+      if (narration.voiceId) target.setProperty('voice', narration.voiceId);
+      break;
+    }
     case StoryNodeType.InkBlock: {
       const ink = data as StoryNodeDataMap[StoryNodeType.InkBlock];
       target.setProperty('source-mode', ink.sourceMode);
@@ -331,6 +340,13 @@ function serializeSourceNode(source: SourceNode): Node {
     case StoryNodeType.CallEvent: {
       const callEvent = data as StoryNodeDataMap[StoryNodeType.CallEvent];
       if (callEvent.eventId) target.setProperty('event', callEvent.eventId);
+      for (const output of callEvent.outputPorts ?? []) {
+        const port = Node.create('output-port');
+        port.addArgument(output.id);
+        port.setProperty('label', output.label);
+        port.setProperty('type', JSON.stringify(output.valueType));
+        target.appendNode(port);
+      }
       for (const [name, value] of Object.entries(callEvent.arguments).sort(([left], [right]) =>
         left.localeCompare(right),
       )) {
@@ -452,8 +468,14 @@ function serializeSourceNode(source: SourceNode): Node {
       }
       break;
     }
-    case StoryNodeType.Reroute:
+    case StoryNodeType.Reroute: {
+      const reroute = data as StoryNodeDataMap[StoryNodeType.Reroute];
+      if (reroute.kind === 'data') {
+        target.setProperty('kind', 'data');
+        target.setProperty('value-type', JSON.stringify(reroute.valueType ?? { kind: 'any' }));
+      }
       break;
+    }
   }
   return target;
 }
@@ -777,6 +799,13 @@ function validateStoryReferences(source: StorySourceDocument): void {
           allTextIds.add(line.textId);
         }
       }
+      if (node.type === StoryNodeType.Narration) {
+        const narration = node.data as unknown as StoryNodeDataMap[StoryNodeType.Narration];
+        if (allTextIds.has(narration.textId)) {
+          throw new StoryFormatError(`Duplicate text ID: ${narration.textId}`);
+        }
+        allTextIds.add(narration.textId);
+      }
       if (node.type === StoryNodeType.Branch) {
         const branch = node.data as unknown as StoryNodeDataMap[StoryNodeType.Branch];
         if (branch.conditionId && !conditionIds.has(branch.conditionId)) {
@@ -877,6 +906,7 @@ function parseSourceNode(
   const typeProperties: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Start]: ['title'],
     [StoryNodeType.Dialogue]: [],
+    [StoryNodeType.Narration]: ['text-id', 'text', 'voice'],
     [StoryNodeType.InkBlock]: ['source-mode', 'source', 'path', 'entry-knot'],
     [StoryNodeType.Choice]: ['prompt'],
     [StoryNodeType.Branch]: ['condition', 'condition-ref'],
@@ -915,7 +945,7 @@ function parseSourceNode(
     ],
     [StoryNodeType.ResumeStory]: ['instance-id', 'instance-variable', 'wait-for-completion'],
     [StoryNodeType.EndStoryInstance]: ['instance-id'],
-    [StoryNodeType.Reroute]: [],
+    [StoryNodeType.Reroute]: ['kind', 'value-type'],
     [StoryNodeType.FlowAnchor]: ['label'],
     [StoryNodeType.FlowJump]: ['target'],
     [StoryNodeType.Return]: ['value'],
@@ -923,13 +953,14 @@ function parseSourceNode(
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
     [StoryNodeType.Dialogue]: ['line'],
+    [StoryNodeType.Narration]: ['binding'],
     [StoryNodeType.InkBlock]: ['variable-binding', 'external-function-binding'],
     [StoryNodeType.Choice]: ['option', 'binding'],
     [StoryNodeType.Start]: [],
     [StoryNodeType.Branch]: ['binding'],
     [StoryNodeType.GetVariable]: ['output-field'],
     [StoryNodeType.SetVariable]: ['binding'],
-    [StoryNodeType.CallEvent]: ['argument', 'result'],
+    [StoryNodeType.CallEvent]: ['argument', 'output-port', 'result'],
     [StoryNodeType.WaitSignal]: ['match'],
     [StoryNodeType.CallSubstory]: ['argument', 'result'],
     [StoryNodeType.StartStory]: ['argument', 'result', 'binding'],
@@ -997,6 +1028,16 @@ function parseSourceNode(
       data = { lines };
       break;
     }
+    case StoryNodeType.Narration:
+      assertBindingTargets(node, ['text'], id);
+      data = {
+        textId: requiredId(node.getProperty('text-id'), 'text', `${id}.text-id`),
+        text: textTemplateSource(node.getProperty('text'), `${id}.text`, node, 'text'),
+        ...(node.getProperty('voice')
+          ? { voiceId: requiredId(node.getProperty('voice'), 'asset', `${id}.voice`) }
+          : {}),
+      };
+      break;
     case StoryNodeType.InkBlock: {
       const sourceMode =
         optionalString(node.getProperty('source-mode'), `${id}.source-mode`) ?? 'embedded';
@@ -1031,7 +1072,7 @@ function parseSourceNode(
               'variable',
               `${id}.variable-binding[${index}].variable-id`,
             ),
-            direction,
+            direction: direction as InkVariableDirection,
           };
         });
       const externalFunctionBindings = node
@@ -1158,7 +1199,7 @@ function parseSourceNode(
       };
       break;
     }
-    case StoryNodeType.GetVariable:
+    case StoryNodeType.GetVariable: {
       assertBindingTargets(node, ['index'], id);
       const exposedFields = node.findNodesByName('output-field').map((fieldNode, index) => {
         assertShape(fieldNode, `${id}.output-field[${index}]`, {
@@ -1211,6 +1252,7 @@ function parseSourceNode(
         ...(exposedFields.length > 0 ? { exposedFields } : {}),
       };
       break;
+    }
     case StoryNodeType.SetVariable:
       assertBindingTargets(node, ['value', 'key'], id);
       data = {
@@ -1245,7 +1287,27 @@ function parseSourceNode(
           : undefined,
       };
       break;
-    case StoryNodeType.CallEvent:
+    case StoryNodeType.CallEvent: {
+      const outputPorts = node.findNodesByName('output-port').map((port, index) => {
+        const path = `${id}.output-port[${index}]`;
+        assertShape(port, path, { arguments: 1, properties: ['label', 'type'] });
+        const label = optionalString(port.getProperty('label'), `${path}.label`);
+        if (!label) throw new StoryFormatError(`${path}.label must be a non-empty string`);
+        const typeSource = requiredString(port.getProperty('type'), `${path}.type`);
+        let valueType: ValueType;
+        try {
+          valueType = JSON.parse(typeSource) as ValueType;
+        } catch (error) {
+          throw new StoryFormatError(
+            `${path}.type is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        return {
+          id: requiredId(port.getArgument(0), 'eventOutput', `${path}.id`),
+          label,
+          valueType,
+        };
+      });
       data = {
         eventId: node.getProperty('event')
           ? requiredId(node.getProperty('event'), 'event', `${id}.event`)
@@ -1271,8 +1333,10 @@ function parseSourceNode(
             ];
           }),
         ),
+        ...(outputPorts.length > 0 ? { outputPorts } : {}),
       };
       break;
+    }
     case StoryNodeType.WaitSignal:
       data = {
         signalId: node.getProperty('signal')
@@ -1392,9 +1456,29 @@ function parseSourceNode(
       }
       break;
     }
-    case StoryNodeType.Reroute:
-      data = {};
+    case StoryNodeType.Reroute: {
+      const kind = node.getProperty('kind');
+      if (kind !== undefined && kind !== 'data' && kind !== 'execution') {
+        throw new StoryFormatError(`${id}.kind must be \"data\" or \"execution\"`);
+      }
+      if (kind === 'data') {
+        const valueTypeSource = node.getProperty('value-type');
+        let valueType: ValueType = { kind: 'any' };
+        if (typeof valueTypeSource === 'string') {
+          try {
+            valueType = JSON.parse(valueTypeSource) as ValueType;
+          } catch (error) {
+            throw new StoryFormatError(
+              `${id}.value-type is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+        data = { kind: 'data', valueType };
+      } else {
+        data = {};
+      }
       break;
+    }
     case StoryNodeType.FlowAnchor:
       data = { label: requiredString(node.getProperty('label'), `${id}.label`) };
       break;

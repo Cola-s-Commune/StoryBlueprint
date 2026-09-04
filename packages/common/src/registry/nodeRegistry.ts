@@ -87,6 +87,20 @@ export class NodeRegistry {
       }),
     });
 
+    this.register<StoryNodeType.Narration>({
+      type: StoryNodeType.Narration,
+      version: 1,
+      label: 'Narration',
+      category: 'narrative',
+      color: '#8499bf',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
+      defaultData: () => ({
+        textId: createStableId('text'),
+        text: { source: '' },
+      }),
+    });
+
     this.register<StoryNodeType.InkBlock>({
       type: StoryNodeType.InkBlock,
       version: 1,
@@ -205,16 +219,26 @@ export class NodeRegistry {
       color: '#d979b5',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Next', kind: 'execution', direction: 'output' }],
+      dynamicOutputs: {
+        sourceProperty: 'outputPorts',
+        idProperty: 'id',
+        labelProperty: 'label',
+        kind: 'data',
+        valueTypeProperty: 'valueType',
+        idPrefix: 'output:',
+        optional: true,
+      },
       dynamicInputs: {
         sourceProperty: 'arguments',
         idProperty: '',
         labelProperty: '',
         kind: 'data',
         valueType: { kind: 'any' },
+        valueTypeProperty: 'argumentInputTypes',
         recordEntries: true,
         idPrefix: 'argument:',
       },
-      defaultData: () => ({ arguments: {}, resultVariableIds: {} }),
+      defaultData: () => ({ arguments: {}, outputPorts: [], resultVariableIds: {} }),
     });
 
     this.register<StoryNodeType.WaitSignal>({

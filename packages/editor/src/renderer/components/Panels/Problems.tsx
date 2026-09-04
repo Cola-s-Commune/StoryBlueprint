@@ -9,7 +9,7 @@ export function Problems() {
   const copyText = problems
     .map((problem) =>
       [
-        `[${problem.severity.toUpperCase()}] ${problem.code}: ${problem.message}`,
+        `[${problem.severity.toUpperCase()}] ${problem.origin === 'authoring' ? 'DRAFT' : 'BUILD'} ${problem.code}: ${problem.message}`,
         problem.storyName && `Story: ${problem.storyName}`,
         problem.storyPath && `Path: ${problem.storyPath}`,
         problem.sourceChapterId && `Substory: ${problem.sourceChapterId}`,
@@ -38,7 +38,7 @@ export function Problems() {
       </header>
       <div className={styles.list}>
         {problems.length === 0 && (
-          <div className={styles.empty}>Build the project to validate every Story.</div>
+          <div className={styles.empty}>No authoring or build problems.</div>
         )}
         {problems.map((problem, index) => {
           const canFocus = Boolean(problem.storyId);
@@ -49,6 +49,7 @@ export function Problems() {
                 {problem.message}
                 <small>{[problem.storyName, problem.storyPath].filter(Boolean).join(' — ')}</small>
               </span>
+              <span className={styles.origin}>{problem.origin === 'authoring' ? 'Draft' : 'Build'}</span>
               <span className={styles.code}>{problem.code}</span>
             </>
           );

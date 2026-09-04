@@ -192,6 +192,7 @@ function graphDiagnostics(
       const type = nodesById.get(id as NodeId)?.type;
       return (
         type === StoryNodeType.Dialogue ||
+        type === StoryNodeType.Narration ||
         type === StoryNodeType.Choice ||
         type === StoryNodeType.WaitSignal
       );
@@ -201,7 +202,7 @@ function graphDiagnostics(
         decorate({
           code: 'TIGHT_LOOP',
           severity: 'error',
-          message: 'Execution cycle has no dialogue or choice pause point',
+          message: 'Execution cycle has no dialogue, narration, choice, or signal pause point',
           sourceNodeId: component[0] as SourceNode['id'],
         }),
       );

@@ -14,6 +14,7 @@ import {
   type ChoiceNodeData,
   type ChoiceOption,
   type DialogueNodeData,
+  type NarrationNodeData,
   type InkBlockNodeData,
   type InkVariableDirection,
   type DialogueLine,
@@ -2681,6 +2682,7 @@ export function Inspector() {
     availableVariables,
     projectVariables,
     characters,
+    assets,
     inkSources,
     events,
     signals,
@@ -2820,6 +2822,63 @@ export function Inspector() {
       case StoryNodeType.Dialogue: {
         const data = node.data as DialogueNodeData;
         return <DialogueEditor key={node.id} nodeId={node.id} data={data} />;
+      }
+      case StoryNodeType.Narration: {
+        const data = node.data as NarrationNodeData;
+        return (
+          <>
+            <div className={styles.info}>
+              Narration is for actions, scene description, and inner thought. Keep spoken character
+              lines in Dialogue nodes.
+            </div>
+            <PropertyField
+              label="Text Template"
+              value={data.text.source}
+              multiline
+              variableMode="template"
+              onBeginEdit={checkpoint}
+              onChange={(source) =>
+                updateNodeData(node.id, StoryNodeType.Narration, { text: { source } })
+              }
+            />
+            <label
+              className={styles.field}
+              onDragOver={(event) => {
+                if (readStoryDataDrag(event.dataTransfer)?.kind === 'asset') event.preventDefault();
+              }}
+              onDrop={(event) => {
+                const payload = readStoryDataDrag(event.dataTransfer);
+                if (payload?.kind !== 'asset') return;
+                event.preventDefault();
+                checkpoint();
+                updateNodeData(node.id, StoryNodeType.Narration, { voiceId: payload.id });
+              }}
+            >
+              <span>Voice Asset</span>
+              <select
+                value={data.voiceId ?? ''}
+                onChange={(event) => {
+                  checkpoint();
+                  updateNodeData(node.id, StoryNodeType.Narration, {
+                    voiceId: (event.target.value || undefined) as NarrationNodeData['voiceId'],
+                  });
+                }}
+              >
+                <option value="">None</option>
+                {assets
+                  .filter((asset) => asset.kind === 'audio')
+                  .map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.displayName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <div className={styles.stableIds}>
+              <code>{data.textId}</code>
+            </div>
+          </>
+        );
       }
       case StoryNodeType.InkBlock: {
         const data = node.data as InkBlockNodeData;
@@ -3332,6 +3391,13 @@ export function Inspector() {
       case StoryNodeType.CallEvent: {
         const data = node.data as CallEventNodeData;
         const selectedEvent = events.find((candidate) => candidate.id === data.eventId);
+        const outputPorts =
+          data.outputPorts ??
+          (selectedEvent?.outputs ?? []).map((output) => ({
+            id: output.id,
+            label: output.displayName,
+            valueType: output.valueType,
+          }));
         return (
           <>
             <label className={styles.field}>
@@ -3353,6 +3419,11 @@ export function Inspector() {
                         },
                       ]),
                     ),
+                    outputPorts: (definition?.outputs ?? []).map((output) => ({
+                      id: output.id,
+                      label: output.displayName,
+                      valueType: output.valueType,
+                    })),
                     resultVariableIds: {},
                   });
                 }}
@@ -3378,42 +3449,41 @@ export function Inspector() {
                 argumentsByName={data.arguments}
               />
             ))}
-            {(selectedEvent?.outputs ?? []).map((output) => {
-              const compatibleVariables = [...availableVariables, ...projectVariables].filter(
-                (variable) =>
-                  variable.valueType.kind === output.valueType.kind &&
-                  (variable.valueType.kind !== 'json' ||
-                    (output.valueType.kind === 'json' &&
-                      variable.valueType.name === output.valueType.name)),
-              );
-              return (
-                <label className={styles.field} key={output.id}>
-                  <span>Store {output.displayName}</span>
-                  <select
-                    value={data.resultVariableIds?.[output.id] ?? ''}
-                    onChange={(event) => {
-                      checkpoint();
-                      const variableId = event.target.value;
-                      updateNodeData(node.id, StoryNodeType.CallEvent, {
-                        resultVariableIds: {
-                          ...(data.resultVariableIds ?? {}),
-                          [output.id]: variableId || undefined,
-                        },
-                      });
-                    }}
-                  >
-                    <option value="">Do not store</option>
-                    {compatibleVariables.map((variable) => (
-                      <option value={variable.id} key={variable.id}>
-                        {variable.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              );
-            })}
+            {!selectedEvent && (
+              <div className={styles.info}>
+                Select an External Function to configure its inputs and connect its Out pins.
+              </div>
+            )}
+            {selectedEvent && outputPorts.length === 0 && (
+              <div className={styles.info}>
+                This External Function has no Out values. Add return values in Project Data to make
+                them available here.
+              </div>
+            )}
+            {outputPorts.length > 0 && (
+              <>
+                <div className={styles.groupHeader}>
+                  <div className={styles.groupLabel}>Out / Return Value</div>
+                </div>
+                <div className={styles.info}>
+                  Connect an Out pin to a Set Variable Value pin to store the returned value.
+                </div>
+                {outputPorts.map((output) => {
+                  return (
+                    <div
+                      className={styles.field}
+                      key={output.id}
+                    >
+                      <span>
+                        Out: {output.label} ({output.valueType.kind})
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
             <div className={styles.info}>
-              {(selectedEvent?.outputs?.length ?? 0) > 0
+              {outputPorts.length > 0
                 ? 'Waits for the engine result, validates every return value, then continues.'
                 : 'Calls the external function in the engine and continues when the adapter resolves.'}
             </div>

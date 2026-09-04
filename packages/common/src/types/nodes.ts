@@ -26,6 +26,7 @@ import type { ValueType } from './values';
 export enum StoryNodeType {
   Start = 'story-entry',
   Dialogue = 'dialogue',
+  Narration = 'narration',
   InkBlock = 'ink-block',
   Choice = 'choice',
   Branch = 'branch',
@@ -74,7 +75,7 @@ export interface DialogueLine {
   id: DialogueLineId;
   textId: TextId;
   text: TextTemplateSource;
-  /** An omitted speaker is the narrator; voice and emotion are independently optional. */
+  /** Omit only when the speaker is genuinely unknown; narration belongs in a Narration node. */
   speakerId?: CharacterId;
   voiceId?: AssetId;
   emotion?: string;
@@ -84,6 +85,13 @@ export interface DialogueLine {
 /** Data for Dialogue node — one uninterrupted sequence of dialogue lines. */
 export interface DialogueNodeData {
   lines: DialogueLine[];
+}
+
+/** A standalone narrator/action/scene-description beat, never attributed to a Character. */
+export interface NarrationNodeData {
+  textId: TextId;
+  text: TextTemplateSource;
+  voiceId?: AssetId;
 }
 
 /** Ink source executed as one resumable runtime block. Linked paths are project-relative. */
@@ -177,6 +185,21 @@ export interface SetVariableNodeData {
 export interface CallEventNodeData {
   eventId?: EventId;
   arguments: Record<string, ExpressionSource>;
+  /**
+   * Editor-only contracts for dynamic argument pins. The selected External
+   * Function remains the source of truth; this optional map is intentionally
+   * not required in serialized Story data.
+   */
+  argumentInputTypes?: Readonly<Record<string, ValueType>>;
+  /** Snapshot of the selected External Function's typed data outputs.
+   *  Keeping the port contract on the node lets graph validation resolve links
+   *  without needing project-level resources. It is refreshed when the Event changes.
+   */
+  outputPorts?: readonly {
+    id: EventOutputId;
+    label: string;
+    valueType: ValueType;
+  }[];
   resultVariableIds: Record<EventOutputId, VariableId>;
 }
 
@@ -236,7 +259,11 @@ export interface EndStoryInstanceNodeData {
 }
 
 /** Pure editor routing point. The compiler removes it from executable logic. */
-export interface RerouteNodeData {}
+export interface RerouteNodeData {
+  /** Execution is the default; data reroutes preserve the source value contract. */
+  kind?: 'execution' | 'data';
+  valueType?: ValueType;
+}
 
 /** Named destination for one or more Flow Jump nodes in the same graph. */
 export interface FlowAnchorNodeData {
@@ -266,6 +293,7 @@ export interface EndNodeData {
 export interface StoryNodeDataMap {
   [StoryNodeType.Start]: StartNodeData;
   [StoryNodeType.Dialogue]: DialogueNodeData;
+  [StoryNodeType.Narration]: NarrationNodeData;
   [StoryNodeType.InkBlock]: InkBlockNodeData;
   [StoryNodeType.Choice]: ChoiceNodeData;
   [StoryNodeType.Branch]: BranchNodeData;

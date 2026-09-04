@@ -34,6 +34,12 @@ export type BinaryOperator =
 export type TypedExpression =
   | { kind: 'literal'; value: RuntimeValue; valueType: ValueType }
   | { kind: 'variable'; variableId: VariableId; valueType: ValueType }
+  | {
+      kind: 'event-output';
+      instructionId: import('./ids').InstructionId;
+      outputId: import('./ids').EventOutputId;
+      valueType: ValueType;
+    }
   | { kind: 'unary'; operator: UnaryOperator; operand: TypedExpression; valueType: ValueType }
   | {
       kind: 'binary';

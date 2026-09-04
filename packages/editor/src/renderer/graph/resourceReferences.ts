@@ -327,6 +327,12 @@ export function buildStoryResourceReferenceIndex(
             addReference(assetIndex, line.voiceId, reference(`Line ${index + 1} Voice`));
           }
         });
+        if (node.type === StoryNodeType.Narration) {
+          const narration = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+          if (narration.voiceId) {
+            addReference(assetIndex, narration.voiceId, reference('Narration Voice'));
+          }
+        }
         const scanExpression = (
           expression: { source: string } | undefined,
           valueType: VariableDefinition['valueType'] | undefined,

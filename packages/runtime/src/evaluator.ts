@@ -7,6 +7,7 @@ import type {
 } from '@story-blueprint/common';
 
 export type VariableReader = (id: VariableId) => RuntimeValue;
+export type EventOutputReader = (instructionId: string, outputId: string) => RuntimeValue;
 
 function asNumber(value: RuntimeValue): number {
   if (typeof value !== 'number') throw new TypeError('Expected number');
@@ -21,31 +22,35 @@ function asBoolean(value: RuntimeValue): boolean {
 export function evaluateExpression(
   expression: TypedExpression,
   readVariable: VariableReader,
+  readEventOutput?: EventOutputReader,
 ): RuntimeValue {
   switch (expression.kind) {
     case 'literal':
       return expression.value;
     case 'variable':
       return readVariable(expression.variableId);
+    case 'event-output':
+      if (!readEventOutput) throw new TypeError('Event output is not available in this context');
+      return readEventOutput(expression.instructionId, expression.outputId);
     case 'unary': {
-      const value = evaluateExpression(expression.operand, readVariable);
+      const value = evaluateExpression(expression.operand, readVariable, readEventOutput);
       return expression.operator === 'not' ? !asBoolean(value) : -asNumber(value);
     }
     case 'binary': {
       if (expression.operator === 'and') {
         return (
-          asBoolean(evaluateExpression(expression.left, readVariable)) &&
-          asBoolean(evaluateExpression(expression.right, readVariable))
+          asBoolean(evaluateExpression(expression.left, readVariable, readEventOutput)) &&
+          asBoolean(evaluateExpression(expression.right, readVariable, readEventOutput))
         );
       }
       if (expression.operator === 'or') {
         return (
-          asBoolean(evaluateExpression(expression.left, readVariable)) ||
-          asBoolean(evaluateExpression(expression.right, readVariable))
+          asBoolean(evaluateExpression(expression.left, readVariable, readEventOutput)) ||
+          asBoolean(evaluateExpression(expression.right, readVariable, readEventOutput))
         );
       }
-      const left = evaluateExpression(expression.left, readVariable);
-      const right = evaluateExpression(expression.right, readVariable);
+      const left = evaluateExpression(expression.left, readVariable, readEventOutput);
+      const right = evaluateExpression(expression.right, readVariable, readEventOutput);
       switch (expression.operator) {
         case 'add':
           return typeof left === 'string' && typeof right === 'string'
@@ -75,15 +80,15 @@ export function evaluateExpression(
       break;
     }
     case 'member': {
-      const target = evaluateExpression(expression.target, readVariable);
+      const target = evaluateExpression(expression.target, readVariable, readEventOutput);
       if (typeof target !== 'object' || target === null || !(expression.member in target)) {
         throw new TypeError(`Missing member ${expression.member}`);
       }
       return (target as Readonly<Record<string, RuntimeValue>>)[expression.member];
     }
     case 'index': {
-      const target = evaluateExpression(expression.target, readVariable);
-      const index = evaluateExpression(expression.index, readVariable);
+      const target = evaluateExpression(expression.target, readVariable, readEventOutput);
+      const index = evaluateExpression(expression.index, readVariable, readEventOutput);
       if (Array.isArray(target)) {
         if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= target.length) {
           throw new TypeError(`Array index ${String(index)} is out of range`);
@@ -97,7 +102,7 @@ export function evaluateExpression(
       return (target as Readonly<Record<string, RuntimeValue>>)[key]!;
     }
     case 'convert': {
-      const value = evaluateExpression(expression.target, readVariable);
+      const value = evaluateExpression(expression.target, readVariable, readEventOutput);
       if (expression.to.kind === 'string') return String(value);
       if (expression.to.kind === 'number') return Number(value);
       if (expression.to.kind === 'boolean') return Boolean(value);
@@ -113,6 +118,7 @@ export function renderTextTemplate(
   locale?: string,
   fallbacks: Readonly<Record<string, string>> = {},
   sourceLocale?: string,
+  readEventOutput?: EventOutputReader,
 ): string {
   let selected = locale;
   const visited = new Set<string>();
@@ -124,7 +130,7 @@ export function renderTextTemplate(
         .map((part) =>
           part.kind === 'text'
             ? part.value
-            : String(evaluateExpression(part.expression, readVariable) ?? ''),
+            : String(evaluateExpression(part.expression, readVariable, readEventOutput) ?? ''),
         )
         .join('');
     }
@@ -134,7 +140,7 @@ export function renderTextTemplate(
     .map((part) =>
       part.kind === 'text'
         ? part.value
-        : String(evaluateExpression(part.expression, readVariable) ?? ''),
+        : String(evaluateExpression(part.expression, readVariable, readEventOutput) ?? ''),
     )
     .join('');
 }
@@ -152,18 +158,26 @@ export function resolveChoiceOptions(
   locale?: string,
   fallbacks: Readonly<Record<string, string>> = {},
   sourceLocale?: string,
+  readEventOutput?: EventOutputReader,
 ): readonly ResolvedChoiceOption[] {
   return choice.options.flatMap((option) => {
     const visible = option.visibleIf
-      ? asBoolean(evaluateExpression(option.visibleIf, readVariable))
+      ? asBoolean(evaluateExpression(option.visibleIf, readVariable, readEventOutput))
       : true;
     if (!visible) return [];
     return [
       {
         id: option.id,
-        text: renderTextTemplate(option.text, readVariable, locale, fallbacks, sourceLocale),
+        text: renderTextTemplate(
+          option.text,
+          readVariable,
+          locale,
+          fallbacks,
+          sourceLocale,
+          readEventOutput,
+        ),
         enabled: option.enabledIf
-          ? asBoolean(evaluateExpression(option.enabledIf, readVariable))
+          ? asBoolean(evaluateExpression(option.enabledIf, readVariable, readEventOutput))
           : true,
         target: option.target,
       },

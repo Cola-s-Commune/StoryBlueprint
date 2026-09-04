@@ -1,4 +1,9 @@
-import { StoryNodeType, type ChoiceNodeData, type DialogueNodeData } from '../types/nodes';
+import {
+  StoryNodeType,
+  type ChoiceNodeData,
+  type DialogueNodeData,
+  type NarrationNodeData,
+} from '../types/nodes';
 import type { NodeId, OptionId, StoryId, TextId } from '../types/ids';
 import type { LocalizationSourceEntry, StoryLocalizationDocument } from '../types/localization';
 import type { SourceGraph, StorySourceDocument } from '../types/source';
@@ -32,6 +37,19 @@ function graphSources(
         graphName,
         context: `${node.name ?? 'Dialogue'} · Line ${index + 1}`,
       }));
+    }
+    if (node.type === StoryNodeType.Narration) {
+      const narration = node.data as unknown as NarrationNodeData;
+      return [
+        {
+          storyId: story.id,
+          textId: narration.textId,
+          source: narration.text.source,
+          storyName: story.displayName,
+          graphName,
+          context: `${node.name ?? 'Narration'} · Text`,
+        },
+      ];
     }
     if (node.type === StoryNodeType.Choice) {
       const data = node.data as unknown as ChoiceNodeData;

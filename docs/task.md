@@ -238,7 +238,7 @@
 - [x] Line 支持 Speaker、Text Template、Emotion、Voice、Tags
 - [x] Inspector 支持新增、删除、复制和拖动排序 Line
 - [x] Line 属性卡默认折叠为“说话人 + 台词”摘要，可独立展开并直接定位到对应 Ink 行
-- [x] Dialogue 语义约束：speaker Line 只保存角色实际台词；叙述、动作和环境描写拆为 Narrator Line，AI 与导入规则同步遵守
+- [x] Dialogue 语义约束：speaker Line 只保存角色实际台词；叙述、动作和环境描写拆为独立 Narration Node，AI 与导入规则同步遵守
 - [x] AI 说话人解析：明确的新临时角色可通过同一事务 `add-character` 后绑定台词；身份不明确时询问作者
 - [x] Inspector 提供 Monaco `Lines / Ink` 双视图，结构化编辑后即时重建 Dialogue Ink 文本
 - [x] Dialogue Ink 子集支持批量编辑、资源名称解析、行级诊断、自动写回/撤销和稳定 ID 对齐
@@ -257,8 +257,8 @@
 
 ## Narration Node
 
-- [ ] Text
-- [ ] Voice Asset（可选）
+- [x] Text
+- [x] Voice Asset（可选）
 
 ---
 
@@ -284,7 +284,7 @@
 - [x] Condition 资源：稳定 ID、Name / Display Name / Description、Story 作用域与显式输入
 - [x] Bool 输入支持 Inline Expression / Condition Reference 两种模式，并提供搜索与跳转编辑
 - [x] Condition Tree 图形化编辑：All / Any / Not / Expression Leaf / Condition Reference Leaf
-- [ ] Condition Tree 与 Bool Expression 在语义可保持时双向转换；无法无损转换时保留原表示并提示
+- [x] Condition Tree 与 Bool Expression 在语义可保持时双向转换；无法无损转换时保留原表示并提示
 - [x] Condition 引用循环检测、作用域校验、引用索引、重命名安全、Undo/Redo 与 Git Diff
 - [x] Compiler 将 Condition / Condition Tree 降级为普通 Boolean Typed Expression AST，Runtime 不增加树解释器
 - [x] AI Command 支持 Condition 的创建、更新和引用，并纳入 Dry Run 与语义快照
@@ -313,6 +313,7 @@
 - [x] Call Event 固定为派发后立即继续；无返回值、完成状态或失败分支
 - [x] Event / Signal 支持带引擎类型名的 opaque JSON 参数；编辑器只校验完整 JSON 并原样交给 Adapter，不把 Engine JSON 拆成 Story 逻辑
 - [x] Event 支持多个稳定 ID 返回值；Adapter Promise 按 Output ID 返回并在 Runtime 校验后写入指定变量
+- [x] Call External Function Out 在 Inspector 中支持下拉绑定与从 Story Data 拖拽变量绑定，并按类型提供投放反馈
 - [x] Boolean / Number / String / Array / Map / Engine JSON 返回值
 - [x] CharacterRef / AssetRef 参数与返回值：Runtime 传递稳定资源 ID，Inspector 提供角色/资产选择器，Adapter 不接收完整资源对象；引用类型仅支持同类相等比较
 - [x] Struct 递归复杂参数，编译产物使用 JSON 兼容值；Struct 成员可在表达式中按类型访问
@@ -888,7 +889,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 ## Versioned Ink Profile
 
 - [x] 定义第一版可转换为原生节点的版本化 Ink Profile
-- [ ] 建立完整 Ink 语法与原生节点类型的覆盖矩阵（已覆盖对白、Choice、Knot/Divert、变量和简单条件）
+- [x] 建立完整 Ink 语法与原生节点类型的覆盖矩阵（见 `docs/ink-profile.md`）
 - [x] Speaker / Voice / Emotion / Text ID Tag 规范：同一 Ink 输出行使用稳定 ID 标签，编译期资源校验，Runtime 映射到 DialogueRequest，普通标签透传 Adapter
 - [ ] Tag 转义与稳定 ID 规则
 - [x] Ink `VAR` / 赋值与 Boolean、Number、String Story Variable 映射
@@ -902,7 +903,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [ ] `.story` → `.ink` 语义导出
 - [x] 受支持 `.ink` → Typed Story Graph Proposal，Apply / Discard 与单步 Undo
 - [ ] 完整 `.ink` → 原生节点的长期转换目标
-- [ ] 暂未覆盖的结构保留为可完整运行的 Ink Block，并提供 Diagnostics / Preview
+- [x] 暂未覆盖的结构保留为可完整运行的 Ink Block，并提供 Diagnostics / Preview
 - [x] 原生 `.ink` 文件 → Nodes 显式转换入口、行列 Diagnostics 与可移动 Diff Preview
 - [x] Linked / Embedded Ink Block → Nodes 显式转换，支持受限 Profile、可移动 Diff Preview、Apply / Discard 与 Undo
 - [ ] 选中原生节点 → Ink Block 显式转换
@@ -963,6 +964,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 ## Runtime
 
+- [x] External Function Out 数据 Pin：Call External Function 的每个返回值可作为强类型数据源，连接到 Set Variable / Branch 等节点；运行时缓存可序列化并支持多个消费者，保留 `resultVariableIds` 兼容路径
 - [ ] Unity Adapter
 - [ ] Unreal Adapter
 - [ ] Godot Adapter

@@ -1518,16 +1518,28 @@ function applyOperation(
         `Unknown node type: ${operation.node.type}`,
       );
     }
+    const data = {
+      ...definition.defaultData(),
+      ...structuredClone(operation.node.data),
+    } as Record<string, unknown>;
+    if (operation.node.type === StoryNodeType.CallEvent) {
+      const call = data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+      const event = options.semanticContext?.events.find((candidate) => candidate.id === call.eventId);
+      if (event) {
+        call.outputPorts = (event.outputs ?? []).map((output) => ({
+          id: output.id,
+          label: output.displayName,
+          valueType: output.valueType,
+        }));
+      }
+    }
     graph.nodes.push({
       id: operation.node.id,
       type: operation.node.type,
       name: operation.node.name,
       definitionVersion: definition.version,
       position: nextPosition(graph),
-      data: {
-        ...definition.defaultData(),
-        ...structuredClone(operation.node.data),
-      },
+      data,
     } as unknown as SourceNode);
     return undefined;
   }
@@ -1632,6 +1644,17 @@ function applyOperation(
     else if (operation.patch.name !== undefined) node.name = operation.patch.name;
     if (operation.patch.data) {
       node.data = { ...node.data, ...structuredClone(operation.patch.data) };
+    }
+    if (node.type === StoryNodeType.CallEvent && options.semanticContext?.events) {
+      const call = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+      const event = options.semanticContext.events.find((candidate) => candidate.id === call.eventId);
+      if (event) {
+        call.outputPorts = (event.outputs ?? []).map((output) => ({
+          id: output.id,
+          label: output.displayName,
+          valueType: output.valueType,
+        }));
+      }
     }
     return undefined;
   }
@@ -1979,6 +2002,23 @@ function applyOperation(
     }
     graph.edges = graph.edges.filter((edge) => !matchesConnection(edge));
     return undefined;
+  }
+  // Older Story files do not carry an output-port snapshot. Hydrate only when
+  // a transaction actually touches a Call External Function connection, so
+  // existing files remain compact while new Out links are fully validated.
+  for (const endpointId of [operation.from.nodeId, operation.to.nodeId]) {
+    const endpoint = graph.nodes.find((candidate) => candidate.id === endpointId);
+    if (!endpoint || endpoint.type !== StoryNodeType.CallEvent) continue;
+    const call = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+    if (call.outputPorts !== undefined) continue;
+    const event = options.semanticContext?.events.find((candidate) => candidate.id === call.eventId);
+    if (event) {
+      call.outputPorts = (event.outputs ?? []).map((output) => ({
+        id: output.id,
+        label: output.displayName,
+        valueType: output.valueType,
+      }));
+    }
   }
   let edges = graphEdges(graph);
   let validation = validateGraphConnection(

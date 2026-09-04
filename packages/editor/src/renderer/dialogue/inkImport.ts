@@ -11,14 +11,19 @@ import {
   type ChapterId,
   type DialogueLine,
   type EventSource,
+  type EventOutputId,
+  type ExpressionSource,
   type InkExternalFunctionBinding,
+  type NarrationNodeData,
   type NodeId,
   type RuntimeValue,
   type SourceGraph,
   type StoryNodeDataMap,
   type ValueType,
   type VariableDefinition,
+  type VariableId,
 } from '@story-blueprint/common';
+import { Compiler as InkCompiler } from 'inkjs/full';
 import { parseDialogueInk } from './dialogueInk';
 
 export const INK_NODE_PROFILE_VERSION = 1 as const;
@@ -33,12 +38,16 @@ export interface InkImportDiagnostic {
 export interface InkImportSummary {
   dialogueNodes: number;
   dialogueLines: number;
+  narrationNodes: number;
   choiceNodes: number;
   branchNodes: number;
   variableNodes: number;
   variablesAdded: number;
   portalNodes: number;
   externalFunctionNodes?: number;
+  /** A source construct was preserved as a native Ink Block rather than rewritten as nodes. */
+  inkBlockNodes: number;
+  mode: 'native-nodes' | 'ink-block-fallback';
 }
 
 export type InkImportResult =
@@ -59,6 +68,12 @@ interface DialogueStatement {
   kind: 'dialogue';
   line: number;
   lines: DialogueLine[];
+}
+
+interface NarrationStatement {
+  kind: 'narration';
+  line: number;
+  data: NarrationNodeData;
 }
 
 interface ChoiceStatement {
@@ -98,6 +113,7 @@ interface ExternalCallStatement {
 
 type InkStatement =
   | DialogueStatement
+  | NarrationStatement
   | ChoiceStatement
   | DivertStatement
   | BranchStatement
@@ -114,6 +130,8 @@ interface ParsedInkProfile {
   sections: InkSection[];
   variables: VariableDefinition[];
   diagnostics: InkImportDiagnostic[];
+  /** Valid Ink outside the node conversion profile. Preserve the complete source as one block. */
+  requiresInkBlock: boolean;
 }
 
 type BlueprintCommandInput = BlueprintCommand extends infer Command
@@ -138,6 +156,21 @@ function diagnostic(
   column = 1,
 ): void {
   diagnostics.push({ severity, line, column, message });
+}
+
+function profileFallbackDiagnostic(
+  diagnostics: InkImportDiagnostic[],
+  line: number,
+  message: string,
+  column = 1,
+): void {
+  diagnostic(
+    diagnostics,
+    line,
+    `${message} The complete source will be preserved as an Ink Block instead of being partially converted.`,
+    'warning',
+    column,
+  );
 }
 
 function normalizeInkExpression(source: string): string {
@@ -218,16 +251,7 @@ function choiceContent(source: string): {
   return { text, target: inlineTarget?.[2], visibleIf };
 }
 
-/**
- * Blueprint Dialogue Lines require an explicit speaker prefix, while ordinary Ink output uses
- * bare text for narration. Keep named Ink lines intact and make only bare lines explicit
- * Narrator Lines for the importer.
- */
-function asDialogueInkSource(sourceLines: readonly string[]): string {
-  return sourceLines
-    .map((line) => (/^\s*[^:#][^:]*:\s/.test(line) ? line : `Narrator: ${line.trimStart()}`))
-    .join('\n');
-}
+const namedDialogueLinePattern = /^\s*[^:#][^:]*:\s/;
 
 function splitExternalCallArguments(source: string): string[] | undefined {
   if (!source.trim()) return [];
@@ -267,39 +291,40 @@ function parseSimpleBranch(
   sourceLines: readonly string[],
   startIndex: number,
   diagnostics: InkImportDiagnostic[],
-): { statement?: BranchStatement; endIndex: number } {
+): { statement?: BranchStatement; endIndex: number; requiresInkBlock: boolean } {
   let endIndex = startIndex + 1;
   while (endIndex < sourceLines.length && sourceLines[endIndex]?.trim() !== '}') endIndex += 1;
   if (endIndex >= sourceLines.length) {
     diagnostic(diagnostics, startIndex + 1, 'Unclosed Ink conditional block.');
-    return { endIndex: sourceLines.length - 1 };
+    return { endIndex: sourceLines.length - 1, requiresInkBlock: false };
   }
   const content = sourceLines
     .slice(startIndex + 1, endIndex)
     .map((line, offset) => ({ source: line.trim(), line: startIndex + offset + 2 }))
     .filter((line) => line.source.length > 0 && !line.source.startsWith('//'));
   if (content.length !== 4) {
-    diagnostic(
+    profileFallbackDiagnostic(
       diagnostics,
       startIndex + 1,
       'This profile only converts conditionals whose true and else arms each contain one divert.',
     );
-    return { endIndex };
+    return { endIndex, requiresInkBlock: true };
   }
   const condition = /^-?\s*(.+?):\s*$/.exec(content[0]!.source);
   const whenTrue = divertPattern.exec(content[1]!.source);
   const otherwise = /^-\s*else\s*:\s*$/i.exec(content[2]!.source);
   const whenFalse = divertPattern.exec(content[3]!.source);
   if (!condition || !whenTrue || !otherwise || !whenFalse) {
-    diagnostic(
+    profileFallbackDiagnostic(
       diagnostics,
       startIndex + 1,
       'Expected `{ condition:`, one `-> target`, `- else:`, one `-> target`, then `}`.',
     );
-    return { endIndex };
+    return { endIndex, requiresInkBlock: true };
   }
   return {
     endIndex,
+    requiresInkBlock: false,
     statement: {
       kind: 'branch',
       line: startIndex + 1,
@@ -332,6 +357,7 @@ function parseInkProfile(
   );
   const labels = new Map<string, number>();
   let section = sections[0]!;
+  let requiresInkBlock = false;
 
   for (let index = 0; index < sourceLines.length; index += 1) {
     const sourceLine = sourceLines[index]!;
@@ -431,16 +457,37 @@ function parseInkProfile(
     if (trimmed === '{') {
       const parsed = parseSimpleBranch(sourceLines, index, diagnostics);
       if (parsed.statement) section.statements.push(parsed.statement);
+      requiresInkBlock ||= parsed.requiresInkBlock;
       index = parsed.endIndex;
       continue;
     }
 
     if (/^\s*[*+]\s+/.test(sourceLine)) {
+      if (/^\s*\+\s+/.test(sourceLine)) {
+        profileFallbackDiagnostic(
+          diagnostics,
+          index + 1,
+          'Sticky (`+`) Choices do not have an equivalent native Choice state model.',
+        );
+        requiresInkBlock = true;
+        continue;
+      }
       const options: ChoiceStatement['options'] = [];
       const choiceLine = index + 1;
       while (index < sourceLines.length) {
-        const optionMatch = /^\s*[*+]\s+(.+?)\s*$/.exec(sourceLines[index]!);
+        const optionSource = sourceLines[index]!;
+        const optionMatch = /^\s*[*+]\s+(.+?)\s*$/.exec(optionSource);
         if (!optionMatch) break;
+        if (/^\s*\+\s+/.test(optionSource)) {
+          profileFallbackDiagnostic(
+            diagnostics,
+            index + 1,
+            'Sticky (`+`) Choices do not have an equivalent native Choice state model.',
+          );
+          requiresInkBlock = true;
+          index += 1;
+          continue;
+        }
         const parsed = choiceContent(optionMatch[1]);
         let target = parsed.target;
         if (!target && divertPattern.test(sourceLines[index + 1] ?? '')) {
@@ -448,6 +495,14 @@ function parseInkProfile(
           index += 1;
         }
         if (!parsed.text) diagnostic(diagnostics, index + 1, 'Choice text cannot be empty.');
+        if (/(?:^|\s)#\s*\S/.test(parsed.text)) {
+          profileFallbackDiagnostic(
+            diagnostics,
+            index + 1,
+            'Choice tags cannot be preserved by a native Choice node.',
+          );
+          requiresInkBlock = true;
+        }
         if (!target) {
           diagnostic(
             diagnostics,
@@ -478,11 +533,31 @@ function parseInkProfile(
       continue;
     }
     if (/^\s*(?:INCLUDE|LIST|CONST|TUNNEL|FUNCTION)\b/i.test(sourceLine)) {
-      diagnostic(diagnostics, index + 1, `Unsupported Ink declaration: ${trimmed}`);
+      profileFallbackDiagnostic(diagnostics, index + 1, `Unsupported Ink declaration: ${trimmed}`);
+      requiresInkBlock = true;
+      continue;
+    }
+    if (/^\s*==/.test(sourceLine)) {
+      profileFallbackDiagnostic(
+        diagnostics,
+        index + 1,
+        `Unsupported Ink stitch declaration: ${trimmed}`,
+      );
+      requiresInkBlock = true;
+      continue;
+    }
+    if (/^\s*~/.test(sourceLine)) {
+      profileFallbackDiagnostic(diagnostics, index + 1, `Unsupported Ink evaluation: ${trimmed}`);
+      requiresInkBlock = true;
       continue;
     }
     if (/^\s*(?:<-|=|-)\s*/.test(sourceLine) || trimmed === '}') {
-      diagnostic(diagnostics, index + 1, `Unsupported Ink control syntax: ${trimmed}`);
+      profileFallbackDiagnostic(
+        diagnostics,
+        index + 1,
+        `Unsupported Ink control syntax: ${trimmed}`,
+      );
+      requiresInkBlock = true;
       continue;
     }
 
@@ -509,20 +584,60 @@ function parseInkProfile(
       index += 1;
     }
     index -= 1;
-    const parsedDialogue = parseDialogueInk(
-      asDialogueInkSource(dialogueLines),
-      { lines: [] },
-      characters,
-      assets,
-    );
-    for (const item of parsedDialogue.diagnostics) {
-      diagnostic(diagnostics, dialogueStart + item.line, item.message, 'error', item.column);
-    }
-    if (parsedDialogue.lines) {
+    let dialogue: DialogueStatement | undefined;
+    for (const [offset, source] of dialogueLines.entries()) {
+      if (/\{[&~!]/.test(source) || /\{[^}\r\n]*[:|]/.test(source)) {
+        profileFallbackDiagnostic(
+          diagnostics,
+          dialogueStart + offset + 1,
+          'Inline Ink conditional, sequence, or alternative content cannot be represented by a native text template.',
+        );
+        requiresInkBlock = true;
+        continue;
+      }
+      const parsedDialogue = parseDialogueInk(
+        namedDialogueLinePattern.test(source) ? source : `Narrator: ${source.trimStart()}`,
+        { lines: [] },
+        characters,
+        assets,
+      );
+      for (const item of parsedDialogue.diagnostics) {
+        diagnostic(
+          diagnostics,
+          dialogueStart + offset + item.line,
+          item.message,
+          'error',
+          item.column,
+        );
+      }
+      const line = parsedDialogue.lines?.[0];
+      if (!line) continue;
+      if (line.speakerId) {
+        if (!dialogue) {
+          dialogue = { kind: 'dialogue', line: dialogueStart + offset + 1, lines: [] };
+          section.statements.push(dialogue);
+        }
+        dialogue.lines.push(line);
+        continue;
+      }
+
+      dialogue = undefined;
+      if (line.emotion || line.tags?.length) {
+        profileFallbackDiagnostic(
+          diagnostics,
+          dialogueStart + offset + 1,
+          'Narration supports a Voice Asset only; emotion and ordinary tags cannot be preserved as native nodes.',
+        );
+        requiresInkBlock = true;
+      }
       section.statements.push({
-        kind: 'dialogue',
-        line: dialogueStart + 1,
-        lines: parsedDialogue.lines,
+        kind: 'narration',
+        line: dialogueStart + offset + 1,
+        data: {
+          textId: line.textId,
+          text: line.text,
+          ...(line.voiceId ? { voiceId: line.voiceId } : {}),
+        },
       });
     }
   }
@@ -581,11 +696,132 @@ function parseInkProfile(
   if (sections.every((candidate) => candidate.statements.length === 0)) {
     diagnostic(diagnostics, 1, 'Ink source does not contain any convertible story content.');
   }
-  return { sections, variables, diagnostics };
+  return { sections, variables, diagnostics, requiresInkBlock };
 }
 
 function graphTarget(chapterId?: string): BlueprintGraphTarget {
   return chapterId ? { kind: 'chapter', chapterId: chapterId as ChapterId } : { kind: 'root' };
+}
+
+function compilerDiagnostic(error: string): InkImportDiagnostic {
+  const location = /\bline\s+(\d+)(?::(\d+))?/i.exec(error);
+  return {
+    severity: 'error',
+    line: location ? Number(location[1]) : 1,
+    column: location?.[2] ? Number(location[2]) : 1,
+    message: error.replace(/^ERROR:\s*/i, '').trim(),
+  };
+}
+
+/**
+ * Preserves valid Ink that is outside the native node profile. The source remains complete and
+ * editable in the Ink Block Inspector; no part of it is guessed into an incomplete node graph.
+ */
+export function buildInkBlockFallbackTransaction(
+  source: string,
+  options: {
+    revision: string;
+    chapterId?: string;
+    conversionDiagnostics?: readonly InkImportDiagnostic[];
+  },
+): InkImportResult {
+  if (!source.trim()) {
+    return {
+      ok: false,
+      profileVersion: INK_NODE_PROFILE_VERSION,
+      diagnostics: [
+        {
+          severity: 'error',
+          line: 1,
+          column: 1,
+          message: 'Ink source is empty.',
+        },
+      ],
+    };
+  }
+  try {
+    const compiler = new InkCompiler(source);
+    compiler.Compile();
+    if (compiler.errors.length > 0) {
+      return {
+        ok: false,
+        profileVersion: INK_NODE_PROFILE_VERSION,
+        diagnostics: compiler.errors.map(compilerDiagnostic),
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      profileVersion: INK_NODE_PROFILE_VERSION,
+      diagnostics: [
+        {
+          severity: 'error',
+          line: 1,
+          column: 1,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    };
+  }
+
+  const target = graphTarget(options.chapterId);
+  const nodeId = createStableId('node');
+  const summary: InkImportSummary = {
+    dialogueNodes: 0,
+    dialogueLines: 0,
+    narrationNodes: 0,
+    choiceNodes: 0,
+    branchNodes: 0,
+    variableNodes: 0,
+    variablesAdded: 0,
+    portalNodes: 0,
+    externalFunctionNodes: 0,
+    inkBlockNodes: 1,
+    mode: 'ink-block-fallback',
+  };
+  const conversionDiagnostics = (options.conversionDiagnostics ?? []).map((item) => ({
+    ...item,
+    severity: 'warning' as const,
+  }));
+  return {
+    ok: true,
+    profileVersion: INK_NODE_PROFILE_VERSION,
+    diagnostics: [
+      {
+        severity: 'warning',
+        line: 1,
+        column: 1,
+        message:
+          'This Ink uses features outside the native node profile and was preserved as an embedded Ink Block.',
+      },
+      ...conversionDiagnostics,
+    ],
+    summary,
+    transaction: {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: options.revision,
+      operations: [
+        {
+          operationId: 'ink_fallback_1',
+          kind: 'add-node',
+          graph: target,
+          node: {
+            id: nodeId,
+            type: StoryNodeType.InkBlock,
+            name: 'Preserved Ink Block',
+            data: { sourceMode: 'embedded', source },
+          },
+        },
+        {
+          operationId: 'ink_fallback_2',
+          kind: 'layout-selection',
+          graph: target,
+          nodeIds: [nodeId],
+        },
+      ],
+    },
+  };
 }
 
 export function buildInkImportTransaction(
@@ -601,7 +837,7 @@ export function buildInkImportTransaction(
   },
 ): InkImportResult {
   const parsed = parseInkProfile(source, options.characters, options.assets, options.variables);
-  if (parsed.diagnostics.some((item) => item.severity === 'error')) {
+  if (parsed.requiresInkBlock || parsed.diagnostics.some((item) => item.severity === 'error')) {
     return {
       ok: false,
       profileVersion: INK_NODE_PROFILE_VERSION,
@@ -618,12 +854,15 @@ export function buildInkImportTransaction(
   const summary: InkImportSummary = {
     dialogueNodes: 0,
     dialogueLines: 0,
+    narrationNodes: 0,
     choiceNodes: 0,
     branchNodes: 0,
     variableNodes: 0,
     variablesAdded: parsed.variables.length,
     portalNodes: 0,
     externalFunctionNodes: 0,
+    inkBlockNodes: 0,
+    mode: 'native-nodes',
   };
   let operationIndex = 0;
   const addOperation = (operation: BlueprintCommandInput) => {
@@ -670,6 +909,13 @@ export function buildInkImportTransaction(
         summary.dialogueLines += statement.lines.length;
         continue;
       }
+      if (statement.kind === 'narration') {
+        const id = addNode(StoryNodeType.Narration, statement.data);
+        if (previous) connect(previous.nodeId, previous.portId, id);
+        previous = { nodeId: id, portId: 'out' };
+        summary.narrationNodes += 1;
+        continue;
+      }
       if (statement.kind === 'assignment') {
         const variable = variableByName.get(statement.variableName)!;
         const id = addNode(StoryNodeType.SetVariable, {
@@ -706,8 +952,7 @@ export function buildInkImportTransaction(
           });
           continue;
         }
-        const argumentsMap: Record<string, { source: string; bindings: Record<string, string> }> =
-          {};
+        const argumentsMap: Record<string, ExpressionSource> = {};
         event.parameters.forEach((parameter, index) => {
           const argument = statement.arguments[index]!;
           argumentsMap[parameter.name] = {
@@ -717,7 +962,7 @@ export function buildInkImportTransaction(
             ),
           };
         });
-        const resultVariableIds: Record<string, string> = {};
+        const resultVariableIds: Record<EventOutputId, VariableId> = {};
         if (statement.resultVariableName) {
           if ((event.outputs ?? []).length !== 1) {
             parsed.diagnostics.push({
@@ -753,6 +998,11 @@ export function buildInkImportTransaction(
         const id = addNode(StoryNodeType.CallEvent, {
           eventId: event.id,
           arguments: argumentsMap,
+          outputPorts: (event.outputs ?? []).map((output) => ({
+            id: output.id,
+            label: output.displayName,
+            valueType: output.valueType,
+          })),
           resultVariableIds,
         });
         if (previous) connect(previous.nodeId, previous.portId, id);

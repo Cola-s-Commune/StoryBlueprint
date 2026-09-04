@@ -964,11 +964,21 @@ export function moveGraphPinConnections(
       graphNodeLikes(graph.nodes),
       graphEdgeLikes([...nextEdges, ...movedEdges]),
     );
-    if (!result.valid && result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED') {
-      nextEdges = nextEdges.filter(
-        (candidate) =>
-          candidate.source !== moved.source || candidate.sourceHandle !== moved.sourceHandle,
-      );
+    if (
+      !result.valid &&
+      (result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED' ||
+        result.diagnostic.code === 'INPUT_ALREADY_CONNECTED')
+    ) {
+      nextEdges =
+        result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED'
+          ? nextEdges.filter(
+              (candidate) =>
+                candidate.source !== moved.source || candidate.sourceHandle !== moved.sourceHandle,
+            )
+          : nextEdges.filter(
+              (candidate) =>
+                candidate.target !== moved.target || candidate.targetHandle !== moved.targetHandle,
+            );
       result = validateGraphConnection(
         {
           source: moved.source,
@@ -1241,6 +1251,9 @@ function cloneNodeData(node: EditorGraphNode): {
       textId: createStableId('text'),
     }));
   }
+  // Only Choice option IDs are owned by the node. Other dynamic outputs identify
+  // project resources (External Function outputs and Object fields) and must survive copying.
+  if (node.type !== StoryNodeType.Choice) return { data, portIds };
   const dynamic = nodeRegistry.get(node.type)?.dynamicOutputs;
   if (!dynamic) return { data, portIds };
 

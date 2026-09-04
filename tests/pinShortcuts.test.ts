@@ -85,4 +85,72 @@ describe('pin shortcuts', () => {
       ),
     ).toMatchObject({ ok: false });
   });
+
+  it('replaces a data source when moving a connection onto an occupied input pin', () => {
+    const dataGraph: EditorGraphState = {
+      nodes: [
+        {
+          id: 'n_first',
+          type: StoryNodeType.GetVariable,
+          definitionVersion: 1,
+          position: { x: 0, y: 0 },
+          data: { variableId: 'v_first', outputValueType: { kind: 'number' } },
+        },
+        {
+          id: 'n_second',
+          type: StoryNodeType.GetVariable,
+          definitionVersion: 1,
+          position: { x: 0, y: 180 },
+          data: { variableId: 'v_second', outputValueType: { kind: 'number' } },
+        },
+        {
+          id: 'n_first_target',
+          type: StoryNodeType.SetVariable,
+          definitionVersion: 1,
+          position: { x: 360, y: 0 },
+          data: { variableId: 'v_first_target', value: { source: '0', bindings: {} } },
+        },
+        {
+          id: 'n_second_target',
+          type: StoryNodeType.SetVariable,
+          definitionVersion: 1,
+          position: { x: 360, y: 180 },
+          data: { variableId: 'v_second_target', value: { source: '0', bindings: {} } },
+        },
+      ],
+      edges: [
+        {
+          id: 'e_moving',
+          source: 'n_first',
+          sourceHandle: 'value',
+          target: 'n_first_target',
+          targetHandle: 'value',
+        },
+        {
+          id: 'e_existing',
+          source: 'n_second',
+          sourceHandle: 'value',
+          target: 'n_second_target',
+          targetHandle: 'value',
+        },
+      ],
+    };
+    const result = moveGraphPinConnections(
+      dataGraph,
+      { nodeId: 'n_first_target', handleId: 'value', direction: 'target' },
+      { nodeId: 'n_second_target', handleId: 'value', direction: 'target' },
+    );
+
+    expect(result.ok, result.ok ? undefined : result.message).toBe(true);
+    if (result.ok) {
+      expect(result.graph.edges).toEqual([
+        expect.objectContaining({
+          id: 'e_moving',
+          source: 'n_first',
+          target: 'n_second_target',
+          targetHandle: 'value',
+        }),
+      ]);
+    }
+  });
 });

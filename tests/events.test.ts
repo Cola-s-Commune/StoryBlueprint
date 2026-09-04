@@ -355,6 +355,73 @@ describe('project events', () => {
     expect(validRuntime.state.storyVariables.v_score).toBe(9);
   });
 
+  it('exposes External Function Out values through data connections', () => {
+    const source = eventStory();
+    source.events[0] = {
+      ...source.events[0]!,
+      outputs: [
+        {
+          id: 'evo_score',
+          name: 'score',
+          displayName: 'Score',
+          valueType: { kind: 'number' },
+        },
+      ],
+    };
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    eventNode.data = {
+      ...eventNode.data,
+      outputPorts: [{ id: 'evo_score', label: 'Score', valueType: { kind: 'number' } }],
+    };
+    source.root.nodes.push({
+      id: 'n_set_result',
+      type: StoryNodeType.SetVariable,
+      definitionVersion: 1,
+      position: { x: 320, y: 0 },
+      data: {
+        variableId: 'v_score',
+        value: { source: '0', bindings: {} },
+      },
+    });
+    source.root.edges = [
+      ...source.root.edges.filter(
+        (edge) => !(edge.from.nodeId === 'n_event' && edge.to.nodeId === 'n_end'),
+      ),
+      { from: { nodeId: 'n_event', portId: 'out' }, to: { nodeId: 'n_set_result', portId: 'in' } },
+      {
+        from: { nodeId: 'n_event', portId: 'output:evo_score' },
+        to: { nodeId: 'n_set_result', portId: 'value' },
+      },
+      { from: { nodeId: 'n_set_result', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+    ];
+
+    const compiled = compileStory(source);
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    const waiting = runtime.runUntilPause();
+    expect(waiting.kind).toBe('waiting');
+    if (waiting.kind !== 'waiting' || waiting.interaction.kind !== 'event') return;
+    const result = runtime.continueEvent({ evo_score: 12 });
+    expect(result.kind).toBe('completed');
+    expect(runtime.state.storyVariables.v_score).toBe(12);
+    expect(runtime.state.eventOutputs?.i_event_main?.evo_score).toBe(12);
+  });
+
+  it('round-trips typed External Function Out ports through Story KDL', () => {
+    const source = eventStory();
+    const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+    eventNode.data = {
+      ...eventNode.data,
+      outputPorts: [{ id: 'evo_score', label: 'Score', valueType: { kind: 'number' } }],
+    };
+    const parsed = parseStorySource(serializeStorySource({ ...source, events: [] }));
+    expect(
+      (parsed.root.nodes.find((node) => node.id === 'n_event')?.data as { outputPorts?: unknown })
+        .outputPorts,
+    ).toEqual([{ id: 'evo_score', label: 'Score', valueType: { kind: 'number' } }]);
+  });
+
   it('diagnoses missing event arguments', () => {
     const source = eventStory();
     const node = source.root.nodes.find((candidate) => candidate.id === 'n_event')!;

@@ -9,7 +9,12 @@ import {
   serializeStorySource,
   type StorySourceDocument,
 } from '../packages/common/src';
-import { compileStory } from '../packages/compiler/src';
+import {
+  compileExpression,
+  compileStory,
+  conditionTreeToExpression,
+  expressionToConditionTree,
+} from '../packages/compiler/src';
 
 function conditionStory(): StorySourceDocument {
   return {
@@ -252,5 +257,89 @@ describe('Condition resources', () => {
       },
     ];
     expect(() => serializeStorySource(cyclic)).toThrow(/Condition cycle detected/);
+  });
+
+  it('round-trips boolean expressions through a condition tree with stable bindings', () => {
+    const variables = [
+      ...conditionStory().variables,
+      {
+        id: 'v_flag',
+        name: 'flag',
+        displayName: 'Flag',
+        scope: 'story' as const,
+        valueType: { kind: 'boolean' as const },
+        defaultValue: false,
+      },
+      {
+        id: 'v_trust',
+        name: 'trust',
+        displayName: 'Trust',
+        scope: 'story' as const,
+        valueType: { kind: 'number' as const },
+        defaultValue: 0,
+      },
+    ];
+    const source = {
+      source: 'gold >= 1 && (flag || trust > 3)',
+      bindings: { gold: 'v_gold', flag: 'v_flag', trust: 'v_trust' },
+    } as const;
+    const tree = expressionToConditionTree(source, variables);
+    expect(tree).toMatchObject({
+      kind: 'all',
+      children: [
+        { kind: 'expression' },
+        { kind: 'any', children: [{ kind: 'expression' }, { kind: 'expression' }] },
+      ],
+    });
+    const roundTripped = conditionTreeToExpression(tree, variables);
+    expect(roundTripped.bindings).toEqual(source.bindings);
+    expect(compileExpression(roundTripped, variables)).toEqual(
+      compileExpression(source, variables),
+    );
+  });
+
+  it('converts empty All and Any groups to boolean literals', () => {
+    expect(conditionTreeToExpression({ kind: 'all', children: [] }, [])).toMatchObject({
+      source: 'true',
+    });
+    expect(conditionTreeToExpression({ kind: 'any', children: [] }, [])).toMatchObject({
+      source: 'false',
+    });
+  });
+
+  it('keeps reusable references and conflicting bindings out of inline expressions', () => {
+    expect(() =>
+      conditionTreeToExpression({ kind: 'reference', conditionId: 'cond_other' }, []),
+    ).toThrow(/references cannot be represented/);
+    const variables = [
+      {
+        id: 'v_a',
+        name: 'a',
+        displayName: 'A',
+        scope: 'story' as const,
+        valueType: { kind: 'boolean' as const },
+        defaultValue: false,
+      },
+      {
+        id: 'v_b',
+        name: 'a',
+        displayName: 'B',
+        scope: 'story' as const,
+        valueType: { kind: 'boolean' as const },
+        defaultValue: false,
+      },
+    ];
+    expect(() =>
+      conditionTreeToExpression(
+        {
+          kind: 'all',
+          children: [
+            { kind: 'expression', expression: { source: 'a', bindings: { a: 'v_a' } } },
+            { kind: 'expression', expression: { source: 'a', bindings: { a: 'v_b' } } },
+          ],
+        },
+        variables,
+      ),
+    ).toThrow(/multiple variables/);
   });
 });

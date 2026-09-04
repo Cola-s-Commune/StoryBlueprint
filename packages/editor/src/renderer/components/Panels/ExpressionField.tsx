@@ -1,4 +1,4 @@
-import type { ValueType } from '@story-blueprint/common';
+import type { ExpressionSource, ValueType } from '@story-blueprint/common';
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { readStoryDataDrag } from '../../graph/storyDataDrag';
@@ -16,6 +16,7 @@ interface ExpressionFieldProps {
   value: string;
   multiline?: boolean;
   expectedType?: ValueType;
+  bindings?: ExpressionSource['bindings'];
   onBeginEdit: () => void;
   onChange: (value: string) => void;
 }
@@ -32,6 +33,7 @@ export function ExpressionField({
   value,
   multiline,
   expectedType,
+  bindings,
   onBeginEdit,
   onChange,
 }: ExpressionFieldProps) {
@@ -63,7 +65,7 @@ export function ExpressionField({
   const diagnostic = useMemo(
     () =>
       expressionDiagnostic(
-        deferredValue,
+        bindings ? { source: deferredValue, bindings } : deferredValue,
         availableVariables,
         projectVariables,
         characters,

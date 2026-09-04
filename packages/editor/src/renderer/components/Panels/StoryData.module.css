@@ -245,6 +245,20 @@
   user-select: none;
 }
 
+.variableDragHandle {
+  width: 9px;
+  flex: 0 0 9px;
+  color: #697988;
+  cursor: grab;
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+}
+
+.item:hover .variableDragHandle {
+  color: #9bbcd2;
+}
+
 .item:hover,
 .selected {
   border-color: #35414d;
@@ -513,7 +527,7 @@
   text-transform: uppercase;
 }
 
-.setDrag {
+.getDrag {
   display: grid;
   width: 18px;
   height: 18px;
@@ -692,12 +706,53 @@
   border-top: 1px solid #343d46;
 }
 
+.conditionTreeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .conditionTreeTitle {
   color: #8d99a5;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+}
+
+.conditionMode {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #46525d;
+  border-radius: 3px;
+  background: #20262c;
+}
+
+.conditionMode button {
+  min-width: 57px;
+  padding: 3px 6px;
+  border: 0;
+  border-right: 1px solid #46525d;
+  background: transparent;
+  color: #8f9eaa;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.conditionMode button:last-child {
+  border-right: 0;
+}
+
+.conditionMode button:hover {
+  background: #2b3640;
+  color: #d2e0ea;
+}
+
+.conditionMode .conditionModeActive {
+  background: #365467;
+  color: #e5f3fb;
 }
 
 .conditionTreeGroup {

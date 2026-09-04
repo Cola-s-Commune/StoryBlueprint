@@ -56,7 +56,7 @@
 .problem {
   display: grid;
   width: 100%;
-  grid-template-columns: 15px minmax(0, 1fr) auto;
+  grid-template-columns: 15px minmax(0, 1fr) auto auto;
   align-items: start;
   gap: 7px;
   padding: 6px 10px;
@@ -102,6 +102,12 @@ button.problem:hover {
 
 .code {
   color: #717b85;
+  font-size: 9px;
+  user-select: text;
+}
+
+.origin {
+  color: #78838d;
   font-size: 9px;
   user-select: text;
 }

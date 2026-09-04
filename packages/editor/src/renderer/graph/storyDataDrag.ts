@@ -31,9 +31,12 @@ export function readStoryDataDrag(dataTransfer: DataTransfer): StoryDataDragPayl
     if (
       value.kind === 'variable' &&
       typeof value.id === 'string' &&
-      (value.action === 'get' || value.action === 'set')
+      (value.action === 'get' || value.action === 'set' || value.action === undefined)
     ) {
-      return value as StoryDataDragPayload;
+      return {
+        ...value,
+        action: value.action ?? 'set',
+      } as StoryDataDragPayload;
     }
   } catch {
     return undefined;

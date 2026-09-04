@@ -1,5 +1,5 @@
 import { nodeRegistry, type NodeRegistry } from '../registry/nodeRegistry';
-import type { StoryNodeDataMap, StoryNodeType, NodePort } from '../types/nodes';
+import { StoryNodeType, type StoryNodeDataMap, type NodePort } from '../types/nodes';
 import type { ValueType } from '../types/values';
 
 export interface GraphNodeLike {
@@ -76,7 +76,21 @@ export function resolveNodePorts(
   }
 
   const data = node.data as unknown;
+  const rerouteData =
+    node.type === StoryNodeType.Reroute && isRecord(node.data)
+      ? (node.data as { kind?: unknown; valueType?: unknown })
+      : undefined;
   const ports: NodePort[] = [...definition.inputs, ...definition.outputs].map((port) => {
+    if (rerouteData?.kind === 'data') {
+      return {
+        ...port,
+        kind: 'data',
+        valueType:
+          isRecord(rerouteData.valueType) && typeof rerouteData.valueType.kind === 'string'
+            ? (rerouteData.valueType as ValueType)
+            : ({ kind: 'any' } satisfies ValueType),
+      };
+    }
     const property =
       (port.direction === 'input'
         ? definition.inputValueTypeProperties
@@ -106,6 +120,9 @@ export function resolveNodePorts(
         });
         continue;
       }
+      const valueTypeByEntry = dynamic.valueTypeProperty
+        ? readPath(data, dynamic.valueTypeProperty)
+        : undefined;
       for (const key of Object.keys(source)) {
         const id = `${dynamic.idPrefix ?? ''}${key}`;
         if (portIds.has(id)) {
@@ -116,7 +133,13 @@ export function resolveNodePorts(
           continue;
         }
         portIds.add(id);
-        ports.push({ id, label: key, kind: dynamic.kind, direction, valueType: dynamic.valueType });
+        const valueType =
+          isRecord(valueTypeByEntry) &&
+          isRecord(valueTypeByEntry[key]) &&
+          typeof valueTypeByEntry[key].kind === 'string'
+            ? (valueTypeByEntry[key] as ValueType)
+            : dynamic.valueType;
+        ports.push({ id, label: key, kind: dynamic.kind, direction, valueType });
       }
       continue;
     }
@@ -177,19 +200,37 @@ export function resolveNodePorts(
   return { ports, diagnostics };
 }
 
-function sameValueType(source: ValueType | undefined, target: ValueType | undefined): boolean {
+/**
+ * Returns whether a value produced with `source` can be consumed by `target`.
+ * The relation is directional for nullable values: a nullable source cannot be
+ * connected to a non-nullable target. `any` intentionally remains an escape
+ * hatch for engine-owned JSON and unfinished authoring work.
+ */
+export function valueTypesCompatible(
+  source: ValueType | undefined,
+  target: ValueType | undefined,
+): boolean {
   if (source?.kind === 'any' || target?.kind === 'any') return true;
   if (!source || !target || source.kind !== target.kind) return false;
   if (source.nullable && !target.nullable) return false;
   if (source.kind === 'enum' && target.kind === 'enum') return source.name === target.name;
-  if (source.kind === 'struct' && target.kind === 'struct') return source.name === target.name;
+  if (source.kind === 'struct' && target.kind === 'struct') {
+    if (source.name !== target.name) return false;
+    return Object.entries(target.fields).every(([name, targetType]) =>
+      valueTypesCompatible(source.fields[name], targetType),
+    );
+  }
   if (source.kind === 'json' && target.kind === 'json') return source.name === target.name;
   if (source.kind === 'array' && target.kind === 'array')
-    return !source.elementType || !target.elementType || sameValueType(source.elementType, target.elementType);
+    return (
+      !source.elementType || !target.elementType ||
+      valueTypesCompatible(source.elementType, target.elementType)
+    );
   if (source.kind === 'map' && target.kind === 'map')
     return (
       (!source.keyType || !target.keyType || source.keyType === target.keyType) &&
-      (!source.valueType || !target.valueType || sameValueType(source.valueType, target.valueType))
+      (!source.valueType || !target.valueType ||
+        valueTypesCompatible(source.valueType, target.valueType))
     );
   return true;
 }
@@ -256,7 +297,7 @@ export function createGraphConnectionValidator(
       }
       if (
         sourcePort.kind === 'data' &&
-        !sameValueType(sourcePort.valueType, targetPort.valueType)
+        !valueTypesCompatible(sourcePort.valueType, targetPort.valueType)
       ) {
         return invalid('INCOMPATIBLE_DATA_TYPE', 'Data port types are incompatible');
       }

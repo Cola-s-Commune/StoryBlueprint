@@ -1,5 +1,6 @@
 import type {
   CharacterSource,
+  ExpressionSource,
   TypedExpression,
   ValueType,
   VariableDefinition,
@@ -67,6 +68,8 @@ function expressionAstSource(
       return JSON.stringify(expression.value);
     case 'variable':
       return names.get(expression.variableId);
+    case 'event-output':
+      return undefined;
     case 'unary': {
       const operand = expressionAstSource(expression.operand, names);
       return operand === undefined
@@ -347,15 +350,20 @@ export function insertExpressionOperator(
 }
 
 export function expressionDiagnostic(
-  source: string,
+  expressionSource: ExpressionSource | string,
   variables: readonly VariableDefinition[],
   projectVariables: readonly VariableDefinition[],
   characters: readonly CharacterSource[],
   expectedType?: ValueType,
 ): { kind: 'valid' | 'error'; message: string; offset?: number } | undefined {
+  const source = typeof expressionSource === 'string' ? expressionSource : expressionSource.source;
   if (!source.trim()) return undefined;
   try {
-    const expression = compileExpression(source, [...variables, ...projectVariables], characters);
+    const expression = compileExpression(
+      expressionSource,
+      [...variables, ...projectVariables],
+      characters,
+    );
     if (!typeCompatible(expression.valueType, expectedType)) {
       return {
         kind: 'error',

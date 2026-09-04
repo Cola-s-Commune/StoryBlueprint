@@ -191,8 +191,8 @@
 
 .canvas :global(.react-flow__edge:hover .react-flow__edge-path),
 .canvas :global(.react-flow__edge.selected .react-flow__edge-path) {
-  stroke: #e4eaf2 !important;
   stroke-width: 3px !important;
+  filter: brightness(1.28);
 }
 
 .canvas :global(.react-flow__connection-path) {
@@ -279,20 +279,20 @@
 }
 
 .canvas :global(.react-flow__edge.merge-preview-edge-added path) {
-  stroke: #52cf7a;
-  stroke-width: 3;
+  stroke: #52cf7a !important;
+  stroke-width: 3 !important;
 }
 
 .canvas :global(.react-flow__edge.merge-preview-edge-removed path) {
-  stroke: #db6262;
-  stroke-width: 3;
+  stroke: #db6262 !important;
+  stroke-width: 3 !important;
   stroke-dasharray: 8 5;
   opacity: 0.62;
 }
 
 .canvas :global(.react-flow__edge.merge-preview-edge-conflict path) {
-  stroke: #ff7657;
-  stroke-width: 4;
+  stroke: #ff7657 !important;
+  stroke-width: 4 !important;
   stroke-dasharray: 5 4;
 }
 

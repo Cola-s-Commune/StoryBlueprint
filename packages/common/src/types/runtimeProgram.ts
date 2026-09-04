@@ -16,7 +16,7 @@ import type {
 import type { RuntimeValue, ValueType, VariableDefinition } from './values';
 
 export const STORY_RUNTIME_FORMAT = 'story-runtime' as const;
-export const STORY_RUNTIME_VERSION = 6 as const;
+export const STORY_RUNTIME_VERSION = 7 as const;
 
 export interface ProgramLocation {
   blockId: BlockId;
@@ -76,8 +76,7 @@ export interface InkBlockInstruction extends RuntimeInstructionBase {
 
 export interface NarrationInstruction extends RuntimeInstructionBase {
   op: 'narration';
-  textId: TextId;
-  defaultText: string;
+  text: RuntimeTextTemplate;
   voice?: LocalizedVoiceRef;
 }
 

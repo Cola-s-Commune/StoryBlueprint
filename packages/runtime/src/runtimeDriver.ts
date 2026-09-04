@@ -51,6 +51,14 @@ export class StoryRuntimeDriver {
             await this.adapter.showDialogue(result.interaction.request, signal);
             result = this.runtime.continueDialogue();
             break;
+          case 'narration':
+            if (this.adapter.showNarration) {
+              await this.adapter.showNarration(result.interaction.request, signal);
+            } else {
+              await this.adapter.showDialogue(result.interaction.request, signal);
+            }
+            result = this.runtime.continueNarration();
+            break;
           case 'choice': {
             const optionId = await this.adapter.showChoice(result.interaction.request, signal);
             result = this.runtime.choose(optionId);

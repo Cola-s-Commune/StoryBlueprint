@@ -2,6 +2,7 @@ import { StoryNodeType } from '@story-blueprint/common';
 import type { NodeTypes } from '@xyflow/react';
 import { StartNode } from './StartNode';
 import { DialogueNode } from './DialogueNode';
+import { NarrationNode } from './NarrationNode';
 import { InkBlockNode } from './InkBlockNode';
 import { ChoiceNode } from './ChoiceNode';
 import { BranchNode } from './BranchNode';
@@ -16,6 +17,7 @@ import { StoryControlNode } from './StoryControlNode';
 export const nodeTypes: NodeTypes = {
   [StoryNodeType.Start]: StartNode,
   [StoryNodeType.Dialogue]: DialogueNode,
+  [StoryNodeType.Narration]: NarrationNode,
   [StoryNodeType.InkBlock]: InkBlockNode,
   [StoryNodeType.Choice]: ChoiceNode,
   [StoryNodeType.Branch]: BranchNode,

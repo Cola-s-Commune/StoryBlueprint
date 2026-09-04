@@ -420,6 +420,9 @@ export function templateEntries(
       line.text,
     ]);
   }
+  if (node.type === StoryNodeType.Narration) {
+    return [['Text', (node.data as StoryNodeDataMap[StoryNodeType.Narration]).text]];
+  }
   if (node.type === StoryNodeType.Choice) {
     const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
     return [
@@ -676,6 +679,16 @@ export function renameVariableReferencesInNode(
         },
       };
     }
+    case StoryNodeType.Narration: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          text: renameTemplateVariable(data.text, variableId, oldName, newName),
+        },
+      };
+    }
     case StoryNodeType.Choice: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
       return {
@@ -822,6 +835,10 @@ export function bindVariableReferencesInNode(
         },
       };
     }
+    case StoryNodeType.Narration: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+      return { ...node, data: { ...node.data, text: bindTemplate(data.text) } };
+    }
     case StoryNodeType.Choice: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
       return {
@@ -940,6 +957,10 @@ export function renameCharacterFieldReferencesInNode(
           lines: data.lines.map((line) => ({ ...line, text: renameTemplate(line.text) })),
         },
       };
+    }
+    case StoryNodeType.Narration: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+      return { ...node, data: { ...node.data, text: renameTemplate(data.text) } };
     }
     case StoryNodeType.Choice: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];
@@ -1060,6 +1081,10 @@ export function bindCharacterFieldReferencesInNode(
           lines: data.lines.map((line) => ({ ...line, text: bindTemplate(line.text) })),
         },
       };
+    }
+    case StoryNodeType.Narration: {
+      const data = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+      return { ...node, data: { ...node.data, text: bindTemplate(data.text) } };
     }
     case StoryNodeType.Choice: {
       const data = node.data as StoryNodeDataMap[StoryNodeType.Choice];

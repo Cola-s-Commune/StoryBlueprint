@@ -83,6 +83,46 @@
   font-size: 11px;
 }
 
+.dropTarget {
+  border-radius: 3px;
+  outline: 1px solid #5d9bd3;
+  background: rgb(54 113 166 / 16%);
+}
+
+.outBinding {
+  padding: 7px;
+  border: 1px dashed #485d70;
+  border-radius: 4px;
+  background: #202830;
+  transition:
+    outline-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.outBindingDropGlyph {
+  float: right;
+  color: #69a8d5;
+  font-size: 16px;
+  line-height: 12px;
+}
+
+.outBindingDropHint {
+  float: right;
+  margin-right: 6px;
+  color: #7895aa;
+  font-size: 9px;
+  font-style: italic;
+}
+
+.dropRejected {
+  outline: 1px solid #c66363;
+  background: rgb(145 58 58 / 18%);
+}
+
+.dropError {
+  color: #e48585 !important;
+}
+
 .checkboxField {
   display: flex;
   align-items: center;

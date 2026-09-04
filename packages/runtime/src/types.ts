@@ -29,6 +29,7 @@ export interface CallFrame {
 
 export type PendingInteraction =
   | { kind: 'dialogue'; requestId: string; instructionId: InstructionId }
+  | { kind: 'narration'; requestId: string; instructionId: InstructionId }
   | {
       kind: 'ink-dialogue';
       requestId: string;
@@ -79,6 +80,8 @@ export interface RuntimeState {
   storyVariables: Record<string, RuntimeValue>;
   /** Full payloads received before a matching Wait for Signal instruction. */
   signalInbox: Record<string, SignalPayload[]>;
+  /** Return values from completed External Function calls, keyed by instruction and output ID. */
+  eventOutputs?: Record<string, Record<string, RuntimeValue>>;
   /** Serialized state for the currently executing embedded Ink Block. */
   ink?: { instructionId: InstructionId; stateJson: string; interactionIndex: number };
   pending?: PendingInteraction;
@@ -95,6 +98,14 @@ export interface DialogueRequest {
   emotion?: string;
   portraitId?: AssetId;
   tags?: readonly string[];
+}
+
+/** An unassigned narrative beat such as action, scene description, or inner thought. */
+export interface NarrationRequest {
+  requestId: string;
+  textId: TextId;
+  defaultText: string;
+  voice?: LocalizedVoiceRef;
 }
 
 export interface ChoiceRequest {
@@ -153,6 +164,8 @@ export interface StoryControlResult {
 
 export interface StoryAdapter {
   showDialogue(request: DialogueRequest, signal: AbortSignal): Promise<void>;
+  /** Optional dedicated presentation path. Omitted adapters receive narration as speakerless dialogue. */
+  showNarration?(request: NarrationRequest, signal: AbortSignal): Promise<void>;
   showChoice(request: ChoiceRequest, signal: AbortSignal): Promise<OptionId>;
   /** Calls an engine action and resolves with values keyed by stable Event Output ID. */
   callEvent(request: EventRequest, signal: AbortSignal): Promise<EventResult>;

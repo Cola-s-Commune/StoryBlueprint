@@ -12,6 +12,7 @@ import {
 } from '../packages/common/src';
 import { compileStory } from '../packages/compiler/src';
 import {
+  buildInkBlockFallbackTransaction,
   buildInkBlockConversionTransaction,
   buildInkImportTransaction,
 } from '../packages/editor/src/renderer/dialogue/inkImport';
@@ -91,8 +92,9 @@ Narrator: The river is fast.`);
     expect(result.ok, result.ok ? undefined : result.diagnostics).toBe(true);
     if (!result.ok) return;
     expect(result.summary).toMatchObject({
-      dialogueNodes: 3,
-      dialogueLines: 3,
+      dialogueNodes: 2,
+      dialogueLines: 2,
+      narrationNodes: 1,
       choiceNodes: 1,
       portalNodes: 4,
     });
@@ -143,7 +145,7 @@ Alice: Leave.`);
     expect(compiled.ok, compiled.ok ? undefined : compiled.diagnostics).toBe(true);
   });
 
-  it('accepts External declarations, bare Ink narration, and DONE as a valid terminal', () => {
+  it('imports bare Ink narration as Narration nodes and accepts DONE as a valid terminal', () => {
     const { document, result } = importInk(`EXTERNAL add_affinity(amount)
 
 The train doors open.
@@ -159,11 +161,12 @@ Alice: We made it.
       (node) => node.type === StoryNodeType.Dialogue,
     );
     expect(dialogue?.data).toMatchObject({
-      lines: [
-        { text: { source: 'The train doors open.' } },
-        { speakerId: alice.id, text: { source: 'We made it.' } },
-      ],
+      lines: [{ speakerId: alice.id, text: { source: 'We made it.' } }],
     });
+    const narration = executed.document.root.nodes.find(
+      (node) => node.type === StoryNodeType.Narration,
+    );
+    expect(narration?.data).toMatchObject({ text: { source: 'The train doors open.' } });
     expect(
       executed.document.root.nodes.filter((node) => node.type === StoryNodeType.End),
     ).toHaveLength(2);
@@ -270,6 +273,74 @@ Alice: Done.`).result;
       line: 1,
       message: expect.stringContaining('each contain one divert'),
     });
+  });
+
+  it('preserves valid Ink outside the native profile as one complete Ink Block', () => {
+    const document = story();
+    const source = [
+      '=== start ===',
+      '+ Ask again -> end',
+      '=== end ===',
+      'Alice: We can revisit this later.',
+      '-> DONE',
+    ].join('\n');
+    const imported = buildInkImportTransaction(source, {
+      revision: createStorySemanticSnapshot(document).revision,
+      characters: document.characters,
+      assets: document.assets,
+      variables: document.variables,
+    });
+
+    expect(imported.ok).toBe(false);
+    if (imported.ok) return;
+    expect(imported.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'warning',
+          line: 2,
+          message: expect.stringContaining('Sticky (`+`) Choices'),
+        }),
+      ]),
+    );
+    expect(imported.diagnostics.some((item) => item.severity === 'error')).toBe(false);
+
+    const fallback = buildInkBlockFallbackTransaction(source, {
+      revision: createStorySemanticSnapshot(document).revision,
+      conversionDiagnostics: imported.diagnostics,
+    });
+    expect(fallback.ok, fallback.ok ? undefined : fallback.diagnostics).toBe(true);
+    if (!fallback.ok) return;
+    expect(fallback.summary).toMatchObject({
+      mode: 'ink-block-fallback',
+      inkBlockNodes: 1,
+    });
+    const added = fallback.transaction.operations.find(
+      (
+        operation,
+      ): operation is Extract<
+        (typeof fallback.transaction.operations)[number],
+        { kind: 'add-node' }
+      > => operation.kind === 'add-node',
+    );
+    expect(added?.node).toMatchObject({
+      type: StoryNodeType.InkBlock,
+      data: { sourceMode: 'embedded', source },
+    });
+    const executed = executeBlueprintCommandTransaction(document, fallback.transaction);
+    expect(executed.ok, executed.ok ? undefined : executed.diagnostics).toBe(true);
+  });
+
+  it('does not preserve syntactically invalid Ink as a runnable Ink Block', () => {
+    const document = story();
+    const fallback = buildInkBlockFallbackTransaction('=== start ===\n-> missing_knot', {
+      revision: createStorySemanticSnapshot(document).revision,
+    });
+
+    expect(fallback.ok).toBe(false);
+    if (fallback.ok) return;
+    expect(fallback.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ severity: 'error' })]),
+    );
   });
 
   it('replaces an Ink Block only through a valid replacement transaction and preserves flow', () => {

@@ -4,6 +4,7 @@ export type {
   PendingInteraction,
   RuntimeState,
   DialogueRequest,
+  NarrationRequest,
   ChoiceRequest,
   EventRequest,
   ExternalFunctionRequest,

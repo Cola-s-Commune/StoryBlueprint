@@ -137,6 +137,7 @@ import type {
   ProjectTransactionRecovery,
 } from '../../shared/electronApi';
 import {
+  buildInkBlockFallbackTransaction,
   buildInkImportTransaction,
   buildInkBlockConversionTransaction,
   type InkImportDiagnostic,
@@ -379,6 +380,13 @@ interface AIEditorProposal extends AIEditorChanges {
   origin: 'ai' | 'ink-import' | 'ink-conversion';
 }
 
+type ProblemOrigin = 'authoring' | 'build';
+
+interface EditorProblem extends ProjectCompilerDiagnostic {
+  /** Current Story feedback is informational until the user explicitly builds. */
+  origin: ProblemOrigin;
+}
+
 export interface InkImportReport {
   filePath?: string;
   diagnostics: readonly InkImportDiagnostic[];
@@ -448,7 +456,7 @@ interface StoryGraphStoreValue {
   saveExternalStoryAs: (relativePath: string) => Promise<void>;
   mergeExternalStory: (relativePath: string) => void;
   recentProjects: RecentProject[];
-  problems: readonly ProjectCompilerDiagnostic[];
+  problems: readonly EditorProblem[];
   lastBuildPath?: string;
   problemFocus?: { nodeId: NodeId; nonce: number };
   aiChanges?: AIEditorChanges;
@@ -606,7 +614,7 @@ interface StoryGraphStoreValue {
   createWorkspaceProject: (displayName: string) => Promise<void>;
   syncWorkspaceProject: () => Promise<void>;
   buildProject: () => Promise<void>;
-  focusProblem: (problem: ProjectCompilerDiagnostic) => Promise<void>;
+  focusProblem: (problem: EditorProblem) => Promise<void>;
   updateProjectSettings: (settings: {
     entryStoryId?: StoryId;
     outputDirectory?: string;
@@ -756,7 +764,27 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     void window.electronAPI?.reportRendererError('workspace-error', workspaceError);
   }, [workspaceError]);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
-  const [problems, setProblems] = useState<readonly ProjectCompilerDiagnostic[]>([]);
+  const [authoringProblems, setAuthoringProblems] = useState<readonly EditorProblem[]>([]);
+  const [buildProblems, setBuildProblems] = useState<readonly EditorProblem[]>([]);
+  const problems = useMemo(() => {
+    // A build includes the active Story too. Keep its authoritative Build entry
+    // rather than rendering an identical Draft diagnostic twice.
+    const buildKeys = new Set(
+      buildProblems.map(
+        (problem) =>
+          `${problem.storyId ?? ''}\0${problem.sourceChapterId ?? ''}\0${problem.sourceNodeId ?? ''}\0${problem.code}\0${problem.message}`,
+      ),
+    );
+    return [
+      ...authoringProblems.filter(
+        (problem) =>
+          !buildKeys.has(
+            `${problem.storyId ?? ''}\0${problem.sourceChapterId ?? ''}\0${problem.sourceNodeId ?? ''}\0${problem.code}\0${problem.message}`,
+          ),
+      ),
+      ...buildProblems,
+    ];
+  }, [authoringProblems, buildProblems]);
   const [lastBuildPath, setLastBuildPath] = useState<string>();
   const [problemFocus, setProblemFocus] = useState<{ nodeId: NodeId; nonce: number }>();
   const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
@@ -865,6 +893,56 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     const externalIds = new Set(external.map((asset) => asset.id));
     return [...external, ...assets.filter((asset) => !externalIds.has(asset.id))];
   }, [assets, workspace?.assetResources]);
+  useEffect(() => {
+    if (!hasActiveStory) {
+      setAuthoringProblems((current) => (current.length === 0 ? current : []));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const visibleVariables = [...source.variables, ...projectVariables];
+      const compiled = compileStory(
+        {
+          ...source,
+          variables: visibleVariables,
+          characters: resolvedCharacters,
+          assets: resolvedAssets,
+          events,
+          signals,
+        },
+        {
+          inkSources,
+          availableStoryIds: workspace?.project?.stories.map((story) => story.id),
+          storyVariablesById: { [source.id]: visibleVariables },
+        },
+      );
+      setAuthoringProblems(
+        compiled.diagnostics.map((diagnostic) => ({
+          ...diagnostic,
+          storyId: source.id,
+          storyName: source.displayName,
+          storyPath: document.filePath,
+          sourceChapterId: diagnostic.sourceNodeId
+            ? source.chapters.find((chapter) =>
+                chapter.graph.nodes.some((node) => node.id === diagnostic.sourceNodeId),
+              )?.id
+            : undefined,
+          origin: 'authoring' as const,
+        })),
+      );
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [
+    document.filePath,
+    events,
+    hasActiveStory,
+    inkSources,
+    projectVariables,
+    resolvedAssets,
+    resolvedCharacters,
+    signals,
+    source,
+    workspace?.project?.stories,
+  ]);
   const aiSemanticContext = useMemo(
     () => ({
       characters: resolvedCharacters,
@@ -1843,8 +1921,47 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         variables: [...availableVariables, ...projectVariables],
       });
       if (!imported.ok) {
-        setInkImportReport({ filePath: opened.filePath, diagnostics: imported.diagnostics });
-        setAIProposal(undefined);
+        if (imported.diagnostics.some((item) => item.severity === 'error')) {
+          setInkImportReport({ filePath: opened.filePath, diagnostics: imported.diagnostics });
+          setAIProposal(undefined);
+          return;
+        }
+        const fallback = buildInkBlockFallbackTransaction(opened.content, {
+          revision: semanticSnapshot.revision,
+          chapterId: activeGraphId === 'root' ? undefined : activeGraphId,
+          conversionDiagnostics: imported.diagnostics,
+        });
+        if (!fallback.ok) {
+          setInkImportReport({
+            filePath: opened.filePath,
+            diagnostics: [...imported.diagnostics, ...fallback.diagnostics],
+          });
+          setAIProposal(undefined);
+          return;
+        }
+        const fallbackResult = executeBlueprintCommands(fallback.transaction, {
+          dryRun: true,
+          stage: true,
+          origin: 'ink-import',
+        });
+        if (!fallbackResult.ok) {
+          setInkImportReport({
+            filePath: opened.filePath,
+            diagnostics: fallbackResult.diagnostics.map((item) => ({
+              severity: 'error' as const,
+              line: 1,
+              column: 1,
+              message: item.message,
+            })),
+            summary: fallback.summary,
+          });
+          return;
+        }
+        setInkImportReport({
+          filePath: opened.filePath,
+          diagnostics: fallback.diagnostics,
+          summary: fallback.summary,
+        });
         return;
       }
       const result = executeBlueprintCommands(imported.transaction, {
@@ -3500,6 +3617,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       if (nextUpdate.outputs) {
         const outputIds = new Set<string>(nextEvent.outputs?.map((output) => output.id) ?? []);
+        const invalidatedOutputIds = new Set<string>(
+          (previous.outputs ?? [])
+            .filter((previousOutput) => {
+              const nextOutput = nextEvent.outputs?.find(
+                (candidate) => candidate.id === previousOutput.id,
+              );
+              return (
+                !nextOutput ||
+                JSON.stringify(nextOutput.valueType) !== JSON.stringify(previousOutput.valueType)
+              );
+            })
+            .map((output) => output.id),
+        );
         const updateCalls = (candidate: EditorGraphState): EditorGraphState => ({
           ...candidate,
           nodes: candidate.nodes.map((node) => {
@@ -3509,16 +3639,32 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               ...node,
               data: {
                 ...call,
+                outputPorts: (nextEvent.outputs ?? []).map((output) => ({
+                  id: output.id,
+                  label: output.displayName,
+                  valueType: output.valueType,
+                })),
                 resultVariableIds: Object.fromEntries(
                   Object.entries(call.resultVariableIds ?? {}).filter(([outputId]) =>
-                    outputIds.has(outputId),
+                    outputIds.has(outputId) && !invalidatedOutputIds.has(outputId),
                   ),
                 ),
               },
             };
           }),
+          edges: candidate.edges.filter(
+            (edge) =>
+              !(
+                candidate.nodes.some(
+                  (node) => node.id === edge.source && node.type === StoryNodeType.CallEvent && node.data.eventId === id,
+                ) &&
+                edge.sourceHandle.startsWith('output:') &&
+                invalidatedOutputIds.has(edge.sourceHandle.slice('output:'.length))
+              ),
+          ),
         });
         setNodes((current) => updateCalls({ nodes: current, edges }).nodes);
+        setEdges((current) => updateCalls({ nodes, edges: current }).edges);
         updateInactiveGraphs(updateCalls);
         setWorkspaceStories((current) =>
           current.map((story) => ({
@@ -3536,7 +3682,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       writeProjectEvents(events.map((event) => (event.id === id ? nextEvent : event)));
     },
-    [checkpoint, edges, events, markDirty, setNodes, updateInactiveGraphs, writeProjectEvents],
+    [checkpoint, edges, events, markDirty, nodes, setEdges, setNodes, updateInactiveGraphs, writeProjectEvents],
   );
 
   const removeEvent = useCallback(
@@ -4458,9 +4604,19 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             : node,
         ),
       );
+      if (
+        type === StoryNodeType.CallEvent &&
+        ('eventId' in update || 'outputPorts' in update)
+      ) {
+        setEdges((current) =>
+          current.filter(
+            (edge) => edge.source !== id || !edge.sourceHandle.startsWith('output:'),
+          ),
+        );
+      }
       markDirty();
     },
-    [availableVariables, markDirty, projectVariables, resolvedCharacters, setNodes],
+    [availableVariables, markDirty, projectVariables, resolvedCharacters, setEdges, setNodes],
   );
 
   const captureActiveStory = useCallback(
@@ -5600,7 +5756,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       setWorkspace(await window.electronAPI.deleteWorkspaceProject(relativePath));
       setRecentProjects(await window.electronAPI.getRecentProjects());
-      setProblems([]);
+      setBuildProblems([]);
       setLastBuildPath(undefined);
       setWorkspaceError(undefined);
     } catch (error) {
@@ -5881,7 +6037,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       return;
     }
     setLastBuildPath(undefined);
-    setProblems([]);
+    setBuildProblems([]);
     if (!(await saveAllDirtyStories())) return;
     try {
       const nextWorkspace = await window.electronAPI.syncWorkspaceProject();
@@ -5920,7 +6076,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           projectSources.flatMap((item) => linkedInkPaths(item.source)),
         ),
       });
-      setProblems(result.diagnostics);
+      setBuildProblems(result.diagnostics.map((diagnostic) => ({ ...diagnostic, origin: 'build' })));
       if (!result.ok) return;
       const exported = await window.electronAPI.exportCompiledProject(
         `${JSON.stringify(result.project, null, 2)}\n`,
@@ -5929,13 +6085,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setWorkspaceError(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setProblems([{ code: 'PROJECT_ERROR', severity: 'error', message }]);
+      setBuildProblems([{ code: 'PROJECT_ERROR', severity: 'error', message, origin: 'build' }]);
       setWorkspaceError(message);
     }
   }, [saveAllDirtyStories, workspace?.project]);
 
   const focusProblem = useCallback(
-    async (problem: ProjectCompilerDiagnostic) => {
+    async (problem: EditorProblem) => {
       if (!problem.storyId) return;
       let target = currentStoryItems().find((story) => story.document.id === problem.storyId);
       if (!target && problem.storyPath && window.electronAPI) {
