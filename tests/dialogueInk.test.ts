@@ -40,7 +40,7 @@ describe('Dialogue Ink profile', () => {
     const data = dialogue();
     const source = formatDialogueInk(data, characters, assets);
     expect(source).toBe(
-      'Alice: Hello \\# there\\nAgain # intro\nBob: Hi # emotion:happy # voice:greeting',
+      'Alice: Hello \\# there\\nAgain # text-id:t_firstline # intro\nBob: Hi # emotion:happy # voice:greeting # text-id:t_secondline',
     );
     expect(parseDialogueInk(source, data, characters, assets).lines).toEqual(data.lines);
   });
@@ -103,7 +103,7 @@ describe('Dialogue Ink profile', () => {
       },
     ];
     const source = formatDialogueInk(data, characters, assets);
-    expect(source).toBe('Alice: \\* Not a choice');
+    expect(source).toBe('Alice: \\* Not a choice # text-id:t_literalstar');
     expect(parseDialogueInk(source, data, characters, assets).lines).toEqual(data.lines);
   });
 
@@ -111,7 +111,34 @@ describe('Dialogue Ink profile', () => {
     const data = dialogue();
     data.lines = [{ id: 'ln_narration', textId: 't_narration', text: { source: 'Night falls.' } }];
     const source = formatDialogueInk(data, characters, assets);
-    expect(source).toBe('Narrator: Night falls.');
+    expect(source).toBe('Narrator: Night falls. # text-id:t_narration');
     expect(parseDialogueInk(source, data, characters, assets).lines).toEqual(data.lines);
+  });
+
+  it('accepts a stable Ink text-id tag and rejects malformed IDs', () => {
+    expect(
+      parseDialogueInk(
+        'Alice: Imported line. # text-id:t_imported',
+        { lines: [] },
+        characters,
+        assets,
+      ).lines?.[0]?.textId,
+    ).toBe('t_imported');
+    expect(
+      parseDialogueInk(
+        'Alice: Invalid line. # text-id:not-a-stable-id',
+        { lines: [] },
+        characters,
+        assets,
+      ).diagnostics[0]?.message,
+    ).toContain('Invalid text ID');
+    expect(
+      parseDialogueInk(
+        'Alice: First. # text-id:t_shared\nBob: Second. # text-id:t_shared',
+        { lines: [] },
+        characters,
+        assets,
+      ).diagnostics.some((diagnostic) => diagnostic.message.includes('Duplicate text ID')),
+    ).toBe(true);
   });
 });

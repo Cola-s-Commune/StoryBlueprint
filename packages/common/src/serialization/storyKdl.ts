@@ -384,6 +384,16 @@ function serializeSourceNode(source: SourceNode): Node {
     case StoryNodeType.CallSubstory: {
       const call = data as StoryNodeDataMap[StoryNodeType.CallSubstory];
       if (call.chapterId) target.setProperty('chapter', call.chapterId);
+      if (call.argumentInputTypes && Object.keys(call.argumentInputTypes).length > 0) {
+        target.setProperty('argument-input-types', JSON.stringify(call.argumentInputTypes));
+      }
+      for (const output of call.outputPorts ?? []) {
+        const port = Node.create('output-port');
+        port.addArgument(output.id);
+        port.setProperty('label', output.label);
+        port.setProperty('type', JSON.stringify(output.valueType));
+        target.appendNode(port);
+      }
       for (const [parameterId, value] of Object.entries(call.arguments ?? {}).sort(
         ([left], [right]) => left.localeCompare(right),
       )) {
@@ -457,8 +467,12 @@ function serializeSourceNode(source: SourceNode): Node {
       break;
     }
     case StoryNodeType.Return: {
+      const returnData = data as StoryNodeDataMap[StoryNodeType.Return];
+      if (returnData.valueInputTypes && Object.keys(returnData.valueInputTypes).length > 0) {
+        target.setProperty('value-input-types', JSON.stringify(returnData.valueInputTypes));
+      }
       for (const [outputId, value] of Object.entries(
-        (data as StoryNodeDataMap[StoryNodeType.Return]).values ?? {},
+        returnData.values ?? {},
       ).sort(([left], [right]) => left.localeCompare(right))) {
         const result = Node.create('result');
         result.addArgument(outputId);
@@ -930,7 +944,7 @@ function parseSourceNode(
     ],
     [StoryNodeType.CallEvent]: ['event'],
     [StoryNodeType.WaitSignal]: ['signal'],
-    [StoryNodeType.CallSubstory]: ['chapter', 'result-variable'],
+    [StoryNodeType.CallSubstory]: ['chapter', 'result-variable', 'argument-input-types'],
     [StoryNodeType.StartStory]: [
       'story',
       'instance-id',
@@ -948,7 +962,7 @@ function parseSourceNode(
     [StoryNodeType.Reroute]: ['kind', 'value-type'],
     [StoryNodeType.FlowAnchor]: ['label'],
     [StoryNodeType.FlowJump]: ['target'],
-    [StoryNodeType.Return]: ['value'],
+    [StoryNodeType.Return]: ['value', 'value-input-types'],
     [StoryNodeType.End]: ['title'],
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
@@ -962,7 +976,7 @@ function parseSourceNode(
     [StoryNodeType.SetVariable]: ['binding'],
     [StoryNodeType.CallEvent]: ['argument', 'output-port', 'result'],
     [StoryNodeType.WaitSignal]: ['match'],
-    [StoryNodeType.CallSubstory]: ['argument', 'result'],
+    [StoryNodeType.CallSubstory]: ['argument', 'output-port', 'result'],
     [StoryNodeType.StartStory]: ['argument', 'result', 'binding'],
     [StoryNodeType.SwitchStory]: ['argument', 'result', 'binding'],
     [StoryNodeType.ResumeStory]: ['result', 'binding'],
@@ -1355,7 +1369,39 @@ function parseSourceNode(
         ),
       };
       break;
-    case StoryNodeType.CallSubstory:
+    case StoryNodeType.CallSubstory: {
+      const outputPorts = node.findNodesByName('output-port').map((port, index) => {
+        const path = `${id}.output-port[${index}]`;
+        assertShape(port, path, { arguments: 1, properties: ['label', 'type'] });
+        const label = optionalString(port.getProperty('label'), `${path}.label`);
+        if (!label) throw new StoryFormatError(`${path}.label must be a non-empty string`);
+        let valueType: ValueType;
+        try {
+          valueType = JSON.parse(requiredString(port.getProperty('type'), `${path}.type`)) as ValueType;
+        } catch (error) {
+          throw new StoryFormatError(
+            `${path}.type is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        return {
+          id: requiredId(port.getArgument(0), 'variable', `${path}.id`),
+          label,
+          valueType,
+        };
+      });
+      let argumentInputTypes: Readonly<Record<string, ValueType>> | undefined;
+      const argumentTypesSource = node.getProperty('argument-input-types');
+      if (argumentTypesSource !== undefined) {
+        try {
+          argumentInputTypes = JSON.parse(
+            requiredString(argumentTypesSource, `${id}.argument-input-types`),
+          ) as Readonly<Record<string, ValueType>>;
+        } catch (error) {
+          throw new StoryFormatError(
+            `${id}.argument-input-types is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       data = {
         chapterId: node.getProperty('chapter')
           ? requiredId(node.getProperty('chapter'), 'chapter', `${id}.chapter`)
@@ -1393,8 +1439,11 @@ function parseSourceNode(
             ];
           }),
         ),
+        ...(argumentInputTypes ? { argumentInputTypes } : {}),
+        ...(outputPorts.length > 0 ? { outputPorts } : {}),
       };
       break;
+    }
     case StoryNodeType.StartStory:
     case StoryNodeType.SwitchStory:
     case StoryNodeType.ResumeStory:
@@ -1459,7 +1508,7 @@ function parseSourceNode(
     case StoryNodeType.Reroute: {
       const kind = node.getProperty('kind');
       if (kind !== undefined && kind !== 'data' && kind !== 'execution') {
-        throw new StoryFormatError(`${id}.kind must be \"data\" or \"execution\"`);
+        throw new StoryFormatError(`${id}.kind must be "data" or "execution"`);
       }
       if (kind === 'data') {
         const valueTypeSource = node.getProperty('value-type');
@@ -1492,6 +1541,19 @@ function parseSourceNode(
     case StoryNodeType.Return: {
       const legacyValue = optionalString(node.getProperty('value'), `${id}.value`);
       if (legacyValue) assertBindingTargets(node, ['value'], id);
+      let valueInputTypes: Readonly<Record<string, ValueType>> | undefined;
+      const valueTypesSource = node.getProperty('value-input-types');
+      if (valueTypesSource !== undefined) {
+        try {
+          valueInputTypes = JSON.parse(
+            requiredString(valueTypesSource, `${id}.value-input-types`),
+          ) as Readonly<Record<string, ValueType>>;
+        } catch (error) {
+          throw new StoryFormatError(
+            `${id}.value-input-types is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       data = {
         values: Object.fromEntries([
           ...node.findNodesByName('result').map((result, index) => {
@@ -1512,6 +1574,7 @@ function parseSourceNode(
               ]
             : []),
         ]),
+        ...(valueInputTypes ? { valueInputTypes } : {}),
       };
       break;
     }

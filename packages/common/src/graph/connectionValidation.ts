@@ -123,7 +123,9 @@ export function resolveNodePorts(
       const valueTypeByEntry = dynamic.valueTypeProperty
         ? readPath(data, dynamic.valueTypeProperty)
         : undefined;
-      for (const key of Object.keys(source)) {
+      const contractKeys = isRecord(valueTypeByEntry) ? Object.keys(valueTypeByEntry) : [];
+      const keys = [...new Set([...Object.keys(source), ...contractKeys])];
+      for (const key of keys) {
         const id = `${dynamic.idPrefix ?? ''}${key}`;
         if (portIds.has(id)) {
           diagnostics.push({

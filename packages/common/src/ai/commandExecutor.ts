@@ -2,12 +2,13 @@ import {
   createGraphConnectionValidator,
   resolveNodePorts,
   validateGraphConnection,
+  valueTypesCompatible,
   type GraphEdgeLike,
   type GraphNodeLike,
 } from '../graph/connectionValidation';
 import { NodeRegistry } from '../registry/nodeRegistry';
 import { serializeStorySource } from '../serialization/storyKdl';
-import { isStableId, type CharacterId, type ConditionId } from '../types/ids';
+import { isStableId, type CharacterId, type ConditionId, type VariableId } from '../types/ids';
 import {
   StoryNodeType,
   type ChoiceNodeData,
@@ -207,6 +208,70 @@ function validRuntimeValue(value: unknown): value is RuntimeValue {
     typeof value === 'string' ||
     (Array.isArray(value) && value.every(validRuntimeValue)) ||
     (isRecord(value) && Object.values(value).every(validRuntimeValue))
+  );
+}
+
+function rewriteBoundReferences(
+  value: unknown,
+  renames: ReadonlyMap<VariableId, { oldName: string; newName: string }>,
+): unknown {
+  const renameByName = new Map(
+    [...renames.values()].map((rename) => [rename.oldName, rename.newName]),
+  );
+  const rewriteIdentifiers = (source: string): string => {
+    let result = '';
+    let index = 0;
+    while (index < source.length) {
+      const character = source[index]!;
+      if (character === '"' || character === "'") {
+        const quote = character;
+        const start = index++;
+        while (index < source.length) {
+          if (source[index] === '\\') {
+            index += 2;
+            continue;
+          }
+          index += 1;
+          if (source[index - 1] === quote) break;
+        }
+        result += source.slice(start, index);
+        continue;
+      }
+      if (/[A-Za-z_]/.test(character)) {
+        const start = index++;
+        while (/[A-Za-z0-9_]/.test(source[index] ?? '')) index += 1;
+        const identifier = source.slice(start, index);
+        result += renameByName.get(identifier) ?? identifier;
+        continue;
+      }
+      result += character;
+      index += 1;
+    }
+    return result;
+  };
+  if (Array.isArray(value)) return value.map((item) => rewriteBoundReferences(item, renames));
+  if (!isRecord(value)) return value;
+  if (typeof value.source === 'string' && isRecord(value.bindings)) {
+    const source = rewriteIdentifiers(value.source);
+    const bindings: Record<string, string> = {};
+    for (const [symbol, variableId] of Object.entries(value.bindings)) {
+      const rename = renames.get(variableId as VariableId);
+      const nextSymbol = rename && symbol === rename.oldName ? rename.newName : symbol;
+      bindings[nextSymbol] = String(variableId);
+    }
+    return {
+      ...value,
+      source,
+      bindings,
+      ...Object.fromEntries(
+        Object.entries(value)
+          .filter(([key]) => key !== 'source' && key !== 'bindings')
+          .map(([key, child]) => [key, rewriteBoundReferences(child, renames)]),
+      ),
+    };
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, rewriteBoundReferences(child, renames)]),
   );
 }
 
@@ -413,6 +478,7 @@ function requiresGraphTarget(kind: unknown): boolean {
     'add-character-from-template',
     'update-character',
     'add-substory',
+    'update-substory',
   ].includes(String(kind));
 }
 
@@ -432,6 +498,7 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-character-from-template': ['operationId', 'kind', 'templateName', 'character', 'fieldIds'],
   'update-character': ['operationId', 'kind', 'characterId', 'patch'],
   'add-substory': ['operationId', 'kind', 'substory'],
+  'update-substory': ['operationId', 'kind', 'chapterId', 'patch'],
   'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
   'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
   'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId'],
@@ -851,6 +918,40 @@ export function validateBlueprintCommandTransaction(
           );
         }
         break;
+      case 'update-substory':
+        if (isRecord(raw.patch)) {
+          diagnostics.push(
+            ...unexpectedKeyDiagnostics(
+              raw.patch,
+              ['name', 'displayName', 'parameters', 'outputs', 'localVariables'],
+              `${path}.patch`,
+              operationIndex,
+            ),
+          );
+        }
+        if (
+          typeof raw.chapterId !== 'string' ||
+          !isStableId(raw.chapterId, 'chapter') ||
+          !isRecord(raw.patch) ||
+          Object.keys(raw.patch).length === 0 ||
+          (raw.patch.name !== undefined &&
+            (typeof raw.patch.name !== 'string' || raw.patch.name.trim().length === 0)) ||
+          (raw.patch.displayName !== undefined &&
+            (typeof raw.patch.displayName !== 'string' ||
+              raw.patch.displayName.trim().length === 0)) ||
+          (raw.patch.parameters !== undefined &&
+            (!Array.isArray(raw.patch.parameters) || !raw.patch.parameters.every(validVariable))) ||
+          (raw.patch.outputs !== undefined &&
+            (!Array.isArray(raw.patch.outputs) || !raw.patch.outputs.every(validVariable))) ||
+          (raw.patch.localVariables !== undefined &&
+            (!Array.isArray(raw.patch.localVariables) ||
+              !raw.patch.localVariables.every(validVariable)))
+        ) {
+          diagnostics.push(
+            invalidShape('update-substory has an invalid chapterId or patch', operationIndex, path),
+          );
+        }
+        break;
       case 'add-character-from-template':
         if (
           typeof raw.templateName !== 'string' ||
@@ -1192,6 +1293,252 @@ function applyOperation(
     story.chapters.push(chapter as MutableChapter);
     return undefined;
   }
+  if (operation.kind === 'update-substory') {
+    const chapterIndex = story.chapters.findIndex((chapter) => chapter.id === operation.chapterId);
+    if (chapterIndex < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Substory does not exist: ${operation.chapterId}`,
+      );
+    }
+    const previous = story.chapters[chapterIndex]!;
+    const patch = structuredClone(operation.patch);
+    const parameters = patch.parameters ?? previous.parameters.map((item) => item.variable);
+    const outputs = patch.outputs ?? previous.outputs.map((item) => item.variable);
+    const localVariables = patch.localVariables ?? previous.localVariables;
+    const interfaceVariables = [...parameters, ...outputs, ...localVariables];
+    const interfaceIds = new Set(interfaceVariables.map((variable) => variable.id));
+    const interfaceNames = new Set(interfaceVariables.map((variable) => variable.name));
+    if (interfaceIds.size !== interfaceVariables.length) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'Substory parameter, output, and local variable IDs must be unique',
+      );
+    }
+    if (interfaceNames.size !== interfaceVariables.length) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'Substory parameter, output, and local variable names must be unique',
+      );
+    }
+    if (
+      interfaceVariables.some(
+        (variable) => !defaultMatchesType(variable.defaultValue, variable.valueType),
+      )
+    ) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'Every Substory interface default value must match its value type',
+      );
+    }
+    const previousById = new Map(
+      [
+        ...previous.parameters.map((item) => item.variable),
+        ...previous.outputs.map((item) => item.variable),
+        ...previous.localVariables,
+      ].map((variable) => [variable.id, variable]),
+    );
+    const nextName = patch.name ?? previous.name;
+    if (
+      story.chapters.some(
+        (candidate, index) => index !== chapterIndex && candidate.name === nextName,
+      )
+    ) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Substory name already exists: ${nextName}`,
+      );
+    }
+
+    const nextParameters = parameters.map((variable) => ({
+      direction: 'input' as const,
+      variable: { ...variable, scope: 'local' as const },
+    }));
+    const nextOutputs = outputs.map((variable) => ({
+      direction: 'output' as const,
+      variable: { ...variable, scope: 'local' as const },
+    }));
+    const nextLocals = localVariables.map((variable) => ({ ...variable, scope: 'local' as const }));
+    const nextOutputById = new Map(nextOutputs.map((item) => [item.variable.id, item.variable]));
+    const previousParameterById = new Map(
+      previous.parameters.map((item) => [item.variable.id, item.variable]),
+    );
+    const previousOutputById = new Map(
+      previous.outputs.map((item) => [item.variable.id, item.variable]),
+    );
+    const renames = new Map<VariableId, { oldName: string; newName: string }>();
+    for (const variable of interfaceVariables) {
+      const old = previousById.get(variable.id);
+      if (old && old.name !== variable.name) {
+        renames.set(variable.id, { oldName: old.name, newName: variable.name });
+      }
+    }
+    const sameValueType = (left: ValueType | undefined, right: ValueType) =>
+      left !== undefined && JSON.stringify(left) === JSON.stringify(right);
+    const fallbackExpression = (variable: VariableDefinition) => ({
+      source: JSON.stringify(variable.defaultValue),
+      bindings: {},
+    });
+    const rewriteGraph = (graph: MutableGraph, containsReturns: boolean): MutableGraph => {
+      const nodes = graph.nodes.map((node): SourceNode => {
+        if (
+          node.type === StoryNodeType.CallSubstory &&
+          (node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory]).chapterId ===
+            operation.chapterId
+        ) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+          return {
+            ...node,
+            data: rewriteBoundReferences(
+              {
+                ...data,
+                arguments: Object.fromEntries(
+                  nextParameters.map((parameter) => {
+                    const old = previousParameterById.get(parameter.variable.id);
+                    const previousValue = data.arguments?.[parameter.variable.id];
+                    return [
+                      parameter.variable.id,
+                      old &&
+                      previousValue &&
+                      sameValueType(old.valueType, parameter.variable.valueType)
+                        ? previousValue
+                        : fallbackExpression(parameter.variable),
+                    ];
+                  }),
+                ),
+                argumentInputTypes: Object.fromEntries(
+                  nextParameters.map((parameter) => [
+                    parameter.variable.id,
+                    parameter.variable.valueType,
+                  ]),
+                ),
+                outputPorts: nextOutputs.map((output) => ({
+                  id: output.variable.id,
+                  label: output.variable.displayName,
+                  valueType: output.variable.valueType,
+                })),
+                resultVariableIds: Object.fromEntries(
+                  Object.entries(data.resultVariableIds ?? {}).filter(([outputId]) =>
+                    nextOutputById.has(outputId as VariableId),
+                  ),
+                ),
+              } as unknown as Record<string, unknown>,
+              renames,
+            ) as StoryNodeDataMap[StoryNodeType.CallSubstory],
+          } as unknown as SourceNode;
+        }
+        if (containsReturns && node.type === StoryNodeType.Return) {
+          const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
+          return {
+            ...node,
+            data: rewriteBoundReferences(
+              {
+                ...data,
+                values: Object.fromEntries(
+                  nextOutputs.map((output) => {
+                    const old = previousOutputById.get(output.variable.id);
+                    const previousValue = data.values?.[output.variable.id];
+                    return [
+                      output.variable.id,
+                      old &&
+                      previousValue &&
+                      sameValueType(old.valueType, output.variable.valueType)
+                        ? previousValue
+                        : fallbackExpression(output.variable),
+                    ];
+                  }),
+                ),
+                valueInputTypes: Object.fromEntries(
+                  nextOutputs.map((output) => [output.variable.id, output.variable.valueType]),
+                ),
+              } as unknown as Record<string, unknown>,
+              renames,
+            ) as StoryNodeDataMap[StoryNodeType.Return],
+          } as unknown as SourceNode;
+        }
+        return renames.size === 0
+          ? node
+          : ({
+              ...node,
+              data: rewriteBoundReferences(
+                node.data as unknown as Record<string, unknown>,
+                renames,
+              ) as StoryNodeDataMap[StoryNodeType],
+            } as unknown as SourceNode);
+      });
+      const byId = new Map(nodes.map((node) => [node.id, node]));
+      const portsById = new Map(
+        nodes.map((node) => [
+          node.id,
+          new Map(
+            resolveNodePorts(node as unknown as GraphNodeLike, commandRegistry).ports.map(
+              (port) => [port.id, port],
+            ),
+          ),
+        ]),
+      );
+      const isAffectedDataEdge = (edge: SourceEdge) => {
+        const source = byId.get(edge.from.nodeId);
+        const target = byId.get(edge.to.nodeId);
+        const sourceCall =
+          source?.type === StoryNodeType.CallSubstory &&
+          (source.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory]).chapterId ===
+            operation.chapterId &&
+          edge.from.portId.startsWith('output:');
+        const targetCall =
+          target?.type === StoryNodeType.CallSubstory &&
+          (target.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory]).chapterId ===
+            operation.chapterId &&
+          edge.to.portId.startsWith('argument:');
+        const targetReturn =
+          containsReturns &&
+          target?.type === StoryNodeType.Return &&
+          edge.to.portId.startsWith('value:');
+        return sourceCall || targetCall || targetReturn;
+      };
+      return {
+        nodes,
+        edges: graph.edges.filter((edge) => {
+          if (!isAffectedDataEdge(edge)) return true;
+          const sourcePort = portsById.get(edge.from.nodeId)?.get(edge.from.portId);
+          const targetPort = portsById.get(edge.to.nodeId)?.get(edge.to.portId);
+          return (
+            sourcePort?.kind === 'data' &&
+            targetPort?.kind === 'data' &&
+            valueTypesCompatible(sourcePort.valueType, targetPort.valueType)
+          );
+        }),
+      };
+    };
+
+    const nextChapter: MutableChapter = {
+      ...previous,
+      name: nextName,
+      displayName: patch.displayName ?? previous.displayName,
+      parameters: nextParameters,
+      outputs: nextOutputs,
+      localVariables: nextLocals,
+      graph: rewriteGraph(previous.graph, true),
+    };
+    story.chapters[chapterIndex] = nextChapter as MutableStory['chapters'][number];
+    story.root = rewriteGraph(story.root, false);
+    story.chapters = story.chapters.map((chapter) =>
+      chapter.id === operation.chapterId
+        ? chapter
+        : { ...chapter, graph: rewriteGraph(chapter.graph, false) },
+    ) as MutableStory['chapters'];
+    return undefined;
+  }
   if (operation.kind === 'add-condition') {
     if (story.conditions.some((condition) => condition.id === operation.condition.id)) {
       return operationDiagnostic(
@@ -1524,13 +1871,42 @@ function applyOperation(
     } as Record<string, unknown>;
     if (operation.node.type === StoryNodeType.CallEvent) {
       const call = data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
-      const event = options.semanticContext?.events.find((candidate) => candidate.id === call.eventId);
+      const event = options.semanticContext?.events.find(
+        (candidate) => candidate.id === call.eventId,
+      );
       if (event) {
         call.outputPorts = (event.outputs ?? []).map((output) => ({
           id: output.id,
           label: output.displayName,
           valueType: output.valueType,
         }));
+      }
+    }
+    if (operation.node.type === StoryNodeType.CallSubstory) {
+      const call = data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      const chapter = story.chapters.find((candidate) => candidate.id === call.chapterId);
+      if (chapter) {
+        call.argumentInputTypes = Object.fromEntries(
+          chapter.parameters.map((parameter) => [
+            parameter.variable.id,
+            parameter.variable.valueType,
+          ]),
+        );
+        call.outputPorts = chapter.outputs.map((output) => ({
+          id: output.variable.id,
+          label: output.variable.displayName,
+          valueType: output.variable.valueType,
+        }));
+      }
+    }
+    if (operation.node.type === StoryNodeType.Return) {
+      const returnNode = data as unknown as StoryNodeDataMap[StoryNodeType.Return];
+      const chapterId = operation.graph.kind === 'chapter' ? operation.graph.chapterId : undefined;
+      const chapter = story.chapters.find((candidate) => candidate.id === chapterId);
+      if (chapter) {
+        returnNode.valueInputTypes = Object.fromEntries(
+          chapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+        );
       }
     }
     graph.nodes.push({
@@ -1647,7 +2023,9 @@ function applyOperation(
     }
     if (node.type === StoryNodeType.CallEvent && options.semanticContext?.events) {
       const call = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
-      const event = options.semanticContext.events.find((candidate) => candidate.id === call.eventId);
+      const event = options.semanticContext.events.find(
+        (candidate) => candidate.id === call.eventId,
+      );
       if (event) {
         call.outputPorts = (event.outputs ?? []).map((output) => ({
           id: output.id,
@@ -2003,21 +2381,50 @@ function applyOperation(
     graph.edges = graph.edges.filter((edge) => !matchesConnection(edge));
     return undefined;
   }
-  // Older Story files do not carry an output-port snapshot. Hydrate only when
-  // a transaction actually touches a Call External Function connection, so
-  // existing files remain compact while new Out links are fully validated.
+  // Hydrate dynamic pin contracts when a transaction touches a node. This keeps
+  // command-created links valid without requiring the model to emit UI metadata.
   for (const endpointId of [operation.from.nodeId, operation.to.nodeId]) {
     const endpoint = graph.nodes.find((candidate) => candidate.id === endpointId);
-    if (!endpoint || endpoint.type !== StoryNodeType.CallEvent) continue;
-    const call = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
-    if (call.outputPorts !== undefined) continue;
-    const event = options.semanticContext?.events.find((candidate) => candidate.id === call.eventId);
-    if (event) {
-      call.outputPorts = (event.outputs ?? []).map((output) => ({
-        id: output.id,
-        label: output.displayName,
-        valueType: output.valueType,
-      }));
+    if (!endpoint) continue;
+    if (endpoint.type === StoryNodeType.CallEvent) {
+      const call = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+      if (call.outputPorts === undefined) {
+        const event = options.semanticContext?.events.find(
+          (candidate) => candidate.id === call.eventId,
+        );
+        if (event) {
+          call.outputPorts = (event.outputs ?? []).map((output) => ({
+            id: output.id,
+            label: output.displayName,
+            valueType: output.valueType,
+          }));
+        }
+      }
+    } else if (endpoint.type === StoryNodeType.CallSubstory) {
+      const call = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      const chapter = story.chapters.find((candidate) => candidate.id === call.chapterId);
+      if (chapter) {
+        call.argumentInputTypes = Object.fromEntries(
+          chapter.parameters.map((parameter) => [
+            parameter.variable.id,
+            parameter.variable.valueType,
+          ]),
+        );
+        call.outputPorts = chapter.outputs.map((output) => ({
+          id: output.variable.id,
+          label: output.variable.displayName,
+          valueType: output.variable.valueType,
+        }));
+      }
+    } else if (endpoint.type === StoryNodeType.Return) {
+      const returnNode = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
+      const chapterId = operation.graph.kind === 'chapter' ? operation.graph.chapterId : undefined;
+      const chapter = story.chapters.find((candidate) => candidate.id === chapterId);
+      if (chapter) {
+        returnNode.valueInputTypes = Object.fromEntries(
+          chapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+        );
+      }
     }
   }
   let edges = graphEdges(graph);

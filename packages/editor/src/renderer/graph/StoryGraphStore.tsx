@@ -140,6 +140,7 @@ import {
   buildInkBlockFallbackTransaction,
   buildInkImportTransaction,
   buildInkBlockConversionTransaction,
+  buildNodesToInkBlockConversionTransaction,
   type InkImportDiagnostic,
   type InkImportSummary,
 } from '../dialogue/inkImport';
@@ -377,7 +378,7 @@ interface AIEditorChanges {
 interface AIEditorProposal extends AIEditorChanges {
   graph: EditorGraphState;
   transaction: unknown;
-  origin: 'ai' | 'ink-import' | 'ink-conversion';
+  origin: 'ai' | 'ink-import' | 'ink-conversion' | 'node-to-ink';
 }
 
 type ProblemOrigin = 'authoring' | 'build';
@@ -469,6 +470,7 @@ interface StoryGraphStoreValue {
   dismissInkImportReport: () => void;
   importInkFile: () => Promise<void>;
   convertInkBlockToNodes: (nodeId: NodeId) => Promise<void>;
+  convertSelectedNodesToInkBlock: () => void;
   storyMergePreview?: StoryMergePreview;
   storyMergePreviewGraphId?: ActiveGraphId;
   storyMergeDecisionRequest?: { id: string; choice: StoryMergeChoice; nonce: number };
@@ -1621,7 +1623,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
   const discardAIProposal = useCallback(() => {
     setAIProposal((current) => {
-      if (current?.origin.startsWith('ink')) setInkImportReport(undefined);
+      if (current?.origin.startsWith('ink') || current?.origin === 'node-to-ink') {
+        setInkImportReport(undefined);
+      }
       return undefined;
     });
   }, []);
@@ -1822,11 +1826,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         undefined,
         stagedProposal?.origin === 'ink-conversion'
           ? 'Convert Ink Block to Nodes'
-          : stagedProposal?.origin === 'ink-import'
-            ? 'Import Ink as Nodes'
-            : 'Apply AI Changes',
+          : stagedProposal?.origin === 'node-to-ink'
+            ? 'Convert Nodes to Ink Block'
+            : stagedProposal?.origin === 'ink-import'
+              ? 'Import Ink as Nodes'
+              : 'Apply AI Changes',
       );
       restoreGraph(committedGraph);
+      if (activeGraphId !== 'root') {
+        rootGraphRef.current = fromSourceGraph(result.document.root);
+      }
       setChapters(
         result.document.chapters.map((chapter) => ({
           ...chapter,
@@ -2092,6 +2101,65 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
 
+  const convertSelectedNodesToInkBlock = useCallback(() => {
+    if (!hasActiveStory) return;
+    if (aiProposal) {
+      setInkImportReport({
+        diagnostics: [
+          {
+            severity: 'error',
+            line: 1,
+            column: 1,
+            message: 'Apply or discard the current proposal before starting another conversion.',
+          },
+        ],
+      });
+      return;
+    }
+    const converted = buildNodesToInkBlockConversionTransaction({
+      revision: semanticSnapshot.revision,
+      chapterId: activeGraphId === 'root' ? undefined : activeGraphId,
+      graph: toSourceGraph(graph),
+      nodeIds: graph.nodes.filter((node) => node.selected).map((node) => node.id),
+      characters: resolvedCharacters,
+      assets: resolvedAssets,
+    });
+    if (!converted.ok) {
+      setInkImportReport({
+        filePath: 'Selected native nodes',
+        diagnostics: converted.diagnostics,
+      });
+      return;
+    }
+    const result = executeBlueprintCommands(converted.transaction, {
+      dryRun: true,
+      stage: true,
+      origin: 'node-to-ink',
+    });
+    if (!result.ok) {
+      setInkImportReport({
+        filePath: 'Selected native nodes',
+        diagnostics: result.diagnostics.map((item) => ({
+          severity: 'error' as const,
+          line: 1,
+          column: 1,
+          message: item.message,
+        })),
+      });
+      return;
+    }
+    setInkImportReport(undefined);
+  }, [
+    activeGraphId,
+    aiProposal,
+    executeBlueprintCommands,
+    graph,
+    hasActiveStory,
+    resolvedAssets,
+    resolvedCharacters,
+    semanticSnapshot.revision,
+  ]);
+
   const addNode = useCallback(
     (
       type: StoryNodeType,
@@ -2102,12 +2170,29 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (type === StoryNodeType.Return && activeGraphId === 'root') return null;
       const instance = NodeFactory.create(NodeFactory.generateId(type), type, position);
       if (!instance) return null;
+      const ownerChapter =
+        type === StoryNodeType.Return
+          ? chapters.find((chapter) => chapter.id === activeGraphId)
+          : undefined;
+      const returnData = ownerChapter
+        ? {
+            values: Object.fromEntries(
+              ownerChapter.outputs.map((output) => [
+                output.variable.id,
+                { source: JSON.stringify(output.variable.defaultValue), bindings: {} },
+              ]),
+            ),
+            valueInputTypes: Object.fromEntries(
+              ownerChapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+            ),
+          }
+        : {};
 
       checkpoint(undefined, `Add ${nodeRegistry.get(type)?.label ?? 'Node'}`);
       const node = {
         ...toEditorGraphNode(instance),
         position: { x: Math.round(position.x), y: Math.round(position.y) },
-        data: { ...instance.data, ...initialData },
+        data: { ...instance.data, ...returnData, ...initialData },
         selected: true,
       } as EditorGraphNode;
       setNodes((current) => [
@@ -2118,7 +2203,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       markDirty();
       return node.id;
     },
-    [activeGraphId, checkpoint, markDirty, nodes, setEdges, setNodes],
+    [activeGraphId, chapters, checkpoint, markDirty, nodes, setEdges, setNodes],
   );
 
   const nextSubstoryIdentity = useCallback(() => {
@@ -2169,6 +2254,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         update.parameters !== undefined ||
         update.outputs !== undefined ||
         update.localVariables !== undefined;
+      const parameterIds = new Set(next.parameters.map((parameter) => parameter.variable.id));
+      const outputIds = new Set(next.outputs.map((output) => output.variable.id));
       checkpoint(undefined, editsInterface ? 'Edit Substory Interface' : 'Rename Substory');
       const rewriteReturns = (candidate: EditorGraphState): EditorGraphState => ({
         ...candidate,
@@ -2179,17 +2266,15 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             ...node,
             data: {
               ...data,
+              valueInputTypes: Object.fromEntries(
+                next.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+              ),
               values: Object.fromEntries(
                 next.outputs.map((output) => {
                   const previousOutput = previous.outputs.find(
                     (candidate) => candidate.variable.id === output.variable.id,
                   );
-                  const fallback =
-                    output.variable.valueType.kind === 'boolean'
-                      ? 'false'
-                      : output.variable.valueType.kind === 'number'
-                        ? '0'
-                        : '""';
+                  const fallback = JSON.stringify(output.variable.defaultValue);
                   return [
                     output.variable.id,
                     previousOutput?.variable.valueType.kind === output.variable.valueType.kind &&
@@ -2201,6 +2286,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               ),
             },
           };
+        }),
+        edges: candidate.edges.filter((edge) => {
+          const target = candidate.nodes.find((node) => node.id === edge.target);
+          return !(
+            target?.type === StoryNodeType.Return &&
+            edge.targetHandle.startsWith('value:') &&
+            !outputIds.has(edge.targetHandle.slice('value:'.length) as VariableId)
+          );
         }),
       });
       const previousInterfaceVariables = new Map(
@@ -2249,38 +2342,81 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       if (editsInterface) {
         if (activeGraphId === id) {
           setNodes((current) => rewriteInterfaceGraph({ nodes: current, edges }).nodes);
+          setEdges((current) => rewriteInterfaceGraph({ nodes, edges: current }).edges);
         }
-        const parameterIds = new Set(next.parameters.map((parameter) => parameter.variable.id));
-        const outputIds = new Set(next.outputs.map((output) => output.variable.id));
-        const rewriteCalls = (candidate: EditorGraphState): EditorGraphState => ({
-          ...candidate,
-          nodes: candidate.nodes.map((node) => {
-            if (node.type !== StoryNodeType.CallSubstory || node.data.chapterId !== id) return node;
-            const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
-            return {
-              ...node,
-              data: {
-                ...data,
-                arguments: Object.fromEntries(
-                  Object.entries(data.arguments ?? {}).filter(([parameterId]) =>
-                    parameterIds.has(parameterId as VariableId),
+        const rewriteCalls = (candidate: EditorGraphState): EditorGraphState => {
+          const matchingCallIds = new Set(
+            candidate.nodes
+              .filter(
+                (node) => node.type === StoryNodeType.CallSubstory && node.data.chapterId === id,
+              )
+              .map((node) => node.id),
+          );
+          return {
+            ...candidate,
+            nodes: candidate.nodes.map((node) => {
+              if (!matchingCallIds.has(node.id)) return node;
+              const data = node.data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+              return {
+                ...node,
+                data: {
+                  ...data,
+                  argumentInputTypes: Object.fromEntries(
+                    next.parameters.map((parameter) => [
+                      parameter.variable.id,
+                      parameter.variable.valueType,
+                    ]),
                   ),
-                ),
-                resultVariableIds: Object.fromEntries(
-                  Object.entries(data.resultVariableIds ?? {}).filter(([outputId]) =>
-                    outputIds.has(outputId as VariableId),
+                  outputPorts: next.outputs.map((output) => ({
+                    id: output.variable.id,
+                    label: output.variable.displayName,
+                    valueType: output.variable.valueType,
+                  })),
+                  arguments: Object.fromEntries(
+                    next.parameters.map((parameter) => [
+                      parameter.variable.id,
+                      data.arguments?.[parameter.variable.id] ?? {
+                        source: JSON.stringify(parameter.variable.defaultValue),
+                        bindings: {},
+                      },
+                    ]),
                   ),
-                ),
-              },
-            };
-          }),
-        });
+                  resultVariableIds: Object.fromEntries(
+                    Object.entries(data.resultVariableIds ?? {}).filter(([outputId]) =>
+                      outputIds.has(outputId as VariableId),
+                    ),
+                  ),
+                },
+              };
+            }),
+            edges: candidate.edges.filter((edge) => {
+              if (matchingCallIds.has(edge.target) && edge.targetHandle.startsWith('argument:')) {
+                return parameterIds.has(edge.targetHandle.slice('argument:'.length) as VariableId);
+              }
+              if (matchingCallIds.has(edge.source) && edge.sourceHandle.startsWith('output:')) {
+                return outputIds.has(edge.sourceHandle.slice('output:'.length) as VariableId);
+              }
+              return true;
+            }),
+          };
+        };
         setNodes((current) => rewriteCalls({ nodes: current, edges }).nodes);
+        setEdges((current) => rewriteCalls({ nodes, edges: current }).edges);
         updateInactiveGraphs(rewriteCalls);
       }
       markDirty();
     },
-    [activeGraphId, chapters, checkpoint, edges, markDirty, setNodes, updateInactiveGraphs],
+    [
+      activeGraphId,
+      chapters,
+      checkpoint,
+      edges,
+      markDirty,
+      nodes,
+      setEdges,
+      setNodes,
+      updateInactiveGraphs,
+    ],
   );
 
   const removeSubstory = useCallback(
@@ -3645,8 +3781,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                   valueType: output.valueType,
                 })),
                 resultVariableIds: Object.fromEntries(
-                  Object.entries(call.resultVariableIds ?? {}).filter(([outputId]) =>
-                    outputIds.has(outputId) && !invalidatedOutputIds.has(outputId),
+                  Object.entries(call.resultVariableIds ?? {}).filter(
+                    ([outputId]) => outputIds.has(outputId) && !invalidatedOutputIds.has(outputId),
                   ),
                 ),
               },
@@ -3656,7 +3792,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             (edge) =>
               !(
                 candidate.nodes.some(
-                  (node) => node.id === edge.source && node.type === StoryNodeType.CallEvent && node.data.eventId === id,
+                  (node) =>
+                    node.id === edge.source &&
+                    node.type === StoryNodeType.CallEvent &&
+                    node.data.eventId === id,
                 ) &&
                 edge.sourceHandle.startsWith('output:') &&
                 invalidatedOutputIds.has(edge.sourceHandle.slice('output:'.length))
@@ -3682,7 +3821,17 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       writeProjectEvents(events.map((event) => (event.id === id ? nextEvent : event)));
     },
-    [checkpoint, edges, events, markDirty, nodes, setEdges, setNodes, updateInactiveGraphs, writeProjectEvents],
+    [
+      checkpoint,
+      edges,
+      events,
+      markDirty,
+      nodes,
+      setEdges,
+      setNodes,
+      updateInactiveGraphs,
+      writeProjectEvents,
+    ],
   );
 
   const removeEvent = useCallback(
@@ -4604,14 +4753,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             : node,
         ),
       );
-      if (
-        type === StoryNodeType.CallEvent &&
-        ('eventId' in update || 'outputPorts' in update)
-      ) {
+      if (type === StoryNodeType.CallEvent && ('eventId' in update || 'outputPorts' in update)) {
         setEdges((current) =>
-          current.filter(
-            (edge) => edge.source !== id || !edge.sourceHandle.startsWith('output:'),
-          ),
+          current.filter((edge) => edge.source !== id || !edge.sourceHandle.startsWith('output:')),
         );
       }
       markDirty();
@@ -6076,7 +6220,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           projectSources.flatMap((item) => linkedInkPaths(item.source)),
         ),
       });
-      setBuildProblems(result.diagnostics.map((diagnostic) => ({ ...diagnostic, origin: 'build' })));
+      setBuildProblems(
+        result.diagnostics.map((diagnostic) => ({ ...diagnostic, origin: 'build' })),
+      );
       if (!result.ok) return;
       const exported = await window.electronAPI.exportCompiledProject(
         `${JSON.stringify(result.project, null, 2)}\n`,
@@ -6504,6 +6650,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       dismissInkImportReport,
       importInkFile,
       convertInkBlockToNodes,
+      convertSelectedNodesToInkBlock,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,
@@ -6611,6 +6758,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       dismissInkImportReport,
       importInkFile,
       convertInkBlockToNodes,
+      convertSelectedNodesToInkBlock,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,

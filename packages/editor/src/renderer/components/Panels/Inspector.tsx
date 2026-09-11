@@ -3644,7 +3644,29 @@ export function Inspector() {
                   updateNodeData(node.id, StoryNodeType.CallSubstory, {
                     chapterId: (event.target.value ||
                       undefined) as CallSubstoryNodeData['chapterId'],
-                    arguments: {},
+                    arguments: Object.fromEntries(
+                      (chapters.find((chapter) => chapter.id === event.target.value)?.parameters ?? []).map(
+                        (parameter) => [
+                          parameter.variable.id,
+                          data.arguments?.[parameter.variable.id] ?? {
+                            source: defaultExpressionForValueType(parameter.variable.valueType),
+                            bindings: {},
+                          },
+                        ],
+                      ),
+                    ),
+                    argumentInputTypes: Object.fromEntries(
+                      (chapters.find((chapter) => chapter.id === event.target.value)?.parameters ?? []).map(
+                        (parameter) => [parameter.variable.id, parameter.variable.valueType],
+                      ),
+                    ),
+                    outputPorts: (
+                      chapters.find((chapter) => chapter.id === event.target.value)?.outputs ?? []
+                    ).map((output) => ({
+                      id: output.variable.id,
+                      label: output.variable.displayName,
+                      valueType: output.variable.valueType,
+                    })),
                     resultVariableIds: {},
                   });
                 }}

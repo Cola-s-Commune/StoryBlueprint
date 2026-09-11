@@ -13,9 +13,12 @@ import {
   type NodeId,
   type SourceGraph,
   type SourceNode,
+  type StoryNodeDataMap,
   type StorySourceDocument,
   type StoryProjectDocument,
   type StoryId,
+  type ProjectStoryReference,
+  type StoryLocalizationDocument,
 } from '@story-blueprint/common';
 import { compileStory } from './storyCompiler';
 import type {
@@ -64,11 +67,38 @@ function graphDiagnostics(
     );
   }
 
-  const graphNodes: GraphNodeLike[] = graph.nodes.map((node) => ({
-    id: node.id,
-    type: node.type as StoryNodeType,
-    data: node.data as GraphNodeLike['data'],
-  }));
+  const ownerChapter = chapterId
+    ? story.source.chapters.find((chapter) => chapter.id === chapterId)
+    : undefined;
+  const graphNodes: GraphNodeLike[] = graph.nodes.map((node) => {
+    let data = node.data as GraphNodeLike['data'];
+    if (node.type === StoryNodeType.CallSubstory) {
+      const call = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+      const called = story.source.chapters.find((chapter) => chapter.id === call.chapterId);
+      if (called) {
+        data = {
+          ...call,
+          argumentInputTypes: Object.fromEntries(
+            called.parameters.map((parameter) => [parameter.variable.id, parameter.variable.valueType]),
+          ),
+          outputPorts: called.outputs.map((output) => ({
+            id: output.variable.id,
+            label: output.variable.displayName,
+            valueType: output.variable.valueType,
+          })),
+        };
+      }
+    } else if (node.type === StoryNodeType.Return && ownerChapter) {
+      const returned = node.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
+      data = {
+        ...returned,
+        valueInputTypes: Object.fromEntries(
+          ownerChapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+        ),
+      };
+    }
+    return { id: node.id, type: node.type as StoryNodeType, data };
+  });
   const validExecutionEdges: { source: string; target: string }[] = [];
   const connectionValidator = createGraphConnectionValidator(graphNodes);
   const graphNodesById = new Map(graphNodes.map((node) => [node.id, node] as const));
@@ -371,7 +401,7 @@ export class DefaultProjectCompiler implements ProjectCompiler {
         },
         {
           ...options,
-          availableStoryIds: project.stories.map((candidate) => candidate.id),
+          availableStoryIds: project.stories.map((candidate: ProjectStoryReference) => candidate.id),
           storyVariablesById: Object.fromEntries(
             stories.map((candidate) => [
               candidate.source.id,
@@ -383,7 +413,7 @@ export class DefaultProjectCompiler implements ProjectCompiler {
           sourceLocale: options.localization?.sourceLocale ?? options.sourceLocale,
           localeFallbacks: options.localization
             ? Object.fromEntries(
-                options.localization.locales.flatMap((locale) =>
+                options.localization.locales.flatMap((locale: StoryLocalizationDocument['locales'][number]) =>
                   locale.fallback ? [[locale.locale, locale.fallback]] : [],
                 ),
               )

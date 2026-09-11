@@ -11,10 +11,12 @@ import {
   type StorySourceDocument,
 } from '../packages/common/src';
 import { compileStory } from '../packages/compiler/src';
+import { StoryRuntime } from '../packages/runtime/src';
 import {
   buildInkBlockFallbackTransaction,
   buildInkBlockConversionTransaction,
   buildInkImportTransaction,
+  buildNodesToInkBlockConversionTransaction,
 } from '../packages/editor/src/renderer/dialogue/inkImport';
 
 nodeRegistry.registerBuiltins();
@@ -449,5 +451,393 @@ Alice: River.`;
       ),
     ).toHaveLength(2);
     expect(compileStory(executed.document).ok).toBe(true);
+  });
+
+  it('replaces a direct native narrative chain with runnable Embedded Ink while preserving metadata', () => {
+    const document = story();
+    document.assets = [
+      { id: 'a_voiceone', name: 'voiceOne', displayName: 'Voice One', kind: 'audio' },
+    ];
+    document.root.nodes = [
+      document.root.nodes[0]!,
+      {
+        id: 'n_dialogueone',
+        type: StoryNodeType.Dialogue,
+        definitionVersion: 1,
+        position: { x: 150, y: 0 },
+        data: {
+          lines: [
+            {
+              id: 'ln_hello',
+              textId: 't_hello',
+              text: { source: 'Hello.' },
+              speakerId: 'c_alice',
+              voiceId: 'a_voiceone',
+              emotion: 'happy',
+              tags: ['opening'],
+            },
+          ],
+        },
+      },
+      {
+        id: 'n_narration',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 420, y: 0 },
+        data: { textId: 't_rain', text: { source: 'Rain starts.' } },
+      },
+      {
+        id: 'n_dialoguetwo',
+        type: StoryNodeType.Dialogue,
+        definitionVersion: 1,
+        position: { x: 690, y: 0 },
+        data: {
+          lines: [
+            {
+              id: 'ln_goodbye',
+              textId: 't_goodbye',
+              text: { source: 'Goodbye.' },
+              speakerId: 'c_alice',
+            },
+          ],
+        },
+      },
+      document.root.nodes[1]!,
+    ];
+    document.root.edges = [
+      { from: { nodeId: 'n_entry', portId: 'out' }, to: { nodeId: 'n_dialogueone', portId: 'in' } },
+      {
+        from: { nodeId: 'n_dialogueone', portId: 'out' },
+        to: { nodeId: 'n_narration', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_narration', portId: 'out' },
+        to: { nodeId: 'n_dialoguetwo', portId: 'in' },
+      },
+      { from: { nodeId: 'n_dialoguetwo', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+    ];
+
+    const converted = buildNodesToInkBlockConversionTransaction({
+      revision: createStorySemanticSnapshot(document).revision,
+      graph: document.root,
+      nodeIds: ['n_dialogueone', 'n_narration', 'n_dialoguetwo'],
+      characters: document.characters,
+      assets: document.assets,
+    });
+    expect(converted.ok, converted.ok ? undefined : converted.diagnostics).toBe(true);
+    if (!converted.ok) return;
+    expect(converted.source).toContain(
+      'Alice: Hello. # speaker:c_alice # voice:a_voiceone # emotion:happy # text-id:t_hello # opening',
+    );
+    expect(converted.source).toContain('# text-id:t_rain');
+
+    const executed = executeBlueprintCommandTransaction(document, converted.transaction);
+    expect(executed.ok, executed.ok ? undefined : executed.diagnostics).toBe(true);
+    if (!executed.ok) return;
+    expect(executed.document.root.nodes.some((node) => node.id === 'n_dialogueone')).toBe(false);
+    const ink = executed.document.root.nodes.find((node) => node.type === StoryNodeType.InkBlock);
+    expect(ink?.data).toMatchObject({ sourceMode: 'embedded', source: converted.source });
+    const compiled = compileStory(executed.document);
+    expect(compiled.ok, compiled.ok ? undefined : compiled.diagnostics).toBe(true);
+    if (!compiled.ok) return;
+
+    const runtime = new StoryRuntime(compiled.program);
+    expect(runtime.runUntilPause()).toMatchObject({
+      kind: 'waiting',
+      interaction: {
+        kind: 'dialogue',
+        request: {
+          speakerId: 'c_alice',
+          textId: 't_hello',
+          defaultText: 'Hello.',
+          voice: { default: 'a_voiceone' },
+          emotion: 'happy',
+          tags: ['opening'],
+        },
+      },
+    });
+    expect(runtime.continueDialogue()).toMatchObject({
+      kind: 'waiting',
+      interaction: { kind: 'dialogue', request: { textId: 't_rain', defaultText: 'Rain starts.' } },
+    });
+    expect(runtime.continueDialogue()).toMatchObject({
+      kind: 'waiting',
+      interaction: {
+        kind: 'dialogue',
+        request: { speakerId: 'c_alice', textId: 't_goodbye', defaultText: 'Goodbye.' },
+      },
+    });
+    expect(runtime.continueDialogue().kind).toBe('completed');
+  });
+
+  it('round-trips native narrative metadata through Ink import', () => {
+    const document = story();
+    document.assets = [
+      { id: 'a_voiceone', name: 'voiceOne', displayName: 'Voice One', kind: 'audio' },
+    ];
+    document.root.nodes = [
+      document.root.nodes[0]!,
+      {
+        id: 'n_dialogue',
+        type: StoryNodeType.Dialogue,
+        definitionVersion: 1,
+        position: { x: 150, y: 0 },
+        data: {
+          lines: [
+            {
+              id: 'ln_hello',
+              textId: 't_hello',
+              text: { source: 'Hello.' },
+              speakerId: 'c_alice',
+              voiceId: 'a_voiceone',
+              emotion: 'happy',
+              tags: ['opening'],
+            },
+          ],
+        },
+      },
+      {
+        id: 'n_narration',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 420, y: 0 },
+        data: { textId: 't_rain', text: { source: 'Rain starts.' } },
+      },
+      document.root.nodes[1]!,
+    ];
+    document.root.edges = [
+      { from: { nodeId: 'n_entry', portId: 'out' }, to: { nodeId: 'n_dialogue', portId: 'in' } },
+      {
+        from: { nodeId: 'n_dialogue', portId: 'out' },
+        to: { nodeId: 'n_narration', portId: 'in' },
+      },
+      { from: { nodeId: 'n_narration', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+    ];
+
+    const converted = buildNodesToInkBlockConversionTransaction({
+      revision: createStorySemanticSnapshot(document).revision,
+      graph: document.root,
+      nodeIds: ['n_dialogue', 'n_narration'],
+      characters: document.characters,
+      assets: document.assets,
+    });
+    expect(converted.ok, converted.ok ? undefined : converted.diagnostics).toBe(true);
+    if (!converted.ok) return;
+
+    const imported = buildInkImportTransaction(converted.source, {
+      revision: createStorySemanticSnapshot(document).revision,
+      characters: document.characters,
+      assets: document.assets,
+      variables: document.variables,
+    });
+    expect(imported.ok, imported.ok ? undefined : imported.diagnostics).toBe(true);
+    if (!imported.ok) return;
+    const importedNodes = imported.transaction.operations
+      .filter(
+        (operation): operation is Extract<typeof operation, { kind: 'add-node' }> =>
+          operation.kind === 'add-node',
+      )
+      .map((operation) => operation.node);
+    const importedDialogue = importedNodes.find((node) => node.type === StoryNodeType.Dialogue);
+    expect(importedDialogue).toEqual(
+      expect.objectContaining({
+        type: StoryNodeType.Dialogue,
+        data: {
+          lines: [
+            expect.objectContaining({
+              textId: 't_hello',
+              text: { source: 'Hello.' },
+              speakerId: 'c_alice',
+              voiceId: 'a_voiceone',
+              emotion: 'happy',
+              tags: ['opening'],
+            }),
+          ],
+        },
+      }),
+    );
+    const importedNarration = importedNodes.find((node) => node.type === StoryNodeType.Narration);
+    expect(importedNarration).toEqual(
+      expect.objectContaining({
+        type: StoryNodeType.Narration,
+        data: { textId: 't_rain', text: { source: 'Rain starts.' } },
+      }),
+    );
+  });
+
+  it('converts a Choice with linear narrative branches that share one continuation', () => {
+    const document = story();
+    document.root.nodes = [
+      document.root.nodes[0]!,
+      {
+        id: 'n_choice',
+        type: StoryNodeType.Choice,
+        definitionVersion: 1,
+        position: { x: 150, y: 0 },
+        data: {
+          prompt: { source: '' },
+          options: [
+            { id: 'o_left', text: { source: 'Take the left path.' } },
+            { id: 'o_right', text: { source: 'Take the right path.' } },
+          ],
+        },
+      },
+      {
+        id: 'n_left',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 420, y: -110 },
+        data: { textId: 't_left', text: { source: 'You take the left path.' } },
+      },
+      {
+        id: 'n_right',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 420, y: 110 },
+        data: { textId: 't_right', text: { source: 'You take the right path.' } },
+      },
+      {
+        id: 'n_after',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 690, y: 0 },
+        data: { textId: 't_after', text: { source: 'Both paths reach the gate.' } },
+      },
+      document.root.nodes[1]!,
+    ];
+    document.root.edges = [
+      { from: { nodeId: 'n_entry', portId: 'out' }, to: { nodeId: 'n_choice', portId: 'in' } },
+      { from: { nodeId: 'n_choice', portId: 'o_left' }, to: { nodeId: 'n_left', portId: 'in' } },
+      {
+        from: { nodeId: 'n_choice', portId: 'o_right' },
+        to: { nodeId: 'n_right', portId: 'in' },
+      },
+      { from: { nodeId: 'n_left', portId: 'out' }, to: { nodeId: 'n_after', portId: 'in' } },
+      { from: { nodeId: 'n_right', portId: 'out' }, to: { nodeId: 'n_after', portId: 'in' } },
+      { from: { nodeId: 'n_after', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+    ];
+
+    const converted = buildNodesToInkBlockConversionTransaction({
+      revision: createStorySemanticSnapshot(document).revision,
+      graph: document.root,
+      nodeIds: ['n_choice', 'n_left', 'n_right'],
+      characters: document.characters,
+      assets: document.assets,
+    });
+    expect(converted.ok, converted.ok ? undefined : converted.diagnostics).toBe(true);
+    if (!converted.ok) return;
+    expect(converted.source).toContain('* [Take the left path.] -> choice_left');
+    expect(converted.source).toContain('* [Take the right path.] -> choice_right');
+    expect(converted.source).toContain('=== choice_left ===');
+    expect(converted.source).toContain('=== choice_right ===');
+
+    const executed = executeBlueprintCommandTransaction(document, converted.transaction);
+    expect(executed.ok, executed.ok ? undefined : executed.diagnostics).toBe(true);
+    if (!executed.ok) return;
+    expect(executed.document.root.edges).toContainEqual({
+      from: { nodeId: 'n_entry', portId: 'out' },
+      to: expect.objectContaining({ portId: 'in' }),
+    });
+    const ink = executed.document.root.nodes.find((node) => node.type === StoryNodeType.InkBlock);
+    expect(ink).toBeDefined();
+    expect(executed.document.root.edges).toContainEqual({
+      from: { nodeId: ink!.id, portId: 'out' },
+      to: { nodeId: 'n_after', portId: 'in' },
+    });
+
+    const compiled = compileStory(executed.document);
+    expect(compiled.ok, compiled.ok ? undefined : compiled.diagnostics).toBe(true);
+    if (!compiled.ok) return;
+    const runtime = new StoryRuntime(compiled.program);
+    const choice = runtime.runUntilPause();
+    expect(choice).toMatchObject({
+      kind: 'waiting',
+      interaction: {
+        kind: 'choice',
+        request: {
+          options: [
+            { defaultText: 'Take the left path.' },
+            { defaultText: 'Take the right path.' },
+          ],
+        },
+      },
+    });
+    if (choice.kind !== 'waiting' || choice.interaction.kind !== 'choice') return;
+    const left = runtime.choose(choice.interaction.request.options[0]!.id);
+    expect(left).toMatchObject({
+      kind: 'waiting',
+      interaction: { kind: 'dialogue', request: { defaultText: 'You take the left path.' } },
+    });
+    expect(runtime.continueDialogue()).toMatchObject({
+      kind: 'waiting',
+      interaction: { kind: 'narration', request: { defaultText: 'Both paths reach the gate.' } },
+    });
+  });
+
+  it('keeps a Choice native when its prompt would change Ink interaction timing', () => {
+    const document = story();
+    document.root.nodes = [
+      document.root.nodes[0]!,
+      {
+        id: 'n_choice',
+        type: StoryNodeType.Choice,
+        definitionVersion: 1,
+        position: { x: 150, y: 0 },
+        data: {
+          prompt: { source: 'Which way?' },
+          options: [{ id: 'o_left', text: { source: 'Left' } }],
+        },
+      },
+      {
+        id: 'n_left',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 420, y: 0 },
+        data: { textId: 't_left', text: { source: 'Left it is.' } },
+      },
+      document.root.nodes[1]!,
+    ];
+    document.root.edges = [
+      { from: { nodeId: 'n_entry', portId: 'out' }, to: { nodeId: 'n_choice', portId: 'in' } },
+      { from: { nodeId: 'n_choice', portId: 'o_left' }, to: { nodeId: 'n_left', portId: 'in' } },
+      { from: { nodeId: 'n_left', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+    ];
+    const converted = buildNodesToInkBlockConversionTransaction({
+      revision: createStorySemanticSnapshot(document).revision,
+      graph: document.root,
+      nodeIds: ['n_choice', 'n_left'],
+    });
+    expect(converted.ok).toBe(false);
+    if (converted.ok) return;
+    expect(converted.diagnostics[0]?.message).toContain('Choice prompts cannot be converted');
+  });
+
+  it('keeps native nodes untouched when their templates cannot be losslessly converted to Ink', () => {
+    const document = story();
+    document.root.nodes = [
+      document.root.nodes[0]!,
+      {
+        id: 'n_template',
+        type: StoryNodeType.Narration,
+        definitionVersion: 1,
+        position: { x: 150, y: 0 },
+        data: { textId: 't_template', text: { source: 'Welcome, {name}.' } },
+      },
+      document.root.nodes[1]!,
+    ];
+    document.root.edges = [
+      { from: { nodeId: 'n_entry', portId: 'out' }, to: { nodeId: 'n_template', portId: 'in' } },
+      { from: { nodeId: 'n_template', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+    ];
+
+    const converted = buildNodesToInkBlockConversionTransaction({
+      revision: createStorySemanticSnapshot(document).revision,
+      graph: document.root,
+      nodeIds: ['n_template'],
+    });
+    expect(converted.ok).toBe(false);
+    if (converted.ok) return;
+    expect(converted.diagnostics[0]?.message).toContain('cannot be losslessly represented');
+    expect(document.root.nodes.some((node) => node.id === 'n_template')).toBe(true);
   });
 });

@@ -233,6 +233,71 @@ describe('connection validation', () => {
     ).toMatchObject({ valid: false, diagnostic: { code: 'INCOMPATIBLE_DATA_TYPE' } });
   });
 
+  it('resolves typed Substory input, return, and Out pins from interface snapshots', () => {
+    const call: GraphNodeLike = {
+      id: 'substory-call',
+      type: StoryNodeType.CallSubstory,
+      data: {
+        chapterId: 'ch_test',
+        arguments: {},
+        argumentInputTypes: { v_parameter: { kind: 'number' } },
+        outputPorts: [{ id: 'v_output', label: 'Output', valueType: { kind: 'number' } }],
+        resultVariableIds: {},
+      },
+    };
+    const returned: GraphNodeLike = {
+      id: 'substory-return',
+      type: StoryNodeType.Return,
+      data: { values: {}, valueInputTypes: { v_output: { kind: 'number' } } },
+    };
+    const getString: GraphNodeLike = {
+      id: 'get-string',
+      type: StoryNodeType.GetVariable,
+      data: { variableId: 'v_string', outputValueType: { kind: 'string' } },
+    };
+    const setNumber: GraphNodeLike = {
+      id: 'set-number',
+      type: StoryNodeType.SetVariable,
+      data: { variableId: 'v_number', value: { source: '0', bindings: {} } },
+    };
+
+    expect(resolveNodePorts(call).ports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'argument:v_parameter', valueType: { kind: 'number' } }),
+        expect.objectContaining({ id: 'output:v_output', valueType: { kind: 'number' } }),
+      ]),
+    );
+    expect(resolveNodePorts(returned).ports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'value:v_output', valueType: { kind: 'number' } }),
+      ]),
+    );
+    expect(
+      validateGraphConnection(
+        {
+          source: 'get-string',
+          sourcePortId: 'value',
+          target: 'substory-call',
+          targetPortId: 'argument:v_parameter',
+        },
+        [getString, call],
+        [],
+      ),
+    ).toMatchObject({ valid: false, diagnostic: { code: 'INCOMPATIBLE_DATA_TYPE' } });
+    expect(
+      validateGraphConnection(
+        {
+          source: 'substory-call',
+          sourcePortId: 'output:v_output',
+          target: 'set-number',
+          targetPortId: 'value',
+        },
+        [call, setNumber],
+        [],
+      ),
+    ).toEqual({ valid: true });
+  });
+
   it('uses one directional type relation for pin and compiler contracts', () => {
     expect(valueTypesCompatible({ kind: 'number' }, { kind: 'number' })).toBe(true);
     expect(valueTypesCompatible({ kind: 'number', nullable: true }, { kind: 'number' })).toBe(

@@ -22,6 +22,8 @@ export type RuntimeStatus = 'running' | 'waiting' | 'completed' | 'failed';
 
 export interface CallFrame {
   chapterId: ChapterId;
+  /** Instruction that opened this frame, used by connected output Pins. */
+  callInstructionId: string;
   returnTo: ProgramLocation;
   resultVariableIds: Record<string, VariableId>;
   locals: Record<string, RuntimeValue>;
@@ -82,6 +84,8 @@ export interface RuntimeState {
   signalInbox: Record<string, SignalPayload[]>;
   /** Return values from completed External Function calls, keyed by instruction and output ID. */
   eventOutputs?: Record<string, Record<string, RuntimeValue>>;
+  /** Return values from completed Substory calls, keyed by call instruction and output ID. */
+  substoryOutputs?: Record<string, Record<string, RuntimeValue>>;
   /** Serialized state for the currently executing embedded Ink Block. */
   ink?: { instructionId: InstructionId; stateJson: string; interactionIndex: number };
   pending?: PendingInteraction;

@@ -242,6 +242,22 @@ export interface AddSubstoryCommand extends BlueprintCommandBase {
   };
 }
 
+/**
+ * Replaces selected parts of a Substory contract. Interface collections are
+ * complete lists so removals and reordered parameters are unambiguous.
+ */
+export interface UpdateSubstoryCommand extends BlueprintCommandBase {
+  kind: 'update-substory';
+  chapterId: ChapterId;
+  patch: {
+    name?: string;
+    displayName?: string;
+    parameters?: readonly VariableDefinition[];
+    outputs?: readonly VariableDefinition[];
+    localVariables?: readonly VariableDefinition[];
+  };
+}
+
 export interface LayoutSelectionCommand extends BlueprintGraphCommandBase {
   kind: 'layout-selection';
   nodeIds: readonly NodeId[];
@@ -270,6 +286,7 @@ export type BlueprintCommand =
   | AddCharacterFromTemplateCommand
   | UpdateCharacterCommand
   | AddSubstoryCommand
+  | UpdateSubstoryCommand
   | AddDialogueLineCommand
   | UpdateDialogueLineCommand
   | RemoveDialogueLineCommand

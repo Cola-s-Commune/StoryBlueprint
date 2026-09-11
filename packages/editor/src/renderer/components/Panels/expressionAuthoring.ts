@@ -70,6 +70,8 @@ function expressionAstSource(
       return names.get(expression.variableId);
     case 'event-output':
       return undefined;
+    case 'substory-output':
+      return undefined;
     case 'unary': {
       const operand = expressionAstSource(expression.operand, names);
       return operand === undefined

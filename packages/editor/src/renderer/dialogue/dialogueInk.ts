@@ -1,9 +1,11 @@
 import {
   createStableId,
+  isStableId,
   type AssetSource,
   type CharacterSource,
   type DialogueLine,
   type DialogueNodeData,
+  type TextId,
 } from '@story-blueprint/common';
 
 export interface DialogueInkDiagnostic {
@@ -18,11 +20,12 @@ export interface DialogueInkParseResult {
   diagnostics: DialogueInkDiagnostic[];
 }
 
-type DialogueLineDraft = Omit<DialogueLine, 'id' | 'textId'>;
+type DialogueLineDraft = Omit<DialogueLine, 'id' | 'textId'> & { textId?: TextId };
 
 const CONTROL_LINE = /^\s*(?:\*|\+|->|<-|={2,})/;
 
-function escapeText(source: string): string {
+/** Escapes text for the small, line-oriented Ink profile used by Dialogue editors. */
+export function escapeDialogueInkText(source: string): string {
   return source
     .replace(/\\/g, '\\\\')
     .replace(/\r/g, '\\r')
@@ -59,13 +62,14 @@ function splitLine(source: string): { text: string; tags: string[] } {
   return { text: text.trimEnd(), tags };
 }
 
-function findNamed<T extends { name: string; displayName: string }>(
+function findNamed<T extends { id?: string; name: string; displayName: string }>(
   values: readonly T[],
   name: string,
 ): T[] {
   const normalized = name.trim().toLocaleLowerCase();
   return values.filter(
     (value) =>
+      value.id?.toLocaleLowerCase() === normalized ||
       value.name.toLocaleLowerCase() === normalized ||
       value.displayName.toLocaleLowerCase() === normalized,
   );
@@ -104,9 +108,10 @@ export function formatDialogueInk(
       const tags = [
         line.emotion ? `emotion:${line.emotion}` : undefined,
         line.voiceId ? `voice:${assetNames.get(line.voiceId) ?? line.voiceId}` : undefined,
-        ...(line.tags ?? []).map((tag) => escapeText(tag)),
+        `text-id:${line.textId}`,
+        ...(line.tags ?? []).map((tag) => escapeDialogueInkText(tag)),
       ].filter((tag): tag is string => Boolean(tag));
-      return `${speaker}: ${escapeText(line.text.source)}${tags.map((tag) => ` # ${tag}`).join('')}`;
+      return `${speaker}: ${escapeDialogueInkText(line.text.source)}${tags.map((tag) => ` # ${tag}`).join('')}`;
     })
     .join('\n');
 }
@@ -134,7 +139,7 @@ function reconcileLineIds(
   return drafts.map((draft, index) => ({
     ...draft,
     id: matches[index]?.id ?? createStableId('line'),
-    textId: matches[index]?.textId ?? createStableId('text'),
+    textId: draft.textId ?? matches[index]?.textId ?? createStableId('text'),
   }));
 }
 
@@ -190,17 +195,24 @@ export function parseDialogueInk(
         } else draft.speakerId = matches[0].id;
       }
       const ordinaryTags: string[] = [];
+      let textIdSeen = false;
       for (const tag of parsed.tags) {
         const separator = tag.indexOf(':');
         const key = separator < 0 ? tag : tag.slice(0, separator).trim().toLocaleLowerCase();
         const value = separator < 0 ? '' : tag.slice(separator + 1).trim();
         if (key === 'speaker') {
-          diagnostics.push({
-            line: lineNumber,
-            column: Math.max(1, sourceLine.indexOf(tag) + 1),
-            endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
-            message: 'Trailing # speaker tags are not supported. Put the speaker before the text.',
-          });
+          // Native node exports include the readable `Speaker: text` prefix and repeat the
+          // stable ID in metadata so the Ink runtime can preserve the binding across renames.
+          // Reject a missing or conflicting prefix instead of accepting the old tag-only form.
+          if (!draft.speakerId || value !== draft.speakerId) {
+            diagnostics.push({
+              line: lineNumber,
+              column: Math.max(1, sourceLine.indexOf(tag) + 1),
+              endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
+              message:
+                'Trailing # speaker tags are not supported unless they match the speaker before the text.',
+            });
+          }
         } else if (key === 'voice') {
           const matches = findNamed(
             assets.filter((asset) => asset.kind === 'audio'),
@@ -226,6 +238,25 @@ export function parseDialogueInk(
               message: 'Emotion name cannot be empty.',
             });
           } else draft.emotion = value;
+        } else if (key === 'text-id') {
+          if (textIdSeen) {
+            diagnostics.push({
+              line: lineNumber,
+              column: Math.max(1, sourceLine.indexOf(tag) + 1),
+              endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
+              message: 'A Dialogue line can only contain one text-id tag.',
+            });
+          } else if (!isStableId(value, 'text')) {
+            diagnostics.push({
+              line: lineNumber,
+              column: Math.max(1, sourceLine.indexOf(tag) + 1),
+              endColumn: Math.max(2, sourceLine.indexOf(tag) + tag.length + 1),
+              message: `Invalid text ID “${value}”.`,
+            });
+          } else {
+            draft.textId = value;
+            textIdSeen = true;
+          }
         } else {
           ordinaryTags.push(tag);
         }
@@ -233,6 +264,22 @@ export function parseDialogueInk(
       if (ordinaryTags.length > 0) draft.tags = ordinaryTags;
       return draft;
     });
+
+  const textIds = new Map<TextId, number>();
+  drafts.forEach((draft, index) => {
+    if (!draft.textId) return;
+    const previous = textIds.get(draft.textId);
+    if (previous !== undefined) {
+      diagnostics.push({
+        line: index + 1,
+        column: 1,
+        endColumn: 2,
+        message: `Duplicate text ID “${draft.textId}” (first used on line ${previous + 1}).`,
+      });
+      return;
+    }
+    textIds.set(draft.textId, index);
+  });
 
   return diagnostics.length > 0
     ? { diagnostics }

@@ -260,6 +260,25 @@ export class NodeRegistry {
       color: '#5f88d1',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Completed', kind: 'execution', direction: 'output' }],
+      dynamicInputs: {
+        sourceProperty: 'arguments',
+        idProperty: '',
+        labelProperty: '',
+        kind: 'data',
+        valueType: { kind: 'any' },
+        valueTypeProperty: 'argumentInputTypes',
+        recordEntries: true,
+        idPrefix: 'argument:',
+      },
+      dynamicOutputs: {
+        sourceProperty: 'outputPorts',
+        idProperty: 'id',
+        labelProperty: 'label',
+        kind: 'data',
+        valueTypeProperty: 'valueType',
+        idPrefix: 'output:',
+        optional: true,
+      },
       defaultData: () => ({ arguments: {}, resultVariableIds: {} }),
     });
 
@@ -325,6 +344,27 @@ export class NodeRegistry {
       defaultData: () => ({ resultVariableIds: {} }),
     });
 
+    this.register<StoryNodeType.Return>({
+      type: StoryNodeType.Return,
+      version: 1,
+      label: 'Return',
+      category: 'flow',
+      color: '#bd7cdb',
+      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
+      outputs: [],
+      dynamicInputs: {
+        sourceProperty: 'values',
+        idProperty: '',
+        labelProperty: '',
+        kind: 'data',
+        valueType: { kind: 'any' },
+        valueTypeProperty: 'valueInputTypes',
+        recordEntries: true,
+        idPrefix: 'value:',
+      },
+      defaultData: () => ({ values: {} }),
+    });
+
     this.register<StoryNodeType.Reroute>({
       type: StoryNodeType.Reroute,
       version: 1,
@@ -356,17 +396,6 @@ export class NodeRegistry {
       inputs: [{ id: 'in', label: 'Enter', kind: 'execution', direction: 'input' }],
       outputs: [],
       defaultData: () => ({}),
-    });
-
-    this.register<StoryNodeType.Return>({
-      type: StoryNodeType.Return,
-      version: 1,
-      label: 'Return',
-      category: 'flow',
-      color: '#b67ad1',
-      inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
-      outputs: [],
-      defaultData: () => ({ values: {} }),
     });
 
     // End

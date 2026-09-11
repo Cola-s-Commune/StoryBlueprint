@@ -377,6 +377,25 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             ['substory'],
           ),
           operation(
+            'update-substory',
+            {
+              chapterId: { type: 'string', pattern: '^ch_[a-z0-9][a-z0-9_-]{2,}$' },
+              patch: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  displayName: { type: 'string', minLength: 1 },
+                  parameters: { type: 'array', items: { $ref: '#/$defs/variable' } },
+                  outputs: { type: 'array', items: { $ref: '#/$defs/variable' } },
+                  localVariables: { type: 'array', items: { $ref: '#/$defs/variable' } },
+                },
+              },
+            },
+            ['chapterId', 'patch'],
+          ),
+          operation(
             'layout-selection',
             {
               graph,
@@ -784,8 +803,8 @@ export const BLUEPRINT_NODE_CATALOG = [
       arguments: { v_parameter: { source: 'value', bindings: { value: 'v_existing' } } },
       resultVariableIds: { v_output: 'v_existing_result' },
     },
-    inputPorts: ['in'],
-    outputPorts: ['out'],
+    inputPorts: ['in', 'argument:<substoryParameterVariableId>'],
+    outputPorts: ['out', 'output:<substoryOutputVariableId>'],
   },
   {
     type: StoryNodeType.StartStory,
@@ -843,7 +862,7 @@ export const BLUEPRINT_NODE_CATALOG = [
   {
     type: StoryNodeType.Return,
     data: { values: { v_output: { source: 'result', bindings: { result: 'v_local' } } } },
-    inputPorts: ['in'],
+    inputPorts: ['in', 'value:<substoryOutputVariableId>'],
     outputPorts: [],
   },
   { type: StoryNodeType.End, data: { title: 'The End' }, inputPorts: ['in'], outputPorts: [] },

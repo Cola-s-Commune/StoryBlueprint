@@ -215,6 +215,17 @@ export interface CallSubstoryNodeData {
   chapterId?: ChapterId;
   /** Expressions keyed by stable chapter parameter variable ID. */
   arguments: Record<VariableId, ExpressionSource>;
+  /**
+   * Snapshot of the selected substory input contracts. This keeps dynamic
+   * pins valid while a graph is loaded without its owning Story document.
+   */
+  argumentInputTypes?: Readonly<Record<string, ValueType>>;
+  /** Snapshot of the selected substory return contracts used by Out pins. */
+  outputPorts?: readonly {
+    id: VariableId;
+    label: string;
+    valueType: ValueType;
+  }[];
   /** Caller variables keyed by stable chapter output variable ID. */
   resultVariableIds: Record<VariableId, VariableId>;
 }
@@ -279,6 +290,8 @@ export interface FlowJumpNodeData {
 export interface ReturnNodeData {
   /** Expressions keyed by stable chapter output variable ID. */
   values: Record<VariableId, ExpressionSource>;
+  /** Snapshot of the owning substory return contracts used by input pins. */
+  valueInputTypes?: Readonly<Record<string, ValueType>>;
 }
 
 /** Data for End node — story endpoint */

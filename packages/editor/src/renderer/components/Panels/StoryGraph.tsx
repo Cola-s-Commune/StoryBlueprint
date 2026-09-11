@@ -31,6 +31,7 @@ import {
   type GraphEdgeLike,
   type GraphNodeLike,
   type EdgeId,
+  type CallSubstoryNodeData,
   type NodeId,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
@@ -75,12 +76,70 @@ function toGraphNodes(
       valueType: import('@story-blueprint/common').ValueType;
     }[];
   }[] = [],
+  chapters: readonly {
+    id: string;
+    parameters: readonly {
+      variable: { id: string; valueType: import('@story-blueprint/common').ValueType };
+    }[];
+    outputs: readonly {
+      variable: {
+        id: string;
+        displayName: string;
+        valueType: import('@story-blueprint/common').ValueType;
+      };
+    }[];
+  }[] = [],
+  activeGraphId: ActiveGraphId = 'root',
 ): GraphNodeLike[] {
   return nodes.map((node) => {
-    if (node.type !== StoryNodeType.CallEvent) return { id: node.id, type: node.type, data: node.data };
+    if (node.type === StoryNodeType.Return && activeGraphId !== 'root') {
+      const chapter = chapters.find((candidate) => candidate.id === activeGraphId);
+      if (!chapter) return { id: node.id, type: node.type, data: node.data };
+      return {
+        id: node.id,
+        type: node.type,
+        data: {
+          ...node.data,
+          valueInputTypes: Object.fromEntries(
+            chapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+          ),
+        },
+      };
+    }
+    if (node.type === StoryNodeType.CallSubstory) {
+      const data = node.data as CallSubstoryNodeData;
+      const chapter = chapters.find((candidate) => candidate.id === data.chapterId);
+      if (!chapter) return { id: node.id, type: node.type, data: node.data };
+      return {
+        id: node.id,
+        type: node.type,
+        data: {
+          ...node.data,
+          argumentInputTypes: Object.fromEntries(
+            chapter.parameters.map((parameter) => [
+              parameter.variable.id,
+              parameter.variable.valueType,
+            ]),
+          ),
+          outputPorts:
+            data.outputPorts ??
+            chapter.outputs.map((output) => ({
+              id: output.variable.id,
+              label: output.variable.displayName,
+              valueType: output.variable.valueType,
+            })),
+        },
+      };
+    }
+    if (node.type !== StoryNodeType.CallEvent)
+      return { id: node.id, type: node.type, data: node.data };
     const data = node.data as typeof node.data & {
       eventId?: string;
-      outputPorts?: readonly { id: string; label: string; valueType: import('@story-blueprint/common').ValueType }[];
+      outputPorts?: readonly {
+        id: string;
+        label: string;
+        valueType: import('@story-blueprint/common').ValueType;
+      }[];
     };
     const event = events.find((candidate) => candidate.id === data.eventId);
     if (!event) return { id: node.id, type: node.type, data: node.data };
@@ -149,9 +208,7 @@ function edgeStroke(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): s
   return edgeTypeColors[port.valueType?.kind ?? 'any'] ?? edgeTypeColors.any!;
 }
 
-function replacesOccupiedConnection(
-  result: ReturnType<typeof validateGraphConnection>,
-): boolean {
+function replacesOccupiedConnection(result: ReturnType<typeof validateGraphConnection>): boolean {
   return (
     !result.valid &&
     (result.diagnostic.code === 'OUTPUT_ALREADY_CONNECTED' ||
@@ -209,6 +266,7 @@ export function StoryGraph() {
     chapters,
     events,
     extractSelectionToSubstory,
+    convertSelectedNodesToInkBlock,
     hasActiveStory,
     workspace,
     workspaceError,
@@ -299,10 +357,10 @@ export function StoryGraph() {
           target: connection.target,
           targetPortId: connection.targetHandle ?? null,
         },
-        toGraphNodes(nodes, events),
+        toGraphNodes(nodes, events, chapters, activeGraphId),
         toGraphEdges(edges),
       ),
-    [edges, events, nodes],
+    [activeGraphId, chapters, edges, events, nodes],
   );
 
   const isValidConnection = useCallback(
@@ -358,6 +416,29 @@ export function StoryGraph() {
             );
           }
         }
+        if (sourceNode?.type === StoryNodeType.CallSubstory) {
+          const call = sourceNode.data as CallSubstoryNodeData;
+          const chapter = chapters.find((candidate) => candidate.id === call.chapterId);
+          if (chapter && call.outputPorts === undefined) {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === sourceNode.id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        outputPorts: chapter.outputs.map((output) => ({
+                          id: output.variable.id,
+                          label: output.variable.displayName,
+                          valueType: output.variable.valueType,
+                        })),
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }
+        }
       }
       setEdges((currentEdges) => {
         const availableEdges =
@@ -388,7 +469,7 @@ export function StoryGraph() {
       });
       markDirty();
     },
-    [checkpoint, events, markDirty, nodes, setEdges, setNodes, validateConnection],
+    [chapters, checkpoint, events, markDirty, nodes, setEdges, setNodes, validateConnection],
   );
 
   const onConnectEnd = useCallback<OnConnectEnd>(
@@ -1732,18 +1813,22 @@ export function StoryGraph() {
           <aside className={styles.aiChangeBanner}>
             <div>
               <strong>
-                {aiProposal.origin === 'ink-conversion'
-                  ? 'Ink Block conversion preview'
-                  : aiProposal.origin === 'ink-import'
-                    ? 'Ink import preview'
-                    : 'AI proposal preview'}
+                {aiProposal.origin === 'node-to-ink'
+                  ? 'Native nodes to Ink Block preview'
+                  : aiProposal.origin === 'ink-conversion'
+                    ? 'Ink Block conversion preview'
+                    : aiProposal.origin === 'ink-import'
+                      ? 'Ink import preview'
+                      : 'AI proposal preview'}
               </strong>
               <span>
-                {aiProposal.origin.startsWith('ink') && inkImportReport?.summary
-                  ? inkImportReport.summary.mode === 'ink-block-fallback'
-                    ? 'The complete Ink source will be preserved as one embedded Ink Block. It remains editable and runnable as Ink. Move the block, then Apply or Discard.'
-                    : `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.narrationNodes} Narration · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
-                  : 'Move the green nodes, then Apply or Discard. Story is unchanged.'}
+                {aiProposal.origin === 'node-to-ink'
+                  ? `${aiProposal.removedNodeIds.length} native node${aiProposal.removedNodeIds.length === 1 ? '' : 's'} will be replaced by an embedded Ink Block. Move the preview block, then Apply or Discard.`
+                  : aiProposal.origin.startsWith('ink') && inkImportReport?.summary
+                    ? inkImportReport.summary.mode === 'ink-block-fallback'
+                      ? 'The complete Ink source will be preserved as one embedded Ink Block. It remains editable and runnable as Ink. Move the block, then Apply or Discard.'
+                      : `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.narrationNodes} Narration · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
+                    : 'Move the green nodes, then Apply or Discard. Story is unchanged.'}
               </span>
             </div>
             <button type="button" onClick={() => void applyAIProposal()}>
@@ -2203,6 +2288,16 @@ export function StoryGraph() {
                     >
                       <span className={styles.contextMenuColor} style={{ background: '#6d96df' }} />
                       Extract to Substory
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        convertSelectedNodesToInkBlock();
+                        setContextMenu(null);
+                      }}
+                    >
+                      <span className={styles.contextMenuColor} style={{ background: '#7f72c5' }} />
+                      Convert Selection to Ink Block…
                     </button>
                   </>
                 )}

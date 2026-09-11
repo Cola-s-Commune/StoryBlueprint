@@ -157,6 +157,188 @@ describe('AI semantic editing foundation', () => {
     expect(result.document.chapters[0]?.graph.nodes).toHaveLength(2);
   });
 
+  it('refactors a Substory interface and removes obsolete typed links atomically', () => {
+    const source = story();
+    source.variables = [
+      {
+        id: 'v_root_result',
+        name: 'rootResult',
+        displayName: 'Root Result',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    source.root.nodes = [
+      ...source.root.nodes,
+      {
+        id: 'n_call_refactor',
+        type: StoryNodeType.CallSubstory,
+        definitionVersion: 1,
+        position: { x: 820, y: 50 },
+        data: {
+          chapterId: 'ch_refactor',
+          arguments: { v_input: { source: '1', bindings: {} } },
+          argumentInputTypes: { v_input: { kind: 'number' } },
+          outputPorts: [{ id: 'v_output', label: 'Output', valueType: { kind: 'number' } }],
+          resultVariableIds: { v_output: 'v_root_result' },
+        },
+      },
+    ];
+    source.root.edges = [
+      {
+        from: { nodeId: 'n_start', portId: 'out' },
+        to: { nodeId: 'n_talk', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_talk', portId: 'out' },
+        to: { nodeId: 'n_call_refactor', portId: 'in' },
+      },
+      {
+        from: { nodeId: 'n_call_refactor', portId: 'out' },
+        to: { nodeId: 'n_endxx', portId: 'in' },
+      },
+    ];
+    source.chapters = [
+      {
+        id: 'ch_refactor',
+        name: 'refactor',
+        displayName: 'Refactor',
+        parameters: [
+          {
+            direction: 'input',
+            variable: {
+              id: 'v_input',
+              name: 'input',
+              displayName: 'Input',
+              scope: 'local',
+              valueType: { kind: 'number' },
+              defaultValue: 1,
+            },
+          },
+        ],
+        outputs: [
+          {
+            direction: 'output',
+            variable: {
+              id: 'v_output',
+              name: 'output',
+              displayName: 'Output',
+              scope: 'local',
+              valueType: { kind: 'number' },
+              defaultValue: 1,
+            },
+          },
+        ],
+        localVariables: [
+          {
+            id: 'v_local',
+            name: 'local',
+            displayName: 'Local',
+            scope: 'local',
+            valueType: { kind: 'number' },
+            defaultValue: 0,
+          },
+        ],
+        graph: {
+          nodes: [
+            {
+              id: 'n_refactor_start',
+              type: StoryNodeType.Start,
+              definitionVersion: 1,
+              position: { x: 0, y: 0 },
+              data: { title: 'Entry' },
+            },
+            {
+              id: 'n_refactor_set',
+              type: StoryNodeType.SetVariable,
+              definitionVersion: 1,
+              position: { x: 240, y: 0 },
+              data: {
+                variableId: 'v_local',
+                value: { source: 'input + 1', bindings: {} },
+              },
+            },
+            {
+              id: 'n_refactor_return',
+              type: StoryNodeType.Return,
+              definitionVersion: 1,
+              position: { x: 480, y: 0 },
+              data: {
+                values: { v_output: { source: 'local', bindings: {} } },
+                valueInputTypes: { v_output: { kind: 'number' } },
+              },
+            },
+          ],
+          edges: [
+            {
+              from: { nodeId: 'n_refactor_start', portId: 'out' },
+              to: { nodeId: 'n_refactor_set', portId: 'in' },
+            },
+            {
+              from: { nodeId: 'n_refactor_set', portId: 'out' },
+              to: { nodeId: 'n_refactor_return', portId: 'in' },
+            },
+          ],
+        },
+      },
+    ];
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'refactor-interface',
+          kind: 'update-substory',
+          chapterId: 'ch_refactor',
+          patch: {
+            displayName: 'Refactored',
+            parameters: [
+              {
+                id: 'v_input',
+                name: 'amount',
+                displayName: 'Amount',
+                scope: 'local',
+                valueType: { kind: 'number' },
+                defaultValue: 2,
+              },
+            ],
+            outputs: [],
+            localVariables: [
+              {
+                id: 'v_local',
+                name: 'local',
+                displayName: 'Local',
+                scope: 'local',
+                valueType: { kind: 'number' },
+                defaultValue: 0,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.chapters[0]?.displayName).toBe('Refactored');
+    expect(result.document.chapters[0]?.parameters[0]?.variable.name).toBe('amount');
+    expect(result.document.chapters[0]?.outputs).toEqual([]);
+    const call = result.document.root.nodes.find((node) => node.id === 'n_call_refactor');
+    expect((call?.data as { outputPorts?: unknown }).outputPorts).toEqual([]);
+    expect((call?.data as { arguments?: Record<string, { source: string }> }).arguments).toEqual({
+      v_input: { source: '1', bindings: {} },
+    });
+    expect(result.document.root.edges).toHaveLength(3);
+    const set = result.document.chapters[0]?.graph.nodes.find(
+      (node) => node.id === 'n_refactor_set',
+    );
+    expect((set?.data as { value?: unknown }).value).toEqual({
+      source: 'amount + 1',
+      bindings: {},
+    });
+  });
+
   it('accepts recursive Struct variables', () => {
     const source = story();
     source.characters = [{ id: 'c_hero', name: 'hero', displayName: 'Hero', emotions: {} }];

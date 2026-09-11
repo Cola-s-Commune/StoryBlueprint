@@ -388,6 +388,10 @@
   padding: 9px 0 8px;
 }
 
+.functionReturnPorts {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .functionPortColumn {
   display: grid;
   align-content: start;
@@ -420,6 +424,26 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.functionPortLabel {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.functionPortLabel strong,
+.functionPortLabel small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.functionPortLabel small {
+  color: #778396;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 9px;
+  font-weight: 400;
 }
 
 .functionPortRow em {
@@ -632,9 +656,7 @@
 }
 
 .variableDataHandle:hover::after {
-  filter: drop-shadow(
-    0 0 5px color-mix(in srgb, var(--data-pin-color, #36b5a3) 72%, transparent)
-  );
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--data-pin-color, #36b5a3) 72%, transparent));
 }
 
 .dataHandleOutput {
@@ -643,4 +665,9 @@
 
 .dataHandleInput {
   left: -7px !important;
+}
+
+.functionReturnValueHandle {
+  right: -7px !important;
+  left: auto !important;
 }

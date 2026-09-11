@@ -566,7 +566,10 @@ Story，不提供独立 Apply 按钮；切回 Lines 时若存在错误则保持�
 当前编辑视图采用 Dialogue 专用 Ink Profile：一个物理行严格对应一个 Dialogue Line。每行必须以
 `Character: ` 或 `Narrator: ` 开头；说话人按唯一 `name` / `displayName` 解析，规范输出优先使用
 不重名的显示名。行尾可使用 `# emotion:<emotion-name>`、`# voice:<audio-asset-name>`，其他 Ink Tag
-写入 `tags`。行尾 `# speaker:...` 属于错误，不提供旧格式兼容或迁移。文本中的换行编码为 `\n`，Tag 起始符
+写入 `tags`。Dialogue Monaco 子集中的行尾 `# speaker:...` 属于错误，不提供旧格式兼容或迁移；
+仅由“原生节点 → Embedded Ink Block”导出的 Ink 会在已经存在 `Character: text` 前缀时重复写入
+稳定的 `# speaker:<character-id>` 元数据，供完整 Ink Runtime 保留稳定资源引用，重新导入时必须与前缀一致。
+文本中的换行编码为 `\n`，Tag 起始符
 可写成 `\#`。解析时优先按稳定的资源 `name` 匹配，也接受唯一的 `displayName`；未知或重名资源
 产生可定位、可复制的诊断。重排和仅修改内容时尽量保留原 Line ID / Text ID，新增内容生成新 ID。
 
@@ -657,6 +660,8 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 - `=== knot ===` 和 `-> knot` 转成 Flow Anchor / Flow Jump，避免把 Ink 标签混入作者可见文本。
 - `VAR name = literal` 创建 Boolean、Number 或 String Story Variable；`~ name = expression` 转 Set Variable，`{name}` 继续使用统一 Text Template 语义。
 - 只包含一个条件、一个 True Divert 和一个 Else Divert 的条件块转 Branch；更复杂的条件正文暂不猜测转换。
+- 选中一个无 Prompt、无条件的 Choice 及其互不共享的线性 Dialogue / Narration 分支，且所有分支汇合到同一后继时，可显式转换为标准 Ink Choice；选项使用 `* [text] -> knot`，避免选中后重复输出选项文字。
+- 原生节点导出到 Embedded Ink 会在可读的 `Character: text` 前缀之外保留稳定 `speaker` / `voice` / `text-id` 元数据；运行时负责剥离前缀并按 ID 交给 Adapter。
 - 导入先生成独立 Graph Proposal。作者可以移动新增节点，只有 Apply 才写入当前 Main Story / Substory；整个导入作为一个 `Import Ink as Nodes` Undo 事务。
 - 不支持、悬空或不可证明等价的控制流按原始行列产生可复制 Diagnostics，并阻止写入，不静默丢弃内容。
 

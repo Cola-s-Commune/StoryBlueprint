@@ -60,6 +60,12 @@ function cloneState(state: RuntimeState): RuntimeState {
         { ...outputs },
       ]),
     ),
+    substoryOutputs: Object.fromEntries(
+      Object.entries(state.substoryOutputs ?? {}).map(([instructionId, outputs]) => [
+        instructionId,
+        { ...outputs },
+      ]),
+    ),
     signalInbox: Object.fromEntries(
       Object.entries(state.signalInbox).map(([signalId, payloads]) => [
         signalId,
@@ -128,6 +134,7 @@ export function createRuntimeState(program: RuntimeProgram): RuntimeState {
     ),
     signalInbox: {},
     eventOutputs: {},
+    substoryOutputs: {},
     status: 'running',
   };
 }
@@ -546,6 +553,7 @@ export class StoryRuntime {
               this.program.localeFallbacks,
               this.program.sourceLocale,
               this.readEventOutput,
+              this.readSubstoryOutput,
             ),
             voice: instruction.voice,
             emotion: instruction.emotion,
@@ -575,7 +583,12 @@ export class StoryRuntime {
           }
           this.writeVariable(instruction.variableId, [
             ...current,
-            evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
+            evaluateExpression(
+              instruction.value,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           ]);
         } else if (instruction.containerOperation === 'set-entry') {
           const current = this.readVariable(instruction.variableId);
@@ -583,14 +596,24 @@ export class StoryRuntime {
             throw new Error(`Variable ${instruction.variableId} is not a Map`);
           }
           const key = instruction.key
-            ? evaluateExpression(instruction.key, this.readVariable, this.readEventOutput)
+            ? evaluateExpression(
+                instruction.key,
+                this.readVariable,
+                this.readEventOutput,
+                this.readSubstoryOutput,
+              )
             : undefined;
           if (typeof key !== 'string' && typeof key !== 'number') {
             throw new Error('Map key must be a String or Number');
           }
           this.writeVariable(instruction.variableId, {
             ...current,
-            [String(key)]: evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
+            [String(key)]: evaluateExpression(
+              instruction.value,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           });
         } else if (instruction.containerOperation === 'set-field') {
           const current = this.readVariable(instruction.variableId);
@@ -600,12 +623,22 @@ export class StoryRuntime {
           if (!instruction.fieldName) throw new Error('Set Object Field is missing its field');
           this.writeVariable(instruction.variableId, {
             ...current,
-            [instruction.fieldName]: evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
+            [instruction.fieldName]: evaluateExpression(
+              instruction.value,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           });
         } else {
           this.writeVariable(
             instruction.variableId,
-            evaluateExpression(instruction.value, this.readVariable, this.readEventOutput),
+            evaluateExpression(
+              instruction.value,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           );
         }
         this.currentState.instructionIndex += 1;
@@ -624,7 +657,12 @@ export class StoryRuntime {
         const matches = Object.fromEntries(
           Object.entries(instruction.matches).map(([name, expression]) => [
             name,
-            evaluateExpression(expression, this.readVariable, this.readEventOutput),
+            evaluateExpression(
+              expression,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           ]),
         );
         const buffered = this.currentState.signalInbox[instruction.signalId] ?? [];
@@ -649,7 +687,12 @@ export class StoryRuntime {
         });
       }
       case 'branch': {
-        const condition = evaluateExpression(instruction.condition, this.readVariable, this.readEventOutput);
+        const condition = evaluateExpression(
+          instruction.condition,
+          this.readVariable,
+          this.readEventOutput,
+          this.readSubstoryOutput,
+        );
         if (typeof condition !== 'boolean') throw new TypeError('Branch condition must be boolean');
         this.jump(condition ? instruction.whenTrue : instruction.whenFalse);
         return undefined;
@@ -697,12 +740,18 @@ export class StoryRuntime {
             (candidate) => candidate.variableId === variableId,
           );
           if (!parameter) throw new TypeError(`Unknown substory input ${variableId}`);
-          const value = evaluateExpression(expression, this.readVariable, this.readEventOutput);
+          const value = evaluateExpression(
+            expression,
+            this.readVariable,
+            this.readEventOutput,
+            this.readSubstoryOutput,
+          );
           this.assertValueType(value, parameter, 'Substory input');
           locals[variableId] = value;
         }
         this.currentState.callStack.push({
           chapterId: instruction.chapterId,
+          callInstructionId: instruction.id,
           returnTo: instruction.returnTo,
           resultVariableIds: { ...instruction.resultVariableIds },
           locals,
@@ -716,7 +765,12 @@ export class StoryRuntime {
       case 'end-story-instance': {
         const instanceExpression = instruction.instanceId;
         const instanceValue = instanceExpression
-          ? evaluateExpression(instanceExpression, this.readVariable, this.readEventOutput)
+          ? evaluateExpression(
+              instanceExpression,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            )
           : undefined;
         if (instanceValue !== undefined && typeof instanceValue !== 'string') {
           throw new TypeError('Story instance ID must be a string');
@@ -727,7 +781,12 @@ export class StoryRuntime {
             : Object.fromEntries(
                 Object.entries(instruction.arguments).map(([key, expression]) => [
                   key,
-                  evaluateExpression(expression, this.readVariable, this.readEventOutput),
+                  evaluateExpression(
+                    expression,
+                    this.readVariable,
+                    this.readEventOutput,
+                    this.readSubstoryOutput,
+                  ),
                 ]),
               );
         const request: StoryControlRequest = {
@@ -765,7 +824,12 @@ export class StoryRuntime {
         const values = Object.fromEntries(
           Object.entries(instruction.values).map(([outputId, expression]) => [
             outputId,
-            evaluateExpression(expression, this.readVariable, this.readEventOutput),
+            evaluateExpression(
+              expression,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           ]),
         );
         const frame = this.currentState.callStack[this.currentState.callStack.length - 1];
@@ -789,6 +853,8 @@ export class StoryRuntime {
         this.currentState.blockId = frame.returnTo.blockId;
         this.currentState.instructionIndex = frame.returnTo.instructionIndex;
         this.currentState.status = 'running';
+        this.currentState.substoryOutputs ??= {};
+        this.currentState.substoryOutputs[frame.callInstructionId] = { ...values };
         for (const [outputId, resultVariableId] of Object.entries(frame.resultVariableIds)) {
           if (outputId in values) this.writeVariable(resultVariableId, values[outputId]);
         }
@@ -828,6 +894,7 @@ export class StoryRuntime {
             this.program.localeFallbacks,
             this.program.sourceLocale,
             this.readEventOutput,
+            this.readSubstoryOutput,
           ),
           voice: instruction.voice,
           emotion: instruction.emotion,
@@ -905,7 +972,12 @@ export class StoryRuntime {
         arguments: Object.fromEntries(
           Object.entries(instruction.arguments).map(([name, expression]) => [
             name,
-            evaluateExpression(expression, this.readVariable, this.readEventOutput),
+            evaluateExpression(
+              expression,
+              this.readVariable,
+              this.readEventOutput,
+              this.readSubstoryOutput,
+            ),
           ]),
         ),
         outputs: instruction.outputs,
@@ -924,6 +996,7 @@ export class StoryRuntime {
         this.program.localeFallbacks,
         this.program.sourceLocale,
         this.readEventOutput,
+        this.readSubstoryOutput,
       ),
       voice: instruction.voice,
     };
@@ -944,6 +1017,7 @@ export class StoryRuntime {
               this.program.localeFallbacks,
               this.program.sourceLocale,
               this.readEventOutput,
+              this.readSubstoryOutput,
             )
           : undefined,
         options: options.map((option) => ({
@@ -964,6 +1038,7 @@ export class StoryRuntime {
       this.program.localeFallbacks,
       this.program.sourceLocale,
       this.readEventOutput,
+      this.readSubstoryOutput,
     );
   }
 
@@ -978,6 +1053,14 @@ export class StoryRuntime {
     const outputs = this.currentState.eventOutputs?.[instructionId];
     if (!outputs || !(outputId in outputs)) {
       throw new TypeError(`External Function output ${outputId} is not available`);
+    }
+    return outputs[outputId]!;
+  };
+
+  private readonly readSubstoryOutput = (instructionId: string, outputId: string): RuntimeValue => {
+    const outputs = this.currentState.substoryOutputs?.[instructionId];
+    if (!outputs || !(outputId in outputs)) {
+      throw new TypeError(`Substory output ${outputId} is not available`);
     }
     return outputs[outputId]!;
   };
@@ -1044,7 +1127,39 @@ export class StoryRuntime {
         }
       }
     }
+    if (state.substoryOutputs !== undefined) {
+      for (const [instructionId, outputs] of Object.entries(state.substoryOutputs)) {
+        const instruction = Object.values(this.program.blocks)
+          .flatMap((block) => block.instructions)
+          .find((candidate) => candidate.id === instructionId);
+        if (!instruction || instruction.op !== 'call-chapter') {
+          throw new TypeError(`Runtime state references unknown Substory instruction ${instructionId}`);
+        }
+        const chapter = this.program.chapters[instruction.chapterId];
+        if (!chapter) throw new TypeError(`Runtime state references missing substory ${instruction.chapterId}`);
+        for (const [outputId, value] of Object.entries(outputs)) {
+          const output = chapter.outputs.find((candidate) => candidate.variableId === outputId);
+          if (!output) throw new TypeError(`Runtime state references unknown Substory output ${outputId}`);
+          if (!runtimeValueMatchesType(value, output.valueType)) {
+            throw new TypeError(`Runtime state Substory output ${outputId} has an invalid type`);
+          }
+        }
+      }
+    }
     for (const frame of state.callStack) {
+      if (typeof frame.callInstructionId !== 'string' || frame.callInstructionId.length === 0) {
+        throw new TypeError('Runtime state substory frame is missing its call instruction');
+      }
+      const callInstruction = Object.values(this.program.blocks)
+        .flatMap((block) => block.instructions)
+        .find((instruction) => instruction.id === frame.callInstructionId);
+      if (
+        !callInstruction ||
+        callInstruction.op !== 'call-chapter' ||
+        callInstruction.chapterId !== frame.chapterId
+      ) {
+        throw new TypeError(`Runtime state references invalid Substory call ${frame.callInstructionId}`);
+      }
       const chapter = this.program.chapters[frame.chapterId];
       if (!chapter)
         throw new TypeError(`Runtime state references missing substory ${frame.chapterId}`);
@@ -1226,7 +1341,7 @@ export class StoryRuntime {
         });
       }
       if (!text) continue;
-      const normalizedText = text.replace(/[\r\n]+$/g, '');
+      let normalizedText = text.replace(/[\r\n]+$/g, '');
       if (!normalizedText) continue;
       const requestId = this.saveInkState(instruction, story);
       const metadata = parseInkDialogueMetadata(story.currentTags ?? []);
@@ -1238,6 +1353,11 @@ export class StoryRuntime {
           location: this.location(),
           instructionId: instruction.id,
         });
+      }
+      // Native node exports use a readable `Speaker: text` prefix plus a stable speaker tag.
+      // Ink itself treats that prefix as ordinary text, so remove it at the runtime boundary.
+      if (metadata.speakerId) {
+        normalizedText = normalizedText.replace(/^[^:\r\n]+:\s+/, '');
       }
       const textId =
         metadata.textId ??

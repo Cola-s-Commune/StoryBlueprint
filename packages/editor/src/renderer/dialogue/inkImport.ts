@@ -17,6 +17,8 @@ import {
   type NarrationNodeData,
   type NodeId,
   type RuntimeValue,
+  type SourceEdge,
+  type SourceNode,
   type SourceGraph,
   type StoryNodeDataMap,
   type ValueType,
@@ -24,7 +26,7 @@ import {
   type VariableId,
 } from '@story-blueprint/common';
 import { Compiler as InkCompiler } from 'inkjs/full';
-import { parseDialogueInk } from './dialogueInk';
+import { escapeDialogueInkText, parseDialogueInk } from './dialogueInk';
 
 export const INK_NODE_PROFILE_VERSION = 1 as const;
 
@@ -61,6 +63,19 @@ export type InkImportResult =
   | {
       ok: false;
       profileVersion: typeof INK_NODE_PROFILE_VERSION;
+      diagnostics: readonly InkImportDiagnostic[];
+    };
+
+/** A deliberately conservative native-node to Ink replacement proposal. */
+export type NodesToInkConversionResult =
+  | {
+      ok: true;
+      transaction: BlueprintCommandTransaction;
+      source: string;
+      convertedNodeIds: readonly NodeId[];
+    }
+  | {
+      ok: false;
       diagnostics: readonly InkImportDiagnostic[];
     };
 
@@ -349,6 +364,7 @@ function parseInkProfile(
   const sections: InkSection[] = [{ line: 1, statements: [] }];
   const variables: VariableDefinition[] = [];
   const variableNames = new Map(existingVariables.map((variable) => [variable.name, variable]));
+  const textIds = new Map<string, number>();
   const externalNames = new Set(
     sourceLines.flatMap((line) => {
       const declaration = externalDeclarationPattern.exec(line);
@@ -612,6 +628,16 @@ function parseInkProfile(
       }
       const line = parsedDialogue.lines?.[0];
       if (!line) continue;
+      const existingTextIdLine = textIds.get(line.textId);
+      if (existingTextIdLine !== undefined) {
+        diagnostic(
+          diagnostics,
+          dialogueStart + offset + 1,
+          `Duplicate text ID “${line.textId}” (first used on line ${existingTextIdLine}).`,
+        );
+      } else {
+        textIds.set(line.textId, dialogueStart + offset + 1);
+      }
       if (line.speakerId) {
         if (!dialogue) {
           dialogue = { kind: 'dialogue', line: dialogueStart + offset + 1, lines: [] };
@@ -1091,6 +1117,512 @@ export function buildInkImportTransaction(
     diagnostics: parsed.diagnostics,
     summary,
   };
+}
+
+function conversionDiagnostic(message: string): NodesToInkConversionResult {
+  return {
+    ok: false,
+    diagnostics: [{ severity: 'error', line: 1, column: 1, message }],
+  };
+}
+
+function isReservedInkMetadataTag(tag: string): boolean {
+  return /^(?:speaker|voice|emotion|text-id)\s*:/i.test(tag.trim());
+}
+
+function formatNativeTextForInk(
+  text: { source: string; bindings?: Readonly<Record<string, VariableId>> },
+  label: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  if (!text.source.trim()) {
+    return {
+      ok: false,
+      message: `${label} is empty or whitespace-only, which Ink would skip instead of presenting as a native line.`,
+    };
+  }
+  if (/[{}\r\n]/.test(text.source)) {
+    return {
+      ok: false,
+      message: `${label} contains a template expression, literal brace, or line break that cannot be losslessly represented by this Ink conversion.`,
+    };
+  }
+  if (/^\s*(?:(?:\/\/)|~|->|<-|={2}|-\s)/.test(text.source)) {
+    return {
+      ok: false,
+      message: `${label} begins with Ink control syntax and cannot be losslessly represented by this Ink conversion.`,
+    };
+  }
+  return { ok: true, value: escapeDialogueInkText(text.source) };
+}
+
+function formatNativeNodeAsInk(
+  node: SourceNode,
+  characters?: readonly CharacterSource[],
+  assets?: readonly AssetSource[],
+): { ok: true; lines: readonly string[] } | { ok: false; message: string } {
+  if (node.type === StoryNodeType.Dialogue) {
+    const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Dialogue];
+    if (data.lines.length === 0) {
+      return { ok: false, message: `Dialogue node ${node.id} has no lines.` };
+    }
+    const lines: string[] = [];
+    for (const line of data.lines) {
+      const text = formatNativeTextForInk(line.text, `Dialogue line ${line.id}`);
+      if (!text.ok) return text;
+      if (line.emotion && !line.speakerId) {
+        return {
+          ok: false,
+          message: `Dialogue line ${line.id} has an emotion without a speaker, which Ink cannot represent.`,
+        };
+      }
+      if ((line.tags ?? []).some((tag) => /[#\r\n]/.test(tag) || isReservedInkMetadataTag(tag))) {
+        return {
+          ok: false,
+          message: `Dialogue line ${line.id} has a tag that conflicts with Ink metadata.`,
+        };
+      }
+      const speaker = line.speakerId
+        ? characters?.find((character) => character.id === line.speakerId)
+        : undefined;
+      const speakerName = speaker?.displayName || speaker?.name || line.speakerId;
+      if (characters && line.speakerId && !speaker) {
+        return {
+          ok: false,
+          message: `Dialogue line ${line.id} references missing character ${line.speakerId} and cannot be converted to Ink.`,
+        };
+      }
+      if (assets && line.voiceId && !assets.some((asset) => asset.id === line.voiceId)) {
+        return {
+          ok: false,
+          message: `Dialogue line ${line.id} references missing voice asset ${line.voiceId} and cannot be converted to Ink.`,
+        };
+      }
+      const tags = [
+        line.speakerId ? `speaker:${line.speakerId}` : undefined,
+        line.voiceId ? `voice:${line.voiceId}` : undefined,
+        line.emotion ? `emotion:${line.emotion}` : undefined,
+        `text-id:${line.textId}`,
+        ...(line.tags ?? []),
+      ].filter((tag): tag is string => Boolean(tag));
+      lines.push(
+        `${speakerName ? `${escapeDialogueInkText(speakerName)}: ` : 'Narrator: '}${text.value}${tags.map((tag) => ` # ${tag}`).join('')}`,
+      );
+    }
+    return { ok: true, lines };
+  }
+  if (node.type === StoryNodeType.Narration) {
+    const data = node.data as unknown as StoryNodeDataMap[StoryNodeType.Narration];
+    const text = formatNativeTextForInk(data.text, `Narration node ${node.id}`);
+    if (!text.ok) return text;
+    if (assets && data.voiceId && !assets.some((asset) => asset.id === data.voiceId)) {
+      return {
+        ok: false,
+        message: `Narration node ${node.id} references missing voice asset ${data.voiceId} and cannot be converted to Ink.`,
+      };
+    }
+    const tags = [
+      data.voiceId ? `voice:${data.voiceId}` : undefined,
+      `text-id:${data.textId}`,
+    ].filter((tag): tag is string => Boolean(tag));
+    return { ok: true, lines: [`${text.value}${tags.map((tag) => ` # ${tag}`).join('')}`] };
+  }
+  return {
+    ok: false,
+    message: `Only Dialogue and Narration nodes can be converted to an Ink Block. ${node.type} is not supported.`,
+  };
+}
+
+function buildInkBlockReplacementTransaction(
+  options: {
+    revision: string;
+    chapterId?: string;
+  },
+  selected: readonly SourceNode[],
+  incoming: readonly SourceEdge[],
+  outgoing: readonly SourceEdge[],
+  source: string,
+): NodesToInkConversionResult {
+  try {
+    const compiler = new InkCompiler(source);
+    compiler.Compile();
+    if (compiler.errors.length > 0) {
+      return {
+        ok: false,
+        diagnostics: compiler.errors.map(compilerDiagnostic),
+      };
+    }
+  } catch (error) {
+    return conversionDiagnostic(
+      `Generated Ink could not be compiled: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const target = graphTarget(options.chapterId);
+  const inkNodeId = createStableId('node');
+  const operations: BlueprintCommand[] = [];
+  let operationIndex = 0;
+  const addOperation = (operation: BlueprintCommandInput) => {
+    operations.push({
+      ...operation,
+      operationId: `nodes_to_ink_${++operationIndex}`,
+    } as BlueprintCommand);
+  };
+  for (const node of selected) addOperation({ kind: 'remove-node', graph: target, nodeId: node.id });
+  addOperation({
+    kind: 'add-node',
+    graph: target,
+    node: {
+      id: inkNodeId,
+      type: StoryNodeType.InkBlock,
+      name: 'Converted Ink Block',
+      data: { sourceMode: 'embedded', source },
+    },
+  });
+  if (incoming[0]) {
+    addOperation({
+      kind: 'connect',
+      graph: target,
+      from: incoming[0].from,
+      to: { nodeId: inkNodeId, portId: 'in' },
+      replaceExisting: true,
+    });
+  }
+  if (outgoing[0]) {
+    addOperation({
+      kind: 'connect',
+      graph: target,
+      from: { nodeId: inkNodeId, portId: 'out' },
+      to: outgoing[0].to,
+      replaceExisting: true,
+    });
+  }
+  addOperation({ kind: 'layout-selection', graph: target, nodeIds: [inkNodeId] });
+  return {
+    ok: true,
+    transaction: {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: options.revision,
+      operations,
+    },
+    source,
+    convertedNodeIds: selected.map((node) => node.id),
+  };
+}
+
+function choiceKnotName(optionId: string): string {
+  return `choice_${optionId.slice(optionId.indexOf('_') + 1).replace(/[^A-Za-z0-9_]/g, '_')}`;
+}
+
+/**
+ * Converts the intentionally narrow Choice shape that Ink represents directly: one Choice,
+ * one independent linear narrative path per option, and a shared continuation outside the
+ * selection (or all paths terminating). The explicit checks are part of the conversion
+ * contract: a more general graph must remain native instead of being approximated as Ink.
+ */
+function buildChoiceNodesToInkBlockConversionTransaction(
+  options: {
+    revision: string;
+    chapterId?: string;
+    graph: SourceGraph;
+    characters?: readonly CharacterSource[];
+    assets?: readonly AssetSource[];
+  },
+  selected: readonly SourceNode[],
+  choice: SourceNode,
+): NodesToInkConversionResult {
+  const data = choice.data as unknown as StoryNodeDataMap[StoryNodeType.Choice];
+  if (data.prompt.source.trim()) {
+    return conversionDiagnostic(
+      'Choice prompts cannot be converted to Ink without changing the interaction from one choice prompt into a separate dialogue step.',
+    );
+  }
+  if (data.options.length === 0) {
+    return conversionDiagnostic(`Choice node ${choice.id} has no options.`);
+  }
+  if (
+    data.options.some(
+      (option) =>
+        option.visibleIf ||
+        option.enabledIf ||
+        option.visibleConditionId ||
+        option.enabledConditionId,
+    )
+  ) {
+    return conversionDiagnostic(
+      'Choice visibility and enabled conditions cannot be converted to Ink by this profile.',
+    );
+  }
+
+  const selectedIds = new Set(selected.map((node) => node.id));
+  const nodesById = new Map(selected.map((node) => [node.id, node]));
+  const touching = options.graph.edges.filter(
+    (edge) => selectedIds.has(edge.from.nodeId) || selectedIds.has(edge.to.nodeId),
+  );
+  const internal = touching.filter(
+    (edge) => selectedIds.has(edge.from.nodeId) && selectedIds.has(edge.to.nodeId),
+  );
+  const incoming = touching.filter(
+    (edge) => !selectedIds.has(edge.from.nodeId) && selectedIds.has(edge.to.nodeId),
+  );
+  const outgoing = touching.filter(
+    (edge) => selectedIds.has(edge.from.nodeId) && !selectedIds.has(edge.to.nodeId),
+  );
+  if (
+    touching.some((edge) => {
+      const from = nodesById.get(edge.from.nodeId);
+      const to = nodesById.get(edge.to.nodeId);
+      if (from?.id === choice.id) {
+        return !data.options.some((option) => option.id === edge.from.portId) || edge.to.portId !== 'in';
+      }
+      return (from && edge.from.portId !== 'out') || (to && edge.to.portId !== 'in');
+    })
+  ) {
+    return conversionDiagnostic('Data connections cannot be converted to an Ink Block.');
+  }
+  if (
+    incoming.length > 1 ||
+    incoming.some((edge) => edge.to.nodeId !== choice.id || edge.to.portId !== 'in')
+  ) {
+    return conversionDiagnostic('Only the Choice input may connect to the rest of the graph.');
+  }
+  if (outgoing.some((edge) => edge.from.nodeId === choice.id)) {
+    return conversionDiagnostic('Every Choice option must lead to a selected narrative branch.');
+  }
+
+  const internalOutgoing = new Map<NodeId, SourceEdge[]>();
+  const internalIncoming = new Map<NodeId, SourceEdge[]>();
+  for (const edge of internal) {
+    internalOutgoing.set(edge.from.nodeId, [...(internalOutgoing.get(edge.from.nodeId) ?? []), edge]);
+    internalIncoming.set(edge.to.nodeId, [...(internalIncoming.get(edge.to.nodeId) ?? []), edge]);
+  }
+  const externalOutgoing = new Map<NodeId, SourceEdge[]>();
+  for (const edge of outgoing) {
+    externalOutgoing.set(edge.from.nodeId, [...(externalOutgoing.get(edge.from.nodeId) ?? []), edge]);
+  }
+
+  const visited = new Set<NodeId>();
+  const branches: Array<{ option: (typeof data.options)[number]; nodes: SourceNode[] }> = [];
+  const terminalEdges: SourceEdge[] = [];
+  for (const option of data.options) {
+    const optionEdges = internalOutgoing.get(choice.id)?.filter(
+      (edge) => edge.from.portId === option.id,
+    );
+    if (!optionEdges || optionEdges.length !== 1) {
+      return conversionDiagnostic(
+        `Choice option ${option.id} must connect to exactly one selected narrative branch.`,
+      );
+    }
+    const optionText = formatNativeTextForInk(option.text, `Choice option ${option.id}`);
+    if (!optionText.ok) return conversionDiagnostic(optionText.message);
+    const branchNodes: SourceNode[] = [];
+    let current = nodesById.get(optionEdges[0]!.to.nodeId);
+    while (current) {
+      if (current.id === choice.id) {
+        return conversionDiagnostic('Choice branches must be acyclic.');
+      }
+      if (current.type !== StoryNodeType.Dialogue && current.type !== StoryNodeType.Narration) {
+        return conversionDiagnostic(
+          `Choice branch node ${current.id} is not Dialogue or Narration and cannot be converted to Ink.`,
+        );
+      }
+      if (visited.has(current.id)) {
+        return conversionDiagnostic(
+          'Choice branches may not share selected nodes; place their common continuation outside the selection.',
+        );
+      }
+      const nodeIncoming = internalIncoming.get(current.id) ?? [];
+      if (nodeIncoming.length !== 1) {
+        return conversionDiagnostic('Each selected Choice branch node must have exactly one execution input.');
+      }
+      visited.add(current.id);
+      branchNodes.push(current);
+      const nodeInternalOutgoing = internalOutgoing.get(current.id) ?? [];
+      const nodeExternalOutgoing = externalOutgoing.get(current.id) ?? [];
+      if (nodeInternalOutgoing.length + nodeExternalOutgoing.length > 1) {
+        return conversionDiagnostic('Choice branches must be direct, non-branching execution chains.');
+      }
+      if (nodeExternalOutgoing.length === 1) {
+        terminalEdges.push(nodeExternalOutgoing[0]!);
+        current = undefined;
+      } else if (nodeInternalOutgoing.length === 1) {
+        current = nodesById.get(nodeInternalOutgoing[0]!.to.nodeId);
+      } else {
+        current = undefined;
+      }
+    }
+    branches.push({ option, nodes: branchNodes });
+  }
+  if (visited.size !== selected.length - 1) {
+    return conversionDiagnostic(
+      'Every selected node must belong to one Choice branch; do not include unrelated nodes or a shared continuation.',
+    );
+  }
+  if (terminalEdges.length !== 0 && terminalEdges.length !== data.options.length) {
+    return conversionDiagnostic(
+      'Choice branches must either all end or all connect to the same continuation outside the selection.',
+    );
+  }
+  if (
+    terminalEdges.length > 0 &&
+    terminalEdges.some(
+      (edge) =>
+        edge.to.nodeId !== terminalEdges[0]!.to.nodeId || edge.to.portId !== terminalEdges[0]!.to.portId,
+    )
+  ) {
+    return conversionDiagnostic(
+      'Choice branches must connect to the same continuation outside the selection.',
+    );
+  }
+
+  const sourceLines = data.options.map((option) => {
+    const text = formatNativeTextForInk(option.text, `Choice option ${option.id}`);
+    // Brackets make this choice-only text in Ink. Without them Ink emits the selected option
+    // as regular story output before the branch, which native Choice nodes never do.
+    return `* [${text.ok ? text.value : option.text.source}] -> ${choiceKnotName(option.id)}`;
+  });
+  for (const branch of branches) {
+    sourceLines.push('', `=== ${choiceKnotName(branch.option.id)} ===`);
+    for (const node of branch.nodes) {
+      const rendered = formatNativeNodeAsInk(node, options.characters, options.assets);
+      if (!rendered.ok) return conversionDiagnostic(rendered.message);
+      sourceLines.push(...rendered.lines);
+    }
+    sourceLines.push('-> DONE');
+  }
+  return buildInkBlockReplacementTransaction(
+    options,
+    selected,
+    incoming,
+    terminalEdges.length > 0 ? [terminalEdges[0]!] : [],
+    sourceLines.join('\n'),
+  );
+}
+
+/**
+ * Replaces a single, directly-connected native narrative chain with one Embedded Ink Block.
+ * The deliberately narrow profile avoids silently changing Choice, Branch, data-pin, or loop
+ * semantics. Unsupported selections remain untouched and return an actionable diagnostic.
+ */
+export function buildNodesToInkBlockConversionTransaction(options: {
+  revision: string;
+  chapterId?: string;
+  graph: SourceGraph;
+  nodeIds: readonly NodeId[];
+  characters?: readonly CharacterSource[];
+  assets?: readonly AssetSource[];
+}): NodesToInkConversionResult {
+  const selectedIds = new Set(options.nodeIds);
+  if (selectedIds.size === 0)
+    return conversionDiagnostic('Select one or more narrative nodes first.');
+  const selected = options.graph.nodes.filter((node) => selectedIds.has(node.id));
+  if (selected.length !== selectedIds.size) {
+    return conversionDiagnostic('The selection contains a node that no longer exists.');
+  }
+  const choices = selected.filter((node) => node.type === StoryNodeType.Choice);
+  if (choices.length > 0) {
+    if (choices.length !== 1) {
+      return conversionDiagnostic('Select exactly one Choice node when converting Choice branches to Ink.');
+    }
+    return buildChoiceNodesToInkBlockConversionTransaction(options, selected, choices[0]!);
+  }
+  const unsupported = selected.find(
+    (node) => node.type !== StoryNodeType.Dialogue && node.type !== StoryNodeType.Narration,
+  );
+  if (unsupported) {
+    const rendered = formatNativeNodeAsInk(unsupported, options.characters, options.assets);
+    return conversionDiagnostic(
+      rendered.ok ? 'Unsupported native node selection.' : rendered.message,
+    );
+  }
+
+  const touching = options.graph.edges.filter(
+    (edge) => selectedIds.has(edge.from.nodeId) || selectedIds.has(edge.to.nodeId),
+  );
+  const internal = touching.filter(
+    (edge) => selectedIds.has(edge.from.nodeId) && selectedIds.has(edge.to.nodeId),
+  );
+  for (const edge of internal) {
+    if (edge.from.portId !== 'out' || edge.to.portId !== 'in') {
+      return conversionDiagnostic('Data connections cannot be converted to an Ink Block.');
+    }
+  }
+  const incoming = touching.filter(
+    (edge) => !selectedIds.has(edge.from.nodeId) && selectedIds.has(edge.to.nodeId),
+  );
+  const outgoing = touching.filter(
+    (edge) => selectedIds.has(edge.from.nodeId) && !selectedIds.has(edge.to.nodeId),
+  );
+  if (
+    incoming.some((edge) => edge.to.portId !== 'in') ||
+    outgoing.some((edge) => edge.from.portId !== 'out')
+  ) {
+    return conversionDiagnostic('Data connections cannot be converted to an Ink Block.');
+  }
+  if (internal.length !== selected.length - 1) {
+    return conversionDiagnostic(
+      'Selected nodes must form one direct, non-branching execution chain.',
+    );
+  }
+  const byIncoming = new Map<NodeId, typeof internal>();
+  const byOutgoing = new Map<NodeId, typeof internal>();
+  for (const edge of internal) {
+    byIncoming.set(edge.to.nodeId, [...(byIncoming.get(edge.to.nodeId) ?? []), edge]);
+    byOutgoing.set(edge.from.nodeId, [...(byOutgoing.get(edge.from.nodeId) ?? []), edge]);
+  }
+  const heads = selected.filter((node) => (byIncoming.get(node.id)?.length ?? 0) === 0);
+  const tails = selected.filter((node) => (byOutgoing.get(node.id)?.length ?? 0) === 0);
+  if (
+    heads.length !== 1 ||
+    tails.length !== 1 ||
+    selected.some(
+      (node) =>
+        (byIncoming.get(node.id)?.length ?? 0) > 1 || (byOutgoing.get(node.id)?.length ?? 0) > 1,
+    )
+  ) {
+    return conversionDiagnostic(
+      'Selected nodes must form one direct, non-branching execution chain.',
+    );
+  }
+  const [head] = heads;
+  const [tail] = tails;
+  if (
+    incoming.length > 1 ||
+    outgoing.length > 1 ||
+    incoming.some((edge) => edge.to.nodeId !== head!.id) ||
+    outgoing.some((edge) => edge.from.nodeId !== tail!.id)
+  ) {
+    return conversionDiagnostic(
+      'Only the first and last selected node may connect to the rest of the graph.',
+    );
+  }
+
+  const ordered: SourceNode[] = [];
+  let current = head!;
+  while (current) {
+    ordered.push(current);
+    const next = byOutgoing.get(current.id)?.[0];
+    if (!next) break;
+    const nextNode = selected.find((node) => node.id === next.to.nodeId);
+    if (!nextNode || ordered.some((node) => node.id === nextNode.id)) {
+      return conversionDiagnostic('Selected nodes must form an acyclic execution chain.');
+    }
+    current = nextNode;
+  }
+  if (ordered.length !== selected.length) {
+    return conversionDiagnostic(
+      'Selected nodes must form one direct, non-branching execution chain.',
+    );
+  }
+
+  const sourceLines: string[] = [];
+  for (const node of ordered) {
+    const rendered = formatNativeNodeAsInk(node, options.characters, options.assets);
+    if (!rendered.ok) return conversionDiagnostic(rendered.message);
+    sourceLines.push(...rendered.lines);
+  }
+  const source = `${sourceLines.join('\n')}\n-> DONE`;
+  return buildInkBlockReplacementTransaction(options, ordered, incoming, outgoing, source);
 }
 
 /**

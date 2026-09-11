@@ -40,6 +40,12 @@ export type TypedExpression =
       outputId: import('./ids').EventOutputId;
       valueType: ValueType;
     }
+  | {
+      kind: 'substory-output';
+      instructionId: import('./ids').InstructionId;
+      outputId: VariableId;
+      valueType: ValueType;
+    }
   | { kind: 'unary'; operator: UnaryOperator; operand: TypedExpression; valueType: ValueType }
   | {
       kind: 'binary';

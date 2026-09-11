@@ -27,7 +27,7 @@ const registerJsonLanguage: BeforeMount = (monaco) => {
         [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, 'number'],
         [/\b(?:true|false)\b/, 'keyword'],
         [/\bnull\b/, 'constant'],
-        [/[{}\[\]]/, '@brackets'],
+        [/[{}[\]]/, '@brackets'],
         [/[,:]/, 'delimiter'],
       ],
     },

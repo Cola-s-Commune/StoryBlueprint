@@ -357,8 +357,8 @@
 ## End Story Node
 
 - [x] Render
-- [ ] 根 Story 终止语义
-- [ ] Chapter 内使用警告
+- [x] 根 Story 终止语义
+- [x] Chapter 内使用警告
 
 ## Story Control Nodes（跨 Story）
 
@@ -411,7 +411,8 @@
 - [x] Ink Runtime 暂停、选择、继续、错误和取消状态接入 Story Runtime
 - [x] Linked / Embedded 模式明确单一权威来源，不自动双向同步文本与节点
 - [x] Ink Block → Nodes 使用显式操作、Proposal Graph Diff Preview、Apply / Discard 与单步 Undo；保留原有入口/后继流程，分支结束自动通过 Flow Portal 汇合
-- [ ] Nodes → Ink Block 使用显式操作和 Diff Preview
+- [x] 选中连续的原生 Dialogue / Narration 节点 → Embedded Ink Block：显式操作、语义 Diff Preview、Apply / Discard 与单步 Undo；模板、数据边和控制流明确拒绝，避免不保真转换
+- [x] 选中 Choice 与独立线性叙述分支 → Embedded Ink Block：仅转换无 Prompt、无条件、各分支汇合到同一后继的标准 Choice；复杂拓扑明确拒绝
 
 ---
 
@@ -506,7 +507,7 @@
 ## Chapter
 
 - [x] Substory / Chapter List
-- [x] Parameter / Local Variable / Return Type：Inspector 编辑、Call 参数表达式、Return 结果接收、KDL / Compiler / Runtime 全链路
+- [x] Parameter / Local Variable / Return Type：Inspector 编辑、Call 参数表达式与动态数据 Pin、Return 数据 Pin、KDL / Compiler / Runtime 全链路
 
 ---
 
@@ -584,7 +585,7 @@
 - [x] 稳定格式化（确保 Git Diff 可读）
 - [ ] 注释与未知字段保留测试
 - [x] Typed Story Graph 内存模型
-- [ ] 静态端口派生、动态端口项序列化
+- [x] 静态端口派生、动态端口项序列化
 - [x] Character / Variable / Asset 引用序列化
 - [x] Substory Graph、Call Substory 与 Return 序列化
 - [x] Reroute、Flow Jump 与 Flow Anchor 序列化和引用校验
@@ -812,7 +813,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Set Expression（Branch、Set Variable、Choice 条件、Event 参数与 Signal Match）
 - [x] Add / Update / Remove Dialogue Line
 - [x] Add / Update / Remove Choice Option
-- [ ] Create / Refactor Chapter
+- [x] Create / Refactor Chapter：AI 支持 add-substory 与 update-substory，完整替换接口并同步 Call / Return 动态 Pin 与失效连线清理
 - [ ] Import / Export Ink
 - [ ] 显式 Validate / Auto Layout 命令
 - [ ] 通用原语与高级命令展开
@@ -891,10 +892,10 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 定义第一版可转换为原生节点的版本化 Ink Profile
 - [x] 建立完整 Ink 语法与原生节点类型的覆盖矩阵（见 `docs/ink-profile.md`）
 - [x] Speaker / Voice / Emotion / Text ID Tag 规范：同一 Ink 输出行使用稳定 ID 标签，编译期资源校验，Runtime 映射到 DialogueRequest，普通标签透传 Adapter
-- [ ] Tag 转义与稳定 ID 规则
+- [x] Tag 转义与稳定 ID 规则：Dialogue Ink 输出并校验 `text-id`，拒绝重复 / 非法 ID；原生节点转 Ink 保留 Text ID、Speaker、Voice、Emotion 与普通标签
 - [x] Ink `VAR` / 赋值与 Boolean、Number、String Story Variable 映射
 - [x] 连续 Ink 台词合并为多 Line Dialogue，控制流边界处自动拆分
-- [ ] Expressions 保持内嵌，不把普通运算展开成大量数据节点
+- [x] Expressions 保持内嵌，不把普通运算展开成大量数据节点
 
 ---
 
@@ -906,9 +907,9 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 暂未覆盖的结构保留为可完整运行的 Ink Block，并提供 Diagnostics / Preview
 - [x] 原生 `.ink` 文件 → Nodes 显式转换入口、行列 Diagnostics 与可移动 Diff Preview
 - [x] Linked / Embedded Ink Block → Nodes 显式转换，支持受限 Profile、可移动 Diff Preview、Apply / Discard 与 Undo
-- [ ] 选中原生节点 → Ink Block 显式转换
-- [ ] 转换前显示语义 Diff，不承诺保留原始空白、排版和注释位置
-- [ ] 语义往返测试
+- [x] 选中原生节点 → Ink Block 显式转换
+- [x] 转换前显示语义 Diff，不承诺保留原始空白、排版和注释位置
+- [x] 语义往返测试
 
 ---
 

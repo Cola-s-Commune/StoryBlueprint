@@ -1425,10 +1425,14 @@ async function applyWorkspaceMerge(
         events: project.events,
         signals: project.signals,
       });
-      const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
+      const errors = compiled.diagnostics.filter(
+        (diagnostic: (typeof compiled.diagnostics)[number]) => diagnostic.severity === 'error',
+      );
       if (errors.length > 0) {
         throw new Error(
-          `${storyReference.path}: ${errors.map((diagnostic) => diagnostic.message).join('\n')}`,
+          `${storyReference.path}: ${errors
+            .map((diagnostic: (typeof errors)[number]) => diagnostic.message)
+            .join('\n')}`,
         );
       }
     }

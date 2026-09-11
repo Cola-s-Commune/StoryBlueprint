@@ -565,6 +565,43 @@ export class DefaultStoryCompiler implements StoryCompiler {
             },
           };
         }
+        if (sourceNode?.type === StoryNodeType.CallSubstory && sourcePortId.startsWith('output:')) {
+          const outputId = sourcePortId.slice('output:'.length) as VariableId;
+          const call = sourceNode.data as unknown as CallSubstoryNodeData;
+          if (!reachableNodeIds.has(sourceNode.id)) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: 'Call Substory supplying an Out value must be execution-reachable',
+              sourceNodeId: sourceNode.id,
+            });
+            return { connected: true };
+          }
+          const calledChapter = call.chapterId
+            ? source.chapters.find((candidate) => candidate.id === call.chapterId)
+            : undefined;
+          const output = calledChapter?.outputs.find(
+            (candidate) => candidate.variable.id === outputId,
+          );
+          if (!calledChapter || !output) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Call Substory output ${outputId} is not declared by its Substory`,
+              sourceNodeId: sourceNode.id,
+            });
+            return { connected: true };
+          }
+          return {
+            connected: true,
+            value: {
+              kind: 'substory-output',
+              instructionId: instructionId(sourceNode.id),
+              outputId: output.variable.id,
+              valueType: output.variable.valueType,
+            },
+          };
+        }
         if (
           !sourceNode ||
           sourceNode.type !== StoryNodeType.GetVariable ||
@@ -1433,15 +1470,22 @@ export class DefaultStoryCompiler implements StoryCompiler {
               const compiledArguments: Record<string, ReturnType<typeof compileExpression>> = {};
               for (const parameter of calledChapter.parameters) {
                 const argument = (data.arguments ?? {})[parameter.variable.id];
-                if (!argument) continue;
-                const compiled = compileSafe(node, () =>
-                  compileAuthoredValue(
-                    argument,
-                    parameter.variable.valueType,
-                    visibleVariables,
-                    source.characters,
-                  ),
+                const connectedArgument = connectedDataExpression(
+                  node,
+                  `argument:${parameter.variable.id}`,
                 );
+                if (!argument && !connectedArgument.connected) continue;
+                const compiled = connectedArgument.value ??
+                  (!connectedArgument.connected && argument
+                    ? compileSafe(node, () =>
+                        compileAuthoredValue(
+                          argument,
+                          parameter.variable.valueType,
+                          visibleVariables,
+                          source.characters,
+                        ),
+                      )
+                    : undefined);
                 if (!compiled) continue;
                 if (!valueTypesMatch(compiled.valueType, parameter.variable.valueType)) {
                   diagnostics.push({
@@ -1698,7 +1742,8 @@ export class DefaultStoryCompiler implements StoryCompiler {
               const values: Record<VariableId, ReturnType<typeof compileExpression>> = {};
               for (const output of chapter!.outputs) {
                 const sourceValue = (data.values ?? {})[output.variable.id];
-                if (!sourceValue) {
+                const connectedValue = connectedDataExpression(node, `value:${output.variable.id}`);
+                if (!sourceValue && !connectedValue.connected) {
                   diagnostics.push({
                     code: 'INVALID_NODE',
                     severity: 'error',
@@ -1707,14 +1752,17 @@ export class DefaultStoryCompiler implements StoryCompiler {
                   });
                   continue;
                 }
-                const value = compileSafe(node, () =>
-                  compileAuthoredValue(
-                    sourceValue,
-                    output.variable.valueType,
-                    visibleVariables,
-                    source.characters,
-                  ),
-                );
+                const value = connectedValue.value ??
+                  (!connectedValue.connected && sourceValue
+                    ? compileSafe(node, () =>
+                        compileAuthoredValue(
+                          sourceValue,
+                          output.variable.valueType,
+                          visibleVariables,
+                          source.characters,
+                        ),
+                      )
+                    : undefined);
                 if (!value) continue;
                 if (!valueTypesMatch(value.valueType, output.variable.valueType)) {
                   diagnostics.push({

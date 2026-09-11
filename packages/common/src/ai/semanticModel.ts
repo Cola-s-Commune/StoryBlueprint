@@ -80,6 +80,7 @@ function semanticGraph(
     'kind' | 'chapterId' | 'name' | 'displayName' | 'parameters' | 'outputs' | 'localVariables'
   >,
   events: readonly EventSource[] = [],
+  sourceChapters: StorySourceDocument['chapters'] = [],
 ): SemanticGraph {
   return {
     ...metadata,
@@ -97,6 +98,26 @@ function semanticGraph(
             }));
           }
         }
+      }
+      if (node.type === StoryNodeType.CallSubstory) {
+        const call = data as StoryNodeDataMap[StoryNodeType.CallSubstory];
+        const chapter = sourceChapters.find((candidate) => candidate.id === call.chapterId);
+        if (chapter) {
+          call.argumentInputTypes = Object.fromEntries(
+            chapter.parameters.map((parameter) => [parameter.variable.id, parameter.variable.valueType]),
+          );
+          call.outputPorts = chapter.outputs.map((output) => ({
+            id: output.variable.id,
+            label: output.variable.displayName,
+            valueType: output.variable.valueType,
+          }));
+        }
+      }
+      if (node.type === StoryNodeType.Return && metadata.kind === 'chapter') {
+        const returnNode = data as StoryNodeDataMap[StoryNodeType.Return];
+        returnNode.valueInputTypes = Object.fromEntries(
+          (metadata.outputs ?? []).map((output) => [output.id, output.valueType]),
+        );
       }
       const resolved = resolveNodePorts(
         {
@@ -152,7 +173,7 @@ export function createStorySemanticSnapshot(
         kind: 'root',
         name: 'root',
         displayName: 'Root Blueprint',
-      }, source.events),
+      }, source.events, source.chapters),
       ...source.chapters.map((chapter) =>
         semanticGraph(chapter.graph, {
           kind: 'chapter',
@@ -162,7 +183,7 @@ export function createStorySemanticSnapshot(
           parameters: clone(chapter.parameters.map((parameter) => parameter.variable)),
           outputs: clone(chapter.outputs.map((output) => output.variable)),
           localVariables: clone(chapter.localVariables),
-        }, source.events),
+        }, source.events, source.chapters),
       ),
     ],
   } as const;
