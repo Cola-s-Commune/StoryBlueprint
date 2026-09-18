@@ -829,7 +829,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 批量 Transaction
 - [x] Dry Run / Revision Precondition / Atomic Rollback
 - [x] 单个活动 Graph + Story Variable 事务与 Undo / Redo 集成
-- [ ] 跨 Graph / Chapter 原子历史快照与 Undo / Redo
+- [x] 跨 Graph / Chapter 原子历史快照与 Undo / Redo：历史快照已包含根 Graph、全部 Chapter、资源与工作区故事；切换 Graph 不再清空历史，撤销 / 重做恢复完整 Story 状态。
 - [x] 第一版语义 Diff 不包含坐标或布局变化
 - [x] 所有面板操作执行前强制 Dry Run / Diff Preview
 - [ ] 低风险局部操作自动执行策略

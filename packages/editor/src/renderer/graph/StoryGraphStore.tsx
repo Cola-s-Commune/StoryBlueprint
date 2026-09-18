@@ -1389,9 +1389,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       setActiveGraphId(id);
       restoreGraph(structuredClone(target));
-      history.clear();
     },
-    [activeGraphId, chapters, graph, history, restoreGraph],
+    [activeGraphId, chapters, graph, restoreGraph],
   );
 
   const focusGraphNode = useCallback(

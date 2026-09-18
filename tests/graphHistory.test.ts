@@ -28,6 +28,32 @@ describe('named graph history', () => {
     expect(history.undo(1)).toBeNull();
   });
 
+  it('restores root and chapter state together across graph switches', () => {
+    type StoryState = {
+      activeGraphId: 'root' | 'chapter';
+      root: { nodes: string[] };
+      chapter: { nodes: string[] };
+    };
+    const history = new GraphHistory<StoryState>();
+    const beforeChapterEdit: StoryState = {
+      activeGraphId: 'chapter',
+      root: { nodes: ['start', 'dialogue'] },
+      chapter: { nodes: ['entry', 'return'] },
+    };
+    history.checkpoint(beforeChapterEdit, 'Edit Chapter');
+
+    const afterRootEdit: StoryState = {
+      activeGraphId: 'root',
+      root: { nodes: ['start', 'dialogue', 'choice'] },
+      chapter: { nodes: ['entry', 'return', 'branch'] },
+    };
+    const undone = history.undo(afterRootEdit);
+    expect(undone?.state).toEqual(beforeChapterEdit);
+
+    const redone = history.redo(beforeChapterEdit);
+    expect(redone?.state).toEqual(afterRootEdit);
+  });
+
   it('lists navigation targets and travels across several operations', () => {
     const history = new GraphHistory<number>();
     history.checkpoint(0, 'Add A');
