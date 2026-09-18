@@ -208,6 +208,18 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             ['graph', 'nodeId', 'lineId'],
           ),
           operation(
+            'move-dialogue-line',
+            {
+              graph,
+              nodeId: { type: 'string', pattern: stableIdPatterns.node },
+              lineId: { type: 'string', pattern: stableIdPatterns.line },
+              afterLineId: {
+                anyOf: [{ type: 'string', pattern: stableIdPatterns.line }, { type: 'null' }],
+              },
+            },
+            ['graph', 'nodeId', 'lineId'],
+          ),
+          operation(
             'add-choice-option',
             {
               graph,
@@ -249,6 +261,18 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
               graph,
               nodeId: { type: 'string', pattern: stableIdPatterns.node },
               optionId: { type: 'string', pattern: stableIdPatterns.option },
+            },
+            ['graph', 'nodeId', 'optionId'],
+          ),
+          operation(
+            'move-choice-option',
+            {
+              graph,
+              nodeId: { type: 'string', pattern: stableIdPatterns.node },
+              optionId: { type: 'string', pattern: stableIdPatterns.option },
+              afterOptionId: {
+                anyOf: [{ type: 'string', pattern: stableIdPatterns.option }, { type: 'null' }],
+              },
             },
             ['graph', 'nodeId', 'optionId'],
           ),

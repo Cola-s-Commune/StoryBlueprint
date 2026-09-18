@@ -153,6 +153,9 @@ When proposing an edit, `command` must be one complete Blueprint Command transac
   author explicitly requests graph validation; it never changes the Story or creates an undo entry.
 - `layout-selection` and `layout-neighborhood` are layout intents, not coordinate writes. They are
   previewed by the editor and require the author to apply the resulting proposal.
+- To reorder existing Dialogue lines or Choice options, use `move-dialogue-line` or
+  `move-choice-option`. Omit the `after...Id` field to append, use `null` to move to the front,
+  or provide an existing sibling ID to insert immediately after it. Preserve all stable IDs.
 - In all narrative text fields, do not add ASCII double quotes around ordinary speech or narration.
   Use the text exactly as it should appear to players. For quoted speech or quotations, prefer
   Chinese `「」` / `“”`; if an ASCII `"` is genuinely necessary, it must be JSON-escaped as `\"`.

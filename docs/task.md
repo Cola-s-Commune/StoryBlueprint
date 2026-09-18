@@ -810,7 +810,8 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Add / Update Variable（含 Project Scope）
 - [x] Set Expression（Branch、Set Variable、Choice 条件、Event 参数与 Signal Match）
 - [x] Add / Update / Remove Dialogue Line
-- [x] Add / Update / Remove Choice Option
+- [x] Add / Update / Remove Dialogue Line and reorder existing Lines
+- [x] Add / Update / Remove Choice Option and reorder existing Options
 - [x] Create / Refactor Chapter：AI 支持 add-substory 与 update-substory，完整替换接口并同步 Call / Return 动态 Pin 与失效连线清理
 - [x] Ink Import：Ink 可导入为原生节点；无法无损映射的内容保留为可运行的 Ink Block。
 - [x] 显式 Validate / Auto Layout 命令：`validate-graph` 只读校验目标 Graph，`layout-selection` / `layout-neighborhood` 返回布局意图，不直接写入坐标

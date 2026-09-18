@@ -640,6 +640,108 @@ describe('AI semantic editing foundation', () => {
     expect(invalidSource.root.nodes).toHaveLength(source.root.nodes.length - 1);
   });
 
+  it('reorders dialogue lines and choice options without recreating stable IDs', () => {
+    const source = story();
+    const dialogue = source.root.nodes.find((node) => node.type === StoryNodeType.Dialogue)!;
+    const withDialogue: StorySourceDocument = {
+      ...source,
+      root: {
+        ...source.root,
+        nodes: source.root.nodes.map((node) =>
+          node.id === dialogue.id
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  lines: [
+                    ...(node.data as { lines: readonly unknown[] }).lines,
+                    { id: 'ln_second', textId: 't_second_line', text: { source: 'Second line' } },
+                  ],
+                },
+              }
+            : node,
+        ),
+      },
+    };
+    const choice = {
+      id: 'n_choice',
+      type: StoryNodeType.Choice,
+      definitionVersion: 1,
+      position: { x: 560, y: 50 },
+      data: {
+        prompt: { source: 'Choose', bindings: {} },
+        options: [
+          { id: 'o_first', textId: 't_first', text: { source: 'First', bindings: {} } },
+          { id: 'o_second', textId: 't_second', text: { source: 'Second', bindings: {} } },
+          { id: 'o_third', textId: 't_third', text: { source: 'Third', bindings: {} } },
+        ],
+      },
+    } as const;
+    const withChoice: StorySourceDocument = {
+      ...withDialogue,
+      root: { ...withDialogue.root, nodes: [...withDialogue.root.nodes, choice] },
+    };
+    const revision = createStorySemanticSnapshot(withChoice).revision;
+    const result = executeBlueprintCommandTransaction(withChoice, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'move-line-to-front',
+          kind: 'move-dialogue-line',
+          graph: { kind: 'root' },
+          nodeId: dialogue.id,
+          lineId: 'ln_original',
+          afterLineId: undefined,
+        },
+        {
+          operationId: 'move-option-to-front',
+          kind: 'move-choice-option',
+          graph: { kind: 'root' },
+          nodeId: choice.id,
+          optionId: 'o_third',
+          afterOptionId: null,
+        },
+      ],
+    });
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics)).toBe(true);
+    if (!result.ok) return;
+    expect(
+      (result.document.root.nodes.find((node) => node.id === dialogue.id)!.data as any).lines.map(
+        (line: { id: string }) => line.id,
+      ),
+    ).toEqual(['ln_second', 'ln_original']);
+    expect(
+      (result.document.root.nodes.find((node) => node.id === choice.id)!.data as any).options.map(
+        (option: { id: string }) => option.id,
+      ),
+    ).toEqual(['o_third', 'o_first', 'o_second']);
+  });
+
+  it('rejects invalid reorder anchors and moving an item after itself', () => {
+    const source = story();
+    const revision = createStorySemanticSnapshot(source).revision;
+    const result = executeBlueprintCommandTransaction(source, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'move-line-after-missing',
+          kind: 'move-dialogue-line',
+          graph: { kind: 'root' },
+          nodeId: 'n_talk',
+          lineId: 'ln_original',
+          afterLineId: 'ln_missing',
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics[0]).toMatchObject({ code: 'UNKNOWN_LINE' });
+  });
+
   it('rejects layout requests that target a missing node', () => {
     const source = story();
     const result = executeBlueprintCommandTransaction(source, {

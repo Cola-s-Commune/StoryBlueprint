@@ -141,6 +141,14 @@ export interface RemoveDialogueLineCommand extends BlueprintGraphCommandBase {
   lineId: DialogueLineId;
 }
 
+/** Moves an existing line. Omitted afterLineId appends; null inserts at the beginning. */
+export interface MoveDialogueLineCommand extends BlueprintGraphCommandBase {
+  kind: 'move-dialogue-line';
+  nodeId: NodeId;
+  lineId: DialogueLineId;
+  afterLineId?: DialogueLineId | null;
+}
+
 export interface AddChoiceOptionCommand extends BlueprintGraphCommandBase {
   kind: 'add-choice-option';
   nodeId: NodeId;
@@ -172,6 +180,14 @@ export interface RemoveChoiceOptionCommand extends BlueprintGraphCommandBase {
   kind: 'remove-choice-option';
   nodeId: NodeId;
   optionId: OptionId;
+}
+
+/** Moves an existing choice option. Omitted afterOptionId appends; null inserts at the beginning. */
+export interface MoveChoiceOptionCommand extends BlueprintGraphCommandBase {
+  kind: 'move-choice-option';
+  nodeId: NodeId;
+  optionId: OptionId;
+  afterOptionId?: OptionId | null;
 }
 
 export type ExpressionTarget =
@@ -295,9 +311,11 @@ export type BlueprintCommand =
   | AddDialogueLineCommand
   | UpdateDialogueLineCommand
   | RemoveDialogueLineCommand
+  | MoveDialogueLineCommand
   | AddChoiceOptionCommand
   | UpdateChoiceOptionCommand
   | RemoveChoiceOptionCommand
+  | MoveChoiceOptionCommand
   | SetExpressionCommand
   | LayoutSelectionCommand
   | LayoutNeighborhoodCommand

@@ -504,9 +504,11 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
   'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
   'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId'],
+  'move-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'afterLineId'],
   'add-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'option', 'afterOptionId'],
   'update-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId', 'patch'],
   'remove-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId'],
+  'move-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId', 'afterOptionId'],
   'set-expression': ['operationId', 'kind', 'graph', 'nodeId', 'target', 'source'],
   'layout-selection': ['operationId', 'kind', 'graph', 'nodeIds'],
   'layout-neighborhood': ['operationId', 'kind', 'graph', 'nodeIds'],
@@ -808,6 +810,19 @@ export function validateBlueprintCommandTransaction(
           diagnostics.push(invalidShape('remove-dialogue-line is invalid', operationIndex, path));
         }
         break;
+      case 'move-dialogue-line':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          typeof raw.lineId !== 'string' ||
+          !isStableId(raw.lineId, 'line') ||
+          (raw.afterLineId !== undefined &&
+            raw.afterLineId !== null &&
+            (typeof raw.afterLineId !== 'string' || !isStableId(raw.afterLineId, 'line')))
+        ) {
+          diagnostics.push(invalidShape('move-dialogue-line is invalid', operationIndex, path));
+        }
+        break;
       case 'add-choice-option':
         if (
           typeof raw.nodeId !== 'string' ||
@@ -853,6 +868,19 @@ export function validateBlueprintCommandTransaction(
           !isStableId(raw.optionId, 'option')
         ) {
           diagnostics.push(invalidShape('remove-choice-option is invalid', operationIndex, path));
+        }
+        break;
+      case 'move-choice-option':
+        if (
+          typeof raw.nodeId !== 'string' ||
+          !isStableId(raw.nodeId, 'node') ||
+          typeof raw.optionId !== 'string' ||
+          !isStableId(raw.optionId, 'option') ||
+          (raw.afterOptionId !== undefined &&
+            raw.afterOptionId !== null &&
+            (typeof raw.afterOptionId !== 'string' || !isStableId(raw.afterOptionId, 'option')))
+        ) {
+          diagnostics.push(invalidShape('move-choice-option is invalid', operationIndex, path));
         }
         break;
       case 'set-expression':
@@ -2145,6 +2173,52 @@ function applyOperation(
     node.data = { ...data, lines: data.lines.filter((line) => line.id !== operation.lineId) };
     return undefined;
   }
+  if (operation.kind === 'move-dialogue-line') {
+    if (!node || node.type !== StoryNodeType.Dialogue) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'move-dialogue-line requires a Dialogue node',
+      );
+    }
+    const data = node.data as unknown as DialogueNodeData;
+    const lineIndex = data.lines.findIndex((line) => line.id === operation.lineId);
+    if (lineIndex < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_LINE',
+        `Dialogue line does not exist: ${operation.lineId}`,
+      );
+    }
+    if (operation.afterLineId === operation.lineId) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'A dialogue line cannot be moved after itself',
+      );
+    }
+    const line = data.lines[lineIndex]!;
+    const remaining = data.lines.filter((candidate) => candidate.id !== operation.lineId);
+    if (operation.afterLineId === undefined) remaining.push(line);
+    else if (operation.afterLineId === null) remaining.unshift(line);
+    else {
+      const afterIndex = remaining.findIndex((candidate) => candidate.id === operation.afterLineId);
+      if (afterIndex < 0) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'UNKNOWN_LINE',
+          `Insertion line does not exist: ${operation.afterLineId}`,
+        );
+      }
+      remaining.splice(afterIndex + 1, 0, line);
+    }
+    node.data = { ...data, lines: remaining };
+    return undefined;
+  }
   if (operation.kind === 'add-choice-option') {
     if (!node || node.type !== StoryNodeType.Choice) {
       return operationDiagnostic(
@@ -2262,6 +2336,54 @@ function applyOperation(
     graph.edges = graph.edges.filter(
       (edge) => edge.from.nodeId !== operation.nodeId || edge.from.portId !== operation.optionId,
     );
+    return undefined;
+  }
+  if (operation.kind === 'move-choice-option') {
+    if (!node || node.type !== StoryNodeType.Choice) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'move-choice-option requires a Choice node',
+      );
+    }
+    const data = node.data as unknown as ChoiceNodeData;
+    const optionIndex = data.options.findIndex((option) => option.id === operation.optionId);
+    if (optionIndex < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_OPTION',
+        `Choice option does not exist: ${operation.optionId}`,
+      );
+    }
+    if (operation.afterOptionId === operation.optionId) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        'A choice option cannot be moved after itself',
+      );
+    }
+    const option = data.options[optionIndex]!;
+    const remaining = data.options.filter((candidate) => candidate.id !== operation.optionId);
+    if (operation.afterOptionId === undefined) remaining.push(option);
+    else if (operation.afterOptionId === null) remaining.unshift(option);
+    else {
+      const afterIndex = remaining.findIndex(
+        (candidate) => candidate.id === operation.afterOptionId,
+      );
+      if (afterIndex < 0) {
+        return operationDiagnostic(
+          operation,
+          operationIndex,
+          'UNKNOWN_OPTION',
+          `Insertion option does not exist: ${operation.afterOptionId}`,
+        );
+      }
+      remaining.splice(afterIndex + 1, 0, option);
+    }
+    node.data = { ...data, options: remaining };
     return undefined;
   }
   if (operation.kind === 'set-expression') {
