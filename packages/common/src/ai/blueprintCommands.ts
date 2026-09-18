@@ -92,6 +92,11 @@ export interface UpdateVariableCommand extends BlueprintCommandBase {
   };
 }
 
+export interface RemoveVariableCommand extends BlueprintCommandBase {
+  kind: 'remove-variable';
+  variableId: VariableId;
+}
+
 export interface AddConditionCommand extends BlueprintCommandBase {
   kind: 'add-condition';
   condition: ConditionSource;
@@ -300,6 +305,7 @@ export type BlueprintCommand =
   | DisconnectNodesCommand
   | AddVariableCommand
   | UpdateVariableCommand
+  | RemoveVariableCommand
   | AddConditionCommand
   | UpdateConditionCommand
   | RemoveConditionCommand

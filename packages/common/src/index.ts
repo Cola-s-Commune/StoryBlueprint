@@ -67,6 +67,7 @@ export {
   type DisconnectNodesCommand,
   type AddVariableCommand,
   type UpdateVariableCommand,
+  type RemoveVariableCommand,
   type AddDialogueLineCommand,
   type UpdateDialogueLineCommand,
   type RemoveDialogueLineCommand,

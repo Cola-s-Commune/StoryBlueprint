@@ -145,6 +145,11 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             },
             ['variableId', 'patch'],
           ),
+          operation(
+            'remove-variable',
+            { variableId: { type: 'string', pattern: stableIdPatterns.variable } },
+            ['variableId'],
+          ),
           operation('add-condition', { condition: { $ref: '#/$defs/condition' } }, ['condition']),
           operation(
             'update-condition',
@@ -445,11 +450,7 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             },
             ['graph', 'nodeIds'],
           ),
-          operation(
-            'validate-graph',
-            { graph },
-            ['graph'],
-          ),
+          operation('validate-graph', { graph }, ['graph']),
         ],
       },
     },

@@ -841,7 +841,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] 空白点击、移动预览节点或等待不会隐式 Apply
 - [x] 失败时返回 Operation ID / Index / Path 结构化 Diagnostics
 - [x] Copy Retry Context：携带错误、原响应、Schema、节点目录和最新 Snapshot
-- [ ] 删除与改型前引用检查
+- [x] 删除与改型前引用检查：AI 的 `remove-variable` 与变量 `valueType` 修改会检查所有节点数据和可复用条件树的表达式绑定；存在引用时返回结构化诊断，事务原子回滚，避免悬空引用。
 - [x] Transaction 内 Operation ID 去重
 - [ ] 跨请求 Operation ID 幂等记录
 - [x] 内置 OpenAI-compatible Provider、系统安全凭据、取消 / 诊断重试与生成后自动 Dry Run

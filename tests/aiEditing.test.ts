@@ -1374,6 +1374,165 @@ describe('AI semantic editing foundation', () => {
     }
   });
 
+  it('removes an unreferenced variable and accepts the remove-variable schema', () => {
+    const source = story();
+    source.variables = [
+      {
+        id: 'v_unused',
+        name: 'unused',
+        displayName: 'Unused',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        { operationId: 'remove-unused', kind: 'remove-variable', variableId: 'v_unused' },
+      ],
+    };
+
+    expect(validateBlueprintCommandTransaction(transaction)).toEqual([]);
+    const result = executeBlueprintCommandTransaction(source, transaction);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.document.variables).toEqual([]);
+  });
+
+  it('rejects removing a variable referenced by a node and leaves the source unchanged', () => {
+    const source = story();
+    source.variables = [
+      {
+        id: 'v_score',
+        name: 'score',
+        displayName: 'Score',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    source.root.nodes.push({
+      id: 'n_set_score',
+      type: StoryNodeType.SetVariable,
+      definitionVersion: 1,
+      position: { x: 820, y: 50 },
+      data: { variableId: 'v_score', value: { source: '1', bindings: {} } },
+    });
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [{ operationId: 'remove-score', kind: 'remove-variable', variableId: 'v_score' }],
+    };
+
+    const result = executeBlueprintCommandTransaction(source, transaction);
+    expect(result.ok).toBe(false);
+    expect(result.document).toBe(source);
+    expect(source.variables).toHaveLength(1);
+    if (!result.ok) {
+      expect(result.diagnostics[0]).toMatchObject({
+        code: 'INVALID_TARGET',
+        operationId: 'remove-score',
+      });
+    }
+  });
+
+  it('rejects removing a variable referenced by a reusable condition expression', () => {
+    const source = story();
+    source.variables = [
+      {
+        id: 'v_affinity',
+        name: 'affinity',
+        displayName: 'Affinity',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    source.conditions = [
+      {
+        id: 'cond_affinity',
+        name: 'has-affinity',
+        displayName: 'Has Affinity',
+        root: {
+          kind: 'expression',
+          expression: { source: 'affinity > 0', bindings: { affinity: 'v_affinity' } },
+        },
+      },
+    ];
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        { operationId: 'remove-affinity', kind: 'remove-variable', variableId: 'v_affinity' },
+      ],
+    };
+
+    const result = executeBlueprintCommandTransaction(source, transaction);
+    expect(result.ok).toBe(false);
+    expect(result.document).toBe(source);
+    expect(source.variables).toHaveLength(1);
+    expect(source.conditions).toHaveLength(1);
+    if (!result.ok) expect(result.diagnostics[0].code).toBe('INVALID_TARGET');
+  });
+
+  it('allows retyping an unreferenced variable but rejects retyping a referenced one atomically', () => {
+    const unreferenced = story();
+    unreferenced.variables = [
+      {
+        id: 'v_status',
+        name: 'status',
+        displayName: 'Status',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    const retype: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(unreferenced).revision,
+      operations: [
+        {
+          operationId: 'retype-status',
+          kind: 'update-variable',
+          variableId: 'v_status',
+          patch: { valueType: { kind: 'string' }, defaultValue: 'ready' },
+        },
+      ],
+    };
+    const retyped = executeBlueprintCommandTransaction(unreferenced, retype);
+    expect(retyped.ok).toBe(true);
+    if (retyped.ok)
+      expect(retyped.document.variables[0]).toMatchObject({ valueType: { kind: 'string' } });
+
+    const referenced = story();
+    referenced.variables = structuredClone(unreferenced.variables);
+    referenced.root.nodes.push({
+      id: 'n_read_status',
+      type: StoryNodeType.SetVariable,
+      definitionVersion: 1,
+      position: { x: 820, y: 50 },
+      data: { variableId: 'v_status', value: { source: '0', bindings: {} } },
+    });
+    const blocked = executeBlueprintCommandTransaction(referenced, {
+      ...retype,
+      baseRevision: createStorySemanticSnapshot(referenced).revision,
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.document).toBe(referenced);
+    expect(referenced.variables[0]?.valueType).toEqual({ kind: 'number' });
+    if (!blocked.ok) {
+      expect(blocked.diagnostics[0]).toMatchObject({
+        code: 'INVALID_TARGET',
+        operationId: 'retype-status',
+      });
+    }
+  });
+
   it('targets Branch, Set Variable, Event, and Signal expressions explicitly', () => {
     const source = story();
     const graph = { kind: 'root' } as const;

@@ -473,6 +473,7 @@ function requiresGraphTarget(kind: unknown): boolean {
   return ![
     'add-variable',
     'update-variable',
+    'remove-variable',
     'add-condition',
     'update-condition',
     'remove-condition',
@@ -493,6 +494,7 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   disconnect: ['operationId', 'kind', 'graph', 'from', 'to'],
   'add-variable': ['operationId', 'kind', 'variable'],
   'update-variable': ['operationId', 'kind', 'variableId', 'patch'],
+  'remove-variable': ['operationId', 'kind', 'variableId'],
   'add-condition': ['operationId', 'kind', 'condition'],
   'update-condition': ['operationId', 'kind', 'conditionId', 'patch'],
   'remove-condition': ['operationId', 'kind', 'conditionId'],
@@ -722,6 +724,17 @@ export function validateBlueprintCommandTransaction(
               'update-variable has an invalid variableId or patch',
               operationIndex,
               path,
+            ),
+          );
+        }
+        break;
+      case 'remove-variable':
+        if (typeof raw.variableId !== 'string' || !isStableId(raw.variableId, 'variable')) {
+          diagnostics.push(
+            invalidShape(
+              'remove-variable requires a valid variableId',
+              operationIndex,
+              `${path}.variableId`,
             ),
           );
         }
@@ -1188,7 +1201,10 @@ function graphReferencesVariable(story: MutableStory, variableId: string): boole
     }
     return Object.values(value).some(containsReference);
   };
-  return allGraphs(story).some((graph) => graph.nodes.some((node) => containsReference(node.data)));
+  return (
+    allGraphs(story).some((graph) => graph.nodes.some((node) => containsReference(node.data))) ||
+    story.conditions.some((condition) => containsReference(condition.root))
+  );
 }
 
 function conditionTreeUsesId(tree: ConditionTreeNode, conditionId: ConditionId): boolean {
@@ -1717,6 +1733,17 @@ function applyOperation(
       patch.displayName = patch.name;
     }
     const next = { ...previous, ...patch, id: previous.id };
+    const valueTypeChanged =
+      patch.valueType !== undefined &&
+      JSON.stringify(patch.valueType) !== JSON.stringify(previous.valueType);
+    if (valueTypeChanged && graphReferencesVariable(story, previous.id)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Variable is referenced and cannot be retyped: ${previous.id}`,
+      );
+    }
     if (
       story.variables.some(
         (variable, candidateIndex) => candidateIndex !== index && variable.name === next.name,
@@ -1738,6 +1765,27 @@ function applyOperation(
       );
     }
     story.variables[index] = next;
+    return undefined;
+  }
+  if (operation.kind === 'remove-variable') {
+    const index = story.variables.findIndex((variable) => variable.id === operation.variableId);
+    if (index < 0) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'UNKNOWN_VARIABLE',
+        `Variable does not exist: ${operation.variableId}`,
+      );
+    }
+    if (graphReferencesVariable(story, operation.variableId)) {
+      return operationDiagnostic(
+        operation,
+        operationIndex,
+        'INVALID_TARGET',
+        `Variable is still referenced and cannot be removed: ${operation.variableId}`,
+      );
+    }
+    story.variables.splice(index, 1);
     return undefined;
   }
   if (operation.kind === 'add-character') {
@@ -2016,10 +2064,7 @@ function applyOperation(
     });
     return undefined;
   }
-  if (
-    operation.kind === 'layout-selection' ||
-    operation.kind === 'layout-neighborhood'
-  ) {
+  if (operation.kind === 'layout-selection' || operation.kind === 'layout-neighborhood') {
     const missingNodeId = operation.nodeIds.find(
       (nodeId) => !graph.nodes.some((node) => node.id === nodeId),
     );
@@ -2745,8 +2790,7 @@ export function executeBlueprintCommandTransaction(
   }
   return {
     ok: true,
-    committed:
-      options.dryRun !== true && !readOnlyValidation,
+    committed: options.dryRun !== true && !readOnlyValidation,
     document,
     snapshot: createStorySemanticSnapshot(
       hasCharacterOperations
