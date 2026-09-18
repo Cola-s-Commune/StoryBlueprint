@@ -122,6 +122,31 @@ export function autoLayoutGraph(
     affected.filter((node) => node.type === StoryNodeType.Reroute).map((node) => node.id),
   );
   const executionEdges = graph.edges.filter((edge) => isLayoutExecutionEdge(edge, nodesById));
+  // Keep a selected/newly imported region close to its existing flow boundary. New nodes are
+  // initially assigned to the graph's right edge by the command executor, so using that position
+  // as the layout origin makes replacements drift away from the node they replace.
+  const boundaryIncoming = executionEdges.filter((edge) => {
+    const source = nodesById.get(edge.source);
+    const target = nodesById.get(edge.target);
+    return (
+      target !== undefined &&
+      layoutIds.has(target.id) &&
+      source !== undefined &&
+      !layoutIds.has(source.id) &&
+      source.type !== StoryNodeType.Reroute
+    );
+  });
+  const boundaryOutgoing = executionEdges.filter((edge) => {
+    const source = nodesById.get(edge.source);
+    const target = nodesById.get(edge.target);
+    return (
+      source !== undefined &&
+      layoutIds.has(source.id) &&
+      target !== undefined &&
+      !layoutIds.has(target.id) &&
+      target.type !== StoryNodeType.Reroute
+    );
+  });
   const executionFrom = new Map<NodeId, EditorGraphEdge[]>();
   const executionTo = new Map<NodeId, EditorGraphEdge[]>();
   for (const edge of executionEdges) {
@@ -284,11 +309,33 @@ export function autoLayoutGraph(
     );
   }
 
-  const originX = Math.round(originalOriginX);
-  const originY = Math.round(Math.min(...layoutNodes.map((node) => node.position.y)));
+  const orderedColumns = [...byLayer.entries()].sort(([left], [right]) => left - right);
+  const incomingOriginX = Math.max(
+    ...boundaryIncoming.map((edge) => {
+      const source = nodesById.get(edge.source)!;
+      return source.position.x + layoutNodeWidth(source) + autoLayoutColumnGap;
+    }),
+    Number.NEGATIVE_INFINITY,
+  );
+  const boundaryOriginX =
+    boundaryIncoming.length > 0
+      ? incomingOriginX
+      : boundaryOutgoing.length > 0
+        ? Math.min(...boundaryOutgoing.map((edge) => nodesById.get(edge.target)!.position.x)) -
+          autoLayoutColumnGap
+        : originalOriginX;
+  const originX = Math.round(boundaryOriginX);
+  const boundaryY = [
+    ...boundaryIncoming.map((edge) => nodesById.get(edge.source)!.position.y),
+    ...boundaryOutgoing.map((edge) => nodesById.get(edge.target)!.position.y),
+  ];
+  const originY = Math.round(
+    boundaryY.length > 0
+      ? boundaryY.reduce((sum, value) => sum + value, 0) / boundaryY.length
+      : Math.min(...layoutNodes.map((node) => node.position.y)),
+  );
   const positions = new Map<NodeId, { x: number; y: number }>();
   let columnX = originX;
-  const orderedColumns = [...byLayer.entries()].sort(([left], [right]) => left - right);
   for (const [, column] of orderedColumns) {
     let rowY = originY;
     column.forEach((node) => {

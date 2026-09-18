@@ -140,7 +140,6 @@ import {
   buildInkBlockFallbackTransaction,
   buildInkImportTransaction,
   buildInkBlockConversionTransaction,
-  buildNodesToInkBlockConversionTransaction,
   type InkImportDiagnostic,
   type InkImportSummary,
 } from '../dialogue/inkImport';
@@ -378,7 +377,7 @@ interface AIEditorChanges {
 interface AIEditorProposal extends AIEditorChanges {
   graph: EditorGraphState;
   transaction: unknown;
-  origin: 'ai' | 'ink-import' | 'ink-conversion' | 'node-to-ink';
+  origin: 'ai' | 'ink-import' | 'ink-conversion';
 }
 
 type ProblemOrigin = 'authoring' | 'build';
@@ -470,7 +469,6 @@ interface StoryGraphStoreValue {
   dismissInkImportReport: () => void;
   importInkFile: () => Promise<void>;
   convertInkBlockToNodes: (nodeId: NodeId) => Promise<void>;
-  convertSelectedNodesToInkBlock: () => void;
   storyMergePreview?: StoryMergePreview;
   storyMergePreviewGraphId?: ActiveGraphId;
   storyMergeDecisionRequest?: { id: string; choice: StoryMergeChoice; nonce: number };
@@ -1623,7 +1621,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
   const discardAIProposal = useCallback(() => {
     setAIProposal((current) => {
-      if (current?.origin.startsWith('ink') || current?.origin === 'node-to-ink') {
+      if (current?.origin.startsWith('ink')) {
         setInkImportReport(undefined);
       }
       return undefined;
@@ -1826,9 +1824,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         undefined,
         stagedProposal?.origin === 'ink-conversion'
           ? 'Convert Ink Block to Nodes'
-          : stagedProposal?.origin === 'node-to-ink'
-            ? 'Convert Nodes to Ink Block'
-            : stagedProposal?.origin === 'ink-import'
+          : stagedProposal?.origin === 'ink-import'
               ? 'Import Ink as Nodes'
               : 'Apply AI Changes',
       );
@@ -2100,65 +2096,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       semanticSnapshot.revision,
     ],
   );
-
-  const convertSelectedNodesToInkBlock = useCallback(() => {
-    if (!hasActiveStory) return;
-    if (aiProposal) {
-      setInkImportReport({
-        diagnostics: [
-          {
-            severity: 'error',
-            line: 1,
-            column: 1,
-            message: 'Apply or discard the current proposal before starting another conversion.',
-          },
-        ],
-      });
-      return;
-    }
-    const converted = buildNodesToInkBlockConversionTransaction({
-      revision: semanticSnapshot.revision,
-      chapterId: activeGraphId === 'root' ? undefined : activeGraphId,
-      graph: toSourceGraph(graph),
-      nodeIds: graph.nodes.filter((node) => node.selected).map((node) => node.id),
-      characters: resolvedCharacters,
-      assets: resolvedAssets,
-    });
-    if (!converted.ok) {
-      setInkImportReport({
-        filePath: 'Selected native nodes',
-        diagnostics: converted.diagnostics,
-      });
-      return;
-    }
-    const result = executeBlueprintCommands(converted.transaction, {
-      dryRun: true,
-      stage: true,
-      origin: 'node-to-ink',
-    });
-    if (!result.ok) {
-      setInkImportReport({
-        filePath: 'Selected native nodes',
-        diagnostics: result.diagnostics.map((item) => ({
-          severity: 'error' as const,
-          line: 1,
-          column: 1,
-          message: item.message,
-        })),
-      });
-      return;
-    }
-    setInkImportReport(undefined);
-  }, [
-    activeGraphId,
-    aiProposal,
-    executeBlueprintCommands,
-    graph,
-    hasActiveStory,
-    resolvedAssets,
-    resolvedCharacters,
-    semanticSnapshot.revision,
-  ]);
 
   const addNode = useCallback(
     (
@@ -6650,7 +6587,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       dismissInkImportReport,
       importInkFile,
       convertInkBlockToNodes,
-      convertSelectedNodesToInkBlock,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,
@@ -6758,7 +6694,6 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       dismissInkImportReport,
       importInkFile,
       convertInkBlockToNodes,
-      convertSelectedNodesToInkBlock,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,

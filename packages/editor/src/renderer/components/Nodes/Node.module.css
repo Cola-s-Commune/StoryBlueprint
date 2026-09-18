@@ -180,6 +180,30 @@
   margin-bottom: 0;
 }
 
+.inkPreview {
+  display: grid;
+  gap: 4px;
+  max-width: 330px;
+  color: #dce1e8;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.inkPreviewLine {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inkPreviewMore {
+  color: #8b82c9;
+  font-size: 10px;
+  font-style: italic;
+}
+
 .speaker {
   display: flex;
   align-items: center;

@@ -262,4 +262,26 @@ describe('automatic graph layout', () => {
       y: 100,
     });
   });
+
+  it('anchors a replacement selection between its direct flow neighbors', () => {
+    const graph: EditorGraphState = {
+      nodes: [
+        node('n_start', StoryNodeType.Start, 0, 120),
+        node('n_replace', StoryNodeType.Dialogue, 2400, 400),
+        node('n_endxx', StoryNodeType.End, 900, 120),
+      ],
+      edges: [edge('e_first', 'n_start', 'n_replace'), edge('e_lastxx', 'n_replace', 'n_endxx')],
+    };
+
+    const result = autoLayoutGraph(graph, ['n_replace']);
+    const replacement = result.nodes.find((candidate) => candidate.id === 'n_replace')!;
+
+    expect(replacement.position.x).toBeGreaterThan(
+      result.nodes.find((candidate) => candidate.id === 'n_start')!.position.x,
+    );
+    expect(replacement.position.x).toBeLessThan(
+      result.nodes.find((candidate) => candidate.id === 'n_endxx')!.position.x,
+    );
+    expect(replacement.position.x).toBeLessThan(1000);
+  });
 });

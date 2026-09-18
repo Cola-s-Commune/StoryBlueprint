@@ -52,7 +52,7 @@ resolved safely.
   Story unchanged until the author decides.
 - Ink Block fallback preserves the original source byte-for-byte after the file read. It never
   attempts a mixed partial conversion.
-- Ink Block to Nodes also uses this profile. Unsupported valid source stays in its original Ink
+- Ink import to Nodes uses this profile. Unsupported valid source stays in its original Ink
   Block rather than being replaced with an incomplete graph.
 - Profile behavior is versioned by `INK_NODE_PROFILE_VERSION`; later profiles may add native
   conversions without redefining Profile v1.

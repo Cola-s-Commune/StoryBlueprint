@@ -266,7 +266,6 @@ export function StoryGraph() {
     chapters,
     events,
     extractSelectionToSubstory,
-    convertSelectedNodesToInkBlock,
     hasActiveStory,
     workspace,
     workspaceError,
@@ -1813,18 +1812,14 @@ export function StoryGraph() {
           <aside className={styles.aiChangeBanner}>
             <div>
               <strong>
-                {aiProposal.origin === 'node-to-ink'
-                  ? 'Native nodes to Ink Block preview'
-                  : aiProposal.origin === 'ink-conversion'
+                {aiProposal.origin === 'ink-conversion'
                     ? 'Ink Block conversion preview'
                     : aiProposal.origin === 'ink-import'
                       ? 'Ink import preview'
                       : 'AI proposal preview'}
               </strong>
               <span>
-                {aiProposal.origin === 'node-to-ink'
-                  ? `${aiProposal.removedNodeIds.length} native node${aiProposal.removedNodeIds.length === 1 ? '' : 's'} will be replaced by an embedded Ink Block. Move the preview block, then Apply or Discard.`
-                  : aiProposal.origin.startsWith('ink') && inkImportReport?.summary
+                {aiProposal.origin.startsWith('ink') && inkImportReport?.summary
                     ? inkImportReport.summary.mode === 'ink-block-fallback'
                       ? 'The complete Ink source will be preserved as one embedded Ink Block. It remains editable and runnable as Ink. Move the block, then Apply or Discard.'
                       : `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.narrationNodes} Narration · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
@@ -2288,16 +2283,6 @@ export function StoryGraph() {
                     >
                       <span className={styles.contextMenuColor} style={{ background: '#6d96df' }} />
                       Extract to Substory
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        convertSelectedNodesToInkBlock();
-                        setContextMenu(null);
-                      }}
-                    >
-                      <span className={styles.contextMenuColor} style={{ background: '#7f72c5' }} />
-                      Convert Selection to Ink Block…
                     </button>
                   </>
                 )}

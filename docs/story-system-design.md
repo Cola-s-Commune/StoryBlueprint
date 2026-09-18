@@ -18,7 +18,7 @@ Story Blueprint 是独立于具体游戏引擎的可视化剧情与流程编辑�
 - 编译产物只描述可执行逻辑，不携带编辑器节点信息。
 - TypeScript Runtime 不依赖 Electron、React 或具体游戏引擎。
 - Engine Adapter 负责 UI、音频、资源和游戏事件等实际表现。
-- 对话可以与 Ink 在约定范围内相互转换。
+- 对话可以从 Ink 在约定范围内导入；Ink Block 也可以直接运行。
 
 非目标：
 
@@ -51,10 +51,10 @@ Story Blueprint 是独立于具体游戏引擎的可视化剧情与流程编辑�
   UI / Audio / Asset / Event
 ```
 
-Ink 是导入和导出格式，不是 Story Blueprint 的唯一主存储格式：
+Ink 只作为导入与运行兼容格式，不是 Story Blueprint 的主存储格式：
 
 ```text
-.story ⇄ Story AST ⇄ 受支持的 .ink 子集
+.ink → Story AST / Ink Block → Story Runtime
 ```
 
 ---
@@ -567,8 +567,7 @@ Story，不提供独立 Apply 按钮；切回 Lines 时若存在错误则保持�
 `Character: ` 或 `Narrator: ` 开头；说话人按唯一 `name` / `displayName` 解析，规范输出优先使用
 不重名的显示名。行尾可使用 `# emotion:<emotion-name>`、`# voice:<audio-asset-name>`，其他 Ink Tag
 写入 `tags`。Dialogue Monaco 子集中的行尾 `# speaker:...` 属于错误，不提供旧格式兼容或迁移；
-仅由“原生节点 → Embedded Ink Block”导出的 Ink 会在已经存在 `Character: text` 前缀时重复写入
-稳定的 `# speaker:<character-id>` 元数据，供完整 Ink Runtime 保留稳定资源引用，重新导入时必须与前缀一致。
+完整 Ink Runtime 保留稳定资源引用，重新导入时必须与前缀一致。
 文本中的换行编码为 `\n`，Tag 起始符
 可写成 `\#`。解析时优先按稳定的资源 `name` 匹配，也接受唯一的 `displayName`；未知或重名资源
 产生可定位、可复制的诊断。重排和仅修改内容时尽量保留原 Line ID / Text ID，新增内容生成新 ID。
@@ -615,7 +614,7 @@ interface LocalizedVoice {
 
 Ink 支持 choice、knot、stitch、divert、变量、条件、函数、循环、tag 和外部函数。Story Blueprint 使用 Ink tag 携带说话人、语音和情绪等元数据。
 
-导出示例：
+Ink 导入示例：
 
 ```ink
 === greeting ===
@@ -636,17 +635,15 @@ Alice: 你好。 # voice:greeting_001 # emotion:happy
    - 直接交给完整 Ink Runtime 执行，不要求先转换成原生节点。
    - 通过变量桥接和 Event Adapter 与 Story Runtime、游戏引擎交互。
 
-2. Ink 节点转换
-   - 长期目标是把完整 Ink 语义转换为可视节点；连续台词合并为多 Line Dialogue。
+2. Ink 导入为节点
+   - 受支持的 Ink 子集可以转换为可视节点；连续台词合并为多 Line Dialogue。
    - 转换覆盖率可以渐进增加，暂未覆盖的局部结构继续保留为可运行 Ink Block。
-   - `.story ⇄ .ink` 只承诺语义等价，不承诺原始空白、排版和注释位置不变。
 
 Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 
 具体规则：
 
-- Story Blueprint 是主要编辑方式，Ink 导入导出是辅助能力。
-- 导出时用保留 Tag 写入稳定对象 ID，以及 speaker、voice、emotion、textId 等元数据。
+- Story Blueprint 是主要编辑方式，Ink 导入和 Ink Block 运行是辅助能力；不提供节点反向导出 Ink。
 - Tag 的名称、转义和重复规则形成版本化的 Ink Profile，不能依赖自由文本猜测。
 - Ink 变量必须显式映射到 Story Blueprint 变量 ID、作用域和类型。
 - 暂未覆盖的结构默认整体保留为 Ink Block；禁止静默丢弃或擅自改写。
@@ -660,8 +657,6 @@ Ink 是交换格式或可嵌入脚本格式，不取代 `.story` 主存储。
 - `=== knot ===` 和 `-> knot` 转成 Flow Anchor / Flow Jump，避免把 Ink 标签混入作者可见文本。
 - `VAR name = literal` 创建 Boolean、Number 或 String Story Variable；`~ name = expression` 转 Set Variable，`{name}` 继续使用统一 Text Template 语义。
 - 只包含一个条件、一个 True Divert 和一个 Else Divert 的条件块转 Branch；更复杂的条件正文暂不猜测转换。
-- 选中一个无 Prompt、无条件的 Choice 及其互不共享的线性 Dialogue / Narration 分支，且所有分支汇合到同一后继时，可显式转换为标准 Ink Choice；选项使用 `* [text] -> knot`，避免选中后重复输出选项文字。
-- 原生节点导出到 Embedded Ink 会在可读的 `Character: text` 前缀之外保留稳定 `speaker` / `voice` / `text-id` 元数据；运行时负责剥离前缀并按 ID 交给 Adapter。
 - 导入先生成独立 Graph Proposal。作者可以移动新增节点，只有 Apply 才写入当前 Main Story / Substory；整个导入作为一个 `Import Ink as Nodes` Undo 事务。
 - 不支持、悬空或不可证明等价的控制流按原始行列产生可复制 Diagnostics，并阻止写入，不静默丢弃内容。
 
@@ -1063,7 +1058,7 @@ Explorer 为项目、Story、角色和资产提供“在文件管理器中显示
 | `*.story`           | KDL 2.0              |         是 | 单个 Story 完整源数据                   |
 | `*.storyc.json`     | JSON Runtime Program |         否 | Runtime 执行逻辑                        |
 | `*.storyc.json.map` | JSON                 |         否 | 可选调试映射                            |
-| `*.ink`             | Ink                  |         否 | 导入、导出与 Ink Block                  |
+| `*.ink`             | Ink                  |         否 | 导入与 Ink Block 运行                   |
 | `*.character`       | KDL 2.0              |         是 | 项目级共享角色、情绪与肖像映射          |
 | `*.asset`           | KDL 2.0              |         是 | 项目级共享资产、类型与语言路径映射      |
 | `*.storyproject`    | KDL 2.0              |         是 | 项目身份、Story 清单与跨 Story 资源索引 |
@@ -1122,7 +1117,7 @@ Substory 参数及节点值，并让作者选择采用默认值迁移、保留 R
 - Add / Update Variable
 - Set Expression
 - Create / Refactor Chapter
-- Import / Export Ink
+- Import Ink
 - Validate / Auto Layout
 
 AI 应提交结构化命令，而不是直接拼接源文件：
@@ -1488,7 +1483,7 @@ SHA-512 后才原子改名；取消、网络错误或校验失败会删除临时
 10. 实现最小 TypeScript Runtime 状态机与 Adapter。
 11. 实现 `.story` 保存、打开、稳定点存档与 Runtime Preview。
 12. 实现 AI 语义视图、风险分级确认和结构化 Diagnostics。
-13. 实现版本化 Ink Profile、受支持子集的语义导入导出和 Ink Block 降级。
+13. 实现版本化 Ink Profile、受支持子集的语义导入和 Ink Block 降级。
 
 ### Resource reference cleanup
 
