@@ -813,7 +813,7 @@ AI 通过稳定的语义模型和命令协议编辑蓝图，不直接操作画�
 - [x] Add / Update / Remove Choice Option
 - [x] Create / Refactor Chapter：AI 支持 add-substory 与 update-substory，完整替换接口并同步 Call / Return 动态 Pin 与失效连线清理
 - [x] Ink Import：Ink 可导入为原生节点；无法无损映射的内容保留为可运行的 Ink Block。
-- [ ] 显式 Validate / Auto Layout 命令
+- [x] 显式 Validate / Auto Layout 命令：`validate-graph` 只读校验目标 Graph，`layout-selection` / `layout-neighborhood` 返回布局意图，不直接写入坐标
 - [ ] 通用原语与高级命令展开
 
 ---

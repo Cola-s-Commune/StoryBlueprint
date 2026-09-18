@@ -80,6 +80,8 @@ export type BlueprintTransactionResult =
       snapshot: StorySemanticSnapshot;
       appliedOperationIds: readonly string[];
       layoutRequests: readonly BlueprintLayoutRequest[];
+      /** True when the transaction only requested read-only validation. */
+      readOnly: boolean;
       diagnostics: readonly [];
     }
   | {
@@ -508,6 +510,7 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'set-expression': ['operationId', 'kind', 'graph', 'nodeId', 'target', 'source'],
   'layout-selection': ['operationId', 'kind', 'graph', 'nodeIds'],
   'layout-neighborhood': ['operationId', 'kind', 'graph', 'nodeIds'],
+  'validate-graph': ['operationId', 'kind', 'graph'],
 };
 
 function unexpectedKeyDiagnostics(
@@ -1048,6 +1051,8 @@ export function validateBlueprintCommandTransaction(
             ),
           );
         }
+        break;
+      case 'validate-graph':
         break;
       default:
         diagnostics.push(
@@ -1983,7 +1988,10 @@ function applyOperation(
     });
     return undefined;
   }
-  if (operation.kind === 'layout-selection' || operation.kind === 'layout-neighborhood') {
+  if (
+    operation.kind === 'layout-selection' ||
+    operation.kind === 'layout-neighborhood'
+  ) {
     const missingNodeId = operation.nodeIds.find(
       (nodeId) => !graph.nodes.some((node) => node.id === nodeId),
     );
@@ -1996,6 +2004,7 @@ function applyOperation(
         )
       : undefined;
   }
+  if (operation.kind === 'validate-graph') return undefined;
   const nodeId =
     operation.kind === 'connect' || operation.kind === 'disconnect' ? undefined : operation.nodeId;
   const node = nodeId ? graph.nodes.find((candidate) => candidate.id === nodeId) : undefined;
@@ -2592,13 +2601,30 @@ export function executeBlueprintCommandTransaction(
     }
   }
   const document = working as unknown as StorySourceDocument;
+  const readOnlyValidation =
+    transaction.operations.length > 0 &&
+    transaction.operations.every((operation) => operation.kind === 'validate-graph');
   const finalDiagnostics = validateFinalGraph(document);
   if (finalDiagnostics.length > 0) {
-    return { ok: false, committed: false, document: source, diagnostics: finalDiagnostics };
+    if (!readOnlyValidation) {
+      return { ok: false, committed: false, document: source, diagnostics: finalDiagnostics };
+    }
+    const validationOperation = transaction.operations[0];
+    return {
+      ok: false,
+      committed: false,
+      document: source,
+      diagnostics: finalDiagnostics.map((diagnostic) => ({
+        ...diagnostic,
+        operationId: validationOperation.operationId,
+        operationIndex: 0,
+      })),
+    };
   }
   return {
     ok: true,
-    committed: options.dryRun !== true,
+    committed:
+      options.dryRun !== true && !readOnlyValidation,
     document,
     snapshot: createStorySemanticSnapshot(
       hasCharacterOperations
@@ -2615,6 +2641,7 @@ export function executeBlueprintCommandTransaction(
       (operation): operation is BlueprintLayoutRequest =>
         operation.kind === 'layout-selection' || operation.kind === 'layout-neighborhood',
     ),
+    readOnly: readOnlyValidation,
     diagnostics: [],
   };
 }

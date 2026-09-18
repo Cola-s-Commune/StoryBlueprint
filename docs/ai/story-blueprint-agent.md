@@ -149,6 +149,10 @@ When proposing an edit, `command` must be one complete Blueprint Command transac
   `command: null` and `toolRequest: {"name":"...","arguments":{...}}`; do not invent missing IDs.
 - `story.validate_command` is read-only: use it to validate a complete transaction and inspect
   diagnostics before returning a final command. Never treat tool validation as applying an edit.
+- The command protocol also supports a read-only `validate-graph` operation. Use it only when the
+  author explicitly requests graph validation; it never changes the Story or creates an undo entry.
+- `layout-selection` and `layout-neighborhood` are layout intents, not coordinate writes. They are
+  previewed by the editor and require the author to apply the resulting proposal.
 - In all narrative text fields, do not add ASCII double quotes around ordinary speech or narration.
   Use the text exactly as it should appear to players. For quoted speech or quotations, prefer
   Chinese `「」` / `“”`; if an ASCII `"` is genuinely necessary, it must be JSON-escaped as `\"`.

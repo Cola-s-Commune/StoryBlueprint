@@ -1120,6 +1120,10 @@ Substory 参数及节点值，并让作者选择采用默认值迁移、保留 R
 - Import Ink
 - Validate / Auto Layout
 
+`validate-graph` 是只读 Operation，携带目标 Graph，确认目标存在后复用同一套 Story 全量连接、入口、节点端口、资源引用和序列化校验。
+它可以单独作为事务执行：合法时返回空 diagnostics 且不产生 dirty/Undo；不合法时返回结构化 diagnostics，原 Story 不会改变。
+`layout-selection` 与 `layout-neighborhood` 只返回布局意图，由编辑器在预览阶段按当前节点尺寸计算位置，作者确认后才应用。
+
 AI 应提交结构化命令，而不是直接拼接源文件：
 
 ```json

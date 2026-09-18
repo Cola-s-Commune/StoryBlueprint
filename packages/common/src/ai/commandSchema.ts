@@ -421,6 +421,11 @@ export const BLUEPRINT_COMMAND_JSON_SCHEMA = {
             },
             ['graph', 'nodeIds'],
           ),
+          operation(
+            'validate-graph',
+            { graph },
+            ['graph'],
+          ),
         ],
       },
     },

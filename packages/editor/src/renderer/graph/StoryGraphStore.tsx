@@ -1700,6 +1700,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         semanticContext: aiSemanticContext,
       });
       if (!result.ok) return result;
+      // Validation commands are deliberately read-only. Do not compile, stage a
+      // preview, checkpoint, mark the story dirty, or create an undo entry.
+      if (result.readOnly) return result;
       const hasCharacterOperations =
         typeof transactionValue === 'object' &&
         transactionValue !== null &&

@@ -268,6 +268,11 @@ export interface LayoutNeighborhoodCommand extends BlueprintGraphCommandBase {
   nodeIds: readonly NodeId[];
 }
 
+/** Validates a graph without changing Story content or editor layout. */
+export interface ValidateGraphCommand extends BlueprintGraphCommandBase {
+  kind: 'validate-graph';
+}
+
 export type BlueprintLayoutRequest = LayoutSelectionCommand | LayoutNeighborhoodCommand;
 
 export type BlueprintCommand =
@@ -295,7 +300,8 @@ export type BlueprintCommand =
   | RemoveChoiceOptionCommand
   | SetExpressionCommand
   | LayoutSelectionCommand
-  | LayoutNeighborhoodCommand;
+  | LayoutNeighborhoodCommand
+  | ValidateGraphCommand;
 
 export interface BlueprintCommandTransaction {
   format: typeof BLUEPRINT_COMMAND_FORMAT;

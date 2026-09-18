@@ -588,6 +588,58 @@ describe('AI semantic editing foundation', () => {
     expect(JSON.stringify(transaction)).not.toContain('position');
   });
 
+  it('supports an explicit read-only graph validation command', () => {
+    const source = story();
+    const revision = createStorySemanticSnapshot(source).revision;
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: revision,
+      operations: [
+        {
+          operationId: 'validate-root-graph',
+          kind: 'validate-graph',
+          graph: { kind: 'root' },
+        },
+      ],
+    };
+    expect(validateBlueprintCommandTransaction(transaction)).toEqual([]);
+    const result = executeBlueprintCommandTransaction(source, transaction);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.readOnly).toBe(true);
+    expect(result.committed).toBe(false);
+    expect(result.snapshot.revision).toBe(revision);
+    expect(result.document).not.toBe(source);
+    expect(result.document.root).toEqual(source.root);
+    expect(result.document.variables).toEqual(source.variables);
+
+    const invalidSource: StorySourceDocument = {
+      ...source,
+      root: {
+        ...source.root,
+        nodes: source.root.nodes.filter((node) => node.type !== StoryNodeType.Start),
+      },
+    };
+    const invalidRevision = createStorySemanticSnapshot(invalidSource).revision;
+    const invalid = executeBlueprintCommandTransaction(invalidSource, {
+      ...transaction,
+      baseRevision: invalidRevision,
+    });
+    expect(invalid.ok).toBe(false);
+    if (invalid.ok) return;
+    expect(invalid.committed).toBe(false);
+    expect(invalid.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'INVALID_GRAPH',
+          message: expect.stringContaining('exactly one Story Entry'),
+        }),
+      ]),
+    );
+    expect(invalidSource.root.nodes).toHaveLength(source.root.nodes.length - 1);
+  });
+
   it('rejects layout requests that target a missing node', () => {
     const source = story();
     const result = executeBlueprintCommandTransaction(source, {

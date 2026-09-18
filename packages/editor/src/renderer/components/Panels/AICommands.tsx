@@ -448,6 +448,7 @@ function aiContext(
       'CONDITION RESOURCES: Reusable conditions are Story resources. Use add-condition with a stable cond_ ID, unique name/displayName, description when useful, and a root conditionTree. Tree nodes are expression ({ kind: "expression", expression: { source: "...", bindings: {} } }), all/any with children, not with one child, or reference with a conditionId. Use update-condition to replace metadata or the whole root; use remove-condition only when no Branch or other condition references it. Branch data may reference a conditionId, with its inline condition retained as fallback.',
       'CHOICE CONDITIONS: Choice options may use visibleConditionId or enabledConditionId to reference a reusable condition. These take precedence over visibleIf/enabledIf, which remain as inline fallbacks. Use the stable cond_ ID from the semantic context.',
       'Use replaceExisting: true on connect only when replacing an occupied compatible port.',
+      'VALIDATION AND LAYOUT: Use validate-graph only when the author explicitly asks to validate a Graph; it is read-only and does not apply edits. Use layout-selection or layout-neighborhood for layout intent, never write node coordinates.',
       'Preserve stable IDs unless explicitly adding or removing an object.',
       `Set baseRevision to ${snapshot.revision}.`,
       ...(scope

@@ -77,6 +77,7 @@ export {
   type SetExpressionCommand,
   type LayoutSelectionCommand,
   type LayoutNeighborhoodCommand,
+  type ValidateGraphCommand,
   type BlueprintLayoutRequest,
   type BlueprintCommand,
   type BlueprintCommandTransaction,
