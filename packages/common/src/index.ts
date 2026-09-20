@@ -59,6 +59,7 @@ export {
 export {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_VERSION,
+  blueprintOperationFingerprint,
   type BlueprintGraphTarget,
   type AddNodeCommand,
   type UpdateNodeCommand,

@@ -4,6 +4,7 @@ import {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_JSON_SCHEMA,
   BLUEPRINT_COMMAND_VERSION,
+  blueprintOperationFingerprint,
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
   StoryNodeType,
@@ -778,6 +779,135 @@ describe('AI semantic editing foundation', () => {
       to: { nodeId: 'n_endxx', portId: 'in' },
     });
     expect(result.snapshot.revision).not.toBe(revision);
+  });
+
+  it('treats a complete retry as an idempotent no-op and never records dry runs', () => {
+    const source = story();
+    const transaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'add-idempotent-variable',
+          kind: 'add-variable',
+          variable: {
+            id: 'v_idempotent',
+            name: 'idempotent',
+            displayName: 'Idempotent',
+            scope: 'story',
+            valueType: { kind: 'number' },
+            defaultValue: 0,
+          },
+        },
+      ],
+    };
+    const first = executeBlueprintCommandTransaction(source, transaction);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const ledger = new Map([
+      [
+        transaction.operations[0]!.operationId,
+        blueprintOperationFingerprint(transaction.operations[0]),
+      ],
+    ]);
+    const retry = executeBlueprintCommandTransaction(first.document, transaction, {
+      appliedOperationIds: ledger,
+    });
+    expect(retry).toMatchObject({ ok: true, committed: false });
+    if (retry.ok) expect(retry.document).toBe(first.document);
+
+    const dryRun = executeBlueprintCommandTransaction(source, transaction, {
+      dryRun: true,
+      appliedOperationIds: ledger,
+    });
+    expect(dryRun).toMatchObject({ ok: true, committed: false });
+    if (dryRun.ok) expect(dryRun.document.variables).toHaveLength(1);
+  });
+
+  it('rejects partial and conflicting idempotency replays atomically', () => {
+    const source = story();
+    const firstTransaction: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: createStorySemanticSnapshot(source).revision,
+      operations: [
+        {
+          operationId: 'first-replayed-operation',
+          kind: 'add-variable',
+          variable: {
+            id: 'v_replayed',
+            name: 'replayed',
+            displayName: 'Replayed',
+            scope: 'story',
+            valueType: { kind: 'number' },
+            defaultValue: 0,
+          },
+        },
+      ],
+    };
+    const first = executeBlueprintCommandTransaction(source, firstTransaction);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const ledger = new Map([
+      [
+        firstTransaction.operations[0]!.operationId,
+        blueprintOperationFingerprint(firstTransaction.operations[0]),
+      ],
+    ]);
+    const partial: BlueprintCommandTransaction = {
+      ...firstTransaction,
+      baseRevision: createStorySemanticSnapshot(first.document).revision,
+      operations: [
+        ...firstTransaction.operations,
+        {
+          operationId: 'new-operation',
+          kind: 'add-variable',
+          variable: {
+            id: 'v_new',
+            name: 'newValue',
+            displayName: 'New Value',
+            scope: 'story',
+            valueType: { kind: 'number' },
+            defaultValue: 1,
+          },
+        },
+      ],
+    };
+    const partialResult = executeBlueprintCommandTransaction(first.document, partial, {
+      appliedOperationIds: ledger,
+    });
+    expect(partialResult.ok).toBe(false);
+    expect(partialResult.document).toBe(first.document);
+    expect(first.document.variables).toHaveLength(1);
+    if (!partialResult.ok) expect(partialResult.diagnostics[0]?.code).toBe('INVALID_TRANSACTION');
+
+    const conflicting: BlueprintCommandTransaction = {
+      ...firstTransaction,
+      baseRevision: createStorySemanticSnapshot(first.document).revision,
+      operations: [
+        {
+          operationId: 'first-replayed-operation',
+          kind: 'add-variable',
+          variable: {
+            id: 'v_replayed',
+            name: 'replayed',
+            displayName: 'Replayed',
+            scope: 'story',
+            valueType: { kind: 'number' },
+            defaultValue: 99,
+          },
+        },
+      ],
+    };
+    const conflictingResult = executeBlueprintCommandTransaction(first.document, conflicting, {
+      appliedOperationIds: ledger,
+    });
+    expect(conflictingResult.ok).toBe(false);
+    expect(conflictingResult.document).toBe(first.document);
+    if (!conflictingResult.ok) {
+      expect(conflictingResult.diagnostics[0]?.message).toContain('different content');
+    }
   });
 
   it('rolls back every operation when a later command is invalid', () => {

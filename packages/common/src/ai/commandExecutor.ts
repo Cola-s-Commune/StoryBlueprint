@@ -34,6 +34,7 @@ import type { CharacterTemplateSource } from '../types/characterTemplate';
 import {
   BLUEPRINT_COMMAND_FORMAT,
   BLUEPRINT_COMMAND_VERSION,
+  blueprintOperationFingerprint,
   type BlueprintCommand,
   type BlueprintCommandDiagnostic,
   type BlueprintCommandTransaction,
@@ -105,6 +106,11 @@ export interface BlueprintTransactionOptions {
   dryRun?: boolean;
   /** Resolved project resources used for Revision, AI Snapshot, and cross-resource validation. */
   semanticContext?: BlueprintSemanticContext;
+  /**
+   * Operation fingerprints already committed for this Story. Dry runs never consult this ledger.
+   * A complete matching transaction is a successful no-op; partial or conflicting replays fail.
+   */
+  appliedOperationIds?: ReadonlyMap<string, string>;
 }
 
 function withSemanticContext(
@@ -2735,6 +2741,59 @@ export function executeBlueprintCommandTransaction(
     options.semanticContext?.characterTemplates,
     options.semanticContext?.engineTypes,
   );
+  if (options.dryRun !== true && options.appliedOperationIds && transaction.operations.length > 0) {
+    const replayed = transaction.operations.filter((operation) =>
+      options.appliedOperationIds!.has(operation.operationId),
+    );
+    const conflicting = replayed.find(
+      (operation) =>
+        options.appliedOperationIds!.get(operation.operationId) !==
+        blueprintOperationFingerprint(operation),
+    );
+    if (conflicting) {
+      return {
+        ok: false,
+        committed: false,
+        document: source,
+        diagnostics: [
+          {
+            code: 'INVALID_TRANSACTION',
+            message: `Operation ID was already applied with different content: ${conflicting.operationId}`,
+            operationId: conflicting.operationId,
+          },
+        ],
+      };
+    }
+    if (replayed.length > 0 && replayed.length !== transaction.operations.length) {
+      const fresh = transaction.operations.find(
+        (operation) => !options.appliedOperationIds!.has(operation.operationId),
+      );
+      return {
+        ok: false,
+        committed: false,
+        document: source,
+        diagnostics: [
+          {
+            code: 'INVALID_TRANSACTION',
+            message: `Transaction mixes previously applied and new operations; retry the complete transaction or use a new operation set (first new operation: ${fresh?.operationId ?? 'unknown'})`,
+            operationId: fresh?.operationId,
+          },
+        ],
+      };
+    }
+    if (replayed.length === transaction.operations.length) {
+      return {
+        ok: true,
+        committed: false,
+        document: source,
+        snapshot: currentSnapshot,
+        appliedOperationIds: transaction.operations.map((operation) => operation.operationId),
+        layoutRequests: [],
+        readOnly: false,
+        diagnostics: [],
+      };
+    }
+  }
   if (transaction.baseRevision !== currentSnapshot.revision) {
     return {
       ok: false,

@@ -452,6 +452,7 @@ function aiContext(
       'VALIDATION AND LAYOUT: Use validate-graph only when the author explicitly asks to validate a Graph; it is read-only and does not apply edits. Use layout-selection or layout-neighborhood for layout intent, never write node coordinates.',
       'ORDERED CONTENT: Use move-dialogue-line and move-choice-option to reorder existing items while preserving their stable IDs. Omit the anchor to append, use null to move to the front, or use an existing sibling ID to insert after it.',
       'Preserve stable IDs unless explicitly adding or removing an object.',
+      'OPERATION IDS: Give every operation a unique stable operationId within the transaction. When retrying the exact same already-applied transaction, preserve its operationIds and operation contents; when making a new edit, generate a new operationId instead of reusing an old one.',
       `Set baseRevision to ${snapshot.revision}.`,
       ...(scope
         ? [

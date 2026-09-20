@@ -35,6 +35,7 @@ import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
   StoryNodeType,
+  blueprintOperationFingerprint,
   createStableId,
   migrateEngineJsonValue,
   migrateEmbeddedEngineObjects,
@@ -827,6 +828,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [externalStoryMergeRequest, setExternalStoryMergeRequest] =
     useState<ExternalStoryMergeRequest>();
   const restoredSessionRef = useRef(false);
+  const appliedOperationLedgerRef = useRef(new Map<StoryId, Map<string, string>>());
   const projectResourceWritesRef = useRef(new Map<string, Promise<WorkspaceInfo>>());
   const managedStoryFilesRef = useRef(new Map<string, string>());
   const storyHistoryWriteRef = useRef<Promise<void>>(Promise.resolve());
@@ -1694,9 +1696,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         ...source,
         variables: [...source.variables, ...projectVariables],
       };
+      const appliedOperationIds =
+        !options.dryRun && !options.stage
+          ? appliedOperationLedgerRef.current.get(document.id)
+          : undefined;
       const result = executeBlueprintCommandTransaction(commandSource, transactionValue, {
         dryRun: options.dryRun,
         semanticContext: aiSemanticContext,
+        appliedOperationIds,
       });
       if (!result.ok) return result;
       // Validation commands are deliberately read-only. Do not compile, stage a
@@ -1815,6 +1822,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         return result;
       }
       if (!result.committed) return result;
+      if (
+        typeof transactionValue === 'object' &&
+        transactionValue !== null &&
+        Array.isArray((transactionValue as Partial<BlueprintCommandTransaction>).operations)
+      ) {
+        const ledger =
+          appliedOperationLedgerRef.current.get(document.id) ?? new Map<string, string>();
+        for (const operation of (transactionValue as BlueprintCommandTransaction).operations) {
+          ledger.set(operation.operationId, blueprintOperationFingerprint(operation));
+        }
+        appliedOperationLedgerRef.current.set(document.id, ledger);
+      }
       const stagedProposal =
         aiProposal && JSON.stringify(aiProposal.transaction) === JSON.stringify(transactionValue)
           ? aiProposal
@@ -1827,8 +1846,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         stagedProposal?.origin === 'ink-conversion'
           ? 'Convert Ink Block to Nodes'
           : stagedProposal?.origin === 'ink-import'
-              ? 'Import Ink as Nodes'
-              : 'Apply AI Changes',
+            ? 'Import Ink as Nodes'
+            : 'Apply AI Changes',
       );
       restoreGraph(committedGraph);
       if (activeGraphId !== 'root') {
@@ -4897,6 +4916,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       setHasActiveStory(false);
       setStoryDataSelection(undefined);
       revisionRef.current = 0;
+      appliedOperationLedgerRef.current.clear();
       if (!preserveHistory) history.clear();
     },
     [history, initialDocument, restoreGraph],
@@ -5188,6 +5208,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           opened,
         ];
       });
+      appliedOperationLedgerRef.current.delete(opened.document.id);
       loadStory(opened, 'root', preserveHistory);
       return opened;
     },
@@ -5407,6 +5428,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             setWorkspaceStories((items) =>
               items.map((story) => (story.document.id === existing.document.id ? reloaded : story)),
             );
+            appliedOperationLedgerRef.current.delete(existing.document.id);
             if (existing.document.id === document.id) loadStory(reloaded);
           }
         }
@@ -5589,6 +5611,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             setWorkspaceStories((current) =>
               current.map((story) => (story.document.id === opened.document.id ? reloaded : story)),
             );
+            appliedOperationLedgerRef.current.delete(opened.document.id);
             if (opened.document.id === document.id) loadStory(reloaded);
           }
           if (refreshResources) setWorkspace(await api.refreshWorkspace());
@@ -5661,6 +5684,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           );
           setProjectResourcesDirty(false);
           setWorkspaceStories(reloaded);
+          appliedOperationLedgerRef.current.clear();
           const active = reloaded.find((item) => item.document.filePath === activeFilePath);
           const next = active ?? reloaded[0];
           if (next) {
@@ -6240,9 +6264,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       const remaining = workspaceStories.filter((story) => story.document.id !== id);
       if (id !== document.id) {
+        appliedOperationLedgerRef.current.delete(id);
         setWorkspaceStories(remaining);
         return;
       }
+      appliedOperationLedgerRef.current.delete(id);
       if (remaining.length > 0) {
         setWorkspaceStories(remaining);
         loadStory(remaining[0]);

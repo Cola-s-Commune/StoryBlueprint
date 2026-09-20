@@ -15,6 +15,24 @@ import type { RuntimeValue, ValueType, VariableDefinition, VariableScope } from 
 export const BLUEPRINT_COMMAND_FORMAT = 'story-blueprint-commands' as const;
 export const BLUEPRINT_COMMAND_VERSION = 1 as const;
 
+/**
+ * Canonical operation fingerprint used by the editor's cross-request idempotency ledger.
+ * Object key order is ignored so equivalent JSON retries are treated as the same operation.
+ */
+export function blueprintOperationFingerprint(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(blueprintOperationFingerprint).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${blueprintOperationFingerprint(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? String(value);
+}
+
 export type BlueprintGraphTarget = { kind: 'root' } | { kind: 'chapter'; chapterId: ChapterId };
 
 interface BlueprintCommandBase {
