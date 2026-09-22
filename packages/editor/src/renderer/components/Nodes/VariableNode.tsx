@@ -35,6 +35,22 @@ function VariableName({ variableId }: { variableId?: string }) {
 
 export function GetVariableNode({ data }: NodeProps) {
   const d = data as unknown as GetVariableNodeData;
+  const { availableVariables, projectVariables, characters } = useStoryGraphStore();
+  const variable =
+    availableVariables.find((candidate) => candidate.id === d.variableId) ??
+    projectVariables.find((candidate) => candidate.id === d.variableId) ??
+    characters
+      .flatMap((character) => character.fields ?? [])
+      .find((candidate) => candidate.id === d.variableId);
+  const effectiveValueType =
+    d.accessor
+      ? (d.outputValueType ??
+        (variable?.valueType.kind === 'array'
+          ? variable.valueType.elementType
+          : variable?.valueType.kind === 'map'
+            ? variable.valueType.valueType
+            : variable?.valueType))
+      : (variable?.valueType ?? d.outputValueType);
   return (
     <div className={styles.node} style={variableStyle}>
       <div className={styles.header}>
@@ -75,7 +91,7 @@ export function GetVariableNode({ data }: NodeProps) {
         style={
           {
             top: (d.exposedFields?.length ?? 0) > 0 ? 54 : '50%',
-            '--data-pin-color': valueTypeColor(d.outputValueType),
+            '--data-pin-color': valueTypeColor(effectiveValueType),
           } as CSSProperties
         }
       />
@@ -92,15 +108,15 @@ export function SetVariableNode({ data }: NodeProps) {
     characters
       .flatMap((character) => character.fields ?? [])
       .find((candidate) => candidate.id === d.variableId);
-  const valueContract =
-    d.valueInputType ??
-    (d.containerOperation === 'append' && variable?.valueType.kind === 'array'
+  const targetValueType =
+    d.containerOperation === 'append' && variable?.valueType.kind === 'array'
       ? variable.valueType.elementType
       : d.containerOperation === 'set-entry' && variable?.valueType.kind === 'map'
         ? variable.valueType.valueType
         : d.containerOperation === 'set-field'
-          ? d.fieldValueType
-          : variable?.valueType);
+          ? (d.fieldValueType ?? variable?.valueType)
+          : (variable?.valueType ?? d.valueInputType);
+  const valueContract = targetValueType ?? d.valueInputType;
   const keyContract =
     d.keyInputType ??
     (variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'

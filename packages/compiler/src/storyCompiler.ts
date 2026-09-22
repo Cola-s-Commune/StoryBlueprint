@@ -602,6 +602,41 @@ export class DefaultStoryCompiler implements StoryCompiler {
             },
           };
         }
+        if (sourceNode?.type === StoryNodeType.WaitSignal && sourcePortId.startsWith('payload:')) {
+          const paramName = sourcePortId.slice('payload:'.length);
+          const wait = sourceNode.data as unknown as WaitSignalNodeData;
+          if (!reachableNodeIds.has(sourceNode.id)) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: 'Wait for Signal supplying a payload value must be execution-reachable',
+              sourceNodeId: sourceNode.id,
+            });
+            return { connected: true };
+          }
+          const signal = wait.signalId
+            ? source.signals?.find((candidate) => candidate.id === wait.signalId)
+            : undefined;
+          const param = signal?.parameters.find((candidate) => candidate.name === paramName);
+          if (!signal || !param) {
+            diagnostics.push({
+              code: 'INVALID_NODE',
+              severity: 'error',
+              message: `Wait for Signal payload ${paramName} is not declared by its Signal`,
+              sourceNodeId: sourceNode.id,
+            });
+            return { connected: true };
+          }
+          return {
+            connected: true,
+            value: {
+              kind: 'signal-output',
+              instructionId: instructionId(sourceNode.id),
+              outputId: param.name,
+              valueType: param.valueType,
+            },
+          };
+        }
         if (
           !sourceNode ||
           sourceNode.type !== StoryNodeType.GetVariable ||
@@ -1612,10 +1647,18 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 sourceNodeId: node.id,
               });
             }
-            const argumentsSource = 'arguments' in data ? (data.arguments ?? {}) : {};
+            const argumentsSource: Record<string, ExpressionSource> =
+              'arguments' in data && data.arguments ? data.arguments : {};
             const argumentsValue: Record<string, TypedExpression> = {};
             const targetVariables = storyId ? options.storyVariablesById?.[storyId] : undefined;
-            for (const [argumentId, expression] of Object.entries(argumentsSource)) {
+            const argumentIds = new Set<string>([
+              ...Object.keys(argumentsSource),
+              ...(targetVariables ?? []).map((v) => v.id),
+            ]);
+            for (const argumentId of argumentIds) {
+              const expression = argumentsSource[argumentId];
+              const connectedArgument = connectedDataExpression(node, `argument:${argumentId}`);
+              if (!expression && !connectedArgument.connected) continue;
               const targetVariable = targetVariables?.find(
                 (variable) => variable.id === argumentId,
               );
@@ -1628,16 +1671,20 @@ export class DefaultStoryCompiler implements StoryCompiler {
                 });
                 continue;
               }
-              const compiled = compileSafe(node, () =>
-                targetVariable
-                  ? compileAuthoredValue(
-                      expression,
-                      targetVariable.valueType,
-                      visibleVariables,
-                      source.characters,
+              const compiled =
+                connectedArgument.value ??
+                (!connectedArgument.connected && expression
+                  ? compileSafe(node, () =>
+                      targetVariable
+                        ? compileAuthoredValue(
+                            expression,
+                            targetVariable.valueType,
+                            visibleVariables,
+                            source.characters,
+                          )
+                        : compileExpression(expression, visibleVariables, source.characters),
                     )
-                  : compileExpression(expression, visibleVariables, source.characters),
-              );
+                  : undefined);
               if (compiled) {
                 if (
                   targetVariable &&

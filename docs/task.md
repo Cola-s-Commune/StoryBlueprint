@@ -680,6 +680,8 @@
 - [x] Safe Expression 支持 Engine Object `value.field`、Array `value[index]` 与 Map `value[key]` 读取；Runtime 对缺失字段、越界索引和缺失 Key 提供错误
 - [x] 复杂值图形化读取基础：Get Variable 可选择 Engine Schema Field、Array Index 或 Map Key；输出数据 Pin 接入 Set Variable 并编译为 Typed Expression
 - [x] 数据 Pin 扩展到 Branch 条件与 Event 参数；连线值覆盖节点内的后备表达式，并按目标类型校验
+- [x] 数据 Pin 扩展到 Story Control 参数：Start / Switch Story 支持数据 Pin 动态连线输入；编译器连线优先并降级 Inspector 备选值
+- [x] 数据 Pin 扩展到 Wait for Signal：支持 Signal Payload 动态数据 Pin 输出；Runtime 在收到/消费信号时缓存 Payload 并通过 `signal-output` 表达式传递下游节点
 - [x] Engine Object 支持按需暴露多个 Schema Field Pin；主对象输出保留，字段引用使用稳定 Field ID，并随 Schema 迁移更新名称与类型
 - [x] Dialogue / Choice 文本模板提供可搜索的引用插入器、Engine Object 标量字段选择与即时语法诊断；文本继续使用 `{value.field}`，不增加密集数据线
 - [x] 复杂值边界固化：Array / Map / Engine Object 只开放安全的字段/索引读取、整值赋值、Array Add 与 Map Set Entry；不开放遍历、任意方法调用或通用图形化编程
@@ -698,6 +700,8 @@
 - [x] Ink Block 子运行时的暂停、选择、恢复与终止（稳定交互 ID、可序列化 Ink 状态、陈旧 Choice 拒绝、END / Abort 验证）
 - [x] Program Format / Version / Content Version 检查
 - [x] 核心执行状态机结构化 Runtime Diagnostics
+- [x] Ink 运行时错误诊断码分类修正：区分 `INK_CHOICE_ERROR`、`INK_RUNTIME_ERROR` 与外部函数错误
+- [x] 健壮性改进：文件与 Git 轮询连续失败预警、Session 恢复失败文件路径反馈、所有数据输入节点统一 Inspector 覆盖提示组件
 
 ---
 
@@ -966,6 +970,16 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [ ] Unity Adapter
 - [ ] Unreal Adapter
 - [ ] Godot Adapter
+
+---
+
+## Node Parameter Passing & Visuals
+
+- [x] 节点参数传递与引脚/连线颜色统一：数字为绿色 (`#63c174`)、布尔为红色、字符串为粉色等；GetVariable、SetVariable、StoryControl、WaitSignal、CallSubstory、CallEvent 与 Reroute 节点引脚及连线严格按参数对应的真实 `valueType` 着色，彻底解决数字引脚与连线显示为黄色 (`any`) 的问题
+- [x] 画布拖拽连线实时反映数据源引脚类型颜色（例如从数字引脚拉出时连线实时呈绿色），支持拖拽变量自动推导并初始化端口类型
+- [x] StoryControl（StartStory / SwitchStory）动态参数引脚类型推断与编译下发，支持从目标故事变量中推断类型并渲染对应颜色
+- [x] WaitSignal 动态输出载荷引脚支持信号参数表达式求值与端口类型继承
+- [x] 运行时 Ink 诊断错误码纠正（区分 INK_RUNTIME_ERROR 与 INK_CHOICE_ERROR）与编辑器健壮性优化（文件/Git 轮询失败计数告警、会话恢复失败通知、链接 Ink 加载告警）
 
 ---
 

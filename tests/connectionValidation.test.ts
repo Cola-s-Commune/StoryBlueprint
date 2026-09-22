@@ -384,4 +384,56 @@ describe('connection validation', () => {
     );
     expect(fromSourceGraph(source, { allowInvalidConnections: true }).edges).toHaveLength(2);
   });
+
+  it('resolves dynamic input ports on StartStory and SwitchStory with accurate argument types', () => {
+    const startStoryPorts = resolveNodePorts({
+      id: 'start_story',
+      type: StoryNodeType.StartStory,
+      data: {
+        storyId: 'target_story',
+        arguments: { score: { source: '10', bindings: {} } },
+        argumentInputTypes: { score: { kind: 'number' } },
+      },
+    });
+    const scorePort = startStoryPorts.ports.find((p) => p.id === 'argument:score');
+    expect(scorePort).toBeDefined();
+    expect(scorePort?.valueType).toEqual({ kind: 'number' });
+
+    const switchStoryPorts = resolveNodePorts({
+      id: 'switch_story',
+      type: StoryNodeType.SwitchStory,
+      data: {
+        storyId: 'target_story',
+        arguments: { score: { source: '10', bindings: {} } },
+        argumentInputTypes: { score: { kind: 'number' } },
+      },
+    });
+    const switchScorePort = switchStoryPorts.ports.find((p) => p.id === 'argument:score');
+    expect(switchScorePort).toBeDefined();
+    expect(switchScorePort?.valueType).toEqual({ kind: 'number' });
+  });
+
+  it('resolves GetVariable output and SetVariable input ports with accurate value types', () => {
+    const getPorts = resolveNodePorts({
+      id: 'get_var',
+      type: StoryNodeType.GetVariable,
+      data: {
+        variableId: 'v_num',
+        outputValueType: { kind: 'number' },
+      },
+    });
+    const valueOut = getPorts.ports.find((p) => p.id === 'value' && p.direction === 'output');
+    expect(valueOut?.valueType).toEqual({ kind: 'number' });
+
+    const setPorts = resolveNodePorts({
+      id: 'set_var',
+      type: StoryNodeType.SetVariable,
+      data: {
+        variableId: 'v_num',
+        valueInputType: { kind: 'number' },
+      },
+    });
+    const valueIn = setPorts.ports.find((p) => p.id === 'value' && p.direction === 'input');
+    expect(valueIn?.valueType).toEqual({ kind: 'number' });
+  });
 });

@@ -8,6 +8,7 @@ import {
 } from '@story-blueprint/common';
 import { useEffect, type CSSProperties } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { valueTypeColor } from '../../graph/valueTypeColors';
 import styles from './Node.module.css';
 
 function horizontalSideToward(
@@ -43,6 +44,14 @@ export function RerouteNode({ id }: NodeProps) {
   return (
     <div
       className={`${styles.reroute} ${dataReroute ? styles.rerouteData : ''}`}
+      style={
+        dataReroute && rerouteData?.valueType
+          ? ({
+              borderColor: valueTypeColor(rerouteData.valueType),
+              background: `color-mix(in srgb, ${valueTypeColor(rerouteData.valueType)} 38%, #20242b)`,
+            } as CSSProperties)
+          : undefined
+      }
       title={dataReroute ? `Data Reroute · ${rerouteData?.valueType?.kind ?? 'any'}` : 'Reroute'}
     >
       <Handle

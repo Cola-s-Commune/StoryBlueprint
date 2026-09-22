@@ -579,4 +579,95 @@ describe('project events', () => {
     expect(restoredRuntime.continueEvent().kind).toBe('completed');
     expect(restoredRuntime.state.signalInbox[signalId]).toEqual([{ animation: 'Idle' }]);
   });
+
+  it('routes WaitSignal payload values to connected nodes through data pins', () => {
+    const signalId = 'sig_item_found';
+    const signal = {
+      id: signalId,
+      name: 'itemFound',
+      displayName: 'Item Found',
+      parameters: [{ name: 'count', valueType: { kind: 'number' } }],
+    };
+
+    const doc: StorySourceDocument = {
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: 's_signal_payload',
+      name: 'signalPayload',
+      displayName: 'Signal Payload',
+      variables: [
+        {
+          id: 'v_count',
+          name: 'count',
+          displayName: 'Count',
+          scope: 'story',
+          valueType: { kind: 'number' },
+          defaultValue: 0,
+        },
+      ],
+      characters: [],
+      assets: [],
+      events: [],
+      signals: [signal],
+      chapters: [],
+      root: {
+        nodes: [
+          {
+            id: 'n_start',
+            type: StoryNodeType.Start,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: { title: 'Start' },
+          },
+          {
+            id: 'n_wait',
+            type: StoryNodeType.WaitSignal,
+            definitionVersion: 1,
+            position: { x: 200, y: 0 },
+            data: { signalId, matches: {} },
+          },
+          {
+            id: 'n_set',
+            type: StoryNodeType.SetVariable,
+            definitionVersion: 1,
+            position: { x: 400, y: 0 },
+            data: {
+              variableId: 'v_count',
+              value: { source: '0', bindings: {} },
+            },
+          },
+          {
+            id: 'n_end',
+            type: StoryNodeType.End,
+            definitionVersion: 1,
+            position: { x: 600, y: 0 },
+            data: { title: 'End' },
+          },
+        ],
+        edges: [
+          { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_wait', portId: 'in' } },
+          { from: { nodeId: 'n_wait', portId: 'out' }, to: { nodeId: 'n_set', portId: 'in' } },
+          { from: { nodeId: 'n_set', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+          {
+            from: { nodeId: 'n_wait', portId: 'payload:count' },
+            to: { nodeId: 'n_set', portId: 'value' },
+          },
+        ],
+      },
+    };
+
+    const compiled = compileStory(doc);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    const runtime = new StoryRuntime(compiled.program);
+    const waiting = runtime.runUntilPause();
+    expect(waiting.kind).toBe('waiting');
+    if (waiting.kind !== 'waiting') return;
+    expect(waiting.interaction.kind).toBe('signal');
+
+    const result = runtime.sendSignal(signalId, { count: 99 });
+    expect(result?.kind).toBe('completed');
+    expect(runtime.state.storyVariables.v_count).toBe(99);
+  });
 });

@@ -17,6 +17,7 @@ import {
   type Connection,
   type Edge,
   type OnConnectEnd,
+  type OnConnectStart,
   type ReactFlowInstance,
   addEdge,
 } from '@xyflow/react';
@@ -32,6 +33,10 @@ import {
   type GraphNodeLike,
   type EdgeId,
   type CallSubstoryNodeData,
+  type GetVariableNodeData,
+  type SetVariableNodeData,
+  type WaitSignalNodeData,
+  type ValueType,
   type NodeId,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
@@ -69,29 +74,126 @@ function toGraphNodes(
   nodes: readonly EditorGraphNode[],
   events: readonly {
     id: string;
-    parameters: readonly { name: string; valueType: import('@story-blueprint/common').ValueType }[];
+    parameters: readonly { name: string; valueType: ValueType }[];
     outputs?: readonly {
       id: string;
       displayName: string;
-      valueType: import('@story-blueprint/common').ValueType;
+      valueType: ValueType;
     }[];
   }[] = [],
   chapters: readonly {
     id: string;
     parameters: readonly {
-      variable: { id: string; valueType: import('@story-blueprint/common').ValueType };
+      variable: { id: string; valueType: ValueType };
     }[];
     outputs: readonly {
       variable: {
         id: string;
         displayName: string;
-        valueType: import('@story-blueprint/common').ValueType;
+        valueType: ValueType;
       };
     }[];
   }[] = [],
   activeGraphId: ActiveGraphId = 'root',
+  variables: readonly { id: string; name?: string; valueType: ValueType }[] = [],
+  signals: readonly { id: string; parameters?: readonly { name: string; valueType: ValueType }[] }[] = [],
+  stories: readonly {
+    document?: { id: string };
+    id?: string;
+    variables?: readonly { id: string; name: string; valueType: ValueType }[];
+  }[] = [],
 ): GraphNodeLike[] {
   return nodes.map((node) => {
+    if (node.type === StoryNodeType.GetVariable) {
+      const data = node.data as GetVariableNodeData;
+      const variable = variables.find((candidate) => candidate.id === data.variableId);
+      const effectiveValueType =
+        data.accessor
+          ? (data.outputValueType ??
+            (variable?.valueType.kind === 'array'
+              ? variable.valueType.elementType
+              : variable?.valueType.kind === 'map'
+                ? variable.valueType.valueType
+                : variable?.valueType))
+          : (variable?.valueType ?? data.outputValueType);
+      return {
+        id: node.id,
+        type: node.type,
+        data: effectiveValueType ? { ...data, outputValueType: effectiveValueType } : node.data,
+      } as GraphNodeLike;
+    }
+    if (node.type === StoryNodeType.SetVariable) {
+      const data = node.data as SetVariableNodeData;
+      const variable = variables.find((candidate) => candidate.id === data.variableId);
+      const targetValueType =
+        data.containerOperation === 'append' && variable?.valueType.kind === 'array'
+          ? variable.valueType.elementType
+          : data.containerOperation === 'set-entry' && variable?.valueType.kind === 'map'
+            ? variable.valueType.valueType
+            : data.containerOperation === 'set-field'
+              ? (data.fieldValueType ?? variable?.valueType)
+              : (variable?.valueType ?? data.valueInputType);
+      const valueContract = targetValueType ?? data.valueInputType;
+      const keyContract =
+        data.keyInputType ??
+        (variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
+          ? { kind: 'number' as const }
+          : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'character-ref'
+            ? { kind: 'character-ref' as const }
+            : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'asset-ref'
+              ? { kind: 'asset-ref' as const }
+              : { kind: 'string' as const });
+      return {
+        id: node.id,
+        type: node.type,
+        data: {
+          ...data,
+          ...(valueContract ? { valueInputType: valueContract } : {}),
+          ...(keyContract ? { keyInputType: keyContract } : {}),
+        },
+      } as GraphNodeLike;
+    }
+    if (node.type === StoryNodeType.WaitSignal) {
+      const data = node.data as WaitSignalNodeData;
+      const signal = signals.find((candidate) => candidate.id === data.signalId);
+      const outputPorts =
+        data.outputPorts ??
+        (signal?.parameters ?? []).map((param) => ({
+          id: param.name,
+          label: param.name,
+          valueType: param.valueType,
+        }));
+      return {
+        id: node.id,
+        type: node.type,
+        data: {
+          ...data,
+          outputPorts,
+        },
+      } as GraphNodeLike;
+    }
+    if (node.type === StoryNodeType.StartStory || node.type === StoryNodeType.SwitchStory) {
+      const data = node.data as {
+        storyId?: string;
+        arguments?: Record<string, unknown>;
+        argumentInputTypes?: Record<string, ValueType>;
+      };
+      const targetStory = stories.find((s) => (s.document ? s.document.id : s.id) === data.storyId);
+      const targetVariables = targetStory?.variables ?? [];
+      const argumentInputTypes = {
+        ...Object.fromEntries((targetVariables ?? []).map((v) => [v.id, v.valueType])),
+        ...Object.fromEntries((targetVariables ?? []).map((v) => [v.name, v.valueType])),
+        ...(data.argumentInputTypes ?? {}),
+      };
+      return {
+        id: node.id,
+        type: node.type,
+        data: {
+          ...node.data,
+          argumentInputTypes,
+        },
+      } as GraphNodeLike;
+    }
     if (node.type === StoryNodeType.Return && activeGraphId !== 'root') {
       const chapter = chapters.find((candidate) => candidate.id === activeGraphId);
       if (!chapter) return { id: node.id, type: node.type, data: node.data };
@@ -138,7 +240,7 @@ function toGraphNodes(
       outputPorts?: readonly {
         id: string;
         label: string;
-        valueType: import('@story-blueprint/common').ValueType;
+        valueType: ValueType;
       }[];
     };
     const event = events.find((candidate) => candidate.id === data.eventId);
@@ -183,12 +285,18 @@ function mergeValueText(value: unknown, present: boolean): string {
   return JSON.stringify(value, null, 2);
 }
 
-function isExecutionEdge(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): boolean {
+function isExecutionEdge(
+  edge: EditorGraphEdge,
+  nodes: readonly (EditorGraphNode | GraphNodeLike)[],
+): boolean {
   const sourcePort = sourcePortForEdge(edge, nodes);
   return sourcePort?.direction === 'output' && sourcePort.kind === 'execution';
 }
 
-function sourcePortForEdge(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]) {
+function sourcePortForEdge(
+  edge: EditorGraphEdge,
+  nodes: readonly (EditorGraphNode | GraphNodeLike)[],
+) {
   const source = nodes.find((node) => node.id === edge.source);
   if (!source) return undefined;
   return resolveNodePorts({ id: source.id, type: source.type, data: source.data }).ports.find(
@@ -201,7 +309,10 @@ const edgeTypeColors: Record<string, string> = {
   ...valueTypeColors,
 };
 
-function edgeStroke(edge: EditorGraphEdge, nodes: readonly EditorGraphNode[]): string {
+function edgeStroke(
+  edge: EditorGraphEdge,
+  nodes: readonly (EditorGraphNode | GraphNodeLike)[],
+): string {
   const port = sourcePortForEdge(edge, nodes);
   if (!port) return (edge.style?.stroke as string | undefined) ?? edgeTypeColors.execution!;
   if (port.kind === 'execution') return edgeTypeColors.execution!;
@@ -292,7 +403,20 @@ export function StoryGraph() {
     semanticSnapshot,
     focusGraphNode,
     selectStoryData,
+    availableVariables,
+    projectVariables,
+    characters,
+    signals,
+    stories,
   } = useStoryGraphStore();
+  const allVariables = useMemo(
+    () => [
+      ...availableVariables,
+      ...projectVariables,
+      ...characters.flatMap((c) => c.fields ?? []),
+    ],
+    [availableVariables, characters, projectVariables],
+  );
   const activeMergePreview = storyMergePreview?.graphs.find(
     (candidate) => candidate.id === (storyMergePreviewGraphId ?? activeGraphId),
   );
@@ -356,10 +480,18 @@ export function StoryGraph() {
           target: connection.target,
           targetPortId: connection.targetHandle ?? null,
         },
-        toGraphNodes(nodes, events, chapters, activeGraphId),
+        toGraphNodes(
+          nodes,
+          events,
+          chapters,
+          activeGraphId,
+          allVariables,
+          signals,
+          stories,
+        ),
         toGraphEdges(edges),
       ),
-    [activeGraphId, chapters, edges, events, nodes],
+    [activeGraphId, allVariables, chapters, edges, events, nodes, signals, stories],
   );
 
   const isValidConnection = useCallback(
@@ -471,8 +603,44 @@ export function StoryGraph() {
     [chapters, checkpoint, events, markDirty, nodes, setEdges, setNodes, validateConnection],
   );
 
+  const [connectionLineColor, setConnectionLineColor] = useState<string | null>(null);
+
+  const onConnectStart = useCallback<OnConnectStart>(
+    (_event, params) => {
+      if (!params.nodeId || !params.handleId) {
+        setConnectionLineColor(null);
+        return;
+      }
+      const enriched = toGraphNodes(
+        nodes,
+        events,
+        chapters,
+        activeGraphId,
+        allVariables,
+        signals,
+        stories,
+      );
+      const source = enriched.find((n) => n.id === params.nodeId);
+      if (!source) return;
+      const port = resolveNodePorts(source).ports.find(
+        (p) =>
+          p.id === params.handleId &&
+          p.direction === (params.handleType === 'target' ? 'input' : 'output'),
+      );
+      if (port && port.kind === 'data') {
+        setConnectionLineColor(valueTypeColors[port.valueType?.kind ?? 'any'] ?? edgeTypeColors.any!);
+      } else if (port && port.kind === 'execution') {
+        setConnectionLineColor(edgeTypeColors.execution!);
+      } else {
+        setConnectionLineColor(null);
+      }
+    },
+    [activeGraphId, allVariables, chapters, events, nodes, signals, stories],
+  );
+
   const onConnectEnd = useCallback<OnConnectEnd>(
     (_event, connectionState) => {
+      setConnectionLineColor(null);
       const { fromHandle, toHandle } = connectionState;
       if (!fromHandle || !toHandle) return;
 
@@ -811,7 +979,16 @@ export function StoryGraph() {
 
   const insertReroute = useCallback(
     (edge: EditorGraphEdge, position: { x: number; y: number }) => {
-      const sourcePort = sourcePortForEdge(edge, nodes);
+      const enriched = toGraphNodes(
+        nodes,
+        events,
+        chapters,
+        activeGraphId,
+        allVariables,
+        signals,
+        stories,
+      );
+      const sourcePort = sourcePortForEdge(edge, enriched);
       if (!sourcePort) return;
       const instance = NodeFactory.create(
         NodeFactory.generateId(StoryNodeType.Reroute),
@@ -852,7 +1029,19 @@ export function StoryGraph() {
       setContextMenu(null);
       markDirty();
     },
-    [checkpoint, markDirty, nodes, setEdges, setNodes],
+    [
+      activeGraphId,
+      allVariables,
+      chapters,
+      checkpoint,
+      events,
+      markDirty,
+      nodes,
+      setEdges,
+      setNodes,
+      signals,
+      stories,
+    ],
   );
 
   const convertEdgeToPortal = useCallback(
@@ -1269,6 +1458,19 @@ export function StoryGraph() {
         : { ...node, draggable, className: normalizedClassName };
     });
   }, [activeMergePreview, aiChanges, aiProposal, canvasNodes]);
+  const enrichedCanvasNodes = useMemo(
+    () =>
+      toGraphNodes(
+        canvasNodes,
+        events,
+        chapters,
+        activeGraphId,
+        allVariables,
+        signals,
+        stories,
+      ),
+    [activeGraphId, allVariables, canvasNodes, chapters, events, signals, stories],
+  );
   const renderedEdges = useMemo<EditorGraphEdge[]>(() => {
     const canvasNodesById = new Map(canvasNodes.map((node) => [node.id, node] as const));
     const virtualEdges = canvasNodes.flatMap((node): EditorGraphEdge[] => {
@@ -1307,7 +1509,7 @@ export function StoryGraph() {
         .filter(Boolean)
         .join(' ');
       const normalizedClassName = className || undefined;
-      const stroke = edgeStroke(edge, canvasNodes);
+      const stroke = edgeStroke(edge, enrichedCanvasNodes);
       const style = { ...edge.style, stroke, strokeWidth: edge.style?.strokeWidth ?? 2.25 };
       return edge.className === normalizedClassName &&
         edge.style?.stroke === stroke &&
@@ -1315,7 +1517,7 @@ export function StoryGraph() {
         ? edge
         : { ...edge, className: normalizedClassName, style };
     });
-  }, [activeMergePreview, canvasEdges, canvasNodes]);
+  }, [activeMergePreview, canvasEdges, canvasNodes, enrichedCanvasNodes]);
   const selectedMergeConflicts = useMemo(() => {
     if (!storyMergePreview || !mergeConflictSelection) return [];
     const selected = new Set(mergeConflictSelection.conflictIds);
@@ -1537,12 +1739,18 @@ export function StoryGraph() {
               ],
             });
           } else if (payload.kind === 'variable' && payload.action === 'set') {
+            const variable = allVariables.find((candidate) => candidate.id === payload.id);
             addNode(StoryNodeType.SetVariable, position, {
               variableId: payload.id,
               value: { source: '', bindings: {} },
+              valueInputType: variable?.valueType,
             });
           } else if (payload.kind === 'variable') {
-            addNode(StoryNodeType.GetVariable, position, { variableId: payload.id });
+            const variable = allVariables.find((candidate) => candidate.id === payload.id);
+            addNode(StoryNodeType.GetVariable, position, {
+              variableId: payload.id,
+              outputValueType: variable?.valueType,
+            });
           } else if (payload.kind === 'event') {
             const definition = events.find((candidate) => candidate.id === payload.id);
             addNode(StoryNodeType.CallEvent, position, {
@@ -1695,6 +1903,7 @@ export function StoryGraph() {
           onPaneContextMenu={openContextMenu}
           onSelectionEnd={mergeAdditiveSelection}
           onConnect={onConnect}
+          onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
@@ -1705,7 +1914,7 @@ export function StoryGraph() {
             style: { stroke: '#aeb7c4', strokeWidth: 2.25 },
           }}
           connectionLineType={ConnectionLineType.SmoothStep}
-          connectionLineStyle={{ stroke: '#dbe2eb', strokeWidth: 2.25 }}
+          connectionLineStyle={{ stroke: connectionLineColor ?? '#dbe2eb', strokeWidth: 2.25 }}
           colorMode="dark"
           fitView
           onlyRenderVisibleElements
@@ -2244,7 +2453,7 @@ export function StoryGraph() {
                   <span className={styles.contextMenuColor} style={{ background: '#8d99a8' }} />
                   Insert Reroute
                 </button>
-                {isExecutionEdge(contextMenu.edge, nodes) && (
+                {isExecutionEdge(contextMenu.edge, enrichedCanvasNodes) && (
                   <button type="button" onClick={() => convertEdgeToPortal(contextMenu.edge!)}>
                     <span className={styles.contextMenuColor} style={{ background: '#38a6a5' }} />
                     Convert to Flow Portal

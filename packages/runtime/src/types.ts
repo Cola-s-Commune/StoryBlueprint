@@ -86,6 +86,8 @@ export interface RuntimeState {
   eventOutputs?: Record<string, Record<string, RuntimeValue>>;
   /** Return values from completed Substory calls, keyed by call instruction and output ID. */
   substoryOutputs?: Record<string, Record<string, RuntimeValue>>;
+  /** Payload values from matched Wait for Signal instructions, keyed by instruction and parameter name. */
+  signalOutputs?: Record<string, Record<string, RuntimeValue>>;
   /** Serialized state for the currently executing embedded Ink Block. */
   ink?: { instructionId: InstructionId; stateJson: string; interactionIndex: number };
   pending?: PendingInteraction;
@@ -196,7 +198,9 @@ export type RuntimeDiagnosticCode =
   | 'ABORTED'
   | 'INK_METADATA_ERROR'
   | 'INK_VARIABLE_ERROR'
-  | 'INK_EXTERNAL_FUNCTION_ERROR';
+  | 'INK_EXTERNAL_FUNCTION_ERROR'
+  | 'INK_RUNTIME_ERROR'
+  | 'INK_CHOICE_ERROR';
 
 export interface RuntimeDiagnostic {
   code: RuntimeDiagnosticCode;

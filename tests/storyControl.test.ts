@@ -144,4 +144,66 @@ describe('Story Control', () => {
     expect(result.kind).toBe('completed');
     expect(requests).toMatchObject([{ action: 'end', instanceId: 'instance-1', arguments: {} }]);
   });
+
+  it('compiles connected data expressions into Start Story arguments', async () => {
+    const source = sourceWithControl(StoryNodeType.StartStory);
+    source.variables.push({
+      id: 'v_source_num',
+      name: 'sourceNum',
+      displayName: 'Source Num',
+      scope: 'story',
+      valueType: { kind: 'number' },
+      defaultValue: 42,
+    });
+    source.root.nodes.push({
+      id: 'n_get',
+      type: StoryNodeType.GetVariable,
+      definitionVersion: 1,
+      position: { x: 100, y: 100 },
+      data: { variableId: 'v_source_num' },
+    });
+    source.root.edges.push({
+      from: { nodeId: 'n_get', portId: 'value' },
+      to: { nodeId: 'n_control', portId: 'argument:v_target_param' },
+    });
+
+    const compiled = compileStory(source, {
+      availableStoryIds: ['s_target'],
+      storyVariablesById: {
+        s_target: [
+          {
+            id: 'v_target_param',
+            name: 'targetParam',
+            displayName: 'Target Param',
+            scope: 'story',
+            valueType: { kind: 'number' },
+            defaultValue: 0,
+          },
+        ],
+      },
+    });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    const requests: unknown[] = [];
+    const result = await runStoryWithAdapter(
+      new StoryRuntime(compiled.program),
+      adapter(async (request) => {
+        requests.push(request);
+        return { instanceId: 'gen-2' };
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(requests).toMatchObject([
+      {
+        action: 'start',
+        storyId: 's_target',
+        instanceId: 'instance-1',
+        arguments: { v_target_param: 42 },
+      },
+    ]);
+  });
 });

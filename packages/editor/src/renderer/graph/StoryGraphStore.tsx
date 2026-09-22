@@ -231,6 +231,7 @@ export interface EditorChapter extends Omit<ChapterSource, 'graph'> {
 export interface EditorStoryResource {
   document: StoryDocumentInfo;
   chapters: EditorChapter[];
+  variables?: readonly VariableDefinition[];
 }
 
 interface EditorStoryWorkspaceItem extends EditorStoryResource {
@@ -648,8 +649,9 @@ async function loadLinkedInkSources(paths: Iterable<string>): Promise<Record<str
       try {
         const result = await api.readWorkspaceInkFile(path);
         if (!result.canceled) loaded[path] = result.content;
-      } catch {
+      } catch (error) {
         // The compiler reports a precise diagnostic for an unavailable linked source.
+        console.warn('Failed to load linked Ink source:', error);
       }
     }),
   );
@@ -1077,9 +1079,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const stories = useMemo<EditorStoryResource[]>(
     () =>
       workspaceStories.map((story) =>
-        hasActiveStory && story.document.id === document.id ? { document, chapters } : story,
+        hasActiveStory && story.document.id === document.id
+          ? { document, chapters, variables }
+          : story,
       ),
-    [chapters, document, hasActiveStory, workspaceStories],
+    [chapters, document, hasActiveStory, variables, workspaceStories],
   );
 
   useEffect(() => {

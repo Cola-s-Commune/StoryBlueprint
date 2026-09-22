@@ -66,6 +66,12 @@ function cloneState(state: RuntimeState): RuntimeState {
         { ...outputs },
       ]),
     ),
+    signalOutputs: Object.fromEntries(
+      Object.entries(state.signalOutputs ?? {}).map(([instructionId, outputs]) => [
+        instructionId,
+        { ...outputs },
+      ]),
+    ),
     signalInbox: Object.fromEntries(
       Object.entries(state.signalInbox).map(([signalId, payloads]) => [
         signalId,
@@ -135,6 +141,7 @@ export function createRuntimeState(program: RuntimeProgram): RuntimeState {
     signalInbox: {},
     eventOutputs: {},
     substoryOutputs: {},
+    signalOutputs: {},
     status: 'running',
   };
 }
@@ -335,7 +342,7 @@ export class StoryRuntime {
         return this.advanceInk(instruction, story) ?? this.runUntilPause();
       } catch (cause) {
         return this.fail({
-          code: 'INK_EXTERNAL_FUNCTION_ERROR',
+          code: 'INK_CHOICE_ERROR',
           severity: 'error',
           message: cause instanceof Error ? cause.message : String(cause),
           location: this.location(),
@@ -491,6 +498,9 @@ export class StoryRuntime {
       this.currentState.pending.signalId === signalId &&
       payloadMatches(payload, this.currentState.pending.matches)
     ) {
+      (this.currentState.signalOutputs ??= {})[this.currentState.pending.instructionId] = {
+        ...payload,
+      };
       this.currentState.pending = undefined;
       this.currentState.status = 'running';
       this.currentState.instructionIndex += 1;
@@ -554,6 +564,7 @@ export class StoryRuntime {
               this.program.sourceLocale,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
             voice: instruction.voice,
             emotion: instruction.emotion,
@@ -588,6 +599,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           ]);
         } else if (instruction.containerOperation === 'set-entry') {
@@ -601,6 +613,7 @@ export class StoryRuntime {
                 this.readVariable,
                 this.readEventOutput,
                 this.readSubstoryOutput,
+              this.readSignalOutput,
               )
             : undefined;
           if (typeof key !== 'string' && typeof key !== 'number') {
@@ -613,6 +626,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           });
         } else if (instruction.containerOperation === 'set-field') {
@@ -628,6 +642,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           });
         } else {
@@ -638,6 +653,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           );
         }
@@ -662,14 +678,17 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           ]),
         );
         const buffered = this.currentState.signalInbox[instruction.signalId] ?? [];
         const matchIndex = buffered.findIndex((payload) => payloadMatches(payload, matches));
         if (matchIndex >= 0) {
+          const matchedPayload = buffered[matchIndex];
           buffered.splice(matchIndex, 1);
           if (buffered.length === 0) delete this.currentState.signalInbox[instruction.signalId];
+          (this.currentState.signalOutputs ??= {})[instruction.id] = { ...matchedPayload };
           this.currentState.instructionIndex += 1;
           return undefined;
         }
@@ -692,6 +711,7 @@ export class StoryRuntime {
           this.readVariable,
           this.readEventOutput,
           this.readSubstoryOutput,
+          this.readSignalOutput,
         );
         if (typeof condition !== 'boolean') throw new TypeError('Branch condition must be boolean');
         this.jump(condition ? instruction.whenTrue : instruction.whenFalse);
@@ -745,6 +765,7 @@ export class StoryRuntime {
             this.readVariable,
             this.readEventOutput,
             this.readSubstoryOutput,
+            this.readSignalOutput,
           );
           this.assertValueType(value, parameter, 'Substory input');
           locals[variableId] = value;
@@ -770,6 +791,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             )
           : undefined;
         if (instanceValue !== undefined && typeof instanceValue !== 'string') {
@@ -786,6 +808,7 @@ export class StoryRuntime {
                     this.readVariable,
                     this.readEventOutput,
                     this.readSubstoryOutput,
+              this.readSignalOutput,
                   ),
                 ]),
               );
@@ -829,6 +852,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           ]),
         );
@@ -895,6 +919,7 @@ export class StoryRuntime {
             this.program.sourceLocale,
             this.readEventOutput,
             this.readSubstoryOutput,
+            this.readSignalOutput,
           ),
           voice: instruction.voice,
           emotion: instruction.emotion,
@@ -977,6 +1002,7 @@ export class StoryRuntime {
               this.readVariable,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             ),
           ]),
         ),
@@ -997,6 +1023,7 @@ export class StoryRuntime {
         this.program.sourceLocale,
         this.readEventOutput,
         this.readSubstoryOutput,
+        this.readSignalOutput,
       ),
       voice: instruction.voice,
     };
@@ -1018,6 +1045,7 @@ export class StoryRuntime {
               this.program.sourceLocale,
               this.readEventOutput,
               this.readSubstoryOutput,
+              this.readSignalOutput,
             )
           : undefined,
         options: options.map((option) => ({
@@ -1039,6 +1067,7 @@ export class StoryRuntime {
       this.program.sourceLocale,
       this.readEventOutput,
       this.readSubstoryOutput,
+      this.readSignalOutput,
     );
   }
 
@@ -1061,6 +1090,14 @@ export class StoryRuntime {
     const outputs = this.currentState.substoryOutputs?.[instructionId];
     if (!outputs || !(outputId in outputs)) {
       throw new TypeError(`Substory output ${outputId} is not available`);
+    }
+    return outputs[outputId]!;
+  };
+
+  private readonly readSignalOutput = (instructionId: string, outputId: string): RuntimeValue => {
+    const outputs = this.currentState.signalOutputs?.[instructionId];
+    if (!outputs || !(outputId in outputs)) {
+      throw new TypeError(`Signal payload ${outputId} is not available`);
     }
     return outputs[outputId]!;
   };
@@ -1318,7 +1355,7 @@ export class StoryRuntime {
       story = existingStory ?? this.inkStory(instruction);
     } catch (cause) {
       return this.fail({
-        code: 'INK_VARIABLE_ERROR',
+        code: 'INK_RUNTIME_ERROR',
         severity: 'error',
         message: cause instanceof Error ? cause.message : String(cause),
         location: this.location(),
@@ -1332,7 +1369,7 @@ export class StoryRuntime {
         text = story.Continue();
       } catch (cause) {
         return this.fail({
-          code: 'INK_EXTERNAL_FUNCTION_ERROR',
+          code: 'INK_RUNTIME_ERROR',
           severity: 'error',
           message: cause instanceof Error ? cause.message : String(cause),
           location: this.location(),
@@ -1392,7 +1429,7 @@ export class StoryRuntime {
       currentChoices = story.currentChoices;
     } catch (cause) {
       return this.fail({
-        code: 'INK_EXTERNAL_FUNCTION_ERROR',
+        code: 'INK_CHOICE_ERROR',
         severity: 'error',
         message: cause instanceof Error ? cause.message : String(cause),
         location: this.location(),

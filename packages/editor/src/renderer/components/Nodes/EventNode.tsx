@@ -107,9 +107,10 @@ export function WaitSignalNode({ data }: NodeProps) {
   const wait = data as unknown as WaitSignalNodeData;
   const { signals } = useStoryGraphStore();
   const signal = signals.find((candidate) => candidate.id === wait.signalId);
+  const parameters = signal?.parameters ?? [];
   return (
     <div
-      className={styles.node}
+      className={`${styles.node} ${parameters.length > 0 ? styles.functionNode : ''}`}
       style={
         {
           '--node-accent': '#8c6ed8',
@@ -127,6 +128,35 @@ export function WaitSignalNode({ data }: NodeProps) {
           ? ` · ${Object.keys(wait.matches).length} filter${Object.keys(wait.matches).length === 1 ? '' : 's'}`
           : ''}
       </div>
+      {parameters.length > 0 && (
+        <div className={styles.functionBody}>
+          <div className={styles.functionPorts}>
+            <section
+              className={`${styles.functionPortColumn} ${styles.functionPortColumnOutput}`}
+              aria-label="Signal payload"
+            >
+              {parameters.map((parameter) => (
+                <div
+                  className={`${styles.functionPortRow} ${styles.functionPortRowOutput}`}
+                  key={parameter.name}
+                >
+                  <span>{parameter.name}</span>
+                  <em>{parameter.valueType.kind}</em>
+                  <Handle
+                    className={`${styles.dataHandle} ${styles.dataHandleOutput}`}
+                    type="source"
+                    position={Position.Right}
+                    id={`payload:${parameter.name}`}
+                    style={
+                      { '--data-pin-color': valueTypeColor(parameter.valueType) } as CSSProperties
+                    }
+                  />
+                </div>
+              ))}
+            </section>
+          </div>
+        </div>
+      )}
       <Handle
         className={`${styles.handle} ${styles.handleInput}`}
         type="target"

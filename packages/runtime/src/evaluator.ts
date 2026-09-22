@@ -9,6 +9,7 @@ import type {
 export type VariableReader = (id: VariableId) => RuntimeValue;
 export type EventOutputReader = (instructionId: string, outputId: string) => RuntimeValue;
 export type SubstoryOutputReader = (instructionId: string, outputId: string) => RuntimeValue;
+export type SignalOutputReader = (instructionId: string, outputId: string) => RuntimeValue;
 
 function asNumber(value: RuntimeValue): number {
   if (typeof value !== 'number') throw new TypeError('Expected number');
@@ -25,6 +26,7 @@ export function evaluateExpression(
   readVariable: VariableReader,
   readEventOutput?: EventOutputReader,
   readSubstoryOutput?: SubstoryOutputReader,
+  readSignalOutput?: SignalOutputReader,
 ): RuntimeValue {
   switch (expression.kind) {
     case 'literal':
@@ -38,12 +40,17 @@ export function evaluateExpression(
       if (!readSubstoryOutput)
         throw new TypeError('Substory output is not available in this context');
       return readSubstoryOutput(expression.instructionId, expression.outputId);
+    case 'signal-output':
+      if (!readSignalOutput)
+        throw new TypeError('Signal output is not available in this context');
+      return readSignalOutput(expression.instructionId, expression.outputId);
     case 'unary': {
       const value = evaluateExpression(
         expression.operand,
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       return expression.operator === 'not' ? !asBoolean(value) : -asNumber(value);
     }
@@ -51,20 +58,44 @@ export function evaluateExpression(
       if (expression.operator === 'and') {
         return (
           asBoolean(
-            evaluateExpression(expression.left, readVariable, readEventOutput, readSubstoryOutput),
+            evaluateExpression(
+              expression.left,
+              readVariable,
+              readEventOutput,
+              readSubstoryOutput,
+              readSignalOutput,
+            ),
           ) &&
           asBoolean(
-            evaluateExpression(expression.right, readVariable, readEventOutput, readSubstoryOutput),
+            evaluateExpression(
+              expression.right,
+              readVariable,
+              readEventOutput,
+              readSubstoryOutput,
+              readSignalOutput,
+            ),
           )
         );
       }
       if (expression.operator === 'or') {
         return (
           asBoolean(
-            evaluateExpression(expression.left, readVariable, readEventOutput, readSubstoryOutput),
+            evaluateExpression(
+              expression.left,
+              readVariable,
+              readEventOutput,
+              readSubstoryOutput,
+              readSignalOutput,
+            ),
           ) ||
           asBoolean(
-            evaluateExpression(expression.right, readVariable, readEventOutput, readSubstoryOutput),
+            evaluateExpression(
+              expression.right,
+              readVariable,
+              readEventOutput,
+              readSubstoryOutput,
+              readSignalOutput,
+            ),
           )
         );
       }
@@ -73,12 +104,14 @@ export function evaluateExpression(
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       const right = evaluateExpression(
         expression.right,
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       switch (expression.operator) {
         case 'add':
@@ -114,6 +147,7 @@ export function evaluateExpression(
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       if (typeof target !== 'object' || target === null || !(expression.member in target)) {
         throw new TypeError(`Missing member ${expression.member}`);
@@ -126,12 +160,14 @@ export function evaluateExpression(
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       const index = evaluateExpression(
         expression.index,
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       if (Array.isArray(target)) {
         if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= target.length) {
@@ -151,6 +187,7 @@ export function evaluateExpression(
         readVariable,
         readEventOutput,
         readSubstoryOutput,
+        readSignalOutput,
       );
       if (expression.to.kind === 'string') return String(value);
       if (expression.to.kind === 'number') return Number(value);
@@ -169,6 +206,7 @@ export function renderTextTemplate(
   sourceLocale?: string,
   readEventOutput?: EventOutputReader,
   readSubstoryOutput?: SubstoryOutputReader,
+  readSignalOutput?: SignalOutputReader,
 ): string {
   let selected = locale;
   const visited = new Set<string>();
@@ -180,14 +218,15 @@ export function renderTextTemplate(
         .map((part) =>
           part.kind === 'text'
             ? part.value
-              : String(
-                  evaluateExpression(
-                    part.expression,
-                    readVariable,
-                    readEventOutput,
-                    readSubstoryOutput,
-                  ) ?? '',
-                ),
+            : String(
+                evaluateExpression(
+                  part.expression,
+                  readVariable,
+                  readEventOutput,
+                  readSubstoryOutput,
+                  readSignalOutput,
+                ) ?? '',
+              ),
         )
         .join('');
     }
@@ -203,6 +242,7 @@ export function renderTextTemplate(
               readVariable,
               readEventOutput,
               readSubstoryOutput,
+              readSignalOutput,
             ) ?? '',
           ),
     )
@@ -224,11 +264,18 @@ export function resolveChoiceOptions(
   sourceLocale?: string,
   readEventOutput?: EventOutputReader,
   readSubstoryOutput?: SubstoryOutputReader,
+  readSignalOutput?: SignalOutputReader,
 ): readonly ResolvedChoiceOption[] {
   return choice.options.flatMap((option) => {
     const visible = option.visibleIf
       ? asBoolean(
-          evaluateExpression(option.visibleIf, readVariable, readEventOutput, readSubstoryOutput),
+          evaluateExpression(
+            option.visibleIf,
+            readVariable,
+            readEventOutput,
+            readSubstoryOutput,
+            readSignalOutput,
+          ),
         )
       : true;
     if (!visible) return [];
@@ -243,10 +290,17 @@ export function resolveChoiceOptions(
           sourceLocale,
           readEventOutput,
           readSubstoryOutput,
+          readSignalOutput,
         ),
         enabled: option.enabledIf
           ? asBoolean(
-              evaluateExpression(option.enabledIf, readVariable, readEventOutput, readSubstoryOutput),
+              evaluateExpression(
+                option.enabledIf,
+                readVariable,
+                readEventOutput,
+                readSubstoryOutput,
+                readSignalOutput,
+              ),
             )
           : true,
         target: option.target,

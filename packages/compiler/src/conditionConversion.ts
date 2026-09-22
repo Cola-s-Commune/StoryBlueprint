@@ -79,6 +79,10 @@ function formatExpression(
         throw new ConditionConversionError(
           'Substory Out values can only be used through data connections.',
         );
+      case 'signal-output':
+        throw new ConditionConversionError(
+          'Signal payload values can only be used through data connections.',
+        );
       case 'unary':
         return `${value.operator === 'not' ? '!' : '-'}(${format(value.operand)})`;
       case 'binary':

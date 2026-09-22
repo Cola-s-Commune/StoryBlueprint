@@ -72,6 +72,8 @@ function expressionAstSource(
       return undefined;
     case 'substory-output':
       return undefined;
+    case 'signal-output':
+      return undefined;
     case 'unary': {
       const operand = expressionAstSource(expression.operand, names);
       return operand === undefined

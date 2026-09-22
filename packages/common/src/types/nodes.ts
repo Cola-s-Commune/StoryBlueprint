@@ -208,6 +208,7 @@ export interface WaitSignalNodeData {
   signalId?: SignalId;
   /** Present entries constrain matching; omitted parameters accept any value. */
   matches: Record<string, ExpressionSource>;
+  outputPorts?: readonly { id: string; label: string; valueType: ValueType }[];
 }
 
 /** Calls another blueprint contained by the current Story asset. */

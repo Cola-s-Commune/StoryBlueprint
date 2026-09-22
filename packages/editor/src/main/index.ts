@@ -148,6 +148,8 @@ let closeSavePending = false;
 let observedWorkspaceGitCheckout: string | undefined;
 let workspaceGitPollBusy = false;
 let workspaceFilePollBusy = false;
+let workspaceFilePollFailures = 0;
+let workspaceGitPollFailures = 0;
 let workspaceFileSnapshot = new Map<string, WorkspaceFileFingerprint>();
 let lastGitCheckoutChangeAt = 0;
 const releaseSmokeTest = process.argv.includes('--smoke-test');
@@ -357,8 +359,13 @@ async function pollWorkspaceFiles(): Promise<void> {
     if (decision.changes.length > 0 && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('workspace:files-changed', decision.changes);
     }
+    workspaceFilePollFailures = 0;
   } catch {
     // Transient replacement writes are retried without replacing the last known snapshot.
+    workspaceFilePollFailures += 1;
+    if (workspaceFilePollFailures === 5 && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:poll-warning', 'file');
+    }
   } finally {
     workspaceFilePollBusy = false;
   }
@@ -379,8 +386,13 @@ async function pollWorkspaceGitCheckout(): Promise<void> {
       lastGitCheckoutChangeAt = Date.now();
       mainWindow.webContents.send('workspace:git-changed', git);
     }
+    workspaceGitPollFailures = 0;
   } catch {
     // A transient Git lock or checkout should be retried on the next poll.
+    workspaceGitPollFailures += 1;
+    if (workspaceGitPollFailures === 5 && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:poll-warning', 'git');
+    }
   } finally {
     workspaceGitPollBusy = false;
   }
@@ -2847,6 +2859,7 @@ function registerStoryFileHandlers(): void {
       Awaited<ReturnType<typeof openStoryFile>>,
       { canceled: true }
     >[] = [];
+    const failedPaths: string[] = [];
     for (const filePath of storyPaths) {
       try {
         const resolvedPath = await realpath(filePath);
@@ -2854,7 +2867,11 @@ function registerStoryFileHandlers(): void {
         restoredStories.push(await openStoryFile(resolvedPath));
       } catch {
         // Missing or inaccessible files are omitted from the restored session.
+        failedPaths.push(filePath);
       }
+    }
+    if (failedPaths.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:session-restore-warning', failedPaths);
     }
     const recoveryState = await readRecoverySnapshots();
     const recoveries = [];

@@ -46,6 +46,12 @@ export type TypedExpression =
       outputId: VariableId;
       valueType: ValueType;
     }
+  | {
+      kind: 'signal-output';
+      instructionId: import('./ids').InstructionId;
+      outputId: string;
+      valueType: ValueType;
+    }
   | { kind: 'unary'; operator: UnaryOperator; operand: TypedExpression; valueType: ValueType }
   | {
       kind: 'binary';

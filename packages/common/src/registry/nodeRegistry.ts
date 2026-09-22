@@ -249,7 +249,16 @@ export class NodeRegistry {
       color: '#8c6ed8',
       inputs: [{ id: 'in', label: 'Prev', kind: 'execution', direction: 'input' }],
       outputs: [{ id: 'out', label: 'Received', kind: 'execution', direction: 'output' }],
-      defaultData: () => ({ matches: {} }),
+      dynamicOutputs: {
+        sourceProperty: 'outputPorts',
+        idProperty: 'id',
+        labelProperty: 'label',
+        kind: 'data',
+        valueTypeProperty: 'valueType',
+        idPrefix: 'payload:',
+        optional: true,
+      },
+      defaultData: () => ({ matches: {}, outputPorts: [] }),
     });
 
     this.register<StoryNodeType.CallSubstory>({
@@ -296,6 +305,7 @@ export class NodeRegistry {
         labelProperty: '',
         kind: 'data',
         valueType: { kind: 'any' },
+        valueTypeProperty: 'argumentInputTypes',
         recordEntries: true,
         idPrefix: 'argument:',
       },
@@ -316,6 +326,7 @@ export class NodeRegistry {
         labelProperty: '',
         kind: 'data',
         valueType: { kind: 'any' },
+        valueTypeProperty: 'argumentInputTypes',
         recordEntries: true,
         idPrefix: 'argument:',
       },

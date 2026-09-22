@@ -35,7 +35,7 @@ import {
   type VariableDefinition,
   type VariableId,
 } from '@story-blueprint/common';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { compileTextTemplate } from '@story-blueprint/compiler';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { toSourceGraph, type EditorGraphState } from '../../graph/editorGraph';
@@ -723,6 +723,14 @@ function useStringExpressionMode({
   };
 }
 
+export function DataPinOverrideBanner({ label }: { label: string }) {
+  return (
+    <div className={styles.info}>
+      {label} comes from a data connection. The Inspector value remains as the fallback after disconnecting.
+    </div>
+  );
+}
+
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
   const {
     availableVariables,
@@ -921,18 +929,8 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           </select>
         </label>
       )}
-      {valueConnected && (
-        <div className={styles.info}>
-          Value comes from a data connection. The Inspector value remains as the fallback after
-          disconnecting.
-        </div>
-      )}
-      {keyConnected && (
-        <div className={styles.info}>
-          Key comes from a data connection. The Inspector key remains as the fallback after
-          disconnecting.
-        </div>
-      )}
+      {valueConnected && <DataPinOverrideBanner label="Value" />}
+      {keyConnected && <DataPinOverrideBanner label="Key" />}
       {isMap &&
       data.containerOperation === 'set-entry' &&
       variable?.valueType.kind === 'map' &&
@@ -1081,7 +1079,10 @@ function EventArgumentEditor({
   value?: CallEventNodeData['arguments'][string];
   argumentsByName: CallEventNodeData['arguments'];
 }) {
-  const { checkpoint, updateNodeData, characters, assets } = useStoryGraphStore();
+  const { checkpoint, updateNodeData, characters, assets, edges } = useStoryGraphStore();
+  const argumentConnected = edges.some(
+    (edge) => edge.target === nodeId && edge.targetHandle === `argument:${name}`,
+  );
   const source = value?.source ?? defaultExpressionForValueType(valueType);
   const structured = ['json', 'array', 'map', 'struct'].includes(valueType.kind);
   const parsedLiteral = useMemo(() => {
@@ -1115,6 +1116,7 @@ function EventArgumentEditor({
 
   return (
     <>
+      {argumentConnected && <DataPinOverrideBanner label={name} />}
       {(valueType.kind === 'character-ref' || valueType.kind === 'asset-ref') && (
         <label className={styles.field}>
           <span>{name} Resource</span>
@@ -2679,6 +2681,7 @@ export function Inspector() {
     hasActiveStory,
     document,
     nodes,
+    edges,
     availableVariables,
     projectVariables,
     characters,
@@ -3205,8 +3208,12 @@ export function Inspector() {
       }
       case StoryNodeType.Branch: {
         const data = node.data as BranchNodeData;
+        const conditionConnected = edges.some(
+          (edge) => edge.target === node.id && edge.targetHandle === 'condition',
+        );
         return (
           <>
+            {conditionConnected && <DataPinOverrideBanner label="Condition" />}
             <label className={styles.field}>
               <span>Condition Source</span>
               <select
@@ -3244,9 +3251,11 @@ export function Inspector() {
       }
       case StoryNodeType.GetVariable: {
         const data = node.data as GetVariableNodeData;
-        const selectedVariable = [...availableVariables, ...projectVariables].find(
-          (candidate) => candidate.id === data.variableId,
-        );
+        const selectedVariable = [
+          ...availableVariables,
+          ...projectVariables,
+          ...characters.flatMap((candidate) => candidate.fields ?? []),
+        ].find((candidate) => candidate.id === data.variableId);
         const selectedJsonType =
           selectedVariable?.valueType.kind === 'json' ? selectedVariable.valueType : undefined;
         const schema = selectedJsonType
@@ -3295,9 +3304,11 @@ export function Inspector() {
                   variableId,
                   accessor: undefined,
                   exposedFields: [],
-                  outputValueType: [...availableVariables, ...projectVariables].find(
-                    (candidate) => candidate.id === variableId,
-                  )?.valueType,
+                  outputValueType: [
+                    ...availableVariables,
+                    ...projectVariables,
+                    ...characters.flatMap((candidate) => candidate.fields ?? []),
+                  ].find((candidate) => candidate.id === variableId)?.valueType,
                 })
               }
             />
@@ -3685,69 +3696,91 @@ export function Inspector() {
               const current = (data.arguments ?? {})[parameter.variable.id];
               const source =
                 current?.source ?? expressionForDefault(parameter.variable.defaultValue).source;
-              if (parameter.variable.valueType.kind === 'json') {
-                return (
-                  <EngineJsonSourceEditor
-                    key={parameter.variable.id}
-                    label={`${parameter.variable.displayName} · JSON or ${parameter.variable.valueType.name} variable`}
-                    typeName={parameter.variable.valueType.name}
-                    source={source}
-                    onBeginEdit={checkpoint}
-                    onChange={(nextSource) =>
-                      updateNodeData(node.id, StoryNodeType.CallSubstory, {
-                        arguments: {
-                          ...(data.arguments ?? {}),
-                          [parameter.variable.id]: { source: nextSource, bindings: {} },
-                        },
-                      })
-                    }
-                  />
-                );
-              }
-              if (
-                parameter.variable.valueType.kind === 'array' ||
-                parameter.variable.valueType.kind === 'map' ||
-                parameter.variable.valueType.kind === 'struct'
-              ) {
-                try {
-                  const parsed = JSON.parse(source) as RuntimeValue;
-                  return (
-                    <ValueTypeJsonInput
-                      key={parameter.variable.id}
-                      value={parsed}
-                      valueType={parameter.variable.valueType}
-                      onCommit={(next) => {
-                        checkpoint();
+              const parameterConnected = edges.some(
+                (edge) =>
+                  edge.target === node.id &&
+                  edge.targetHandle === `argument:${parameter.variable.id}`,
+              );
+              return (
+                <Fragment key={parameter.variable.id}>
+                  {parameterConnected && (
+                    <DataPinOverrideBanner label={parameter.variable.displayName} />
+                  )}
+                  {parameter.variable.valueType.kind === 'json' ? (
+                    <EngineJsonSourceEditor
+                      label={`${parameter.variable.displayName} · JSON or ${parameter.variable.valueType.name} variable`}
+                      typeName={parameter.variable.valueType.name}
+                      source={source}
+                      onBeginEdit={checkpoint}
+                      onChange={(nextSource) =>
                         updateNodeData(node.id, StoryNodeType.CallSubstory, {
                           arguments: {
                             ...(data.arguments ?? {}),
-                            [parameter.variable.id]: { source: JSON.stringify(next), bindings: {} },
+                            [parameter.variable.id]: { source: nextSource, bindings: {} },
                           },
-                        });
-                      }}
+                        })
+                      }
                     />
-                  );
-                } catch {
-                  // Expression mode is handled by the field below.
-                }
-              }
-              return (
-                <PropertyField
-                  key={parameter.variable.id}
-                  label={`${parameter.variable.displayName} · ${parameter.variable.valueType.kind}`}
-                  value={source}
-                  variableMode="expression"
-                  expectedType={parameter.variable.valueType}
-                  onBeginEdit={checkpoint}
-                  onChange={(source) =>
-                    updateNodeData(node.id, StoryNodeType.CallSubstory, {
-                      arguments: {
-                        ...(data.arguments ?? {}),
-                        [parameter.variable.id]: { source, bindings: {} },
-                      },
-                    })
-                  }
-                />
+                  ) : (parameter.variable.valueType.kind === 'array' ||
+                      parameter.variable.valueType.kind === 'map' ||
+                      parameter.variable.valueType.kind === 'struct') ? (
+                    (() => {
+                      try {
+                        const parsed = JSON.parse(source) as RuntimeValue;
+                        return (
+                          <ValueTypeJsonInput
+                            value={parsed}
+                            valueType={parameter.variable.valueType}
+                            onCommit={(next) => {
+                              checkpoint();
+                              updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                                arguments: {
+                                  ...(data.arguments ?? {}),
+                                  [parameter.variable.id]: { source: JSON.stringify(next), bindings: {} },
+                                },
+                              });
+                            }}
+                          />
+                        );
+                      } catch {
+                        // Expression mode fallback below
+                      }
+                      return (
+                        <PropertyField
+                          label={`${parameter.variable.displayName} · ${parameter.variable.valueType.kind}`}
+                          value={source}
+                          variableMode="expression"
+                          expectedType={parameter.variable.valueType}
+                          onBeginEdit={checkpoint}
+                          onChange={(source) =>
+                            updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                              arguments: {
+                                ...(data.arguments ?? {}),
+                                [parameter.variable.id]: { source, bindings: {} },
+                              },
+                            })
+                          }
+                        />
+                      );
+                    })()
+                  ) : (
+                    <PropertyField
+                      label={`${parameter.variable.displayName} · ${parameter.variable.valueType.kind}`}
+                      value={source}
+                      variableMode="expression"
+                      expectedType={parameter.variable.valueType}
+                      onBeginEdit={checkpoint}
+                      onChange={(source) =>
+                        updateNodeData(node.id, StoryNodeType.CallSubstory, {
+                          arguments: {
+                            ...(data.arguments ?? {}),
+                            [parameter.variable.id]: { source, bindings: {} },
+                          },
+                        })
+                      }
+                    />
+                  )}
+                </Fragment>
               );
             })}
             {selectedChapter?.outputs.map((output) => (
@@ -3893,69 +3926,91 @@ export function Inspector() {
               const outputSource =
                 data.values?.[output.variable.id]?.source ??
                 expressionForDefault(output.variable.defaultValue).source;
-              if (output.variable.valueType.kind === 'json') {
-                return (
-                  <EngineJsonSourceEditor
-                    key={output.variable.id}
-                    label={`Output · ${output.variable.displayName} · JSON or ${output.variable.valueType.name} variable`}
-                    typeName={output.variable.valueType.name}
-                    source={outputSource}
-                    onBeginEdit={checkpoint}
-                    onChange={(source) =>
-                      updateNodeData(node.id, StoryNodeType.Return, {
-                        values: {
-                          ...(data.values ?? {}),
-                          [output.variable.id]: { source, bindings: {} },
-                        },
-                      })
-                    }
-                  />
-                );
-              }
-              if (
-                output.variable.valueType.kind === 'array' ||
-                output.variable.valueType.kind === 'map' ||
-                output.variable.valueType.kind === 'struct'
-              ) {
-                try {
-                  const parsed = JSON.parse(outputSource) as RuntimeValue;
-                  return (
-                    <ValueTypeJsonInput
-                      key={output.variable.id}
-                      value={parsed}
-                      valueType={output.variable.valueType}
-                      onCommit={(next) => {
-                        checkpoint();
+              const outputConnected = edges.some(
+                (edge) =>
+                  edge.target === node.id &&
+                  edge.targetHandle === `value:${output.variable.id}`,
+              );
+              return (
+                <Fragment key={output.variable.id}>
+                  {outputConnected && (
+                    <DataPinOverrideBanner label={output.variable.displayName} />
+                  )}
+                  {output.variable.valueType.kind === 'json' ? (
+                    <EngineJsonSourceEditor
+                      label={`Output · ${output.variable.displayName} · JSON or ${output.variable.valueType.name} variable`}
+                      typeName={output.variable.valueType.name}
+                      source={outputSource}
+                      onBeginEdit={checkpoint}
+                      onChange={(source) =>
                         updateNodeData(node.id, StoryNodeType.Return, {
                           values: {
                             ...(data.values ?? {}),
-                            [output.variable.id]: { source: JSON.stringify(next), bindings: {} },
+                            [output.variable.id]: { source, bindings: {} },
                           },
-                        });
-                      }}
+                        })
+                      }
                     />
-                  );
-                } catch {
-                  // Expression mode is handled by the field below.
-                }
-              }
-              return (
-                <PropertyField
-                  key={output.variable.id}
-                  label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
-                  value={outputSource}
-                  variableMode="expression"
-                  expectedType={output.variable.valueType}
-                  onBeginEdit={checkpoint}
-                  onChange={(source) =>
-                    updateNodeData(node.id, StoryNodeType.Return, {
-                      values: {
-                        ...(data.values ?? {}),
-                        [output.variable.id]: { source, bindings: {} },
-                      },
-                    })
-                  }
-                />
+                  ) : (output.variable.valueType.kind === 'array' ||
+                      output.variable.valueType.kind === 'map' ||
+                      output.variable.valueType.kind === 'struct') ? (
+                    (() => {
+                      try {
+                        const parsed = JSON.parse(outputSource) as RuntimeValue;
+                        return (
+                          <ValueTypeJsonInput
+                            value={parsed}
+                            valueType={output.variable.valueType}
+                            onCommit={(next) => {
+                              checkpoint();
+                              updateNodeData(node.id, StoryNodeType.Return, {
+                                values: {
+                                  ...(data.values ?? {}),
+                                  [output.variable.id]: { source: JSON.stringify(next), bindings: {} },
+                                },
+                              });
+                            }}
+                          />
+                        );
+                      } catch {
+                        // Expression mode is handled below.
+                      }
+                      return (
+                        <PropertyField
+                          label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
+                          value={outputSource}
+                          variableMode="expression"
+                          expectedType={output.variable.valueType}
+                          onBeginEdit={checkpoint}
+                          onChange={(source) =>
+                            updateNodeData(node.id, StoryNodeType.Return, {
+                              values: {
+                                ...(data.values ?? {}),
+                                [output.variable.id]: { source, bindings: {} },
+                              },
+                            })
+                          }
+                        />
+                      );
+                    })()
+                  ) : (
+                    <PropertyField
+                      label={`Output · ${output.variable.displayName} · ${output.variable.valueType.kind}`}
+                      value={outputSource}
+                      variableMode="expression"
+                      expectedType={output.variable.valueType}
+                      onBeginEdit={checkpoint}
+                      onChange={(source) =>
+                        updateNodeData(node.id, StoryNodeType.Return, {
+                          values: {
+                            ...(data.values ?? {}),
+                            [output.variable.id]: { source, bindings: {} },
+                          },
+                        })
+                      }
+                    />
+                  )}
+                </Fragment>
               );
             })}
             <div className={styles.info}>Returns these outputs to the Call Substory node.</div>
