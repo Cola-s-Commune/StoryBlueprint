@@ -171,6 +171,7 @@ export type {
   VariableDefinition,
 } from './types/values';
 export {
+  defaultForValueType,
   runtimeValueMatchesType,
   serializeValueTypeDescriptor,
   parseValueTypeDescriptor,

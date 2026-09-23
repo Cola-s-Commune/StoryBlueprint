@@ -2410,7 +2410,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const extractSelectionToSubstory = useCallback(():
     { ok: true; chapterId: ChapterId } | { ok: false; message: string } => {
     const id = createStableId('chapter');
-    const extracted = extractGraphSelection(graph, id);
+    const extracted = extractGraphSelection(graph, id, {
+      visibleVariables: availableVariables,
+    });
     if (!extracted.ok) return extracted;
     const identity = nextSubstoryIdentity();
     checkpoint(undefined, 'Extract to Substory');
@@ -2424,8 +2426,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       {
         id,
         ...identity,
-        parameters: [],
-        outputs: [],
+        parameters: extracted.parameters,
+        outputs: extracted.outputs,
         localVariables: [],
         graph: extracted.chapterGraph,
       },
@@ -2435,7 +2437,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     }
     markDirty();
     return { ok: true, chapterId: id };
-  }, [activeGraphId, checkpoint, graph, markDirty, nextSubstoryIdentity, restoreGraph]);
+  }, [activeGraphId, availableVariables, checkpoint, graph, markDirty, nextSubstoryIdentity, restoreGraph]);
 
   const mergeSelectedDialogues = useCallback((): { ok: true } | { ok: false; message: string } => {
     const result = mergeGraphDialogues(

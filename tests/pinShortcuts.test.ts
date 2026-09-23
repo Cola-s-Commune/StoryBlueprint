@@ -153,4 +153,55 @@ describe('pin shortcuts', () => {
       ]);
     }
   });
+
+  describe('DataPinOverrideBanner source resolution', () => {
+    it('resolves incoming source node title and output port when connected', async () => {
+      const { findIncomingSourceInfo } = await import(
+        '../packages/editor/src/renderer/components/Panels/DataPinOverrideBanner'
+      );
+      const nodes = [
+        { id: 'n_source', type: StoryNodeType.CallEvent, name: 'MyEventNode', data: {} },
+        { id: 'n_target', type: StoryNodeType.SetVariable, data: {} },
+      ];
+      const edges = [
+        { id: 'e1', source: 'n_source', sourceHandle: 'output:score', target: 'n_target', targetHandle: 'value' },
+      ];
+      const info = findIncomingSourceInfo('n_target', 'value', edges, nodes);
+      expect(info).toEqual({
+        sourceNodeTitle: 'MyEventNode',
+        sourcePortLabel: 'output:score',
+      });
+    });
+
+    it('falls back to data.title or type when node has no explicit name', async () => {
+      const { findIncomingSourceInfo } = await import(
+        '../packages/editor/src/renderer/components/Panels/DataPinOverrideBanner'
+      );
+      const nodes = [
+        { id: 'n_source', type: StoryNodeType.WaitSignal, data: { title: 'Wait Boss Defeated' } },
+        { id: 'n_target', type: StoryNodeType.SetVariable, data: {} },
+      ];
+      const edges = [
+        { id: 'e1', source: 'n_source', sourceHandle: 'payload:exp', target: 'n_target', targetHandle: 'value' },
+      ];
+      const info = findIncomingSourceInfo('n_target', 'value', edges, nodes);
+      expect(info).toEqual({
+        sourceNodeTitle: 'Wait Boss Defeated',
+        sourcePortLabel: 'payload:exp',
+      });
+    });
+
+    it('returns undefined when there is no incoming connection', async () => {
+      const { findIncomingSourceInfo } = await import(
+        '../packages/editor/src/renderer/components/Panels/DataPinOverrideBanner'
+      );
+      const nodes = [
+        { id: 'n_target', type: StoryNodeType.SetVariable, data: {} },
+      ];
+      const edges: any[] = [];
+      const info = findIncomingSourceInfo('n_target', 'value', edges, nodes);
+      expect(info).toBeUndefined();
+    });
+  });
 });
+

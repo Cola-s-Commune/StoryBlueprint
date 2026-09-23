@@ -723,13 +723,8 @@ function useStringExpressionMode({
   };
 }
 
-export function DataPinOverrideBanner({ label }: { label: string }) {
-  return (
-    <div className={styles.info}>
-      {label} comes from a data connection. The Inspector value remains as the fallback after disconnecting.
-    </div>
-  );
-}
+export { DataPinOverrideBanner, type DataPinOverrideBannerProps } from './DataPinOverrideBanner';
+import { DataPinOverrideBanner } from './DataPinOverrideBanner';
 
 function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariableNodeData }) {
   const {
@@ -738,6 +733,7 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
     characters,
     assets,
     engineTypes,
+    nodes,
     edges,
     checkpoint,
     updateNodeData,
@@ -929,8 +925,24 @@ function SetVariableEditor({ nodeId, data }: { nodeId: NodeId; data: SetVariable
           </select>
         </label>
       )}
-      {valueConnected && <DataPinOverrideBanner label="Value" />}
-      {keyConnected && <DataPinOverrideBanner label="Key" />}
+      {valueConnected && (
+        <DataPinOverrideBanner
+          label="Value"
+          targetNodeId={nodeId}
+          targetHandle="value"
+          edges={edges}
+          nodes={nodes}
+        />
+      )}
+      {keyConnected && (
+        <DataPinOverrideBanner
+          label="Key"
+          targetNodeId={nodeId}
+          targetHandle="key"
+          edges={edges}
+          nodes={nodes}
+        />
+      )}
       {isMap &&
       data.containerOperation === 'set-entry' &&
       variable?.valueType.kind === 'map' &&
@@ -1079,7 +1091,7 @@ function EventArgumentEditor({
   value?: CallEventNodeData['arguments'][string];
   argumentsByName: CallEventNodeData['arguments'];
 }) {
-  const { checkpoint, updateNodeData, characters, assets, edges } = useStoryGraphStore();
+  const { checkpoint, updateNodeData, characters, assets, nodes, edges } = useStoryGraphStore();
   const argumentConnected = edges.some(
     (edge) => edge.target === nodeId && edge.targetHandle === `argument:${name}`,
   );
@@ -1116,7 +1128,15 @@ function EventArgumentEditor({
 
   return (
     <>
-      {argumentConnected && <DataPinOverrideBanner label={name} />}
+      {argumentConnected && (
+        <DataPinOverrideBanner
+          label={name}
+          targetNodeId={nodeId}
+          targetHandle={`argument:${name}`}
+          edges={edges}
+          nodes={nodes}
+        />
+      )}
       {(valueType.kind === 'character-ref' || valueType.kind === 'asset-ref') && (
         <label className={styles.field}>
           <span>{name} Resource</span>
@@ -3213,7 +3233,15 @@ export function Inspector() {
         );
         return (
           <>
-            {conditionConnected && <DataPinOverrideBanner label="Condition" />}
+            {conditionConnected && (
+              <DataPinOverrideBanner
+                label="Condition"
+                targetNodeId={node.id}
+                targetHandle="condition"
+                edges={edges}
+                nodes={nodes}
+              />
+            )}
             <label className={styles.field}>
               <span>Condition Source</span>
               <select
@@ -3704,7 +3732,13 @@ export function Inspector() {
               return (
                 <Fragment key={parameter.variable.id}>
                   {parameterConnected && (
-                    <DataPinOverrideBanner label={parameter.variable.displayName} />
+                    <DataPinOverrideBanner
+                      label={parameter.variable.displayName}
+                      targetNodeId={node.id}
+                      targetHandle={`argument:${parameter.variable.id}`}
+                      edges={edges}
+                      nodes={nodes}
+                    />
                   )}
                   {parameter.variable.valueType.kind === 'json' ? (
                     <EngineJsonSourceEditor
@@ -3934,7 +3968,13 @@ export function Inspector() {
               return (
                 <Fragment key={output.variable.id}>
                   {outputConnected && (
-                    <DataPinOverrideBanner label={output.variable.displayName} />
+                    <DataPinOverrideBanner
+                      label={output.variable.displayName}
+                      targetNodeId={node.id}
+                      targetHandle={`value:${output.variable.id}`}
+                      edges={edges}
+                      nodes={nodes}
+                    />
                   )}
                   {output.variable.valueType.kind === 'json' ? (
                     <EngineJsonSourceEditor

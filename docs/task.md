@@ -979,6 +979,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 画布拖拽连线实时反映数据源引脚类型颜色（例如从数字引脚拉出时连线实时呈绿色），支持拖拽变量自动推导并初始化端口类型
 - [x] StoryControl（StartStory / SwitchStory）动态参数引脚类型推断与编译下发，支持从目标故事变量中推断类型并渲染对应颜色
 - [x] WaitSignal 动态输出载荷引脚支持信号参数表达式求值与端口类型继承
+- [x] Substory 提取支持数据 Pin 边界（Extract Selection to Substory with Data Pins）：跨选区边界的数据输入连线自动转为 Substory Input Parameter 并生成内部 GetVariable 节点；跨选区边界的数据输出连线自动转为 Substory Output 并连接至 Return 节点；同时重连父图 CallSubstory 的动态引脚与外部连线，支持运行时传参和返回值求值
 - [x] 运行时 Ink 诊断错误码纠正（区分 INK_RUNTIME_ERROR 与 INK_CHOICE_ERROR）与编辑器健壮性优化（文件/Git 轮询失败计数告警、会话恢复失败通知、链接 Ink 加载告警）
 
 ---

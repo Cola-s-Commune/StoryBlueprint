@@ -324,3 +324,35 @@ function isJsonValue(value: RuntimeValue): boolean {
   if (Array.isArray(value)) return value.every(isJsonValue);
   return Object.values(value as RuntimeStruct).every(isJsonValue);
 }
+
+/** Returns the default runtime value conforming to a value type. */
+export function defaultForValueType(type: ValueType): RuntimeValue {
+  if (type.nullable) return null;
+  switch (type.kind) {
+    case 'any':
+    case 'json':
+      return {};
+    case 'boolean':
+      return false;
+    case 'number':
+      return 0;
+    case 'string':
+      return '';
+    case 'character-ref':
+    case 'asset-ref':
+      return null;
+    case 'enum':
+      return type.values[0] ?? '';
+    case 'array':
+      return [];
+    case 'map':
+      return {};
+    case 'struct':
+      return Object.fromEntries(
+        Object.entries(type.fields).map(([name, fieldType]) => [
+          name,
+          defaultForValueType(fieldType),
+        ]),
+      );
+  }
+}

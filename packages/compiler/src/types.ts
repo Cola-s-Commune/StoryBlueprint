@@ -33,6 +33,7 @@ export type CompilerDiagnosticCode =
   | 'SUBSTORY_CALL_CYCLE'
   | 'TIGHT_LOOP'
   | 'MISSING_STORY'
+  | 'DATA_SOURCE_NOT_GUARANTEED'
   | 'PROJECT_ERROR';
 
 export interface CompilerDiagnostic {

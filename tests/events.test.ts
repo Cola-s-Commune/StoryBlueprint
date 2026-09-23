@@ -670,4 +670,242 @@ describe('project events', () => {
     expect(result?.kind).toBe('completed');
     expect(runtime.state.storyVariables.v_count).toBe(99);
   });
+
+  describe('compiler data pin execution reachability and dominance', () => {
+    function eventStoryWithOutput(): StorySourceDocument {
+      const source = eventStory();
+      source.events[0] = {
+        ...source.events[0]!,
+        outputs: [
+          {
+            id: 'evo_score',
+            name: 'score',
+            displayName: 'Score',
+            valueType: { kind: 'number' },
+          },
+        ],
+      };
+      const eventNode = source.root.nodes.find((node) => node.id === 'n_event')!;
+      eventNode.data = {
+        ...eventNode.data,
+        outputPorts: [{ id: 'evo_score', label: 'Score', valueType: { kind: 'number' } }],
+      };
+      return source;
+    }
+
+    it('rejects a data connection if producer executes after consumer', () => {
+      const source = eventStoryWithOutput();
+      source.root.nodes.push({
+        id: 'n_set_result',
+        type: StoryNodeType.SetVariable,
+        definitionVersion: 1,
+        position: { x: 100, y: 0 },
+        data: {
+          variableId: 'v_score',
+          value: { source: '0', bindings: {} },
+        },
+      });
+      // Start -> SetVariable -> CallEvent -> End
+      // SetVariable value comes from CallEvent's output:evo_score
+      source.root.edges = [
+        { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_set_result', portId: 'in' } },
+        { from: { nodeId: 'n_set_result', portId: 'out' }, to: { nodeId: 'n_event', portId: 'in' } },
+        { from: { nodeId: 'n_event', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+        {
+          from: { nodeId: 'n_event', portId: 'output:evo_score' },
+          to: { nodeId: 'n_set_result', portId: 'value' },
+        },
+      ];
+
+      const compiled = compileStory(source);
+      expect(compiled.ok).toBe(false);
+      const err = compiled.diagnostics.find(
+        (d) => d.code === 'INVALID_NODE' && d.message.includes('must execute before'),
+      );
+      expect(err).toBeDefined();
+    });
+
+    it('rejects a data connection if node consumes its own output pin', () => {
+      const source = eventStoryWithOutput();
+      // CallEvent's argument 'amount' connected to its own 'output:evo_score'
+      source.root.edges.push({
+        from: { nodeId: 'n_event', portId: 'output:evo_score' },
+        to: { nodeId: 'n_event', portId: 'argument:amount' },
+      });
+
+      const compiled = compileStory(source);
+      expect(compiled.ok).toBe(false);
+      const err = compiled.diagnostics.find(
+        (d) => d.code === 'INVALID_NODE' && d.message.includes('cannot consume its own output'),
+      );
+      expect(err).toBeDefined();
+    });
+
+    it('emits a warning if producer is reachable but does not dominate consumer', () => {
+      const source = eventStoryWithOutput();
+      // Graph topology:
+      // Start -> Branch
+      // Branch:true -> CallEvent -> SetVariable (merge)
+      // Branch:false -> SetVariable (merge)
+      // SetVariable -> End
+      // SetVariable value comes from CallEvent's output:evo_score
+      source.root.nodes.push(
+        {
+          id: 'n_branch',
+          type: StoryNodeType.Branch,
+          definitionVersion: 1,
+          position: { x: 100, y: 0 },
+          data: { condition: { source: 'true', bindings: {} } },
+        },
+        {
+          id: 'n_set_result',
+          type: StoryNodeType.SetVariable,
+          definitionVersion: 1,
+          position: { x: 300, y: 0 },
+          data: {
+            variableId: 'v_score',
+            value: { source: '0', bindings: {} },
+          },
+        },
+      );
+      source.root.edges = [
+        { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_branch', portId: 'in' } },
+        { from: { nodeId: 'n_branch', portId: 'true' }, to: { nodeId: 'n_event', portId: 'in' } },
+        { from: { nodeId: 'n_event', portId: 'out' }, to: { nodeId: 'n_set_result', portId: 'in' } },
+        { from: { nodeId: 'n_branch', portId: 'false' }, to: { nodeId: 'n_set_result', portId: 'in' } },
+        { from: { nodeId: 'n_set_result', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+        {
+          from: { nodeId: 'n_event', portId: 'output:evo_score' },
+          to: { nodeId: 'n_set_result', portId: 'value' },
+        },
+      ];
+
+      const compiled = compileStory(source);
+      // Warnings do not cause compileStory to fail
+      expect(compiled.ok).toBe(true);
+      const warn = compiled.diagnostics.find(
+        (d) => d.code === 'DATA_SOURCE_NOT_GUARANTEED' && d.severity === 'warning',
+      );
+      expect(warn).toBeDefined();
+      expect(warn?.message).toContain('is not guaranteed to be executed on all paths');
+    });
+
+    it('passes cleanly when producer strictly dominates consumer', () => {
+      const source = eventStoryWithOutput();
+      source.root.nodes.push({
+        id: 'n_set_result',
+        type: StoryNodeType.SetVariable,
+        definitionVersion: 1,
+        position: { x: 300, y: 0 },
+        data: {
+          variableId: 'v_score',
+          value: { source: '0', bindings: {} },
+        },
+      });
+      // Start -> CallEvent -> SetVariable -> End
+      source.root.edges = [
+        { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_event', portId: 'in' } },
+        { from: { nodeId: 'n_event', portId: 'out' }, to: { nodeId: 'n_set_result', portId: 'in' } },
+        { from: { nodeId: 'n_set_result', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+        {
+          from: { nodeId: 'n_event', portId: 'output:evo_score' },
+          to: { nodeId: 'n_set_result', portId: 'value' },
+        },
+      ];
+
+      const compiled = compileStory(source);
+      expect(compiled.ok).toBe(true);
+      const relevant = compiled.diagnostics.filter(
+        (d) => d.code === 'INVALID_NODE' || d.code === 'DATA_SOURCE_NOT_GUARANTEED',
+      );
+      expect(relevant).toHaveLength(0);
+    });
+
+    it('rejects WaitSignal payload connection if WaitSignal executes after consumer', () => {
+      const signalId = 'sig_test';
+      const doc: StorySourceDocument = {
+        format: STORY_SOURCE_FORMAT,
+        version: STORY_SOURCE_VERSION,
+        id: 's_wait_order',
+        name: 'wait_order',
+        displayName: 'Wait Order',
+        variables: [
+          {
+            id: 'v_count',
+            name: 'count',
+            displayName: 'Count',
+            scope: 'story',
+            valueType: { kind: 'number' },
+            defaultValue: 0,
+          },
+        ],
+        characters: [],
+        assets: [],
+        events: [],
+        chapters: [],
+        signals: [
+          {
+            id: signalId,
+            name: 'Signal Order',
+            payloadType: {
+              kind: 'struct',
+              fields: [{ name: 'count', valueType: { kind: 'number' } }],
+            },
+          },
+        ],
+        root: {
+          nodes: [
+            {
+              id: 'n_start',
+              type: StoryNodeType.Start,
+              definitionVersion: 1,
+              position: { x: 0, y: 0 },
+              data: { title: 'Start' },
+            },
+            {
+              id: 'n_set',
+              type: StoryNodeType.SetVariable,
+              definitionVersion: 1,
+              position: { x: 200, y: 0 },
+              data: {
+                variableId: 'v_count',
+                value: { source: '0', bindings: {} },
+              },
+            },
+            {
+              id: 'n_wait',
+              type: StoryNodeType.WaitSignal,
+              definitionVersion: 1,
+              position: { x: 400, y: 0 },
+              data: { signalId, matches: {} },
+            },
+            {
+              id: 'n_end',
+              type: StoryNodeType.End,
+              definitionVersion: 1,
+              position: { x: 600, y: 0 },
+              data: { title: 'End' },
+            },
+          ],
+          edges: [
+            { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_set', portId: 'in' } },
+            { from: { nodeId: 'n_set', portId: 'out' }, to: { nodeId: 'n_wait', portId: 'in' } },
+            { from: { nodeId: 'n_wait', portId: 'out' }, to: { nodeId: 'n_end', portId: 'in' } },
+            {
+              from: { nodeId: 'n_wait', portId: 'payload:count' },
+              to: { nodeId: 'n_set', portId: 'value' },
+            },
+          ],
+        },
+      };
+
+      const compiled = compileStory(doc);
+      expect(compiled.ok).toBe(false);
+      const err = compiled.diagnostics.find(
+        (d) => d.code === 'INVALID_NODE' && d.message.includes('must execute before'),
+      );
+      expect(err).toBeDefined();
+    });
+  });
 });
+

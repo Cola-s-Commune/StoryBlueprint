@@ -2,22 +2,29 @@ import type { Edge, Node } from '@xyflow/react';
 import {
   createGraphConnectionValidator,
   createStableId,
+  defaultForValueType,
   nodeRegistry,
   resolveNodePorts,
   StoryNodeType,
   validateGraphConnection,
   type BlueprintLayoutRequest,
   type ChapterId,
+  type ChapterOutput,
+  type ChapterParameter,
   type CharacterId,
   type DialogueNodeData,
   type DialogueLineId,
   type EdgeId,
+  type ExpressionSource,
   type FlowJumpNodeData,
   type NodeId,
   type NodeInstance,
   type OptionId,
   type SourceGraph,
   type StoryNodeDataMap,
+  type ValueType,
+  type VariableDefinition,
+  type VariableId,
 } from '@story-blueprint/common';
 
 export type EditorNodeData = StoryNodeDataMap[StoryNodeType] & Record<string, unknown>;
@@ -1054,13 +1061,111 @@ export type ExtractSelectionResult =
       chapterGraph: EditorGraphState;
       remainingGraph: EditorGraphState;
       callNodeId: NodeId;
+      parameters: readonly ChapterParameter[];
+      outputs: readonly ChapterOutput[];
     }
   | { ok: false; message: string };
 
-/** Extracts a single-entry/single-exit selection into a callable substory graph. */
+export interface ExtractSelectionOptions {
+  visibleVariables?: readonly VariableDefinition[];
+}
+
+function isGraphExecutionEdge(
+  edge: EditorGraphEdge,
+  nodesById: ReadonlyMap<NodeId, EditorGraphNode>,
+): boolean {
+  const source = nodesById.get(edge.source);
+  const target = nodesById.get(edge.target);
+  if (!source || !target) return false;
+  if (
+    source.type === StoryNodeType.Reroute &&
+    (source.data as Record<string, unknown>)?.rerouteType === 'data'
+  ) {
+    return false;
+  }
+  if (
+    target.type === StoryNodeType.Reroute &&
+    (target.data as Record<string, unknown>)?.rerouteType === 'data'
+  ) {
+    return false;
+  }
+  const sourcePorts = resolveNodePorts({
+    id: source.id,
+    type: source.type,
+    data: source.data,
+  }).ports;
+  const sourcePort = sourcePorts.find((port) => port.id === edge.sourceHandle);
+  if (sourcePort) return sourcePort.kind === 'execution';
+  const targetPorts = resolveNodePorts({
+    id: target.id,
+    type: target.type,
+    data: target.data,
+  }).ports;
+  const targetPort = targetPorts.find((port) => port.id === edge.targetHandle);
+  if (targetPort) return targetPort.kind === 'execution';
+  return edge.sourceHandle === 'out' && edge.targetHandle === 'in';
+}
+
+function sanitizeVariableName(name: string): string {
+  const cleaned = name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+  if (!cleaned || /^[0-9]/.test(cleaned)) {
+    return `var_${cleaned}`;
+  }
+  return cleaned;
+}
+
+function getUniqueVariableName(base: string, usedNames: Set<string>): string {
+  const sanitized = sanitizeVariableName(base);
+  let candidate = sanitized;
+  let counter = 1;
+  while (usedNames.has(candidate)) {
+    candidate = `${sanitized}_${counter++}`;
+  }
+  usedNames.add(candidate);
+  return candidate;
+}
+
+function resolveEdgeValueType(
+  edge: EditorGraphEdge,
+  sourceNode: EditorGraphNode,
+  targetNode: EditorGraphNode,
+  visibleVariables?: readonly VariableDefinition[],
+): ValueType {
+  if (sourceNode.type === StoryNodeType.GetVariable) {
+    const varId = (sourceNode.data as Record<string, unknown>)?.variableId as
+      | VariableId
+      | undefined;
+    if (varId && visibleVariables) {
+      const found = visibleVariables.find((v) => v.id === varId);
+      if (found) return found.valueType;
+    }
+  }
+  const sourcePorts = resolveNodePorts({
+    id: sourceNode.id,
+    type: sourceNode.type,
+    data: sourceNode.data,
+  }).ports;
+  const sourcePort = sourcePorts.find((port) => port.id === edge.sourceHandle);
+  if (sourcePort?.valueType && sourcePort.valueType.kind !== 'any') {
+    return sourcePort.valueType;
+  }
+  const targetPorts = resolveNodePorts({
+    id: targetNode.id,
+    type: targetNode.type,
+    data: targetNode.data,
+  }).ports;
+  const targetPort = targetPorts.find((port) => port.id === edge.targetHandle);
+  if (targetPort?.valueType && targetPort.valueType.kind !== 'any') {
+    return targetPort.valueType;
+  }
+  return { kind: 'any' };
+}
+
+/** Extracts a single-entry/single-exit selection into a callable substory graph with data-pin boundaries. */
 export function extractSelectionToSubstory(
   graph: EditorGraphState,
   chapterId: ChapterId,
+  options?: ExtractSelectionOptions,
 ): ExtractSelectionResult {
   const selected = graph.nodes.filter((node) => node.selected);
   if (selected.length === 0) return { ok: false, message: 'Select one or more nodes first.' };
@@ -1081,20 +1186,25 @@ export function extractSelectionToSubstory(
   }
 
   const selectedIds = new Set(selected.map((node) => node.id));
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+
   const incoming = graph.edges.filter(
     (edge) => !selectedIds.has(edge.source) && selectedIds.has(edge.target),
   );
   const outgoing = graph.edges.filter(
     (edge) => selectedIds.has(edge.source) && !selectedIds.has(edge.target),
   );
-  if (incoming.length !== 1 || outgoing.length !== 1) {
+
+  const incomingExecution = incoming.filter((edge) => isGraphExecutionEdge(edge, nodesById));
+  const incomingData = incoming.filter((edge) => !isGraphExecutionEdge(edge, nodesById));
+  const outgoingExecution = outgoing.filter((edge) => isGraphExecutionEdge(edge, nodesById));
+  const outgoingData = outgoing.filter((edge) => !isGraphExecutionEdge(edge, nodesById));
+
+  if (incomingExecution.length !== 1 || outgoingExecution.length !== 1) {
     return {
       ok: false,
-      message: `Selection needs exactly one incoming and one outgoing connection (found ${incoming.length} in, ${outgoing.length} out).`,
+      message: `Selection needs exactly one incoming and one outgoing connection (found ${incomingExecution.length} in, ${outgoingExecution.length} out).`,
     };
-  }
-  if (incoming[0].targetHandle !== 'in' || outgoing[0].targetHandle !== 'in') {
-    return { ok: false, message: 'Data-pin boundaries cannot be extracted yet.' };
   }
 
   const minX = Math.min(...selected.map((node) => node.position.x));
@@ -1105,8 +1215,9 @@ export function extractSelectionToSubstory(
   const centerY = Math.round(
     selected.reduce((sum, node) => sum + node.position.y, 0) / selected.length,
   );
-  const incomingTarget = selected.find((node) => node.id === incoming[0].target)!;
-  const outgoingSource = selected.find((node) => node.id === outgoing[0].source)!;
+  const incomingTarget = selected.find((node) => node.id === incomingExecution[0].target)!;
+  const outgoingSource = selected.find((node) => node.id === outgoingExecution[0].source)!;
+
   const entry: EditorGraphNode = {
     id: createStableId('node'),
     type: StoryNodeType.Start,
@@ -1115,20 +1226,262 @@ export function extractSelectionToSubstory(
     data: { title: 'Substory Entry' } as EditorNodeData,
     selected: false,
   };
+
+  const usedVariableNames = new Set(
+    (options?.visibleVariables ?? []).map((v) => v.name),
+  );
+
+  // Group incoming data edges by source node + source handle
+  interface IncomingDataGroup {
+    sourceNodeId: NodeId;
+    sourceHandle: string;
+    edges: EditorGraphEdge[];
+  }
+  const incomingDataGroups: IncomingDataGroup[] = [];
+  const incomingGroupMap = new Map<string, IncomingDataGroup>();
+  for (const edge of incomingData) {
+    const key = `${edge.source}\0${edge.sourceHandle}`;
+    let group = incomingGroupMap.get(key);
+    if (!group) {
+      group = {
+        sourceNodeId: edge.source,
+        sourceHandle: edge.sourceHandle,
+        edges: [],
+      };
+      incomingGroupMap.set(key, group);
+      incomingDataGroups.push(group);
+    }
+    group.edges.push(edge);
+  }
+
+  const parameters: ChapterParameter[] = [];
+  const internalGetVariableNodes: EditorGraphNode[] = [];
+  const internalDataEdges: EditorGraphEdge[] = [];
+  const externalCallInputEdges: EditorGraphEdge[] = [];
+  const callArguments: Record<VariableId, ExpressionSource> = {};
+  const callArgumentInputTypes: Record<string, ValueType> = {};
+  const callNodeId = createStableId('node');
+
+  incomingDataGroups.forEach((group, index) => {
+    const paramId = createStableId('variable') as VariableId;
+    const sourceNode = nodesById.get(group.sourceNodeId)!;
+    const firstTargetNode = nodesById.get(group.edges[0].target)!;
+    const valueType = resolveEdgeValueType(
+      group.edges[0],
+      sourceNode,
+      firstTargetNode,
+      options?.visibleVariables,
+    );
+    const defaultValue = defaultForValueType(valueType);
+
+    let baseName = 'input';
+    if (sourceNode.type === StoryNodeType.GetVariable) {
+      const varId = (sourceNode.data as Record<string, unknown>)?.variableId as
+        | VariableId
+        | undefined;
+      const foundVar = options?.visibleVariables?.find((v) => v.id === varId);
+      if (foundVar) baseName = foundVar.name;
+    } else {
+      const targetPorts = resolveNodePorts({
+        id: firstTargetNode.id,
+        type: firstTargetNode.type,
+        data: firstTargetNode.data,
+      }).ports;
+      const targetPort = targetPorts.find((p) => p.id === group.edges[0].targetHandle);
+      if (targetPort?.label) {
+        baseName = targetPort.label;
+      } else if (group.edges[0].targetHandle && group.edges[0].targetHandle !== 'in') {
+        baseName = group.edges[0].targetHandle;
+      }
+    }
+    const paramName = getUniqueVariableName(baseName, usedVariableNames);
+    const paramDisplayName = paramName;
+
+    parameters.push({
+      direction: 'input',
+      variable: {
+        id: paramId,
+        name: paramName,
+        displayName: paramDisplayName,
+        scope: 'local',
+        valueType,
+        defaultValue,
+      },
+    });
+
+    const getVarNode: EditorGraphNode = {
+      id: createStableId('node'),
+      type: StoryNodeType.GetVariable,
+      definitionVersion: 1,
+      position: {
+        x: Math.round(minX - 280),
+        y: Math.round(incomingTarget.position.y + (index + 1) * 110),
+      },
+      data: {
+        variableId: paramId,
+      } as EditorNodeData,
+      selected: false,
+    };
+    internalGetVariableNodes.push(getVarNode);
+
+    for (const edge of group.edges) {
+      internalDataEdges.push({
+        id: createStableId('edge'),
+        source: getVarNode.id,
+        sourceHandle: 'value',
+        target: edge.target,
+        targetHandle: edge.targetHandle,
+      });
+    }
+
+    externalCallInputEdges.push({
+      id: createStableId('edge'),
+      source: group.sourceNodeId,
+      sourceHandle: group.sourceHandle,
+      target: callNodeId,
+      targetHandle: `argument:${paramId}`,
+    });
+
+    callArguments[paramId] = {
+      source: JSON.stringify(defaultValue),
+      bindings: {},
+    };
+    callArgumentInputTypes[paramId] = valueType;
+  });
+
+  // Group outgoing data edges by source node + source handle
+  interface OutgoingDataGroup {
+    sourceNodeId: NodeId;
+    sourceHandle: string;
+    edges: EditorGraphEdge[];
+  }
+  const outgoingDataGroups: OutgoingDataGroup[] = [];
+  const outgoingGroupMap = new Map<string, OutgoingDataGroup>();
+  for (const edge of outgoingData) {
+    const key = `${edge.source}\0${edge.sourceHandle}`;
+    let group = outgoingGroupMap.get(key);
+    if (!group) {
+      group = {
+        sourceNodeId: edge.source,
+        sourceHandle: edge.sourceHandle,
+        edges: [],
+      };
+      outgoingGroupMap.set(key, group);
+      outgoingDataGroups.push(group);
+    }
+    group.edges.push(edge);
+  }
+
+  const returnNodeId = createStableId('node');
+  const outputs: ChapterOutput[] = [];
+  const internalReturnDataEdges: EditorGraphEdge[] = [];
+  const externalCallOutputEdges: EditorGraphEdge[] = [];
+  const returnValues: Record<VariableId, ExpressionSource> = {};
+  const returnValueInputTypes: Record<string, ValueType> = {};
+  const callOutputPorts: { id: VariableId; label: string; valueType: ValueType }[] = [];
+
+  outgoingDataGroups.forEach((group) => {
+    const outputId = createStableId('variable') as VariableId;
+    const sourceNode = nodesById.get(group.sourceNodeId)!;
+    const firstTargetNode = nodesById.get(group.edges[0].target)!;
+    const valueType = resolveEdgeValueType(
+      group.edges[0],
+      sourceNode,
+      firstTargetNode,
+      options?.visibleVariables,
+    );
+    const defaultValue = defaultForValueType(valueType);
+
+    let baseName = 'output';
+    if (sourceNode.type === StoryNodeType.GetVariable) {
+      const varId = (sourceNode.data as Record<string, unknown>)?.variableId as
+        | VariableId
+        | undefined;
+      const foundVar = options?.visibleVariables?.find((v) => v.id === varId);
+      if (foundVar) baseName = foundVar.name;
+    } else {
+      const sourcePorts = resolveNodePorts({
+        id: sourceNode.id,
+        type: sourceNode.type,
+        data: sourceNode.data,
+      }).ports;
+      const sourcePort = sourcePorts.find((p) => p.id === group.sourceHandle);
+      if (sourcePort?.label) {
+        baseName = sourcePort.label;
+      } else if (group.sourceHandle && group.sourceHandle !== 'out') {
+        baseName = group.sourceHandle;
+      }
+    }
+    const outputName = getUniqueVariableName(baseName, usedVariableNames);
+    const outputDisplayName = outputName;
+
+    outputs.push({
+      direction: 'output',
+      variable: {
+        id: outputId,
+        name: outputName,
+        displayName: outputDisplayName,
+        scope: 'local',
+        valueType,
+        defaultValue,
+      },
+    });
+
+    internalReturnDataEdges.push({
+      id: createStableId('edge'),
+      source: group.sourceNodeId,
+      sourceHandle: group.sourceHandle,
+      target: returnNodeId,
+      targetHandle: `value:${outputId}`,
+    });
+
+    returnValues[outputId] = {
+      source: JSON.stringify(defaultValue),
+      bindings: {},
+    };
+    returnValueInputTypes[outputId] = valueType;
+
+    for (const edge of group.edges) {
+      externalCallOutputEdges.push({
+        id: createStableId('edge'),
+        source: callNodeId,
+        sourceHandle: `output:${outputId}`,
+        target: edge.target,
+        targetHandle: edge.targetHandle,
+      });
+    }
+
+    callOutputPorts.push({
+      id: outputId,
+      label: outputDisplayName,
+      valueType,
+    });
+  });
+
   const returnNode: EditorGraphNode = {
-    id: createStableId('node'),
+    id: returnNodeId,
     type: StoryNodeType.Return,
     definitionVersion: 1,
     position: { x: Math.round(maxX + 280), y: Math.round(outgoingSource.position.y) },
-    data: { values: {} } as EditorNodeData,
+    data: {
+      values: returnValues,
+      valueInputTypes: returnValueInputTypes,
+    } as EditorNodeData,
     selected: false,
   };
+
   const call: EditorGraphNode = {
-    id: createStableId('node'),
+    id: callNodeId,
     type: StoryNodeType.CallSubstory,
     definitionVersion: 1,
     position: { x: centerX, y: centerY },
-    data: { chapterId, arguments: {}, resultVariableIds: {} } as EditorNodeData,
+    data: {
+      chapterId,
+      arguments: callArguments,
+      argumentInputTypes: callArgumentInputTypes,
+      outputPorts: callOutputPorts,
+      resultVariableIds: {},
+    } as EditorNodeData,
     selected: true,
   };
 
@@ -1138,6 +1491,7 @@ export function extractSelectionToSubstory(
   const chapterGraph: EditorGraphState = {
     nodes: [
       entry,
+      ...internalGetVariableNodes,
       ...selected.map((node) => ({ ...structuredClone(node), selected: false })),
       returnNode,
     ],
@@ -1147,16 +1501,18 @@ export function extractSelectionToSubstory(
         id: createStableId('edge'),
         source: entry.id,
         sourceHandle: 'out',
-        target: incoming[0].target,
-        targetHandle: incoming[0].targetHandle,
+        target: incomingExecution[0].target,
+        targetHandle: incomingExecution[0].targetHandle,
       },
+      ...internalDataEdges,
       {
         id: createStableId('edge'),
-        source: outgoing[0].source,
-        sourceHandle: outgoing[0].sourceHandle,
+        source: outgoingExecution[0].source,
+        sourceHandle: outgoingExecution[0].sourceHandle,
         target: returnNode.id,
         targetHandle: 'in',
       },
+      ...internalReturnDataEdges,
     ],
   };
 
@@ -1173,8 +1529,8 @@ export function extractSelectionToSubstory(
         .map((edge) => ({ ...edge, selected: false })),
       {
         id: createStableId('edge'),
-        source: incoming[0].source,
-        sourceHandle: incoming[0].sourceHandle,
+        source: incomingExecution[0].source,
+        sourceHandle: incomingExecution[0].sourceHandle,
         target: call.id,
         targetHandle: 'in',
       },
@@ -1182,12 +1538,21 @@ export function extractSelectionToSubstory(
         id: createStableId('edge'),
         source: call.id,
         sourceHandle: 'out',
-        target: outgoing[0].target,
-        targetHandle: outgoing[0].targetHandle,
+        target: outgoingExecution[0].target,
+        targetHandle: outgoingExecution[0].targetHandle,
       },
+      ...externalCallInputEdges,
+      ...externalCallOutputEdges,
     ],
   };
-  return { ok: true, chapterGraph, remainingGraph, callNodeId: call.id };
+  return {
+    ok: true,
+    chapterGraph,
+    remainingGraph,
+    callNodeId: call.id,
+    parameters,
+    outputs,
+  };
 }
 
 export function toEditorGraphNode(instance: NodeInstance): EditorGraphNode {

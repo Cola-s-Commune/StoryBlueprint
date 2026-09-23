@@ -11,6 +11,7 @@ import {
   parseInkDialogueMetadata,
   runtimeValueMatchesType,
   resolveNodePorts,
+  nodeRegistry,
   stripEngineObjectTypeMarkers,
   valueTypesCompatible,
   type BlockId,
@@ -475,6 +476,200 @@ export class DefaultStoryCompiler implements StoryCompiler {
         visited.add(target.id);
         return resolveTarget(target.id, 'out', visited);
       };
+      const resolveTargetNodeId = (
+        nodeId: NodeId,
+        portId: string,
+        visited = new Set<NodeId>(),
+      ): NodeId | undefined => {
+        const edge = outgoingByPort.get(`${nodeId}\0${portId}`);
+        if (!edge) return undefined;
+        const target = nodesById.get(edge.to.nodeId);
+        if (!target || target.type !== StoryNodeType.Reroute) return edge.to.nodeId;
+        if (visited.has(target.id)) return undefined;
+        visited.add(target.id);
+        return resolveTargetNodeId(target.id, 'out', visited);
+      };
+      const nodeLabel = (node: SourceNode): string => {
+        return nodeRegistry.get(node.type as StoryNodeType)?.label ?? node.type;
+      };
+
+      let dominanceContext:
+        | {
+            canReach: (fromId: NodeId, toId: NodeId) => boolean;
+            dominates: (fromId: NodeId, toId: NodeId) => boolean;
+          }
+        | undefined;
+
+      const getDominanceContext = () => {
+        if (dominanceContext) return dominanceContext;
+
+        const cfgSuccessors = new Map<NodeId, Set<NodeId>>();
+        const cfgPredecessors = new Map<NodeId, Set<NodeId>>();
+        for (const id of reachableNodeIds) {
+          cfgSuccessors.set(id, new Set());
+          cfgPredecessors.set(id, new Set());
+        }
+
+        const resolveFlowJumpTarget = (node: SourceNode): NodeId | undefined => {
+          if (node.type !== StoryNodeType.FlowJump) return undefined;
+          const jumpTargetId = (node.data as unknown as FlowJumpNodeData).targetNodeId;
+          if (!jumpTargetId) return undefined;
+          const target = nodesById.get(jumpTargetId);
+          if (!target || target.type !== StoryNodeType.Reroute) return jumpTargetId;
+          return resolveTargetNodeId(target.id, 'out');
+        };
+
+        for (const id of reachableNodeIds) {
+          const node = nodesById.get(id);
+          if (!node) continue;
+          const succs = cfgSuccessors.get(id)!;
+          if (node.type === StoryNodeType.FlowJump) {
+            const jumpTarget = resolveFlowJumpTarget(node);
+            if (jumpTarget && reachableNodeIds.has(jumpTarget)) {
+              succs.add(jumpTarget);
+              cfgPredecessors.get(jumpTarget)?.add(id);
+            }
+          }
+          const ports = resolveNodePorts({
+            id: node.id,
+            type: node.type as StoryNodeType,
+            data: node.data,
+          }).ports;
+          for (const port of ports) {
+            if (port.direction === 'output' && port.kind === 'execution') {
+              const targetId = resolveTargetNodeId(id, port.id);
+              if (targetId && reachableNodeIds.has(targetId)) {
+                succs.add(targetId);
+                cfgPredecessors.get(targetId)?.add(id);
+              }
+            }
+          }
+        }
+
+        const reachabilityCache = new Map<NodeId, Set<NodeId>>();
+        const canReach = (fromId: NodeId, toId: NodeId): boolean => {
+          if (fromId === toId) return true;
+          let reachable = reachabilityCache.get(fromId);
+          if (!reachable) {
+            reachable = new Set<NodeId>();
+            const queue: NodeId[] = [fromId];
+            while (queue.length > 0) {
+              const current = queue.shift()!;
+              const succs = cfgSuccessors.get(current);
+              if (succs) {
+                for (const succ of succs) {
+                  if (!reachable.has(succ)) {
+                    reachable.add(succ);
+                    queue.push(succ);
+                  }
+                }
+              }
+            }
+            reachabilityCache.set(fromId, reachable);
+          }
+          return reachable.has(toId);
+        };
+
+        const dominators = new Map<NodeId, Set<NodeId>>();
+        if (entry && reachableNodeIds.has(entry.id)) {
+          dominators.set(entry.id, new Set([entry.id]));
+          for (const id of reachableNodeIds) {
+            if (id !== entry.id) {
+              dominators.set(id, new Set(reachableNodeIds));
+            }
+          }
+          let changed = true;
+          let iterations = 0;
+          const maxIterations = Math.max(20, reachableNodeIds.size * 2);
+          while (changed && iterations < maxIterations) {
+            changed = false;
+            iterations++;
+            for (const id of reachableNodeIds) {
+              if (id === entry.id) continue;
+              const preds = cfgPredecessors.get(id);
+              if (!preds || preds.size === 0) {
+                const currentDom = dominators.get(id)!;
+                if (currentDom.size !== 1 || !currentDom.has(id)) {
+                  dominators.set(id, new Set([id]));
+                  changed = true;
+                }
+                continue;
+              }
+              let intersection: Set<NodeId> | undefined;
+              for (const pred of preds) {
+                const predDom = dominators.get(pred);
+                if (!predDom) continue;
+                if (!intersection) {
+                  intersection = new Set(predDom);
+                } else {
+                  for (const item of intersection) {
+                    if (!predDom.has(item)) intersection.delete(item);
+                  }
+                }
+              }
+              const nextDom = new Set(intersection ?? []);
+              nextDom.add(id);
+              const currentDom = dominators.get(id)!;
+              if (nextDom.size !== currentDom.size || [...nextDom].some((x) => !currentDom.has(x))) {
+                dominators.set(id, nextDom);
+                changed = true;
+              }
+            }
+          }
+        }
+
+        const dominates = (fromId: NodeId, toId: NodeId): boolean => {
+          return dominators.get(toId)?.has(fromId) ?? false;
+        };
+
+        dominanceContext = { canReach, dominates };
+        return dominanceContext;
+      };
+
+      const validateExecutionOrder = (
+        sourceNode: SourceNode,
+        consumerNode: SourceNode,
+      ): boolean => {
+        const sourceLabel = nodeLabel(sourceNode);
+        const consumerLabel = nodeLabel(consumerNode);
+        const valueKind =
+          sourceNode.type === StoryNodeType.WaitSignal ? 'a payload value' : 'an Out value';
+        const outputKind = sourceNode.type === StoryNodeType.WaitSignal ? 'payload' : 'output';
+
+        if (sourceNode.id === consumerNode.id) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `${sourceLabel} cannot consume its own output as an input argument`,
+            sourceNodeId: consumerNode.id,
+          });
+          return false;
+        }
+
+        const { canReach, dominates } = getDominanceContext();
+
+        if (!canReach(sourceNode.id, consumerNode.id)) {
+          diagnostics.push({
+            code: 'INVALID_NODE',
+            severity: 'error',
+            message: `${sourceLabel} supplying ${valueKind} must execute before ${consumerLabel}`,
+            sourceNodeId: consumerNode.id,
+          });
+          return false;
+        }
+
+        if (!dominates(sourceNode.id, consumerNode.id)) {
+          diagnostics.push({
+            code: 'DATA_SOURCE_NOT_GUARANTEED',
+            severity: 'warning',
+            message: `${sourceLabel} ${outputKind} is not guaranteed to be executed on all paths leading to ${consumerLabel}`,
+            sourceNodeId: consumerNode.id,
+          });
+        }
+
+        return true;
+      };
+
       const requireTarget = (node: SourceNode, portId: string): BlockId | undefined => {
         const target = resolveTarget(node.id, portId);
         if (!target) {
@@ -542,6 +737,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
             });
             return { connected: true };
           }
+          if (!validateExecutionOrder(sourceNode, node)) {
+            return { connected: true };
+          }
           const event = call.eventId
             ? source.events.find((candidate) => candidate.id === call.eventId)
             : undefined;
@@ -575,6 +773,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
               message: 'Call Substory supplying an Out value must be execution-reachable',
               sourceNodeId: sourceNode.id,
             });
+            return { connected: true };
+          }
+          if (!validateExecutionOrder(sourceNode, node)) {
             return { connected: true };
           }
           const calledChapter = call.chapterId
@@ -612,6 +813,9 @@ export class DefaultStoryCompiler implements StoryCompiler {
               message: 'Wait for Signal supplying a payload value must be execution-reachable',
               sourceNodeId: sourceNode.id,
             });
+            return { connected: true };
+          }
+          if (!validateExecutionOrder(sourceNode, node)) {
             return { connected: true };
           }
           const signal = wait.signalId
