@@ -253,4 +253,234 @@ describe('project compilation', () => {
       ]),
     );
   });
+
+  it('exports sample-quest.storyc.json and sample-quest.story.json examples', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { compileStory } = await import('../packages/compiler/src');
+    const sampleDoc: StorySourceDocument = {
+      format: STORY_SOURCE_FORMAT,
+      version: STORY_SOURCE_VERSION,
+      id: 's_dragon_quest',
+      name: 'dragon_quest',
+      displayName: 'The Dragon Quest',
+      variables: [
+        {
+          id: 'v_player_gold',
+          name: 'gold',
+          displayName: 'Player Gold',
+          scope: 'story',
+          valueType: { kind: 'number' },
+          defaultValue: 100,
+        },
+        {
+          id: 'v_player_name',
+          name: 'playerName',
+          displayName: 'Player Name',
+          scope: 'story',
+          valueType: { kind: 'string' },
+          defaultValue: 'Hero',
+        },
+        {
+          id: 'v_quest_accepted',
+          name: 'questAccepted',
+          displayName: 'Quest Accepted',
+          scope: 'story',
+          valueType: { kind: 'boolean' },
+          defaultValue: false,
+        },
+      ],
+      characters: [
+        {
+          id: 'c_elder',
+          name: 'villageElder',
+          displayName: 'Village Elder',
+          defaultPortraitId: 'ast_elder_normal',
+          emotions: {
+            happy: { portraitId: 'ast_elder_happy' },
+          },
+          fields: [],
+        },
+      ],
+      assets: [
+        {
+          id: 'ast_elder_normal',
+          name: 'elder_normal',
+          displayName: 'Elder Normal Portrait',
+          kind: 'portrait',
+          path: 'Portraits/elder_normal.png',
+        },
+        {
+          id: 'ast_elder_happy',
+          name: 'elder_happy',
+          displayName: 'Elder Happy Portrait',
+          kind: 'portrait',
+          path: 'Portraits/elder_happy.png',
+        },
+        {
+          id: 'ast_voice_welcome',
+          name: 'voice_welcome',
+          displayName: 'Elder Greeting Voice',
+          kind: 'audio',
+          path: 'Audio/VO/elder_welcome.mp3',
+        },
+      ],
+      events: [
+        {
+          id: 'ev_grant_reward',
+          name: 'grantReward',
+          displayName: 'Grant Quest Reward',
+          parameters: [
+            { name: 'amount', valueType: { kind: 'number' } },
+            { name: 'reason', valueType: { kind: 'string' } },
+          ],
+          outputs: [
+            { id: 'evo_success', name: 'success', displayName: 'Success', valueType: { kind: 'boolean' } },
+          ],
+          resumable: true,
+          sideEffect: 'write',
+        },
+      ],
+      signals: [
+        {
+          id: 'sig_boss_slain',
+          name: 'Boss Slain Signal',
+          parameters: [
+            { name: 'bossId', valueType: { kind: 'string' } },
+            { name: 'exp', valueType: { kind: 'number' } },
+          ],
+        },
+      ],
+      chapters: [],
+      root: {
+        nodes: [
+          {
+            id: 'n_start',
+            type: StoryNodeType.Start,
+            definitionVersion: 1,
+            position: { x: 0, y: 0 },
+            data: { title: 'Start' },
+          },
+          {
+            id: 'n_dialogue_greet',
+            type: StoryNodeType.Dialogue,
+            definitionVersion: 1,
+            position: { x: 220, y: 0 },
+            data: {
+              speakerId: 'c_elder',
+              emotion: 'happy',
+              portraitId: 'ast_elder_happy',
+              lines: [
+                {
+                  id: 'ln_greet',
+                  textId: 't_greet_player',
+                  text: { source: 'Welcome to our village, {playerName}! We desperately need your help.' },
+                  voice: { default: 'ast_voice_welcome' },
+                  tags: ['camera:close-up', 'audio:village_bgm'],
+                },
+              ],
+            },
+          },
+          {
+            id: 'n_choice_quest',
+            type: StoryNodeType.Choice,
+            definitionVersion: 1,
+            position: { x: 500, y: 0 },
+            data: {
+              prompt: { source: 'Will you take up the quest to defeat the dragon?' },
+              options: [
+                {
+                  id: 'opt_accept',
+                  text: { source: 'I will defeat the dragon for you!' },
+                  condition: { source: 'gold >= 0', bindings: {} },
+                },
+                {
+                  id: 'opt_decline',
+                  text: { source: 'Sorry, I am not ready yet.' },
+                },
+              ],
+            },
+          },
+          {
+            id: 'n_set_accepted',
+            type: StoryNodeType.SetVariable,
+            definitionVersion: 1,
+            position: { x: 780, y: -80 },
+            data: {
+              variableId: 'v_quest_accepted',
+              value: { source: 'true', bindings: {} },
+            },
+          },
+          {
+            id: 'n_wait_dragon',
+            type: StoryNodeType.WaitSignal,
+            definitionVersion: 1,
+            position: { x: 1040, y: -80 },
+            data: {
+              signalId: 'sig_boss_slain',
+              matches: { bossId: { source: '"red_dragon"', bindings: {} } },
+            },
+          },
+          {
+            id: 'n_call_reward',
+            type: StoryNodeType.CallEvent,
+            definitionVersion: 1,
+            position: { x: 1300, y: -80 },
+            data: {
+              eventId: 'ev_grant_reward',
+              arguments: {
+                amount: { source: '500', bindings: {} },
+                reason: { source: '"Dragon Slaying"', bindings: {} },
+              },
+              outputPorts: [{ id: 'evo_success', label: 'Success', valueType: { kind: 'boolean' } }],
+              resultVariableIds: {},
+            },
+          },
+          {
+            id: 'n_end_victory',
+            type: StoryNodeType.End,
+            definitionVersion: 1,
+            position: { x: 1560, y: -80 },
+            data: { title: 'Quest Complete' },
+          },
+          {
+            id: 'n_end_decline',
+            type: StoryNodeType.End,
+            definitionVersion: 1,
+            position: { x: 780, y: 120 },
+            data: { title: 'Quest Declined' },
+          },
+        ],
+        edges: [
+          { from: { nodeId: 'n_start', portId: 'out' }, to: { nodeId: 'n_dialogue_greet', portId: 'in' } },
+          { from: { nodeId: 'n_dialogue_greet', portId: 'out' }, to: { nodeId: 'n_choice_quest', portId: 'in' } },
+          { from: { nodeId: 'n_choice_quest', portId: 'opt_accept' }, to: { nodeId: 'n_set_accepted', portId: 'in' } },
+          { from: { nodeId: 'n_choice_quest', portId: 'opt_decline' }, to: { nodeId: 'n_end_decline', portId: 'in' } },
+          { from: { nodeId: 'n_set_accepted', portId: 'out' }, to: { nodeId: 'n_wait_dragon', portId: 'in' } },
+          { from: { nodeId: 'n_wait_dragon', portId: 'out' }, to: { nodeId: 'n_call_reward', portId: 'in' } },
+          { from: { nodeId: 'n_call_reward', portId: 'out' }, to: { nodeId: 'n_end_victory', portId: 'in' } },
+        ],
+      },
+    };
+
+    const compiled = compileStory(sampleDoc);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    const examplesDir = path.resolve(__dirname, '../docs/examples');
+    if (!fs.existsSync(examplesDir)) {
+      fs.mkdirSync(examplesDir, { recursive: true });
+    }
+    fs.writeFileSync(
+      path.join(examplesDir, 'sample-quest.story.json'),
+      JSON.stringify(sampleDoc, null, 2),
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(examplesDir, 'sample-quest.storyc.json'),
+      JSON.stringify(compiled.program, null, 2),
+      'utf-8',
+    );
+  });
 });
+

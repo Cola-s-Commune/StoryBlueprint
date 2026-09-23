@@ -456,3 +456,232 @@ public class UnityStoryAdapter : IStoryAdapter
    - 蓝图编译器生成的是基于端口 ID（如 `evo_score`）的绑定，Adapter 返回字典的 Key 必须精准使用声明的 ID。
 4. **纯粹性与防重**：
    - Adapter 本身应当是尽量无状态的，所有故事状态（包括局部变量、堆栈位置、提前收到的信号队列）均已完整序列化保存在 `RuntimeState` 中。如果游戏需要存档，只需将 `runtime.exportStateJson()` 存入存档槽位即可。
+
+---
+
+## 10. 完整样例 JSON (Sample JSON Artifacts)
+
+为方便在外部新项目中直接调试、编写反序列化 Model 类以及进行单元测试，仓库中已生成了完整的示例文件：
+
+- 🎮 **引擎运行时加载产物**：[`docs/examples/sample-quest.storyc.json`](file:///d:/Projects/StoryBlueprint/docs/examples/sample-quest.storyc.json)
+- 🎨 **编辑器蓝图源文件**：[`docs/examples/sample-quest.story.json`](file:///d:/Projects/StoryBlueprint/docs/examples/sample-quest.story.json)
+
+### 10.1 编译产物 JSON 结构详解 (`sample-quest.storyc.json`)
+
+这是游戏引擎 Runtime **直接读取、执行**的指令集 JSON 文件。该示例包含完整的对话、插值变量、选项分支、变量赋值、等待外部信号、调用游戏事件和退出：
+
+```json
+{
+  "format": "story-runtime",
+  "version": 7,
+  "id": "p_dragon_quest",
+  "contentVersion": "dev",
+  "entryBlockId": "b_start",
+  "blocks": {
+    "b_start": {
+      "id": "b_start",
+      "instructions": [
+        {
+          "id": "i_start_next",
+          "op": "jump",
+          "target": "b_dialogue_greet"
+        }
+      ]
+    },
+    "b_dialogue_greet": {
+      "id": "b_dialogue_greet",
+      "instructions": [
+        {
+          "id": "i_greet_main",
+          "op": "dialogue",
+          "text": {
+            "id": "t_greet_player",
+            "parts": [
+              { "kind": "text", "value": "Welcome to our village, " },
+              {
+                "kind": "expression",
+                "expression": {
+                  "kind": "variable",
+                  "variableId": "v_player_name",
+                  "valueType": { "kind": "string" }
+                }
+              },
+              { "kind": "text", "value": "! We desperately need your help." }
+            ]
+          },
+          "tags": [
+            "camera:close-up",
+            "audio:village_bgm"
+          ]
+        },
+        {
+          "id": "i_dialogue_greet_next",
+          "op": "jump",
+          "target": "b_choice_quest"
+        }
+      ]
+    },
+    "b_choice_quest": {
+      "id": "b_choice_quest",
+      "instructions": [
+        {
+          "id": "i_choice_quest_main",
+          "op": "choice",
+          "prompt": {
+            "id": "t_choice_prompt_choice_quest",
+            "parts": [
+              { "kind": "text", "value": "Will you take up the quest to defeat the dragon?" }
+            ]
+          },
+          "options": [
+            {
+              "id": "opt_accept",
+              "text": {
+                "id": "t_choice_option_accept",
+                "parts": [
+                  { "kind": "text", "value": "I will defeat the dragon for you!" }
+                ]
+              },
+              "target": "b_set_accepted"
+            },
+            {
+              "id": "opt_decline",
+              "text": {
+                "id": "t_choice_option_decline",
+                "parts": [
+                  { "kind": "text", "value": "Sorry, I am not ready yet." }
+                ]
+              },
+              "target": "b_end_decline"
+            }
+          ]
+        }
+      ]
+    },
+    "b_set_accepted": {
+      "id": "b_set_accepted",
+      "instructions": [
+        {
+          "id": "i_set_accepted_main",
+          "op": "set-variable",
+          "variableId": "v_quest_accepted",
+          "value": {
+            "kind": "literal",
+            "value": true,
+            "valueType": { "kind": "boolean" }
+          }
+        },
+        {
+          "id": "i_set_accepted_next",
+          "op": "jump",
+          "target": "b_wait_dragon"
+        }
+      ]
+    },
+    "b_wait_dragon": {
+      "id": "b_wait_dragon",
+      "instructions": [
+        {
+          "id": "i_wait_dragon_main",
+          "op": "wait-signal",
+          "signalId": "sig_boss_slain",
+          "matches": {
+            "bossId": {
+              "kind": "literal",
+              "value": "red_dragon",
+              "valueType": { "kind": "string" }
+            }
+          }
+        },
+        {
+          "id": "i_wait_dragon_next",
+          "op": "jump",
+          "target": "b_call_reward"
+        }
+      ]
+    },
+    "b_call_reward": {
+      "id": "b_call_reward",
+      "instructions": [
+        {
+          "id": "i_call_reward_main",
+          "op": "call-event",
+          "eventId": "ev_grant_reward",
+          "arguments": {
+            "amount": { "kind": "literal", "value": 500, "valueType": { "kind": "number" } },
+            "reason": { "kind": "literal", "value": "Dragon Slaying", "valueType": { "kind": "string" } }
+          },
+          "outputs": [
+            { "id": "evo_success", "name": "success", "valueType": { "kind": "boolean" } }
+          ],
+          "resultVariableIds": {}
+        },
+        {
+          "id": "i_call_reward_next",
+          "op": "jump",
+          "target": "b_end_victory"
+        }
+      ]
+    },
+    "b_end_victory": {
+      "id": "b_end_victory",
+      "instructions": [
+        {
+          "id": "i_end_victory_main",
+          "op": "end-story"
+        }
+      ]
+    },
+    "b_end_decline": {
+      "id": "b_end_decline",
+      "instructions": [
+        {
+          "id": "i_end_decline_main",
+          "op": "end-story"
+        }
+      ]
+    }
+  },
+  "chapters": {},
+  "variables": [
+    {
+      "id": "v_player_gold",
+      "name": "gold",
+      "displayName": "Player Gold",
+      "scope": "story",
+      "valueType": { "kind": "number" },
+      "defaultValue": 100
+    },
+    {
+      "id": "v_player_name",
+      "name": "playerName",
+      "displayName": "Player Name",
+      "scope": "story",
+      "valueType": { "kind": "string" },
+      "defaultValue": "Hero"
+    },
+    {
+      "id": "v_quest_accepted",
+      "name": "questAccepted",
+      "displayName": "Quest Accepted",
+      "scope": "story",
+      "valueType": { "kind": "boolean" },
+      "defaultValue": false
+    }
+  ]
+}
+```
+
+### 10.2 引擎接入时的反序列化建议
+
+1. **基本块（Basic Block）模型**：
+   - 整个故事被划分为多个 `blocks`，每个块包含线性顺序的 `instructions`。
+   - 块末尾是指向下一个块的跳转终止指令（`jump`、`branch`、`choice`、`end-story`）。
+   - 运行时只需要记录当前执行的 `blockId` 和 `instructionIndex`，天然便于序列化存档与读档恢复。
+2. **表达式（TypedExpression）**：
+   - 字面量：`{ "kind": "literal", "value": 500, "valueType": { "kind": "number" } }`
+   - 变量求值：`{ "kind": "variable", "variableId": "v_player_name", "valueType": { "kind": "string" } }`
+   - 算术与比较：`{ "kind": "binary", "operator": ">=", "left": ..., "right": ... }`
+3. **文本模板（RuntimeTextTemplate）**：
+   - `text.parts` 包含文本切片和变量插值切片，在展示前由虚拟机自动拼接并填充进 `DialogueRequest.defaultText` 中，引擎端如果不需要自定义富文本解析，直接使用求值好的 `request.defaultText` 即可！
+
