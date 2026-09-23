@@ -40,6 +40,7 @@ import {
   type NodeId,
   type FlowAnchorNodeData,
   type FlowJumpNodeData,
+  type CommentNodeData,
 } from '@story-blueprint/common';
 import { nodeTypes } from '../Nodes';
 import {
@@ -51,6 +52,7 @@ import {
   toEditorGraphNode,
   type EditorGraphEdge,
   type EditorGraphNode,
+  type EditorNodeData,
   type EditorGraphState,
   type GraphClipboard,
   type GraphPinReference,
@@ -493,6 +495,12 @@ export function StoryGraph() {
   const graphRef = useRef(graph);
   graphRef.current = graph;
   const dragSnapshot = useRef<EditorGraphState | null>(null);
+  const commentDragContext = useRef<{
+    commentId: NodeId;
+    startX: number;
+    startY: number;
+    enclosedNodes: { id: NodeId; initialX: number; initialY: number }[];
+  } | null>(null);
 
   const validateConnection = useCallback(
     (connection: Connection | Edge) =>
@@ -1190,6 +1198,67 @@ export function StoryGraph() {
     });
   }, []);
 
+  const createCommentBoxForSelection = useCallback(() => {
+    const selectedNodes = nodes.filter((n) => n.selected && n.type !== StoryNodeType.Comment);
+    let x = 100;
+    let y = 100;
+    let width = 420;
+    let height = 260;
+
+    if (selectedNodes.length > 0) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (const n of selectedNodes) {
+        minX = Math.min(minX, n.position.x);
+        minY = Math.min(minY, n.position.y);
+        const nodeW = (n.measured?.width ?? (n.width as number)) || 260;
+        const nodeH = (n.measured?.height ?? (n.height as number)) || 140;
+        maxX = Math.max(maxX, n.position.x + nodeW);
+        maxY = Math.max(maxY, n.position.y + nodeH);
+      }
+
+      const paddingX = 35;
+      const paddingTop = 45;
+      const paddingBottom = 35;
+
+      x = Math.round(minX - paddingX);
+      y = Math.round(minY - paddingTop);
+      width = Math.round(Math.max(300, maxX - minX + paddingX * 2));
+      height = Math.round(Math.max(180, maxY - minY + paddingTop + paddingBottom));
+    } else if (flowInstance) {
+      const centerPoint = flowInstance.screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
+      x = Math.round(centerPoint.x - 200);
+      y = Math.round(centerPoint.y - 120);
+    }
+
+    const commentNode: EditorGraphNode = {
+      id: createStableId('node'),
+      type: StoryNodeType.Comment,
+      definitionVersion: 1,
+      position: { x, y },
+      data: {
+        title: 'Comment',
+        color: '#2a3b4c',
+        width,
+        height,
+      } as unknown as EditorNodeData,
+      selected: true,
+    };
+
+    checkpoint(graph, 'Add Comment Box');
+    setNodes((current) => [
+      commentNode,
+      ...current.map((n) => ({ ...n, selected: false })),
+    ]);
+    markDirty();
+  }, [checkpoint, flowInstance, graph, markDirty, nodes, setNodes]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!hasActiveStory) return;
@@ -1211,6 +1280,11 @@ export function StoryGraph() {
       if (!modifier && key === 'm') {
         event.preventDefault();
         setShowMinimap((current) => !current);
+        return;
+      }
+      if (!modifier && key === 'c') {
+        event.preventDefault();
+        createCommentBoxForSelection();
         return;
       }
       if (modifier && key === 'c' && window.getSelection()?.toString()) return;
@@ -1335,10 +1409,66 @@ export function StoryGraph() {
     return () => cancelAnimationFrame(frame);
   }, [aiProposal?.nonce, flowInstance]);
 
-  const onNodeDragStart = useCallback(() => {
-    if (aiProposal) return;
-    dragSnapshot.current = structuredClone(graph);
-  }, [aiProposal, graph]);
+  const onNodeDragStart = useCallback(
+    (_event: unknown, node: EditorGraphNode) => {
+      if (aiProposal) return;
+      dragSnapshot.current = structuredClone(graph);
+      if (node.type === StoryNodeType.Comment) {
+        const commentData = node.data as unknown as CommentNodeData;
+        const boxX = node.position.x;
+        const boxY = node.position.y;
+        const boxW = commentData.width ?? 400;
+        const boxH = commentData.height ?? 240;
+        const enclosed = nodes.filter(
+          (n) =>
+            n.id !== node.id &&
+            n.type !== StoryNodeType.Comment &&
+            n.position.x >= boxX &&
+            n.position.x <= boxX + boxW &&
+            n.position.y >= boxY &&
+            n.position.y <= boxY + boxH,
+        );
+        commentDragContext.current = {
+          commentId: node.id,
+          startX: node.position.x,
+          startY: node.position.y,
+          enclosedNodes: enclosed.map((n) => ({
+            id: n.id,
+            initialX: n.position.x,
+            initialY: n.position.y,
+          })),
+        };
+      } else {
+        commentDragContext.current = null;
+      }
+    },
+    [aiProposal, graph, nodes],
+  );
+
+  const onNodeDrag = useCallback(
+    (_event: unknown, node: EditorGraphNode) => {
+      if (commentDragContext.current && commentDragContext.current.commentId === node.id) {
+        const deltaX = Math.round(node.position.x - commentDragContext.current.startX);
+        const deltaY = Math.round(node.position.y - commentDragContext.current.startY);
+        const enclosedMap = new Map(
+          commentDragContext.current.enclosedNodes.map((n) => [
+            n.id,
+            { x: n.initialX + deltaX, y: n.initialY + deltaY },
+          ]),
+        );
+        setNodes((current) =>
+          current.map((n) => {
+            const nextPos = enclosedMap.get(n.id);
+            if (nextPos) {
+              return { ...n, position: nextPos };
+            }
+            return n;
+          }),
+        );
+      }
+    },
+    [setNodes],
+  );
   const onNodeDragStop = useCallback(
     (_event: unknown, node: EditorGraphNode) => {
       if (aiProposal) {
@@ -1371,7 +1501,9 @@ export function StoryGraph() {
       ) {
         return;
       }
-      checkpoint(snapshot, 'Move Nodes');
+      const isComment = node.type === StoryNodeType.Comment && Boolean(commentDragContext.current);
+      commentDragContext.current = null;
+      checkpoint(snapshot, isComment ? 'Move Comment Box' : 'Move Nodes');
       markDirty();
     },
     [aiProposal, checkpoint, markDirty, setNodes, updateAIProposalNodes],
@@ -1945,6 +2077,7 @@ export function StoryGraph() {
             void flowInstance.fitView({ nodes: [target], padding: 1.2, duration: 250 });
           }}
           onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onInit={setFlowInstance}
           onPaneClick={() => setContextMenu(null)}
@@ -2488,6 +2621,8 @@ export function StoryGraph() {
               <dd>Undo or redo</dd>
               <dt>Ctrl + F</dt>
               <dd>Search nodes, dialogue, choices, and Story Data across this Story</dd>
+              <dt>C</dt>
+              <dd>Group selected nodes into a Comment Box (or create empty Comment Box)</dd>
               <dt>M</dt>
               <dd>Toggle graph minimap navigation overlay</dd>
               <dt>Layout Selected / All</dt>
@@ -2562,6 +2697,16 @@ export function StoryGraph() {
                 {selectedCount > 0 && (
                   <>
                     <div className={styles.contextMenuDivider} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        createCommentBoxForSelection();
+                        setContextMenu(null);
+                      }}
+                    >
+                      <span className={styles.contextMenuColor} style={{ background: '#3b4859' }} />
+                      Group into Comment Box (C)
+                    </button>
                     <button
                       type="button"
                       onClick={() => {

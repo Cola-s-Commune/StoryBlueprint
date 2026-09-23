@@ -1,6 +1,7 @@
 import {
   StoryNodeType,
   type ChoiceNodeData,
+  type CommentNodeData,
   type DialogueNodeData,
   type InkBlockNodeData,
   type NarrationNodeData,
@@ -114,6 +115,12 @@ export function buildStorySearchIndex(snapshot: StorySemanticSnapshot): StorySea
             option,
           ),
         );
+      } else if (node.type === StoryNodeType.Comment) {
+        const comment = node.data as unknown as CommentNodeData;
+        addNodeEntry('title', comment.title || 'Comment Box', 'Comment Box · Title', comment);
+        if (comment.comment) {
+          addNodeEntry('comment', comment.comment, 'Comment Box · Description', comment.comment);
+        }
       } else {
         addNodeEntry('node', node.name || node.type, node.type, node.data);
       }

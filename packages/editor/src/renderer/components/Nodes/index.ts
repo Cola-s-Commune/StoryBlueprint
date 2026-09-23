@@ -12,6 +12,7 @@ import { CallSubstoryNode, ReturnNode } from './SubstoryNode';
 import { FlowAnchorNode, FlowJumpNode, RerouteNode } from './FlowNode';
 import { CallEventNode, WaitSignalNode } from './EventNode';
 import { StoryControlNode } from './StoryControlNode';
+import { CommentNode } from './CommentNode';
 
 /** React Flow nodeTypes mapping — pass to <ReactFlow nodeTypes={...}> */
 export const nodeTypes: NodeTypes = {
@@ -34,5 +35,6 @@ export const nodeTypes: NodeTypes = {
   [StoryNodeType.FlowAnchor]: FlowAnchorNode,
   [StoryNodeType.FlowJump]: FlowJumpNode,
   [StoryNodeType.Return]: ReturnNode,
+  [StoryNodeType.Comment]: CommentNode,
   [StoryNodeType.End]: EndNode,
 };

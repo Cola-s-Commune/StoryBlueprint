@@ -33,6 +33,7 @@ export {
   type FlowJumpNodeData,
   type ReturnNodeData,
   type EndNodeData,
+  type CommentNodeData,
   type StoryNodeDataMap,
   type NodeDefinition,
 } from './types/nodes';

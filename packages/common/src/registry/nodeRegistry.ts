@@ -409,6 +409,23 @@ export class NodeRegistry {
       defaultData: () => ({}),
     });
 
+    // Comment / Group Box
+    this.register<StoryNodeType.Comment>({
+      type: StoryNodeType.Comment,
+      version: 1,
+      label: 'Comment Box',
+      category: 'flow',
+      color: '#3b4859',
+      inputs: [],
+      outputs: [],
+      defaultData: () => ({
+        title: 'Comment',
+        color: '#2a3b4c',
+        width: 400,
+        height: 240,
+      }),
+    });
+
     // End
     this.register<StoryNodeType.End>({
       type: StoryNodeType.End,

@@ -61,6 +61,11 @@ function requiredInteger(value: unknown, path: string): number {
   return number;
 }
 
+function optionalInteger(value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  return requiredInteger(value, path);
+}
+
 function requiredId<Kind extends StableIdKind>(
   value: unknown,
   kind: Kind,
@@ -488,6 +493,15 @@ function serializeSourceNode(source: SourceNode): Node {
         target.setProperty('kind', 'data');
         target.setProperty('value-type', JSON.stringify(reroute.valueType ?? { kind: 'any' }));
       }
+      break;
+    }
+    case StoryNodeType.Comment: {
+      const comment = data as StoryNodeDataMap[StoryNodeType.Comment];
+      if (comment.title) target.setProperty('title', comment.title);
+      if (comment.comment) target.setProperty('comment', comment.comment);
+      if (comment.color) target.setProperty('color', comment.color);
+      if (comment.width !== undefined) target.setProperty('width', comment.width);
+      if (comment.height !== undefined) target.setProperty('height', comment.height);
       break;
     }
   }
@@ -963,6 +977,7 @@ function parseSourceNode(
     [StoryNodeType.FlowAnchor]: ['label'],
     [StoryNodeType.FlowJump]: ['target'],
     [StoryNodeType.Return]: ['value', 'value-input-types'],
+    [StoryNodeType.Comment]: ['title', 'comment', 'color', 'width', 'height'],
     [StoryNodeType.End]: ['title'],
   };
   const typeChildren: Record<StoryNodeType, readonly string[]> = {
@@ -985,6 +1000,7 @@ function parseSourceNode(
     [StoryNodeType.FlowAnchor]: [],
     [StoryNodeType.FlowJump]: [],
     [StoryNodeType.Return]: ['result', 'binding'],
+    [StoryNodeType.Comment]: [],
     [StoryNodeType.End]: [],
   };
   assertShape(node, id, {
@@ -1575,6 +1591,21 @@ function parseSourceNode(
             : []),
         ]),
         ...(valueInputTypes ? { valueInputTypes } : {}),
+      };
+      break;
+    }
+    case StoryNodeType.Comment: {
+      const title = optionalString(node.getProperty('title'), `${id}.title`) ?? 'Comment';
+      const commentText = optionalString(node.getProperty('comment'), `${id}.comment`);
+      const color = optionalString(node.getProperty('color'), `${id}.color`);
+      const width = optionalInteger(node.getProperty('width'), `${id}.width`);
+      const height = optionalInteger(node.getProperty('height'), `${id}.height`);
+      data = {
+        title,
+        ...(commentText ? { comment: commentText } : {}),
+        ...(color ? { color } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
       };
       break;
     }

@@ -43,6 +43,7 @@ export enum StoryNodeType {
   FlowAnchor = 'flow-anchor',
   FlowJump = 'flow-jump',
   Return = 'return',
+  Comment = 'comment',
   End = 'end-story',
 }
 
@@ -301,6 +302,20 @@ export interface EndNodeData {
   title: string;
 }
 
+/** Pure editor group annotation and comment box. The compiler removes it from executable logic. */
+export interface CommentNodeData {
+  /** Group title / label */
+  title: string;
+  /** Optional markdown notes or description */
+  comment?: string;
+  /** Preset or custom background theme color */
+  color?: string;
+  /** Visual box width */
+  width?: number;
+  /** Visual box height */
+  height?: number;
+}
+
 // ---- Discriminated union ----
 
 /** Map each StoryNodeType to its data interface */
@@ -324,6 +339,7 @@ export interface StoryNodeDataMap {
   [StoryNodeType.FlowAnchor]: FlowAnchorNodeData;
   [StoryNodeType.FlowJump]: FlowJumpNodeData;
   [StoryNodeType.Return]: ReturnNodeData;
+  [StoryNodeType.Comment]: CommentNodeData;
   [StoryNodeType.End]: EndNodeData;
 }
 

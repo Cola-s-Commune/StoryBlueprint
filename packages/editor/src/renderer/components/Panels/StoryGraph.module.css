@@ -219,6 +219,10 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6) !important;
 }
 
+.canvas :global(.react-flow__node-comment) {
+  z-index: -1 !important;
+}
+
 .canvas :global(.react-flow__node.ai-change-added) {
   border-radius: 9px;
   outline: 2px solid #55c878;

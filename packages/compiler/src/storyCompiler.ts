@@ -913,7 +913,8 @@ export class DefaultStoryCompiler implements StoryCompiler {
         if (
           node.type === StoryNodeType.GetVariable ||
           node.type === StoryNodeType.Reroute ||
-          node.type === StoryNodeType.FlowAnchor
+          node.type === StoryNodeType.FlowAnchor ||
+          node.type === StoryNodeType.Comment
         )
           continue;
         const instructions: RuntimeInstruction[] = [];
@@ -2057,6 +2058,7 @@ export class DefaultStoryCompiler implements StoryCompiler {
           }
           case StoryNodeType.Reroute:
           case StoryNodeType.FlowAnchor:
+          case StoryNodeType.Comment:
             break;
           default:
             diagnostics.push({

@@ -68,6 +68,8 @@ export function getMinimapNodeColor(type?: string, diffKind?: MinimapDiffKind): 
     case StoryNodeType.SwitchStory:
     case StoryNodeType.ResumeStory:
       return '#3f9a80';
+    case StoryNodeType.Comment:
+      return '#3b4859';
     default:
       return '#6d7b91';
   }
