@@ -112,6 +112,13 @@ export {
   type DialoguePolishOptions,
   type ScriptAdaptationOptions,
 } from './ai/promptTemplates';
+export {
+  formatSelectedNodesDetails,
+  formatPendingProposalState,
+  buildMultiTurnContextBlock,
+  type SelectedNodeDetail,
+  type MultiTurnContextParams,
+} from './ai/chatContext';
 
 // ---- Typed graph connection rules ----
 export {

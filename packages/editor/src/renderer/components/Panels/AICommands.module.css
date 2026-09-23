@@ -1003,3 +1003,41 @@
   padding: 5px 12px;
   font-size: 11px;
 }
+
+.followUpBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: #181d22;
+  border: 1px solid #28303a;
+}
+
+.followUpLabel {
+  font-size: 11px;
+  color: #7e8c9b;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.followUpChip {
+  padding: 3px 9px;
+  font-size: 11px;
+  color: #8bb2d6;
+  background: #1f2730;
+  border: 1px solid #324455;
+  border-radius: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.followUpChip:hover {
+  color: #d8e8f8;
+  background: #2a3a4c;
+  border-color: #4f7396;
+}
+

@@ -6,7 +6,10 @@ import {
   BLUEPRINT_NODE_CATALOG,
   BLUEPRINT_COMMAND_VERSION,
   StoryNodeType,
+  buildMultiTurnContextBlock,
+  type BlueprintCommandTransaction,
   type BlueprintTransactionResult,
+  type SelectedNodeDetail,
   type StoryNodeDataMap,
   type StorySemanticSnapshot,
 } from '@story-blueprint/common';
@@ -425,6 +428,7 @@ function aiContext(
   scope?: { kind: AIContextScope; activeGraphId: string; selectedNodeIds: readonly string[] },
   mode: AIContextMode = 'full',
   toolsEnabled = true,
+  multiTurnBlock = '',
 ): string {
   const example = { ...BLUEPRINT_COMMAND_EXAMPLE, baseRevision: snapshot.revision };
   const build = (contextSnapshot: StorySemanticSnapshot, compacted: boolean) =>
@@ -464,6 +468,7 @@ function aiContext(
               : '',
           ].filter(Boolean)
         : []),
+      ...(multiTurnBlock ? ['', multiTurnBlock] : []),
       '',
       'BLUEPRINT COMMAND JSON SCHEMA:',
       JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2),
@@ -696,6 +701,29 @@ export function AICommands() {
     [activeGraphId, contextScope, selectedNodeIds, semanticSnapshot],
   );
   const snapshotText = useMemo(() => JSON.stringify(semanticSnapshot, null, 2), [semanticSnapshot]);
+  const selectedNodeDetails = useMemo<SelectedNodeDetail[]>(() => {
+    return nodes
+      .filter((node) => node.selected)
+      .map((node) => ({
+        id: node.id,
+        type: node.type as StoryNodeType,
+        data: node.data,
+        title: (node.data as any)?.title,
+      }));
+  }, [nodes]);
+  const multiTurnContextText = useMemo(() => {
+    return buildMultiTurnContextBlock({
+      selectedNodes: selectedNodeDetails,
+      characters: semanticSnapshot.characters,
+      pendingProposal: (aiCommandProposal?.transaction as BlueprintCommandTransaction | undefined) ?? undefined,
+      currentStoryRevision: semanticSnapshot.revision,
+    });
+  }, [
+    selectedNodeDetails,
+    semanticSnapshot.characters,
+    aiCommandProposal?.transaction,
+    semanticSnapshot.revision,
+  ]);
   const contextText = useMemo(
     () =>
       aiContext(
@@ -705,16 +733,64 @@ export function AICommands() {
           ? 'compact'
           : (activeProvider?.contextMode ?? 'full'),
         activeProvider?.tools !== 'disabled',
+        multiTurnContextText,
       ),
     [
       activeGraphId,
       activeProvider?.contextMode,
       activeProvider?.tools,
       contextScope,
+      multiTurnContextText,
       scopedSemanticSnapshot,
       selectedNodeIds,
     ],
   );
+  const followUpSuggestions = useMemo(() => {
+    if (generating || conversation.length === 0) return [];
+    const lastMsg = conversation[conversation.length - 1];
+    if (lastMsg.role !== 'assistant') return [];
+
+    const suggestions: string[] = [];
+    if (aiCommandProposal) {
+      const tx = aiCommandProposal.transaction as BlueprintCommandTransaction | undefined;
+      const ops = tx?.operations ?? [];
+      const hasChoice = ops.some(
+        (op: any) =>
+          (op.kind === 'add-node' && op.node?.type === StoryNodeType.Choice) ||
+          op.kind === 'update-choice-option' ||
+          op.kind === 'add-choice-option',
+      );
+      const hasDialogue = ops.some(
+        (op: any) =>
+          (op.kind === 'add-node' && op.node?.type === StoryNodeType.Dialogue) ||
+          op.kind === 'update-dialogue-line' ||
+          op.kind === 'add-dialogue-line',
+      );
+
+      if (hasChoice) {
+        suggestions.push('把第3个选项改得更委婉一些');
+        suggestions.push('增加一个冷静理智的备选分支');
+        suggestions.push('为各选项生成后续剧情对白');
+      } else if (hasDialogue) {
+        suggestions.push('将台词语气修改得更具角色个性');
+        suggestions.push('在此处增加一个关键剧情选择分支');
+        suggestions.push('继续向下顺承续写 3 句对白');
+      } else {
+        suggestions.push('检查是否有漏连或断开的引脚');
+        suggestions.push('将修改微调得更符合剧情上下文');
+      }
+    } else if (selectedNodeDetails.length > 0) {
+      const firstSelected = selectedNodeDetails[0];
+      if (firstSelected.type === StoryNodeType.Choice) {
+        suggestions.push('把选中的第三个选项改得更委婉一些');
+        suggestions.push('为选中的选择节点增加一个中立选项');
+      } else if (firstSelected.type === StoryNodeType.Dialogue) {
+        suggestions.push('将选中节点的第二句台词语气改得更警惕');
+        suggestions.push('为选中对白节点续写后续对白');
+      }
+    }
+    return suggestions.slice(0, 3);
+  }, [conversation, generating, aiCommandProposal, selectedNodeDetails]);
   const schemaText = useMemo(() => JSON.stringify(BLUEPRINT_COMMAND_JSON_SCHEMA, null, 2), []);
   const chatScopeKey = activeStoryId
     ? `${workspace?.rootPath ?? 'standalone'}::${activeStoryId}`
@@ -1585,6 +1661,24 @@ export function AICommands() {
             </div>
           )}
         </div>
+        {followUpSuggestions.length > 0 && !generating && (
+          <div className={styles.followUpBar}>
+            <span className={styles.followUpLabel}>💡 建议追问:</span>
+            {followUpSuggestions.map((sug, i) => (
+              <button
+                key={i}
+                type="button"
+                className={styles.followUpChip}
+                onClick={() => {
+                  setInstruction(sug);
+                  void generate(false, sug);
+                }}
+              >
+                {sug}
+              </button>
+            ))}
+          </div>
+        )}
         <AIQuickActions
           semanticSnapshot={semanticSnapshot}
           activeGraphId={activeGraphId}
