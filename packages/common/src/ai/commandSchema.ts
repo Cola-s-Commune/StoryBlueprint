@@ -799,32 +799,32 @@ export const BLUEPRINT_NODE_CATALOG = [
   {
     type: StoryNodeType.Branch,
     data: { condition: { source: 'true', bindings: {} } },
-    inputPorts: ['in'],
+    inputPorts: ['in', 'condition'],
     outputPorts: ['true', 'false'],
   },
   {
     type: StoryNodeType.GetVariable,
     data: { variableId: 'v_existing' },
     inputPorts: [],
-    outputPorts: ['value'],
+    outputPorts: ['value', 'field:<fieldId>'],
   },
   {
     type: StoryNodeType.SetVariable,
     data: { variableId: 'v_existing', value: { source: '1', bindings: {} } },
-    inputPorts: ['in'],
+    inputPorts: ['in', 'value', 'key'],
     outputPorts: ['out'],
   },
   {
     type: StoryNodeType.CallEvent,
     data: { eventId: 'ev_existing', arguments: {} },
-    inputPorts: ['in'],
+    inputPorts: ['in', 'argument:<parameterName>'],
     outputPorts: ['out', 'output:<eventOutputId>'],
   },
   {
     type: StoryNodeType.WaitSignal,
     data: { signalId: 'sig_existing', matches: {} },
     inputPorts: ['in'],
-    outputPorts: ['out'],
+    outputPorts: ['out', 'payload:<parameterName>'],
   },
   {
     type: StoryNodeType.CallSubstory,
@@ -845,7 +845,7 @@ export const BLUEPRINT_NODE_CATALOG = [
       waitForCompletion: false,
       instanceVariableId: 'v_instance',
     },
-    inputPorts: ['in'],
+    inputPorts: ['in', 'argument:<storyVariableId>'],
     outputPorts: ['out'],
   },
   {
@@ -857,7 +857,7 @@ export const BLUEPRINT_NODE_CATALOG = [
       waitForCompletion: false,
       instanceVariableId: 'v_instance',
     },
-    inputPorts: ['in'],
+    inputPorts: ['in', 'argument:<storyVariableId>'],
     outputPorts: ['out'],
   },
   {

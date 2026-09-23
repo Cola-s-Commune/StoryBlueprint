@@ -1820,4 +1820,338 @@ describe('AI semantic editing foundation', () => {
       },
     });
   });
+
+  it('hydrates and exposes data pins in AI semantic snapshots', () => {
+    const doc = story();
+    doc.variables = [
+      {
+        id: 'v_count',
+        name: 'player_count',
+        displayName: 'Player Count',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 0,
+      },
+    ];
+    doc.signals = [
+      {
+        id: 'sig_spawn',
+        name: 'on_spawn',
+        displayName: 'On Spawn',
+        parameters: [{ name: 'amount', valueType: { kind: 'number' } }],
+      },
+    ];
+    doc.events = [
+      {
+        id: 'ev_attack',
+        name: 'do_attack',
+        displayName: 'Do Attack',
+        parameters: [{ name: 'damage', valueType: { kind: 'number' } }],
+        outputs: [{ id: 'success', displayName: 'Is Success', valueType: { kind: 'boolean' } }],
+      },
+    ];
+    doc.root.nodes.push(
+      {
+        id: 'n_getvar',
+        type: StoryNodeType.GetVariable,
+        definitionVersion: 1,
+        position: { x: 100, y: 100 },
+        data: { variableId: 'v_count' },
+      },
+      {
+        id: 'n_setvar',
+        type: StoryNodeType.SetVariable,
+        definitionVersion: 1,
+        position: { x: 300, y: 100 },
+        data: { variableId: 'v_count', value: { source: '0', bindings: {} } },
+      },
+      {
+        id: 'n_wait_sig',
+        type: StoryNodeType.WaitSignal,
+        definitionVersion: 1,
+        position: { x: 100, y: 200 },
+        data: { signalId: 'sig_spawn', matches: {} },
+      },
+      {
+        id: 'n_call_evt',
+        type: StoryNodeType.CallEvent,
+        definitionVersion: 1,
+        position: { x: 300, y: 200 },
+        data: { eventId: 'ev_attack', arguments: {}, resultVariableIds: {} },
+      },
+      {
+        id: 'n_branch',
+        type: StoryNodeType.Branch,
+        definitionVersion: 1,
+        position: { x: 500, y: 200 },
+        data: { condition: { source: 'true', bindings: {} } },
+      },
+    );
+
+    const snapshot = createStorySemanticSnapshot(doc);
+    const rootNodes = snapshot.graphs[0].nodes;
+    const getNode = (id: string) => rootNodes.find((n) => n.id === id);
+
+    const getVar = getNode('n_getvar');
+    expect(getVar?.ports).toContainEqual(
+      expect.objectContaining({ id: 'value', direction: 'output', valueType: { kind: 'number' } }),
+    );
+
+    const setVar = getNode('n_setvar');
+    expect(setVar?.ports).toContainEqual(
+      expect.objectContaining({ id: 'value', direction: 'input', valueType: { kind: 'number' } }),
+    );
+
+    const waitSig = getNode('n_wait_sig');
+    expect(waitSig?.ports).toContainEqual(
+      expect.objectContaining({ id: 'payload:amount', direction: 'output', valueType: { kind: 'number' } }),
+    );
+
+    const callEvt = getNode('n_call_evt');
+    expect(callEvt?.ports).toContainEqual(
+      expect.objectContaining({ id: 'argument:damage', direction: 'input', valueType: { kind: 'number' } }),
+    );
+    expect(callEvt?.ports).toContainEqual(
+      expect.objectContaining({ id: 'output:success', direction: 'output', valueType: { kind: 'boolean' } }),
+    );
+
+    const branch = getNode('n_branch');
+    expect(branch?.ports).toContainEqual(
+      expect.objectContaining({ id: 'condition', direction: 'input', valueType: { kind: 'boolean' } }),
+    );
+  });
+
+  it('connects and disconnects data pins across GetVariable, SetVariable, WaitSignal, CallEvent, and Branch', () => {
+    const doc = story();
+    doc.variables = [
+      {
+        id: 'v_health',
+        name: 'player_health',
+        displayName: 'Player Health',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 100,
+      },
+    ];
+    doc.signals = [
+      {
+        id: 'sig_heal',
+        name: 'on_heal',
+        displayName: 'On Heal',
+        parameters: [{ name: 'heal_amount', valueType: { kind: 'number' } }],
+      },
+    ];
+    doc.events = [
+      {
+        id: 'ev_check',
+        name: 'check_status',
+        displayName: 'Check Status',
+        parameters: [{ name: 'power', valueType: { kind: 'number' } }],
+        outputs: [{ id: 'is_alive', displayName: 'Is Alive', valueType: { kind: 'boolean' } }],
+      },
+    ];
+    doc.root.nodes.push(
+      {
+        id: 'n_get_health',
+        type: StoryNodeType.GetVariable,
+        definitionVersion: 1,
+        position: { x: 100, y: 100 },
+        data: { variableId: 'v_health' },
+      },
+      {
+        id: 'n_set_health',
+        type: StoryNodeType.SetVariable,
+        definitionVersion: 1,
+        position: { x: 300, y: 100 },
+        data: { variableId: 'v_health', value: { source: '100', bindings: {} } },
+      },
+      {
+        id: 'n_wait_heal',
+        type: StoryNodeType.WaitSignal,
+        definitionVersion: 1,
+        position: { x: 100, y: 200 },
+        data: { signalId: 'sig_heal', matches: {} },
+      },
+      {
+        id: 'n_call_check',
+        type: StoryNodeType.CallEvent,
+        definitionVersion: 1,
+        position: { x: 300, y: 200 },
+        data: { eventId: 'ev_check', arguments: {}, resultVariableIds: {} },
+      },
+      {
+        id: 'n_branch_alive',
+        type: StoryNodeType.Branch,
+        definitionVersion: 1,
+        position: { x: 500, y: 200 },
+        data: { condition: { source: 'true', bindings: {} } },
+      },
+    );
+
+    const baseRevision = createStorySemanticSnapshot(doc).revision;
+
+    // Connect GetVariable -> SetVariable, WaitSignal payload -> CallEvent argument, CallEvent output -> Branch condition
+    const connectTx: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision,
+      operations: [
+        {
+          operationId: 'connect-data-var',
+          kind: 'connect',
+          graph: { kind: 'root' },
+          from: { nodeId: 'n_get_health', portId: 'value' },
+          to: { nodeId: 'n_set_health', portId: 'value' },
+        },
+        {
+          operationId: 'connect-signal-arg',
+          kind: 'connect',
+          graph: { kind: 'root' },
+          from: { nodeId: 'n_wait_heal', portId: 'payload:heal_amount' },
+          to: { nodeId: 'n_call_check', portId: 'argument:power' },
+        },
+        {
+          operationId: 'connect-evt-branch',
+          kind: 'connect',
+          graph: { kind: 'root' },
+          from: { nodeId: 'n_call_check', portId: 'output:is_alive' },
+          to: { nodeId: 'n_branch_alive', portId: 'condition' },
+        },
+      ],
+    };
+
+    const connectResult = executeBlueprintCommandTransaction(doc, connectTx);
+    expect(connectResult.ok).toBe(true);
+    if (!connectResult.ok) return;
+
+    expect(connectResult.document.root.edges).toContainEqual({
+      from: { nodeId: 'n_get_health', portId: 'value' },
+      to: { nodeId: 'n_set_health', portId: 'value' },
+    });
+    expect(connectResult.document.root.edges).toContainEqual({
+      from: { nodeId: 'n_wait_heal', portId: 'payload:heal_amount' },
+      to: { nodeId: 'n_call_check', portId: 'argument:power' },
+    });
+    expect(connectResult.document.root.edges).toContainEqual({
+      from: { nodeId: 'n_call_check', portId: 'output:is_alive' },
+      to: { nodeId: 'n_branch_alive', portId: 'condition' },
+    });
+
+    // Now disconnect one data connection
+    const disconnectTx: BlueprintCommandTransaction = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: connectResult.snapshot.revision,
+      operations: [
+        {
+          operationId: 'disconnect-evt-branch',
+          kind: 'disconnect',
+          graph: { kind: 'root' },
+          from: { nodeId: 'n_call_check', portId: 'output:is_alive' },
+          to: { nodeId: 'n_branch_alive', portId: 'condition' },
+        },
+      ],
+    };
+
+    const disconnectResult = executeBlueprintCommandTransaction(connectResult.document, disconnectTx);
+    expect(disconnectResult.ok).toBe(true);
+    if (!disconnectResult.ok) return;
+
+    expect(disconnectResult.document.root.edges).not.toContainEqual({
+      from: { nodeId: 'n_call_check', portId: 'output:is_alive' },
+      to: { nodeId: 'n_branch_alive', portId: 'condition' },
+    });
+    expect(disconnectResult.document.root.edges).toContainEqual({
+      from: { nodeId: 'n_get_health', portId: 'value' },
+      to: { nodeId: 'n_set_health', portId: 'value' },
+    });
+  });
+
+  it('rejects type-incompatible data pin connections with INVALID_CONNECTION diagnostic', () => {
+    const doc = story();
+    doc.variables = [
+      {
+        id: 'v_name',
+        name: 'player_name',
+        displayName: 'Player Name',
+        scope: 'story',
+        valueType: { kind: 'string' },
+        defaultValue: 'Hero',
+      },
+      {
+        id: 'v_count',
+        name: 'player_count',
+        displayName: 'Player Count',
+        scope: 'story',
+        valueType: { kind: 'number' },
+        defaultValue: 1,
+      },
+    ];
+    doc.root.nodes.push(
+      {
+        id: 'n_get_str',
+        type: StoryNodeType.GetVariable,
+        definitionVersion: 1,
+        position: { x: 100, y: 100 },
+        data: { variableId: 'v_name' },
+      },
+      {
+        id: 'n_set_num',
+        type: StoryNodeType.SetVariable,
+        definitionVersion: 1,
+        position: { x: 300, y: 100 },
+        data: { variableId: 'v_count', value: { source: '1', bindings: {} } },
+      },
+      {
+        id: 'n_branch',
+        type: StoryNodeType.Branch,
+        definitionVersion: 1,
+        position: { x: 500, y: 100 },
+        data: { condition: { source: 'true', bindings: {} } },
+      },
+    );
+
+    const baseRevision = createStorySemanticSnapshot(doc).revision;
+
+    // String -> Number SetVariable.value: should fail type check
+    const invalidResult = executeBlueprintCommandTransaction(doc, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision,
+      operations: [
+        {
+          operationId: 'connect-incompatible',
+          kind: 'connect',
+          graph: { kind: 'root' },
+          from: { nodeId: 'n_get_str', portId: 'value' },
+          to: { nodeId: 'n_set_num', portId: 'value' },
+        },
+      ],
+    });
+
+    expect(invalidResult.ok).toBe(false);
+    if (invalidResult.ok) return;
+    expect(invalidResult.diagnostics[0]?.code).toBe('INVALID_CONNECTION');
+
+    // String -> Branch.condition (requires boolean): should fail type check
+    const invalidBranchResult = executeBlueprintCommandTransaction(doc, {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision,
+      operations: [
+        {
+          operationId: 'connect-string-to-bool',
+          kind: 'connect',
+          graph: { kind: 'root' },
+          from: { nodeId: 'n_get_str', portId: 'value' },
+          to: { nodeId: 'n_branch', portId: 'condition' },
+        },
+      ],
+    });
+
+    expect(invalidBranchResult.ok).toBe(false);
+    if (invalidBranchResult.ok) return;
+    expect(invalidBranchResult.diagnostics[0]?.code).toBe('INVALID_CONNECTION');
+  });
 });
+

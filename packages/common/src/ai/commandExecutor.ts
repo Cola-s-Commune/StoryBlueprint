@@ -1243,6 +1243,159 @@ function graphReferencesCondition(story: MutableStory, conditionId: ConditionId)
   return branchUses || conditionUses;
 }
 
+function hydrateNodeDataContracts(
+  node: { id: string; type: string; data: unknown },
+  story: MutableStory | StorySourceDocument,
+  graphKind: 'root' | 'chapter',
+  chapterId?: string,
+  semanticContext?: BlueprintSemanticContext,
+): void {
+  if (node.type === StoryNodeType.CallEvent) {
+    const call = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
+    const event =
+      (story.events ?? []).find((candidate) => candidate.id === call.eventId) ??
+      semanticContext?.events.find((candidate) => candidate.id === call.eventId);
+    if (event) {
+      if (call.outputPorts === undefined) {
+        call.outputPorts = (event.outputs ?? []).map((output) => ({
+          id: output.id,
+          label: output.displayName,
+          valueType: output.valueType,
+        }));
+      }
+      if (call.argumentInputTypes === undefined && event.parameters) {
+        call.argumentInputTypes = Object.fromEntries(
+          event.parameters.map((p) => [p.name, p.valueType]),
+        );
+      }
+    }
+  } else if (node.type === StoryNodeType.WaitSignal) {
+    const waitSignal = node.data as unknown as StoryNodeDataMap[StoryNodeType.WaitSignal];
+    if (!waitSignal.outputPorts || waitSignal.outputPorts.length === 0) {
+      const signal =
+        (story.signals ?? []).find((candidate) => candidate.id === waitSignal.signalId) ??
+        semanticContext?.signals.find((candidate) => candidate.id === waitSignal.signalId);
+      if (signal?.parameters) {
+        waitSignal.outputPorts = signal.parameters.map((param) => ({
+          id: param.name,
+          label: param.name,
+          valueType: param.valueType,
+        }));
+      }
+    }
+  } else if (node.type === StoryNodeType.GetVariable) {
+    const getVar = node.data as unknown as StoryNodeDataMap[StoryNodeType.GetVariable];
+    const chapter = chapterId ? story.chapters?.find((candidate) => candidate.id === chapterId) : undefined;
+    const allVariables = [
+      ...(story.variables ?? []),
+      ...(story.characters ?? []).flatMap((c) =>
+        (c.fields ?? []).map((f) => ({
+          id: f.id,
+          name: `${c.name}.${f.name}`,
+          displayName: f.displayName,
+          scope: 'character' as const,
+          valueType: f.valueType,
+          defaultValue: f.defaultValue,
+        })),
+      ),
+      ...(chapter
+        ? [
+            ...chapter.parameters.map((p) => p.variable),
+            ...chapter.outputs.map((o) => o.variable),
+            ...chapter.localVariables,
+          ]
+        : []),
+    ];
+    const variable = allVariables.find((candidate) => candidate.id === getVar.variableId);
+    const effectiveValueType =
+      getVar.accessor
+        ? (getVar.outputValueType ??
+          (variable?.valueType.kind === 'array'
+            ? variable.valueType.elementType
+            : variable?.valueType.kind === 'map'
+              ? variable.valueType.valueType
+              : variable?.valueType))
+        : (variable?.valueType ?? getVar.outputValueType);
+    if (effectiveValueType) {
+      getVar.outputValueType = effectiveValueType;
+    }
+  } else if (node.type === StoryNodeType.SetVariable) {
+    const setVar = node.data as unknown as StoryNodeDataMap[StoryNodeType.SetVariable];
+    const chapter = chapterId ? story.chapters?.find((candidate) => candidate.id === chapterId) : undefined;
+    const allVariables = [
+      ...(story.variables ?? []),
+      ...(story.characters ?? []).flatMap((c) =>
+        (c.fields ?? []).map((f) => ({
+          id: f.id,
+          name: `${c.name}.${f.name}`,
+          displayName: f.displayName,
+          scope: 'character' as const,
+          valueType: f.valueType,
+          defaultValue: f.defaultValue,
+        })),
+      ),
+      ...(chapter
+        ? [
+            ...chapter.parameters.map((p) => p.variable),
+            ...chapter.outputs.map((o) => o.variable),
+            ...chapter.localVariables,
+          ]
+        : []),
+    ];
+    const variable = allVariables.find((candidate) => candidate.id === setVar.variableId);
+    const targetValueType =
+      setVar.containerOperation === 'append' && variable?.valueType.kind === 'array'
+        ? variable.valueType.elementType
+        : setVar.containerOperation === 'set-entry' && variable?.valueType.kind === 'map'
+          ? variable.valueType.valueType
+          : setVar.containerOperation === 'set-field'
+            ? (setVar.fieldValueType ?? variable?.valueType)
+            : (variable?.valueType ?? setVar.valueInputType);
+    const valueContract = targetValueType ?? setVar.valueInputType;
+    const keyContract =
+      setVar.keyInputType ??
+      (variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
+        ? { kind: 'number' as const }
+        : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'character-ref'
+          ? { kind: 'character-ref' as const }
+          : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'asset-ref'
+            ? { kind: 'asset-ref' as const }
+            : { kind: 'string' as const });
+    if (valueContract) setVar.valueInputType = valueContract;
+    if (keyContract) setVar.keyInputType = keyContract;
+  } else if (node.type === StoryNodeType.CallSubstory) {
+    const call = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
+    const chapter = story.chapters?.find((candidate) => candidate.id === call.chapterId);
+    if (chapter) {
+      if (call.argumentInputTypes === undefined) {
+        call.argumentInputTypes = Object.fromEntries(
+          chapter.parameters.map((parameter) => [
+            parameter.variable.id,
+            parameter.variable.valueType,
+          ]),
+        );
+      }
+      if (call.outputPorts === undefined) {
+        call.outputPorts = chapter.outputs.map((output) => ({
+          id: output.variable.id,
+          label: output.variable.displayName,
+          valueType: output.variable.valueType,
+        }));
+      }
+    }
+  } else if (node.type === StoryNodeType.Return) {
+    const returnNode = node.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
+    if (chapterId) {
+      const chapter = story.chapters?.find((candidate) => candidate.id === chapterId);
+      if (chapter && returnNode.valueInputTypes === undefined) {
+        returnNode.valueInputTypes = Object.fromEntries(
+          chapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
+        );
+      }
+    }
+  }
+}
+
 function applyOperation(
   story: MutableStory,
   operation: BlueprintCommand,
@@ -2565,49 +2718,18 @@ function applyOperation(
   }
   // Hydrate dynamic pin contracts when a transaction touches a node. This keeps
   // command-created links valid without requiring the model to emit UI metadata.
+  const connectionChapterId =
+    operation.graph.kind === 'chapter' ? operation.graph.chapterId : undefined;
   for (const endpointId of [operation.from.nodeId, operation.to.nodeId]) {
     const endpoint = graph.nodes.find((candidate) => candidate.id === endpointId);
     if (!endpoint) continue;
-    if (endpoint.type === StoryNodeType.CallEvent) {
-      const call = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
-      if (call.outputPorts === undefined) {
-        const event = options.semanticContext?.events.find(
-          (candidate) => candidate.id === call.eventId,
-        );
-        if (event) {
-          call.outputPorts = (event.outputs ?? []).map((output) => ({
-            id: output.id,
-            label: output.displayName,
-            valueType: output.valueType,
-          }));
-        }
-      }
-    } else if (endpoint.type === StoryNodeType.CallSubstory) {
-      const call = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.CallSubstory];
-      const chapter = story.chapters.find((candidate) => candidate.id === call.chapterId);
-      if (chapter) {
-        call.argumentInputTypes = Object.fromEntries(
-          chapter.parameters.map((parameter) => [
-            parameter.variable.id,
-            parameter.variable.valueType,
-          ]),
-        );
-        call.outputPorts = chapter.outputs.map((output) => ({
-          id: output.variable.id,
-          label: output.variable.displayName,
-          valueType: output.variable.valueType,
-        }));
-      }
-    } else if (endpoint.type === StoryNodeType.Return) {
-      const returnNode = endpoint.data as unknown as StoryNodeDataMap[StoryNodeType.Return];
-      const chapterId = operation.graph.kind === 'chapter' ? operation.graph.chapterId : undefined;
-      const chapter = story.chapters.find((candidate) => candidate.id === chapterId);
-      if (chapter) {
-        returnNode.valueInputTypes = Object.fromEntries(
-          chapter.outputs.map((output) => [output.variable.id, output.variable.valueType]),
-        );
-      }
-    }
+    hydrateNodeDataContracts(
+      endpoint,
+      story,
+      operation.graph.kind,
+      connectionChapterId,
+      options.semanticContext,
+    );
   }
   let edges = graphEdges(graph);
   let validation = validateGraphConnection(
@@ -2657,11 +2779,17 @@ function applyOperation(
   return undefined;
 }
 
-function validateFinalGraph(story: StorySourceDocument): BlueprintCommandDiagnostic[] {
+function validateFinalGraph(
+  story: StorySourceDocument,
+  semanticContext?: BlueprintSemanticContext,
+): BlueprintCommandDiagnostic[] {
   const diagnostics: BlueprintCommandDiagnostic[] = [];
   const graphs = [story.root, ...story.chapters.map((chapter) => chapter.graph)];
   const nodeIds = new Set<string>();
   for (const graph of graphs) {
+    const chapterId =
+      graph === story.root ? undefined : story.chapters.find((c) => c.graph === graph)?.id;
+    const graphKind = graph === story.root ? 'root' : 'chapter';
     const entries = graph.nodes.filter((node) => node.type === StoryNodeType.Start);
     if (entries.length !== 1) {
       diagnostics.push({
@@ -2677,6 +2805,7 @@ function validateFinalGraph(story: StorySourceDocument): BlueprintCommandDiagnos
         });
       }
       nodeIds.add(node.id);
+      hydrateNodeDataContracts(node, story, graphKind, chapterId, semanticContext);
       const ports = resolveNodePorts(
         {
           id: node.id,
@@ -2830,7 +2959,7 @@ export function executeBlueprintCommandTransaction(
   const readOnlyValidation =
     transaction.operations.length > 0 &&
     transaction.operations.every((operation) => operation.kind === 'validate-graph');
-  const finalDiagnostics = validateFinalGraph(document);
+  const finalDiagnostics = validateFinalGraph(document, options.semanticContext);
   if (finalDiagnostics.length > 0) {
     if (!readOnlyValidation) {
       return { ok: false, committed: false, document: source, diagnostics: finalDiagnostics };

@@ -81,6 +81,8 @@ function semanticGraph(
   >,
   events: readonly EventSource[] = [],
   sourceChapters: StorySourceDocument['chapters'] = [],
+  signals: readonly SignalSource[] = [],
+  variables: readonly VariableDefinition[] = [],
 ): SemanticGraph {
   return {
     ...metadata,
@@ -88,16 +90,86 @@ function semanticGraph(
       const data = clone(node.data) as StoryNodeDataMap[StoryNodeType];
       if (node.type === StoryNodeType.CallEvent) {
         const call = data as StoryNodeDataMap[StoryNodeType.CallEvent];
-        if (call.outputPorts === undefined) {
-          const event = events.find((candidate) => candidate.id === call.eventId);
-          if (event) {
+        const event = events.find((candidate) => candidate.id === call.eventId);
+        if (event) {
+          if (call.outputPorts === undefined) {
             call.outputPorts = (event.outputs ?? []).map((output) => ({
               id: output.id,
               label: output.displayName,
               valueType: output.valueType,
             }));
           }
+          if (call.argumentInputTypes === undefined && event.parameters) {
+            call.argumentInputTypes = Object.fromEntries(
+              event.parameters.map((parameter) => [parameter.name, parameter.valueType]),
+            );
+          }
         }
+      }
+      if (node.type === StoryNodeType.WaitSignal) {
+        const waitSignal = data as StoryNodeDataMap[StoryNodeType.WaitSignal];
+        if (!waitSignal.outputPorts || waitSignal.outputPorts.length === 0) {
+          const signal = signals.find((candidate) => candidate.id === waitSignal.signalId);
+          if (signal?.parameters) {
+            waitSignal.outputPorts = signal.parameters.map((param) => ({
+              id: param.name,
+              label: param.name,
+              valueType: param.valueType,
+            }));
+          }
+        }
+      }
+      if (node.type === StoryNodeType.GetVariable) {
+        const getVar = data as StoryNodeDataMap[StoryNodeType.GetVariable];
+        const allVariables = [
+          ...variables,
+          ...(metadata.parameters ?? []),
+          ...(metadata.outputs ?? []),
+          ...(metadata.localVariables ?? []),
+        ];
+        const variable = allVariables.find((candidate) => candidate.id === getVar.variableId);
+        const effectiveValueType =
+          getVar.accessor
+            ? (getVar.outputValueType ??
+              (variable?.valueType.kind === 'array'
+                ? variable.valueType.elementType
+                : variable?.valueType.kind === 'map'
+                  ? variable.valueType.valueType
+                  : variable?.valueType))
+            : (variable?.valueType ?? getVar.outputValueType);
+        if (effectiveValueType) {
+          getVar.outputValueType = effectiveValueType;
+        }
+      }
+      if (node.type === StoryNodeType.SetVariable) {
+        const setVar = data as StoryNodeDataMap[StoryNodeType.SetVariable];
+        const allVariables = [
+          ...variables,
+          ...(metadata.parameters ?? []),
+          ...(metadata.outputs ?? []),
+          ...(metadata.localVariables ?? []),
+        ];
+        const variable = allVariables.find((candidate) => candidate.id === setVar.variableId);
+        const targetValueType =
+          setVar.containerOperation === 'append' && variable?.valueType.kind === 'array'
+            ? variable.valueType.elementType
+            : setVar.containerOperation === 'set-entry' && variable?.valueType.kind === 'map'
+              ? variable.valueType.valueType
+              : setVar.containerOperation === 'set-field'
+                ? (setVar.fieldValueType ?? variable?.valueType)
+                : (variable?.valueType ?? setVar.valueInputType);
+        const valueContract = targetValueType ?? setVar.valueInputType;
+        const keyContract =
+          setVar.keyInputType ??
+          (variable?.valueType.kind === 'map' && variable.valueType.keyType === 'number'
+            ? { kind: 'number' as const }
+            : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'character-ref'
+              ? { kind: 'character-ref' as const }
+              : variable?.valueType.kind === 'map' && variable.valueType.keyType === 'asset-ref'
+                ? { kind: 'asset-ref' as const }
+                : { kind: 'string' as const });
+        if (valueContract) setVar.valueInputType = valueContract;
+        if (keyContract) setVar.keyInputType = keyContract;
       }
       if (node.type === StoryNodeType.CallSubstory) {
         const call = data as StoryNodeDataMap[StoryNodeType.CallSubstory];
@@ -158,6 +230,18 @@ export function createStorySemanticSnapshot(
   characterTemplates?: readonly CharacterTemplateSource[],
   engineTypes?: readonly EngineTypeDefinition[],
 ): StorySemanticSnapshot {
+  const characterFieldVariables: VariableDefinition[] = (source.characters ?? []).flatMap((c) =>
+    (c.fields ?? []).map((f) => ({
+      id: f.id,
+      name: `${c.name}.${f.name}`,
+      displayName: f.displayName,
+      scope: 'character' as const,
+      valueType: f.valueType,
+      defaultValue: f.defaultValue,
+    })),
+  );
+  const baseVariables = [...source.variables, ...characterFieldVariables];
+  const signals = source.signals ?? [];
   const content = {
     story: { id: source.id, name: source.name, displayName: source.displayName },
     variables: clone(source.variables),
@@ -165,25 +249,39 @@ export function createStorySemanticSnapshot(
     ...(characterTemplates?.length ? { characterTemplates: clone(characterTemplates) } : {}),
     assets: clone(source.assets),
     events: clone(source.events),
-    signals: clone(source.signals ?? []),
+    signals: clone(signals),
     conditions: clone(source.conditions ?? []),
     ...(engineTypes?.length ? { engineTypes: clone(engineTypes) } : {}),
     graphs: [
-      semanticGraph(source.root, {
-        kind: 'root',
-        name: 'root',
-        displayName: 'Root Blueprint',
-      }, source.events, source.chapters),
+      semanticGraph(
+        source.root,
+        {
+          kind: 'root',
+          name: 'root',
+          displayName: 'Root Blueprint',
+        },
+        source.events,
+        source.chapters,
+        signals,
+        baseVariables,
+      ),
       ...source.chapters.map((chapter) =>
-        semanticGraph(chapter.graph, {
-          kind: 'chapter',
-          chapterId: chapter.id,
-          name: chapter.name,
-          displayName: chapter.displayName,
-          parameters: clone(chapter.parameters.map((parameter) => parameter.variable)),
-          outputs: clone(chapter.outputs.map((output) => output.variable)),
-          localVariables: clone(chapter.localVariables),
-        }, source.events, source.chapters),
+        semanticGraph(
+          chapter.graph,
+          {
+            kind: 'chapter',
+            chapterId: chapter.id,
+            name: chapter.name,
+            displayName: chapter.displayName,
+            parameters: clone(chapter.parameters.map((parameter) => parameter.variable)),
+            outputs: clone(chapter.outputs.map((output) => output.variable)),
+            localVariables: clone(chapter.localVariables),
+          },
+          source.events,
+          source.chapters,
+          signals,
+          baseVariables,
+        ),
       ),
     ],
   } as const;
