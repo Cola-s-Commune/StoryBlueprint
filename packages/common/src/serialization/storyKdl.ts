@@ -616,7 +616,7 @@ function serializeCharacters(characters: readonly CharacterSource[]): Node | und
       fieldNode.setProperty('default', serializeVariableDefault(field));
       node.appendNode(fieldNode);
     }
-    for (const [key, emotion] of Object.entries(character.emotions)) {
+    for (const [key, emotion] of Object.entries(character.emotions ?? {})) {
       const emotionNode = Node.create('emotion');
       emotionNode.addArgument(key);
       emotionNode.setProperty('display-name', emotion.displayName);

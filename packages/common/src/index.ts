@@ -100,6 +100,18 @@ export {
   type BlueprintSemanticContext,
   type BlueprintTransactionOptions,
 } from './ai/commandExecutor';
+export {
+  buildDialogueContinuationPrompt,
+  buildBranchSuggestionPrompt,
+  buildDialoguePolishPrompt,
+  buildScriptAdaptationPrompt,
+  type CharacterPromptContext,
+  type NodePromptContext,
+  type DialogueContinuationOptions,
+  type BranchSuggestionOptions,
+  type DialoguePolishOptions,
+  type ScriptAdaptationOptions,
+} from './ai/promptTemplates';
 
 // ---- Typed graph connection rules ----
 export {

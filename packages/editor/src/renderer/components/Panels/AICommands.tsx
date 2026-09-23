@@ -27,6 +27,7 @@ import type {
   AIToolsMode,
 } from '../../../shared/electronApi';
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
+import { AIQuickActions } from './AIQuickActions';
 import { CopyButton } from './CopyButton';
 import panelStyles from './Panel.module.css';
 import styles from './AICommands.module.css';
@@ -1032,7 +1033,7 @@ export function AICommands() {
     setShowProviderSettings(true);
   };
 
-  const generate = async (retry = false) => {
+  const generate = async (retry = false, customInstruction?: string) => {
     if (!window.electronAPI) {
       setProviderError('AI generation is available only in the desktop editor');
       return;
@@ -1042,7 +1043,9 @@ export function AICommands() {
       setShowProviderSettings(true);
       return;
     }
-    const requestInstruction = retry ? lastUserRequest : instruction.trim();
+    const requestInstruction = retry
+      ? lastUserRequest
+      : (customInstruction !== undefined ? customInstruction.trim() : instruction.trim());
     if (!requestInstruction) {
       setProviderError(retry ? 'There is no previous request to retry' : 'Enter a message first');
       return;
@@ -1582,6 +1585,24 @@ export function AICommands() {
             </div>
           )}
         </div>
+        <AIQuickActions
+          semanticSnapshot={semanticSnapshot}
+          activeGraphId={activeGraphId}
+          selectedNodes={nodes
+            .filter((node) => node.selected)
+            .map((node) => ({
+              id: node.id,
+              type: node.type as StoryNodeType,
+              data: node.data,
+            }))}
+          disabled={generating}
+          onApplyPrompt={(prompt, autoSend) => {
+            setInstruction(prompt);
+            if (autoSend) {
+              void generate(false, prompt);
+            }
+          }}
+        />
         <div className={styles.composer}>
           <textarea
             className={styles.instruction}
