@@ -200,11 +200,23 @@
 }
 
 .canvas :global(.react-flow__minimap) {
+  background: rgba(22, 26, 31, 0.88) !important;
+  border: 1px solid #363d47 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(10px) !important;
+  overflow: hidden !important;
   cursor: grab;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .canvas :global(.react-flow__minimap:active) {
   cursor: grabbing;
+}
+
+.canvas :global(.react-flow__minimap:hover) {
+  border-color: #4b5665 !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6) !important;
 }
 
 .canvas :global(.react-flow__node.ai-change-added) {
@@ -923,6 +935,23 @@
   align-self: end;
   padding: 3px 6px;
   font-size: 9px;
+}
+
+.activeToolbarButton {
+  align-self: end;
+  padding: 3px 6px;
+  font-size: 9px;
+  border: 1px solid #4a82b0;
+  border-radius: 3px;
+  background: #2b4d6e;
+  color: #f0f7ff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.activeToolbarButton:hover {
+  background: #335b82;
+  border-color: #5d98ca;
 }
 
 .layoutActions {

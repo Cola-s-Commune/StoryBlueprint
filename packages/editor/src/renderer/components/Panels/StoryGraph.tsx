@@ -68,6 +68,12 @@ import {
 } from '../../graph/storySearch';
 import { CopyButton } from './CopyButton';
 import { valueTypeColors } from '../../graph/valueTypeColors';
+import {
+  getMinimapNodeColor,
+  getMinimapNodeStrokeColor,
+  getInitialMinimapVisible,
+  GRAPH_MINIMAP_STORAGE_KEY,
+} from './graphMinimap';
 import styles from './StoryGraph.module.css';
 
 function toGraphNodes(
@@ -424,9 +430,14 @@ export function StoryGraph() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<GraphControlMode>(initialGraphControlMode);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showMinimap, setShowMinimap] = useState<boolean>(getInitialMinimapVisible);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+
+  useEffect(() => {
+    window.localStorage.setItem(GRAPH_MINIMAP_STORAGE_KEY, String(showMinimap));
+  }, [showMinimap]);
   const [transferPreview, setTransferPreview] = useState<{
     fixedPoints: readonly { x: number; y: number }[];
     pointer: { x: number; y: number };
@@ -1185,6 +1196,11 @@ export function StoryGraph() {
       const editingText = isTextEditingTarget(event.target);
       const isHistoryShortcut = modifier && (key === 'z' || key === 'y');
       if (editingText && !isHistoryShortcut) return;
+      if (!modifier && key === 'm') {
+        event.preventDefault();
+        setShowMinimap((current) => !current);
+        return;
+      }
       if (modifier && key === 'c' && window.getSelection()?.toString()) return;
       if (mergePreviewActive && (modifier || event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault();
@@ -1833,6 +1849,14 @@ export function StoryGraph() {
           </div>
           <button
             type="button"
+            className={showMinimap ? styles.activeToolbarButton : styles.shortcutsButton}
+            title="Toggle Minimap (M)"
+            onClick={() => setShowMinimap((current) => !current)}
+          >
+            Minimap
+          </button>
+          <button
+            type="button"
             className={styles.shortcutsButton}
             title="Search this Story (Ctrl+F)"
             onClick={openSearch}
@@ -1927,7 +1951,26 @@ export function StoryGraph() {
           panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
-          <MiniMap nodeStrokeColor="#555" nodeColor="#333" maskColor="rgba(0,0,0,0.6)" pannable />
+          {showMinimap && (
+            <MiniMap
+              className={styles.minimap}
+              nodeStrokeColor={(node) => getMinimapNodeStrokeColor(node as unknown as EditorGraphNode)}
+              nodeColor={(node) => getMinimapNodeColor(node.type)}
+              nodeBorderRadius={4}
+              nodeStrokeWidth={2}
+              maskColor="rgba(10, 14, 20, 0.72)"
+              maskStrokeColor="#3e4854"
+              maskStrokeWidth={1}
+              pannable
+              zoomable
+              onNodeClick={(_event, node) => {
+                setNodes((current) => current.map((c) => ({ ...c, selected: c.id === node.id })));
+                if (flowInstance) {
+                  void flowInstance.fitView({ nodes: [{ id: node.id }], padding: 1.5, duration: 250 });
+                }
+              }}
+            />
+          )}
           <Controls />
         </ReactFlow>
         {showSearch && (
@@ -2410,6 +2453,8 @@ export function StoryGraph() {
               <dd>Undo or redo</dd>
               <dt>Ctrl + F</dt>
               <dd>Search nodes, dialogue, choices, and Story Data across this Story</dd>
+              <dt>M</dt>
+              <dd>Toggle graph minimap navigation overlay</dd>
               <dt>Layout Selected / All</dt>
               <dd>Arrange nodes from left to right; the result can be undone</dd>
               <dt>Shift + Left-drag</dt>
