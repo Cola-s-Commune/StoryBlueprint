@@ -98,6 +98,7 @@ import type {
 import {
   markStoryGitConflictResolved,
   readStoryGitConflict,
+  readStoryGitHead,
   readWorkspaceGitConflicts,
 } from './storyGitConflict';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
@@ -2657,6 +2658,14 @@ function registerStoryFileHandlers(): void {
     async (event, filePath: unknown, fileToken: unknown) => {
       if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
       return readStoryGitConflict(requireAuthorizedStoryFile(filePath, fileToken));
+    },
+  );
+
+  ipcMain.handle(
+    'story:read-git-head',
+    async (event, filePath: unknown, fileToken: unknown) => {
+      if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+      return readStoryGitHead(requireAuthorizedStoryFile(filePath, fileToken));
     },
   );
 

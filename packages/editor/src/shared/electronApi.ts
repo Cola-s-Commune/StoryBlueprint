@@ -467,6 +467,10 @@ export interface ElectronAPI {
     filePath: string,
     fileToken: string,
   ) => Promise<StoryGitConflictStages | undefined>;
+  readStoryGitHead: (
+    filePath: string,
+    fileToken: string,
+  ) => Promise<string | undefined>;
   readWorkspaceGitConflicts: () => Promise<WorkspaceGitConflictStages[]>;
   validateWorkspaceMerge: (files: ApplyWorkspaceMergeFile[]) => Promise<void>;
   applyWorkspaceMerge: (files: ApplyWorkspaceMergeFile[]) => Promise<WorkspaceInfo>;

@@ -72,6 +72,7 @@ import {
   getMinimapNodeColor,
   getMinimapNodeStrokeColor,
   getInitialMinimapVisible,
+  getNodeDiffKind,
   GRAPH_MINIMAP_STORAGE_KEY,
 } from './graphMinimap';
 import styles from './StoryGraph.module.css';
@@ -401,6 +402,8 @@ export function StoryGraph() {
     discardAIProposal,
     inkImportReport,
     dismissInkImportReport,
+    isGitHeadDiff,
+    toggleGitHeadDiff,
     storyMergePreview,
     storyMergePreviewGraphId,
     clearStoryMergePreview,
@@ -434,6 +437,15 @@ export function StoryGraph() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+
+  const onToggleGitHeadDiff = useCallback(async () => {
+    const result = await toggleGitHeadDiff();
+    if (!result.ok && result.message) {
+      setConnectionError(result.message);
+    } else if (result.ok && result.message) {
+      setConnectionError(result.message);
+    }
+  }, [toggleGitHeadDiff]);
 
   useEffect(() => {
     window.localStorage.setItem(GRAPH_MINIMAP_STORAGE_KEY, String(showMinimap));
@@ -1857,6 +1869,18 @@ export function StoryGraph() {
           </button>
           <button
             type="button"
+            className={isGitHeadDiff ? styles.activeToolbarButton : styles.shortcutsButton}
+            title={
+              isGitHeadDiff
+                ? 'Close Visual Git Diff'
+                : 'Compare this Story with Git HEAD (Visual Diff)'
+            }
+            onClick={() => void onToggleGitHeadDiff()}
+          >
+            {isGitHeadDiff ? 'Diff Active' : 'Diff HEAD'}
+          </button>
+          <button
+            type="button"
             className={styles.shortcutsButton}
             title="Search this Story (Ctrl+F)"
             onClick={openSearch}
@@ -1954,8 +1978,18 @@ export function StoryGraph() {
           {showMinimap && (
             <MiniMap
               className={styles.minimap}
-              nodeStrokeColor={(node) => getMinimapNodeStrokeColor(node as unknown as EditorGraphNode)}
-              nodeColor={(node) => getMinimapNodeColor(node.type)}
+              nodeStrokeColor={(node) =>
+                getMinimapNodeStrokeColor(
+                  node as unknown as EditorGraphNode,
+                  getNodeDiffKind(node.id, activeMergePreview, aiProposal ?? aiChanges),
+                )
+              }
+              nodeColor={(node) =>
+                getMinimapNodeColor(
+                  node.type,
+                  getNodeDiffKind(node.id, activeMergePreview, aiProposal ?? aiChanges),
+                )
+              }
               nodeBorderRadius={4}
               nodeStrokeWidth={2}
               maskColor="rgba(10, 14, 20, 0.72)"
@@ -2124,13 +2158,14 @@ export function StoryGraph() {
         {activeMergePreview && !aiProposal && (
           <aside className={`${styles.aiChangeBanner} ${styles.mergePreviewBanner}`}>
             <div>
-              <strong>Story merge preview · {activeMergePreview.displayName}</strong>
+              <strong>{isGitHeadDiff ? 'Visual Git Diff · ' : 'Story merge preview · '}{activeMergePreview.displayName}</strong>
               <span>
                 +{activeMergePreview.addedNodeIds.length} · ~
                 {activeMergePreview.changedNodeIds.length} · −
-                {activeMergePreview.removedNodeIds.length} · !
-                {activeMergePreview.conflictNodeIds.length} · ✓
-                {activeMergePreview.resolvedNodeIds.length} nodes
+                {activeMergePreview.removedNodeIds.length}
+                {!isGitHeadDiff &&
+                  ` · !${activeMergePreview.conflictNodeIds.length} · ✓${activeMergePreview.resolvedNodeIds.length}`}{' '}
+                nodes
               </span>
             </div>
             <div className={styles.mergeLegend} aria-label="Merge preview legend">
@@ -2172,7 +2207,7 @@ export function StoryGraph() {
               Next
             </button>
             <button type="button" className={styles.aiUndoButton} onClick={clearStoryMergePreview}>
-              Exit Preview
+              {isGitHeadDiff ? 'Close Diff' : 'Exit Preview'}
             </button>
           </aside>
         )}

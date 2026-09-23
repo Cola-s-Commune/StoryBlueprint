@@ -5,6 +5,7 @@ import {
   getInitialMinimapVisible,
   getMinimapNodeColor,
   getMinimapNodeStrokeColor,
+  getNodeDiffKind,
 } from '../packages/editor/src/renderer/components/Panels/graphMinimap';
 
 describe('graphMinimap', () => {
@@ -40,16 +41,67 @@ describe('graphMinimap', () => {
       expect(getMinimapNodeColor(undefined)).toBe('#6d7b91');
       expect(getMinimapNodeColor('custom-unregistered-node')).toBe('#6d7b91');
     });
+
+    it('prioritizes diff colors when diffKind is present', () => {
+      expect(getMinimapNodeColor(StoryNodeType.Dialogue, 'added')).toBe('#52cf7a');
+      expect(getMinimapNodeColor(StoryNodeType.Choice, 'modified')).toBe('#e0b34f');
+      expect(getMinimapNodeColor(StoryNodeType.Branch, 'removed')).toBe('#db6262');
+      expect(getMinimapNodeColor(StoryNodeType.Dialogue, 'conflict')).toBe('#ff7657');
+      expect(getMinimapNodeColor(StoryNodeType.Dialogue, 'conflict-boundary')).toBe('#dca15d');
+      expect(getMinimapNodeColor(StoryNodeType.Dialogue, 'resolved')).toBe('#5da9e9');
+    });
   });
 
   describe('getMinimapNodeStrokeColor', () => {
-    it('returns white stroke for selected nodes', () => {
+    it('returns white stroke for selected nodes regardless of diff', () => {
       expect(getMinimapNodeStrokeColor({ selected: true })).toBe('#ffffff');
+      expect(getMinimapNodeStrokeColor({ selected: true }, 'conflict')).toBe('#ffffff');
+      expect(getMinimapNodeStrokeColor({ selected: true }, 'added')).toBe('#ffffff');
     });
 
-    it('returns subtle semi-transparent stroke for unselected or undefined nodes', () => {
+    it('returns diff-specific stroke for unselected diff nodes', () => {
+      expect(getMinimapNodeStrokeColor({ selected: false }, 'conflict')).toBe('#ff7657');
+      expect(getMinimapNodeStrokeColor({ selected: false }, 'added')).toBe('#52cf7a');
+      expect(getMinimapNodeStrokeColor({ selected: false }, 'modified')).toBe('#e0b34f');
+      expect(getMinimapNodeStrokeColor({ selected: false }, 'removed')).toBe('#db6262');
+      expect(getMinimapNodeStrokeColor({ selected: false }, 'resolved')).toBe('#5da9e9');
+    });
+
+    it('returns subtle semi-transparent stroke for unselected or undefined nodes without diff', () => {
       expect(getMinimapNodeStrokeColor({ selected: false })).toBe('rgba(255, 255, 255, 0.22)');
       expect(getMinimapNodeStrokeColor({})).toBe('rgba(255, 255, 255, 0.22)');
+    });
+  });
+
+  describe('getNodeDiffKind', () => {
+    it('resolves correct diff kinds from merge preview targets', () => {
+      const preview = {
+        conflictNodeIds: ['n_conf', 'n_bound'],
+        boundaryNodeIds: ['n_bound'],
+        addedNodeIds: ['n_add'],
+        changedNodeIds: ['n_mod'],
+        removedNodeIds: ['n_del'],
+        resolvedNodeIds: ['n_res'],
+      };
+
+      expect(getNodeDiffKind('n_bound', preview)).toBe('conflict-boundary');
+      expect(getNodeDiffKind('n_conf', preview)).toBe('conflict');
+      expect(getNodeDiffKind('n_add', preview)).toBe('added');
+      expect(getNodeDiffKind('n_mod', preview)).toBe('modified');
+      expect(getNodeDiffKind('n_del', preview)).toBe('removed');
+      expect(getNodeDiffKind('n_res', preview)).toBe('resolved');
+      expect(getNodeDiffKind('n_other', preview)).toBeUndefined();
+    });
+
+    it('resolves correct diff kinds from AI proposals when no merge preview is active', () => {
+      const aiState = {
+        addedNodeIds: ['n_ai_add'],
+        changedNodeIds: ['n_ai_mod'],
+      };
+
+      expect(getNodeDiffKind('n_ai_add', null, aiState)).toBe('added');
+      expect(getNodeDiffKind('n_ai_mod', null, aiState)).toBe('modified');
+      expect(getNodeDiffKind('n_other', null, aiState)).toBeUndefined();
     });
   });
 

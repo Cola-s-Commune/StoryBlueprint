@@ -2,10 +2,37 @@ import { StoryNodeType } from '@story-blueprint/common';
 
 export const GRAPH_MINIMAP_STORAGE_KEY = 'story-blueprint.graph-minimap-visible';
 
+export type MinimapDiffKind =
+  | 'added'
+  | 'modified'
+  | 'removed'
+  | 'conflict'
+  | 'conflict-boundary'
+  | 'resolved';
+
 /**
- * Returns the accent color for a node inside the Minimap based on its StoryNodeType.
+ * Returns the accent color for a node inside the Minimap.
+ * If a diffKind is specified (e.g. during merge preview, git diff, or AI proposal),
+ * the diff status color takes precedence.
  */
-export function getMinimapNodeColor(type?: string): string {
+export function getMinimapNodeColor(type?: string, diffKind?: MinimapDiffKind): string {
+  if (diffKind) {
+    switch (diffKind) {
+      case 'conflict':
+        return '#ff7657';
+      case 'conflict-boundary':
+        return '#dca15d';
+      case 'added':
+        return '#52cf7a';
+      case 'modified':
+        return '#e0b34f';
+      case 'removed':
+        return '#db6262';
+      case 'resolved':
+        return '#5da9e9';
+    }
+  }
+
   switch (type) {
     case StoryNodeType.Start:
       return '#62c878';
@@ -48,13 +75,68 @@ export function getMinimapNodeColor(type?: string): string {
 
 /**
  * Returns the stroke color for a node inside the Minimap.
- * Selected nodes are highlighted in bright white, while unselected nodes use a subtle border.
+ * Selected nodes are highlighted in bright white; diff nodes receive strong contrast strokes.
  */
-export function getMinimapNodeStrokeColor(node: { selected?: boolean }): string {
+export function getMinimapNodeStrokeColor(
+  node: { selected?: boolean },
+  diffKind?: MinimapDiffKind,
+): string {
   if (node.selected) {
     return '#ffffff';
   }
+  if (diffKind) {
+    switch (diffKind) {
+      case 'conflict':
+        return '#ff7657';
+      case 'conflict-boundary':
+        return '#dca15d';
+      case 'added':
+        return '#52cf7a';
+      case 'modified':
+        return '#e0b34f';
+      case 'removed':
+        return '#db6262';
+      case 'resolved':
+        return '#5da9e9';
+    }
+  }
   return 'rgba(255, 255, 255, 0.22)';
+}
+
+/**
+ * Resolves the MinimapDiffKind for a given node based on active merge preview or AI state.
+ */
+export function getNodeDiffKind(
+  nodeId: string,
+  mergePreview?: {
+    conflictNodeIds?: readonly string[];
+    boundaryNodeIds?: readonly string[];
+    addedNodeIds?: readonly string[];
+    changedNodeIds?: readonly string[];
+    removedNodeIds?: readonly string[];
+    resolvedNodeIds?: readonly string[];
+  } | null,
+  aiState?: {
+    addedNodeIds?: readonly string[];
+    changedNodeIds?: readonly string[];
+  } | null,
+): MinimapDiffKind | undefined {
+  if (mergePreview) {
+    if (mergePreview.conflictNodeIds?.includes(nodeId)) {
+      return mergePreview.boundaryNodeIds?.includes(nodeId)
+        ? 'conflict-boundary'
+        : 'conflict';
+    }
+    if (mergePreview.removedNodeIds?.includes(nodeId)) return 'removed';
+    if (mergePreview.resolvedNodeIds?.includes(nodeId)) return 'resolved';
+    if (mergePreview.addedNodeIds?.includes(nodeId)) return 'added';
+    if (mergePreview.changedNodeIds?.includes(nodeId)) return 'modified';
+  }
+  if (aiState) {
+    if (aiState.addedNodeIds?.includes(nodeId)) return 'added';
+    if (aiState.changedNodeIds?.includes(nodeId)) return 'modified';
+  }
+  return undefined;
 }
 
 /**

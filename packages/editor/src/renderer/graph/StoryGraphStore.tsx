@@ -96,7 +96,7 @@ import {
 } from './editorGraph';
 import { useGraphHistory } from './useGraphHistory';
 import { buildStoryMergePreview, type StoryMergePreview } from './storyMergePreview';
-import type { StoryMergeChoice, StoryMergeConflict, StoryMergeDecisions } from './storyMerge';
+import { diffStoryDocuments, type StoryMergeChoice, type StoryMergeConflict, type StoryMergeDecisions } from './storyMerge';
 import { planExternalFileChange } from './externalFileChangePlan';
 import {
   BUILTIN_CHARACTER_TEMPLATES,
@@ -471,6 +471,8 @@ interface StoryGraphStoreValue {
   dismissInkImportReport: () => void;
   importInkFile: () => Promise<void>;
   convertInkBlockToNodes: (nodeId: NodeId) => Promise<void>;
+  isGitHeadDiff: boolean;
+  toggleGitHeadDiff: () => Promise<{ ok: boolean; message?: string }>;
   storyMergePreview?: StoryMergePreview;
   storyMergePreviewGraphId?: ActiveGraphId;
   storyMergeDecisionRequest?: { id: string; choice: StoryMergeChoice; nonce: number };
@@ -793,6 +795,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   const [aiChanges, setAIChanges] = useState<AIEditorChanges>();
   const [aiProposal, setAIProposal] = useState<AIEditorProposal>();
   const [inkImportReport, setInkImportReport] = useState<InkImportReport>();
+  const [isGitHeadDiff, setIsGitHeadDiff] = useState(false);
   const [storyMergePreview, setStoryMergePreview] = useState<StoryMergePreview>();
   const [storyMergePreviewGraphId, setStoryMergePreviewGraphIdState] = useState<ActiveGraphId>();
   const [storyMergeDecisionRequest, setStoryMergeDecisionRequest] = useState<{
@@ -1441,7 +1444,46 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     setStoryMergePreview(undefined);
     setStoryMergePreviewGraphIdState(undefined);
     setStoryMergeDecisionRequest(undefined);
+    setIsGitHeadDiff(false);
   }, []);
+
+  const toggleGitHeadDiff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
+    if (isGitHeadDiff || storyMergePreview) {
+      clearStoryMergePreview();
+      return { ok: true };
+    }
+    if (!document.filePath || !document.fileToken) {
+      return { ok: false, message: 'This story has not been saved to a file on disk yet.' };
+    }
+    try {
+      if (!window.electronAPI) {
+        return { ok: false, message: 'Git integration is not available in this environment.' };
+      }
+      const headText = await window.electronAPI.readStoryGitHead(document.filePath, document.fileToken);
+      if (!headText) {
+        return { ok: false, message: 'No Git repository or committed HEAD version found for this story.' };
+      }
+      const headStory = parseStorySource(headText);
+      const currentStory = source;
+      const conflicts = diffStoryDocuments(headStory, currentStory);
+      if (conflicts.length === 0) {
+        return { ok: true, message: 'Current story is identical to Git HEAD (no visual differences).' };
+      }
+      const decisions: StoryMergeDecisions = Object.fromEntries(conflicts.map((conflict) => [conflict.id, 'remote' as const]));
+      const preview = buildStoryMergePreview(headStory, currentStory, conflicts, decisions, currentStory);
+      setIsGitHeadDiff(true);
+      setStoryMergePreview(preview);
+      setStoryMergePreviewGraphIdState((current) =>
+        current && preview.graphs.some((graph) => graph.id === current) ? current : activeGraphId,
+      );
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Failed to compare with Git HEAD: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }, [activeGraphId, clearStoryMergePreview, document.filePath, document.fileToken, isGitHeadDiff, source, storyMergePreview]);
 
   const setStoryMergePreviewGraph = useCallback(
     (graphId: ActiveGraphId) => {
@@ -6621,6 +6663,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       dismissInkImportReport,
       importInkFile,
       convertInkBlockToNodes,
+      isGitHeadDiff,
+      toggleGitHeadDiff,
       storyMergePreview,
       storyMergePreviewGraphId,
       storyMergeDecisionRequest,

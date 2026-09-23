@@ -74,6 +74,33 @@ export async function readStoryGitConflict(
   };
 }
 
+export async function readStoryGitHead(
+  filePath: string,
+): Promise<string | undefined> {
+  const resolvedFile = await realpath(filePath);
+  let repositoryRoot: string;
+  try {
+    repositoryRoot = (await runGit(['rev-parse', '--show-toplevel'], dirname(resolvedFile))).trim();
+  } catch {
+    return undefined;
+  }
+  if (!repositoryRoot) return undefined;
+  const relativePath = relative(repositoryRoot, resolvedFile).split(sep).join('/');
+  if (
+    !relativePath ||
+    isAbsolute(relativePath) ||
+    relativePath === '..' ||
+    relativePath.startsWith('../')
+  ) {
+    return undefined;
+  }
+  try {
+    return await runGit(['show', `HEAD:${relativePath}`], repositoryRoot);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function markStoryGitConflictResolved(
   filePath: string,
   expectedRevision: string,
