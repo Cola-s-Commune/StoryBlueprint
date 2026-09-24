@@ -92,7 +92,7 @@ function createProviderDraft(): AIProviderDraft {
     endpoint: 'https://api.openai.com/v1',
     model: '',
     timeoutSeconds: 120,
-    structuredOutput: 'json-schema',
+    structuredOutput: 'json-object',
     thinkingMode: 'auto',
     reasoningEffort: 'high',
     streaming: 'auto',
