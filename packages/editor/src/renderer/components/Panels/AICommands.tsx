@@ -736,6 +736,7 @@ export function AICommands() {
   const [loadedChatScope, setLoadedChatScope] = useState('');
   const [lastUserRequest, setLastUserRequest] = useState('');
   const [pendingUserMessage, setPendingUserMessage] = useState<string>();
+  const [pendingAttachments, setPendingAttachments] = useState<AIFileAttachment[]>([]);
   const [generating, setGenerating] = useState(false);
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [showDiffDetails, setShowDiffDetails] = useState(false);
@@ -987,6 +988,7 @@ export function AICommands() {
           setChatTitle(latest.title);
           setConversation([...latest.messages]);
           setConversationHistory([...latest.history]);
+          setAttachments(latest.attachments ? [...latest.attachments] : []);
           setLastUserRequest(
             [...latest.messages].reverse().find((message) => message.role === 'user')?.content ??
               '',
@@ -1034,6 +1036,7 @@ export function AICommands() {
       updatedAt: now,
       messages: conversation,
       history: conversationHistory,
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
     setChatSessions((sessions) => [
       session,
@@ -1044,6 +1047,7 @@ export function AICommands() {
       .catch((error) => setProviderError(error instanceof Error ? error.message : String(error)));
   }, [
     activeChatSessionId,
+    attachments,
     chatScopeKey,
     conversation,
     conversationHistory,
@@ -1244,6 +1248,24 @@ export function AICommands() {
       setProviderError(retry ? 'There is no previous request to retry' : 'Enter a message first');
       return;
     }
+    const isScriptCommandOnly =
+      /^\/script\b[^\n\r]*[:：]\s*(\[请在此处粘贴剧本正文\])?\s*$/i.test(requestInstruction) ||
+      requestInstruction === '/script';
+    if (isScriptCommandOnly && attachments.length === 0) {
+      setProviderError(
+        '请先点击下方的「Attach Files」附加剧本文件，或在冒号后面粘贴剧本文本后再发送！',
+      );
+      return;
+    }
+    if (
+      attachments.length === 0 &&
+      /(按照|根据|依照|参考|把).*(我给你的)?(文件|附件|txt|剧本)/i.test(requestInstruction)
+    ) {
+      setProviderError(
+        '当前会话尚未附加文件！请先点击下方的「Attach Files」附加剧本文件，或直接在输入框粘贴剧本正文。',
+      );
+      return;
+    }
     if (contextScope === 'selection' && selectedNodeIds.length === 0) {
       setProviderError('Select one or more nodes, or choose Current Graph / Whole Story');
       return;
@@ -1251,6 +1273,7 @@ export function AICommands() {
     const requestId = crypto.randomUUID();
     requestIdRef.current = requestId;
     setGenerating(true);
+    setPendingAttachments(attachments.length > 0 ? [...attachments] : []);
     setPendingUserMessage(
       retry
         ? 'Please correct the proposed change using the validation diagnostics.'
@@ -1302,10 +1325,22 @@ export function AICommands() {
       const userMessage = retry
         ? 'Please correct the proposed change using the validation diagnostics.'
         : requestInstruction;
+      const messageAttachmentSummaries =
+        attachments.length > 0
+          ? attachments.map((a) => ({
+              id: a.id,
+              name: a.name,
+              size: typeof a.content === 'string' ? a.content.length : 0,
+            }))
+          : undefined;
       setConversation((messages) => {
         const next: AIConversationMessage[] = [
           ...messages,
-          { role: 'user', content: userMessage },
+          {
+            role: 'user',
+            content: userMessage,
+            ...(messageAttachmentSummaries ? { attachments: messageAttachmentSummaries } : {}),
+          },
           {
             role: 'assistant',
             content: assistant.reply,
@@ -1317,7 +1352,11 @@ export function AICommands() {
       setConversationHistory((messages) => {
         const next: AIConversationMessage[] = [
           ...messages,
-          { role: 'user', content: userMessage },
+          {
+            role: 'user',
+            content: userMessage,
+            ...(messageAttachmentSummaries ? { attachments: messageAttachmentSummaries } : {}),
+          },
           { role: 'assistant', content: response.content },
         ];
         return next.slice(-40);
@@ -1392,6 +1431,7 @@ export function AICommands() {
     } finally {
       if (requestIdRef.current === requestId) requestIdRef.current = undefined;
       setPendingUserMessage(undefined);
+      setPendingAttachments([]);
       setGenerating(false);
     }
   };
@@ -1485,7 +1525,7 @@ export function AICommands() {
     setChatTitle(session.title);
     setConversation([...session.messages]);
     setConversationHistory([...session.history]);
-    setAttachments([]);
+    setAttachments(session.attachments ? [...session.attachments] : []);
     setLastUserRequest(
       [...session.messages].reverse().find((message) => message.role === 'user')?.content ?? '',
     );
@@ -1499,7 +1539,7 @@ export function AICommands() {
     setChatTitle('');
     setConversation([]);
     setConversationHistory([]);
-    setAttachments([]);
+    // Retain current attachments so the author can continue working with the reference script in a fresh chat
     setLastUserRequest('');
     setInstruction('');
     clearProposal();
@@ -1910,6 +1950,21 @@ export function AICommands() {
                       <pre>{message.reasoning}</pre>
                     </details>
                   )}
+                  {message.role === 'user' &&
+                    message.attachments &&
+                    message.attachments.length > 0 && (
+                      <div className={styles.chatMessageAttachments}>
+                        {message.attachments.map((att) => (
+                          <span
+                            className={styles.chatMessageAttachmentBadge}
+                            key={att.id}
+                            title={`${att.name} · ${att.size.toLocaleString()} characters`}
+                          >
+                            📎 {att.name} ({Math.round(att.size / 1024) || 1} KB)
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   <span className={styles.chatMessageText}>{message.content}</span>
                 </div>
               </div>
@@ -1919,6 +1974,15 @@ export function AICommands() {
             <div className={styles.chatMessage} data-role="user">
               <strong>You</strong>
               <div className={styles.chatMessageBody}>
+                {pendingAttachments.length > 0 && (
+                  <div className={styles.chatMessageAttachments}>
+                    {pendingAttachments.map((att) => (
+                      <span className={styles.chatMessageAttachmentBadge} key={att.id}>
+                        📎 {att.name} ({Math.round((att.content?.length ?? 0) / 1024) || 1} KB)
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <span className={styles.chatMessageText}>{pendingUserMessage}</span>
               </div>
             </div>
@@ -2035,10 +2099,18 @@ export function AICommands() {
               ))}
             </div>
           )}
+          {attachments.some((a) => (typeof a.content === 'string' ? a.content.length : 0) > 5000) && (
+            <div className={styles.largeScriptHint}>
+              💡 剧本内容较长（{(attachments.reduce((sum, a) => sum + (typeof a.content === 'string' ? a.content.length : 0), 0) / 1024).toFixed(1)} KB），AI 将自动精细化分批构建以保留Galgame对白演出细节。生成后发送「下一批」即可续接后续节点。
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             className={styles.instruction}
             value={instruction}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
             disabled={generating}
             onChange={(event) => {
               const val = event.target.value;
@@ -2109,7 +2181,7 @@ export function AICommands() {
                   key={attachment.id}
                   title={`${attachment.name} · ${attachment.content.length.toLocaleString()} characters`}
                 >
-                  {attachment.name}
+                  📎 {attachment.name} ({Math.round(attachment.content.length / 1024) || 1} KB)
                   <button
                     type="button"
                     aria-label={`Remove ${attachment.name}`}
@@ -2140,7 +2212,7 @@ export function AICommands() {
               </select>
             </label>
             <button type="button" disabled={generating} onClick={() => void addAttachments()}>
-              Attach Files
+              {attachments.length > 0 ? `Attach Files (${attachments.length})` : 'Attach Files'}
             </button>
             <span className={styles.composerHint}>Enter to send · Shift+Enter for newline</span>
             <button

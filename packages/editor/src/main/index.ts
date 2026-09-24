@@ -544,6 +544,18 @@ function isAIChatSession(value: unknown): value is AIChatSession {
         typeof message.content === 'string' &&
         message.content.length > 0,
     );
+  const validAttachments = (attachments: unknown): boolean =>
+    attachments === undefined ||
+    (Array.isArray(attachments) &&
+      attachments.length <= MAX_AI_ATTACHMENTS &&
+      attachments.every(
+        (att) =>
+          typeof att === 'object' &&
+          att !== null &&
+          typeof att.id === 'string' &&
+          typeof att.name === 'string' &&
+          typeof att.content === 'string',
+      ));
   return (
     typeof session.id === 'string' &&
     /^[a-zA-Z0-9_-]{8,128}$/.test(session.id) &&
@@ -557,6 +569,7 @@ function isAIChatSession(value: unknown): value is AIChatSession {
     typeof session.updatedAt === 'string' &&
     validMessages(session.messages) &&
     validMessages(session.history) &&
+    validAttachments(session.attachments) &&
     Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_AI_CHAT_SESSION_BYTES
   );
 }
@@ -2359,6 +2372,7 @@ function registerStoryFileHandlers(): void {
             '=== ATTACHED REFERENCE FILES (Data to be converted or referenced) ===',
             'TASK DIRECTIVE: The author attached these reference files for this request. Your mandatory task is to read and convert this material into executable Story Blueprint graph nodes (Dialogue nodes with lines and speakerId, Narration nodes for narration/environment) linked sequentially by add-connection in command.operations.',
             'Never output the dialogue as conversational chat in reply; all story content belongs inside the blueprint graph nodes.',
+            'LARGE SCRIPT / CHAPTER BATCHING RULE: If an attached script is long (> 3000 Chinese characters or 5 KB), NEVER excessively summarize or compress the story into a tiny outline! Galgame players care about characters, banter, inner thoughts, and scene details. Instead, convert the story in high-fidelity batches: convert the first scene/segment (roughly 1,500 - 3,000 characters) in complete detail into the "ink" script, and in "reply" explicitly state what scene was covered and inform the author: "回复「下一批」即可续接下一幕！".',
             ...value.attachments.map(
               (attachment) =>
                 `--- BEGIN ATTACHMENT: ${attachment.name} (${Buffer.byteLength(attachment.content, 'utf8')} bytes) ---\n${attachment.content}\n--- END ATTACHMENT: ${attachment.name} ---`,
@@ -2369,6 +2383,13 @@ function registerStoryFileHandlers(): void {
 
       if (value.context?.trim()) {
         userParts.push(`=== CURRENT STORY BLUEPRINT GRAPH CONTEXT ===\n${value.context.trim()}`);
+      }
+
+      const isNextBatchRequest = /下一批|继续|续写|下一段|接下去|下个场景|继续转换/i.test(trimmedInstruction);
+      if (isNextBatchRequest && value.attachments?.length) {
+        userParts.push(
+          `=== SEQUENTIAL BATCH CONTINUATION DIRECTIVE ===\nThe author is asking for the next batch ("${trimmedInstruction}") of the attached story script.\nInspect the existing Story Blueprint Graph Context and the previous turn's progress to find where the story left off in the attached reference text.\nGenerate the NEXT sequential segment in high fidelity (dialogue, narration, character thoughts, choices) in the "ink" field. In "reply", summarize what was added in this batch and indicate readiness for the next batch.`,
+        );
       }
 
       userParts.push(
@@ -2645,6 +2666,10 @@ If the source is too large, process it in explicit batches and report the covere
             'yaml',
             'yml',
           ],
+        },
+        {
+          name: 'All Files',
+          extensions: ['*'],
         },
       ],
     });

@@ -117,4 +117,17 @@ describe('aiAttachmentDrop - Drag and Drop Files to AI AttachFile', () => {
     expect(result.attachments.length).toBeLessThan(6);
     expect(result.warnings.some((w) => w.includes('exceed the total attachment limit'))).toBe(true);
   });
+
+  it('handles 25KB story script file attachment smoothly without warnings', async () => {
+    const novelScript = {
+      name: '序章.txt',
+      size: 25 * 1024,
+      text: async () => '“亲爱的旅客，前方到站奉阳北站……”\n'.repeat(800),
+    };
+    const result = await processDroppedAIContextFiles([novelScript]);
+    expect(result.warnings).toHaveLength(0);
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0].name).toBe('序章.txt');
+    expect(result.attachments[0].content.length).toBeGreaterThan(10000);
+  });
 });

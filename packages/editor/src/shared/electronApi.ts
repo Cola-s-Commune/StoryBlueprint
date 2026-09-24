@@ -332,10 +332,17 @@ export interface AIFileAttachment {
   content: string;
 }
 
+export interface AIFileAttachmentSummary {
+  id: string;
+  name: string;
+  size: number;
+}
+
 export interface AIConversationMessage {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
+  attachments?: readonly AIFileAttachmentSummary[];
 }
 
 export interface AIChatSession {
@@ -347,6 +354,8 @@ export interface AIChatSession {
   messages: readonly AIConversationMessage[];
   /** Raw provider envelopes retained so follow-up turns remember proposed commands. */
   history: readonly AIConversationMessage[];
+  /** Attached reference files retained for this conversation session. */
+  attachments?: readonly AIFileAttachment[];
 }
 
 export interface GenerateAICommandResult {

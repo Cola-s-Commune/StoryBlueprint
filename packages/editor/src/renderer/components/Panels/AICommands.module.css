@@ -306,6 +306,40 @@
   word-break: break-word;
 }
 
+.chatMessageAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.chatMessageAttachmentBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #232c37;
+  border: 1px solid #3d4a58;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: #8fb1d1;
+  user-select: none;
+}
+
+.largeScriptHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin: 4px 0 6px 0;
+  background: rgba(43, 84, 126, 0.25);
+  border: 1px solid rgba(85, 137, 187, 0.45);
+  border-radius: 4px;
+  color: #9ac2e8;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .chatMessage span {
   color: #cbd3dd;
   white-space: pre-wrap;

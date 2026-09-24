@@ -26,8 +26,9 @@ export const AI_SLASH_COMMANDS: AISlashCommand[] = [
       const connectHint = selectedNodeId ? `，并连接至当前选中的节点 (${selectedNodeId})` : '';
       const sourceHint = hasAttachments
         ? '附带的剧本文件'
-        : '附带的剧本文件（或以下剧本内容）';
-      return `/script 请将${sourceHint}转换为对白(Dialogue)与旁白(Narration)蓝图节点${connectHint}：\n\n`;
+        : '以下剧本内容（或点击下方 Attach Files 附加文件）';
+      const placeholder = hasAttachments ? '' : '[请在此处粘贴剧本正文]';
+      return `/script 请将${sourceHint}转换为对白(Dialogue)与旁白(Narration)蓝图节点${connectHint}：\n\n${placeholder}`;
     },
   },
   {
