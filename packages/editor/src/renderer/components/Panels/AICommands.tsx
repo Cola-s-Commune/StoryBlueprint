@@ -824,6 +824,10 @@ export function AICommands() {
       hasAttachments: attachments.length > 0,
     });
 
+    if (cmd.id === 'script' && attachments.length === 0) {
+      void addAttachments();
+    }
+
     if (cmd.recommendedScope) {
       if (cmd.recommendedScope === 'selection') {
         if (selectedNodeIds.length > 0) {
@@ -1252,18 +1256,16 @@ export function AICommands() {
       /^\/script\b[^\n\r]*[:：]\s*(\[请在此处粘贴剧本正文\])?\s*$/i.test(requestInstruction) ||
       requestInstruction === '/script';
     if (isScriptCommandOnly && attachments.length === 0) {
-      setProviderError(
-        '请先点击下方的「Attach Files」附加剧本文件，或在冒号后面粘贴剧本文本后再发送！',
-      );
+      setProviderError('尚未附加剧本文件！正在为你打开文件选择窗口，请选择要转换的剧本文件…');
+      void addAttachments();
       return;
     }
     if (
       attachments.length === 0 &&
-      /(按照|根据|依照|参考|把).*(我给你的)?(文件|附件|txt|剧本)/i.test(requestInstruction)
+      /(按照|根据|依照|参考|把|将).*(我给你的|附带的)?(文件|附件|txt|剧本)/i.test(requestInstruction)
     ) {
-      setProviderError(
-        '当前会话尚未附加文件！请先点击下方的「Attach Files」附加剧本文件，或直接在输入框粘贴剧本正文。',
-      );
+      setProviderError('尚未附加剧本文件！正在为你打开文件选择窗口，请选择要转换的剧本文件…');
+      void addAttachments();
       return;
     }
     if (contextScope === 'selection' && selectedNodeIds.length === 0) {
