@@ -9,6 +9,7 @@
 }
 
 .requestPane {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 220px;
@@ -1039,5 +1040,46 @@
   color: #d8e8f8;
   background: #2a3a4c;
   border-color: #4f7396;
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(20, 27, 36, 0.92);
+  border: 2px dashed #4b86bc;
+  border-radius: 6px;
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  animation: dropFadeIn 0.15s ease-out;
+}
+
+.dropOverlayTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #92bce3;
+  pointer-events: none;
+}
+
+.dropOverlayHint {
+  font-size: 11px;
+  color: #728499;
+  pointer-events: none;
+}
+
+@keyframes dropFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 

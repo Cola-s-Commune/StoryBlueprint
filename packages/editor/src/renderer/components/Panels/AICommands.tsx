@@ -32,6 +32,7 @@ import type {
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
 import { AIQuickActions } from './AIQuickActions';
 import { CopyButton } from './CopyButton';
+import { processDroppedAIContextFiles } from '../../graph/aiAttachmentDrop';
 import panelStyles from './Panel.module.css';
 import styles from './AICommands.module.css';
 
@@ -648,6 +649,8 @@ export function AICommands() {
   const [localError, setLocalError] = useState<string>();
   const [instruction, setInstruction] = useState('');
   const [attachments, setAttachments] = useState<AIFileAttachment[]>([]);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragCounterRef = useRef(0);
   const [contextScope, setContextScope] = useState<AIContextScope>('story');
   const [providerRegistry, setProviderRegistry] = useState<AIProviderRegistry>();
   const [instructionsStatus, setInstructionsStatus] = useState<AIInstructionsStatus>();
@@ -1254,6 +1257,59 @@ export function AICommands() {
     }
   };
 
+  const handleDragEnter = (event: React.DragEvent) => {
+    if (event.dataTransfer?.types && Array.from(event.dataTransfer.types).includes('Files')) {
+      event.preventDefault();
+      dragCounterRef.current += 1;
+      setIsDraggingFiles(true);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    if (event.dataTransfer?.types && Array.from(event.dataTransfer.types).includes('Files')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleDragLeave = (event: React.DragEvent) => {
+    if (event.dataTransfer?.types && Array.from(event.dataTransfer.types).includes('Files')) {
+      event.preventDefault();
+      dragCounterRef.current -= 1;
+      if (dragCounterRef.current <= 0) {
+        dragCounterRef.current = 0;
+        setIsDraggingFiles(false);
+      }
+    }
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    if (!event.dataTransfer?.types || !Array.from(event.dataTransfer.types).includes('Files')) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingFiles(false);
+
+    const droppedFiles = Array.from(event.dataTransfer.files ?? []);
+    if (droppedFiles.length === 0) return;
+
+    void (async () => {
+      try {
+        const result = await processDroppedAIContextFiles(droppedFiles, attachments);
+        if (result.attachments.length > 0) {
+          setAttachments((current) => [...current, ...result.attachments].slice(0, 8));
+        }
+        if (result.warnings.length > 0) {
+          setProviderError(result.warnings.join(' '));
+        }
+      } catch (error) {
+        setProviderError(error instanceof Error ? error.message : String(error));
+      }
+    })();
+  };
+
   const clearProposal = () => {
     discardAIProposal();
     setResult(undefined);
@@ -1320,7 +1376,21 @@ export function AICommands() {
 
   return (
     <div className={styles.root}>
-      <section className={styles.requestPane}>
+      <section
+        className={styles.requestPane}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDraggingFiles && (
+          <div className={styles.dropOverlay}>
+            <div className={styles.dropOverlayTitle}>Drop files to attach</div>
+            <div className={styles.dropOverlayHint}>
+              Add text, script, or markdown files to AI reference context
+            </div>
+          </div>
+        )}
         <div className={styles.requestHeader}>
           <div className={styles.assistantTitle}>
             <strong>Story Assistant</strong>
