@@ -1,0 +1,30 @@
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.guideGroup {
+  pointer-events: none;
+}
+
+.guideLine {
+  stroke: #38bdf8;
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+}
+
+.guideMarker {
+  fill: #0ea5e9;
+  stroke: #e0f2fe;
+  stroke-width: 1px;
+}
+
+.guideCap {
+  fill: #38bdf8;
+}

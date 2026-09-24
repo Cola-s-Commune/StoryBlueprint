@@ -20,6 +20,8 @@ import {
   type OnConnectStart,
   type ReactFlowInstance,
   addEdge,
+  type OnNodesChange,
+  type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -77,7 +79,11 @@ import {
   getNodeDiffKind,
   GRAPH_MINIMAP_STORAGE_KEY,
 } from './graphMinimap';
+import { calculateNodeSnap, type SnapLine } from '../../graph/storyGraphSnap';
+import { AlignmentGuides } from './AlignmentGuides';
 import styles from './StoryGraph.module.css';
+
+const SNAP_GUIDES_STORAGE_KEY = 'story-blueprint.snap-guides';
 
 function toGraphNodes(
   nodes: readonly EditorGraphNode[],
@@ -452,6 +458,31 @@ export function StoryGraph() {
   useEffect(() => {
     window.localStorage.setItem(GRAPH_MINIMAP_STORAGE_KEY, String(showMinimap));
   }, [showMinimap]);
+  const [snapGuidesEnabled, setSnapGuidesEnabled] = useState(() => {
+    const saved = window.localStorage.getItem(SNAP_GUIDES_STORAGE_KEY);
+    return saved === null ? true : saved === 'true';
+  });
+  const [snapLines, setSnapLines] = useState<readonly SnapLine[]>([]);
+  const isAltPressedRef = useRef(false);
+
+  useEffect(() => {
+    window.localStorage.setItem(SNAP_GUIDES_STORAGE_KEY, String(snapGuidesEnabled));
+  }, [snapGuidesEnabled]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') isAltPressedRef.current = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') isAltPressedRef.current = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
   const [transferPreview, setTransferPreview] = useState<{
     fixedPoints: readonly { x: number; y: number }[];
     pointer: { x: number; y: number };
@@ -1287,6 +1318,11 @@ export function StoryGraph() {
         createCommentBoxForSelection();
         return;
       }
+      if (event.shiftKey && !modifier && key === 's') {
+        event.preventDefault();
+        setSnapGuidesEnabled((current) => !current);
+        return;
+      }
       if (modifier && key === 'c' && window.getSelection()?.toString()) return;
       if (mergePreviewActive && (modifier || event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault();
@@ -1320,6 +1356,7 @@ export function StoryGraph() {
         setShowShortcuts(false);
         setShowSearch(false);
         setContextMenu(null);
+        setSnapLines([]);
       }
     };
 
@@ -1409,6 +1446,57 @@ export function StoryGraph() {
     return () => cancelAnimationFrame(frame);
   }, [aiProposal?.nonce, flowInstance]);
 
+  const handleNodesChange = useCallback<OnNodesChange<EditorGraphNode>>(
+    (changes) => {
+      if (!snapGuidesEnabled || isAltPressedRef.current) {
+        if (snapLines.length > 0) setSnapLines([]);
+        onNodesChange(changes);
+        return;
+      }
+
+      const positionChanges = changes.filter(
+        (change): change is Extract<NodeChange<EditorGraphNode>, { type: 'position' }> =>
+          change.type === 'position' && change.dragging === true && Boolean(change.position),
+      );
+
+      if (positionChanges.length > 0) {
+        const draggedNodes = positionChanges
+          .map((c) => ({
+            node: nodes.find((n) => n.id === c.id)!,
+            newPosition: c.position!,
+          }))
+          .filter((item) => Boolean(item.node));
+
+        if (draggedNodes.length > 0) {
+          const snapResult = calculateNodeSnap({
+            draggedNodes,
+            allNodes: nodes,
+            snapThreshold: 8,
+          });
+
+          if (snapResult.deltaX !== 0 || snapResult.deltaY !== 0) {
+            for (const change of positionChanges) {
+              if (change.position) {
+                change.position.x += snapResult.deltaX;
+                change.position.y += snapResult.deltaY;
+              }
+            }
+          }
+          setSnapLines(snapResult.lines);
+        }
+      } else {
+        const dragEndChanges = changes.filter(
+          (change) => change.type === 'position' && change.dragging === false,
+        );
+        if (dragEndChanges.length > 0 && snapLines.length > 0) {
+          setSnapLines([]);
+        }
+      }
+
+      onNodesChange(changes);
+    },
+    [nodes, onNodesChange, snapGuidesEnabled, snapLines.length],
+  );
   const onNodeDragStart = useCallback(
     (_event: unknown, node: EditorGraphNode) => {
       if (aiProposal) return;
@@ -1505,6 +1593,7 @@ export function StoryGraph() {
       commentDragContext.current = null;
       checkpoint(snapshot, isComment ? 'Move Comment Box' : 'Move Nodes');
       markDirty();
+      setSnapLines([]);
     },
     [aiProposal, checkpoint, markDirty, setNodes, updateAIProposalNodes],
   );
@@ -2001,6 +2090,18 @@ export function StoryGraph() {
           </button>
           <button
             type="button"
+            className={snapGuidesEnabled ? styles.activeToolbarButton : styles.shortcutsButton}
+            title={
+              snapGuidesEnabled
+                ? 'Smart Alignment Guides & Snapping: Enabled (Shift+S to toggle, hold Alt to bypass)'
+                : 'Smart Alignment Guides & Snapping: Disabled (Shift+S to toggle)'
+            }
+            onClick={() => setSnapGuidesEnabled((current) => !current)}
+          >
+            {snapGuidesEnabled ? 'Snap: On' : 'Snap: Off'}
+          </button>
+          <button
+            type="button"
             className={isGitHeadDiff ? styles.activeToolbarButton : styles.shortcutsButton}
             title={
               isGitHeadDiff
@@ -2035,7 +2136,7 @@ export function StoryGraph() {
               ? () => undefined
               : aiProposal
                 ? updateAIProposalNodes
-                : onNodesChange
+                : handleNodesChange
           }
           onEdgesChange={mergePreviewActive || aiProposal ? () => undefined : onEdgesChange}
           onEdgeClick={onEdgeClick}
@@ -2108,6 +2209,7 @@ export function StoryGraph() {
           panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
+          <AlignmentGuides lines={snapLines} />
           {showMinimap && (
             <MiniMap
               className={styles.minimap}
@@ -2623,6 +2725,10 @@ export function StoryGraph() {
               <dd>Search nodes, dialogue, choices, and Story Data across this Story</dd>
               <dt>C</dt>
               <dd>Group selected nodes into a Comment Box (or create empty Comment Box)</dd>
+              <dt>Shift + S</dt>
+              <dd>Toggle Smart Alignment Guides and Snapping (Snap: On / Off)</dd>
+              <dt>Hold Alt</dt>
+              <dd>Temporarily bypass node snapping while dragging</dd>
               <dt>M</dt>
               <dd>Toggle graph minimap navigation overlay</dd>
               <dt>Layout Selected / All</dt>
