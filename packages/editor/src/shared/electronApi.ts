@@ -250,7 +250,7 @@ export interface UpdateProjectSettingsRequest {
   engineTypes?: readonly EngineTypeDefinition[];
 }
 
-export type AIStructuredOutputMode = 'json-schema' | 'json-object';
+export type AIStructuredOutputMode = 'json-schema' | 'json-object' | 'disabled';
 export type AIThinkingMode = 'auto' | 'enabled' | 'disabled';
 export type AIReasoningEffort = 'high' | 'max';
 export type AIStreamingMode = 'auto' | 'required' | 'disabled';

@@ -1236,7 +1236,6 @@ export function AICommands() {
       if (requestIdRef.current === requestId) requestIdRef.current = undefined;
       setPendingUserMessage(undefined);
       setGenerating(false);
-      setReasoningOpen(false);
     }
   };
 
@@ -1551,6 +1550,7 @@ export function AICommands() {
               >
                 <option value="json-schema">JSON Schema</option>
                 <option value="json-object">JSON Object (compatible)</option>
+                <option value="disabled">Disabled (prompt-guided / reasoning models)</option>
               </select>
             </label>
             <label>

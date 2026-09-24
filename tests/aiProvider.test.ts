@@ -71,6 +71,15 @@ describe('OpenAI-compatible provider helpers', () => {
     expect(
       parseOpenAIStreamDelta({ choices: [{ delta: { content: [{ text: '{"reply":' }] } }] }),
     ).toEqual({ content: '{"reply":' });
+    expect(
+      parseOpenAIStreamDelta({ choices: [{ delta: {}, finish_reason: 'length' }] }),
+    ).toEqual({ finishReason: 'length' });
+    expect(
+      parseOpenAIStreamDelta({ error: { message: 'Stream interrupted: context length exceeded' } }),
+    ).toEqual({ error: 'Stream interrupted: context length exceeded' });
+    expect(
+      parseOpenAIStreamDelta({ error: 'Rate limit reached' }),
+    ).toEqual({ error: 'Rate limit reached' });
   });
 
   it('rejects empty provider responses', () => {

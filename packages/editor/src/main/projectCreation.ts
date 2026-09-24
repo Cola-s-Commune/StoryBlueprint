@@ -15,6 +15,7 @@ This workspace contains interactive narrative content managed by Story Blueprint
 - Story logic and dialogue flow are authored as visual blueprint graphs and saved as \`.story\` files.
 - The project manifest is stored in \`*.storyproject\`.
 - Shared characters, variables, and assets are referenced across stories.
+- When adapting external text or novel files into Galgame dialogues, convert the text into Dialogue and Narration graph nodes (\`command.operations\`); do not write novel continuations or sequels.
 `;
 
 export interface InitializedProjectDirectory {

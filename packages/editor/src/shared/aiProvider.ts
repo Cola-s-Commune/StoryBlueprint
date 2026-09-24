@@ -19,16 +19,32 @@ export interface OpenAIStreamDelta {
   model?: string;
   reasoning?: string;
   content?: string;
+  finishReason?: string;
+  error?: string;
 }
 
 /** Extracts the useful delta fields from one OpenAI-compatible SSE payload. */
 export function parseOpenAIStreamDelta(value: unknown): OpenAIStreamDelta | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const response = value as { model?: unknown; choices?: unknown };
+  const response = value as { model?: unknown; choices?: unknown; error?: unknown };
+  if ('error' in response && response.error) {
+    if (typeof response.error === 'string') {
+      return { error: response.error };
+    }
+    if (typeof response.error === 'object' && response.error !== null) {
+      const err = response.error as { message?: unknown; code?: unknown };
+      const errMsg = typeof err.message === 'string' ? err.message : JSON.stringify(response.error);
+      return { error: errMsg };
+    }
+  }
   const choice = Array.isArray(response.choices) ? response.choices[0] : undefined;
   if (typeof choice !== 'object' || choice === null) return undefined;
+  const finishReason = typeof choice.finish_reason === 'string' ? choice.finish_reason : undefined;
   const delta = (choice as { delta?: unknown }).delta;
-  if (typeof delta !== 'object' || delta === null) return undefined;
+  if (typeof delta !== 'object' || delta === null) {
+    if (finishReason) return { finishReason };
+    return undefined;
+  }
   const fields = delta as Record<string, unknown>;
   const reasoningValue = fields.reasoning_content ?? fields.reasoning;
   const reasoning = typeof reasoningValue === 'string' ? reasoningValue : '';
@@ -44,11 +60,12 @@ export function parseOpenAIStreamDelta(value: unknown): OpenAIStreamDelta | unde
             .join('')
         : '';
   const model = typeof response.model === 'string' ? response.model : '';
-  if (!model && !reasoning && !content) return undefined;
+  if (!model && !reasoning && !content && !finishReason) return undefined;
   return {
     ...(model ? { model } : {}),
     ...(reasoning ? { reasoning } : {}),
     ...(content ? { content } : {}),
+    ...(finishReason ? { finishReason } : {}),
   };
 }
 
