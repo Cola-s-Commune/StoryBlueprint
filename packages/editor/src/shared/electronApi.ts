@@ -262,6 +262,8 @@ export interface AIProviderSettings {
   endpoint: string;
   model: string;
   timeoutMs: number;
+  temperature?: number;
+  maxTokens?: number;
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;
@@ -294,6 +296,8 @@ export interface SaveAIProviderProfileRequest {
   endpoint: string;
   model: string;
   timeoutMs: number;
+  temperature?: number;
+  maxTokens?: number;
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;

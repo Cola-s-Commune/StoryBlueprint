@@ -378,6 +378,8 @@ const defaultAIProviderSettings: Omit<AIProviderSettings, 'hasApiKey'> = {
   endpoint: 'https://api.openai.com/v1',
   model: '',
   timeoutMs: 120_000,
+  temperature: 0.3,
+  maxTokens: 8192,
   structuredOutput: 'json-schema',
   thinkingMode: 'auto',
   reasoningEffort: 'high',
@@ -393,7 +395,7 @@ type StoredAIProviderSettings = Omit<
   Partial<
     Pick<
       AIProviderSettings,
-      'thinkingMode' | 'reasoningEffort' | 'streaming' | 'tools' | 'contextMode'
+      'thinkingMode' | 'reasoningEffort' | 'streaming' | 'tools' | 'contextMode' | 'temperature' | 'maxTokens'
     >
   >;
 
@@ -597,6 +599,14 @@ function isAIProviderSettings(value: unknown): value is StoredAIProviderSettings
     typeof settings.timeoutMs === 'number' &&
     settings.timeoutMs >= 5_000 &&
     settings.timeoutMs <= 600_000 &&
+    (settings.temperature === undefined ||
+      (typeof settings.temperature === 'number' &&
+        settings.temperature >= 0 &&
+        settings.temperature <= 2)) &&
+    (settings.maxTokens === undefined ||
+      (typeof settings.maxTokens === 'number' &&
+        settings.maxTokens >= 512 &&
+        settings.maxTokens <= 65536)) &&
     (settings.structuredOutput === 'json-schema' ||
       settings.structuredOutput === 'json-object' ||
       settings.structuredOutput === 'disabled') &&
@@ -2181,7 +2191,17 @@ function registerStoryFileHandlers(): void {
       typeof request.timeoutMs !== 'number' ||
       request.timeoutMs < 5_000 ||
       request.timeoutMs > 600_000 ||
-      (request.structuredOutput !== 'json-schema' && request.structuredOutput !== 'json-object') ||
+      (request.structuredOutput !== 'json-schema' &&
+        request.structuredOutput !== 'json-object' &&
+        request.structuredOutput !== 'disabled') ||
+      (request.temperature !== undefined &&
+        (typeof request.temperature !== 'number' ||
+          request.temperature < 0 ||
+          request.temperature > 2)) ||
+      (request.maxTokens !== undefined &&
+        (typeof request.maxTokens !== 'number' ||
+          request.maxTokens < 512 ||
+          request.maxTokens > 65536)) ||
       (request.thinkingMode !== 'auto' &&
         request.thinkingMode !== 'enabled' &&
         request.thinkingMode !== 'disabled') ||
@@ -2212,6 +2232,8 @@ function registerStoryFileHandlers(): void {
       endpoint: request.endpoint.trim().replace(/\/+$/, ''),
       model: request.model.trim(),
       timeoutMs: Math.round(request.timeoutMs),
+      temperature: typeof request.temperature === 'number' ? request.temperature : 0.3,
+      maxTokens: typeof request.maxTokens === 'number' ? Math.round(request.maxTokens) : 8192,
       structuredOutput: request.structuredOutput,
       thinkingMode: request.thinkingMode,
       reasoningEffort: request.reasoningEffort,
@@ -2378,7 +2400,10 @@ If the source is too large, process it in explicit batches and report the covere
                 content: combinedUserContent,
               },
             ],
-            max_tokens: 8192,
+            max_tokens: typeof settings.maxTokens === 'number' ? settings.maxTokens : 8192,
+            ...(typeof settings.temperature === 'number' && settings.thinkingMode !== 'enabled'
+              ? { temperature: settings.temperature }
+              : {}),
             ...(currentResponseFormat ? { response_format: currentResponseFormat } : {}),
             stream: settings.streaming !== 'disabled',
             ...(settings.thinkingMode === 'auto'

@@ -62,6 +62,8 @@ interface AIProviderDraft {
   endpoint: string;
   model: string;
   timeoutSeconds: number;
+  temperature: number;
+  maxTokens: number;
   structuredOutput: AIStructuredOutputMode;
   thinkingMode: AIThinkingMode;
   reasoningEffort: AIReasoningEffort;
@@ -77,6 +79,8 @@ function draftFromProvider(profile: AIProviderProfile): AIProviderDraft {
     endpoint: profile.endpoint,
     model: profile.model,
     timeoutSeconds: profile.timeoutMs / 1_000,
+    temperature: typeof profile.temperature === 'number' ? profile.temperature : 0.3,
+    maxTokens: typeof profile.maxTokens === 'number' ? profile.maxTokens : 8192,
     structuredOutput: profile.structuredOutput,
     thinkingMode: profile.thinkingMode,
     reasoningEffort: profile.reasoningEffort,
@@ -92,6 +96,8 @@ function createProviderDraft(): AIProviderDraft {
     endpoint: 'https://api.openai.com/v1',
     model: '',
     timeoutSeconds: 120,
+    temperature: 0.3,
+    maxTokens: 8192,
     structuredOutput: 'json-object',
     thinkingMode: 'auto',
     reasoningEffort: 'high',
@@ -1148,6 +1154,8 @@ export function AICommands() {
         endpoint: providerDraft.endpoint,
         model: providerDraft.model,
         timeoutMs: Math.round(providerDraft.timeoutSeconds * 1_000),
+        temperature: providerDraft.temperature,
+        maxTokens: providerDraft.maxTokens,
         structuredOutput: providerDraft.structuredOutput,
         thinkingMode: providerDraft.thinkingMode,
         reasoningEffort: providerDraft.reasoningEffort,
@@ -1636,6 +1644,40 @@ export function AICommands() {
                   setProviderDraft({
                     ...providerDraft,
                     timeoutSeconds: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Temperature · {providerDraft.temperature.toFixed(2)} (0.2~0.3 for blueprints, 0.7 for discussion)</span>
+              <input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={providerDraft.temperature}
+                disabled={generating}
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    temperature: Math.max(0, Math.min(2, Number(event.target.value) || 0)),
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Max tokens</span>
+              <input
+                type="number"
+                min={512}
+                max={65536}
+                step={512}
+                value={providerDraft.maxTokens}
+                disabled={generating}
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    maxTokens: Math.max(512, Math.min(65536, Number(event.target.value) || 8192)),
                   })
                 }
               />
