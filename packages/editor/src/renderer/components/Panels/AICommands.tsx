@@ -2099,11 +2099,6 @@ export function AICommands() {
               ))}
             </div>
           )}
-          {attachments.some((a) => (typeof a.content === 'string' ? a.content.length : 0) > 5000) && (
-            <div className={styles.largeScriptHint}>
-              💡 剧本内容较长（{(attachments.reduce((sum, a) => sum + (typeof a.content === 'string' ? a.content.length : 0), 0) / 1024).toFixed(1)} KB），AI 将自动精细化分批构建以保留Galgame对白演出细节。生成后发送「下一批」即可续接后续节点。
-            </div>
-          )}
           <textarea
             ref={textareaRef}
             className={styles.instruction}
