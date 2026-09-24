@@ -331,6 +331,7 @@ export interface AIFileAttachment {
 export interface AIConversationMessage {
   role: 'user' | 'assistant';
   content: string;
+  reasoning?: string;
 }
 
 export interface AIChatSession {

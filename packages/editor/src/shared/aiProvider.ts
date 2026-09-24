@@ -158,45 +158,78 @@ function repairUnescapedStringQuotes(content: string): string {
   return result;
 }
 
-function parseJSONResponse(content: string): { value: unknown; repaired: boolean } {
+interface ParsedJSONResult {
+  value: unknown;
+  repaired: boolean;
+  surroundingText?: string;
+}
+
+function parseJSONResponse(content: string): ParsedJSONResult {
   const trimmed = content.trim();
-  const withoutFence = trimmed
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+
+  // 1. Direct parse if whole string is valid JSON
   try {
-    return { value: JSON.parse(withoutFence) as unknown, repaired: false };
+    return { value: JSON.parse(trimmed) as unknown, repaired: false };
   } catch {
-    // Providers occasionally add a short preamble before a JSON object. Only
-    // use the first balanced object when it can be parsed completely.
-    const start = withoutFence.indexOf('{');
-    const end = withoutFence.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      try {
-        return { value: JSON.parse(withoutFence.slice(start, end + 1)) as unknown, repaired: false };
-      } catch {
-        const repaired = repairUnescapedStringQuotes(withoutFence.slice(start, end + 1));
-        try {
-          return { value: JSON.parse(repaired) as unknown, repaired: repaired !== withoutFence };
-        } catch {
-          // Fall through to the stable user-facing parse error below.
-        }
-      }
-    }
-    const repaired = repairUnescapedStringQuotes(withoutFence);
-    if (repaired !== withoutFence) {
-      try {
-        return { value: JSON.parse(repaired) as unknown, repaired: true };
-      } catch {
-        // Fall through to the stable user-facing parse error below.
-      }
-    }
-    throw new Error('AI response is not valid JSON');
+    // Continue
   }
+
+  // 2. Fenced code block check: ```json ... ``` or ``` ... ```
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) {
+    const candidate = fenceMatch[1].trim();
+    const preamble = trimmed.slice(0, fenceMatch.index).trim();
+    const postamble = trimmed.slice(fenceMatch.index! + fenceMatch[0].length).trim();
+    const surroundingText = [preamble, postamble].filter(Boolean).join('\n\n') || undefined;
+
+    try {
+      return { value: JSON.parse(candidate) as unknown, repaired: false, surroundingText };
+    } catch {
+      const repaired = repairUnescapedStringQuotes(candidate);
+      try {
+        return { value: JSON.parse(repaired) as unknown, repaired: true, surroundingText };
+      } catch {
+        // Fall through to boundary extraction
+      }
+    }
+  }
+
+  // 3. Balanced { ... } extraction
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    const candidate = trimmed.slice(start, end + 1);
+    const rawBefore = trimmed.slice(0, start).replace(/```(?:json)?\s*$/i, '').trim();
+    const rawAfter = trimmed.slice(end + 1).replace(/^\s*```/i, '').trim();
+    const surroundingText = [rawBefore, rawAfter].filter(Boolean).join('\n\n') || undefined;
+
+    try {
+      return { value: JSON.parse(candidate) as unknown, repaired: false, surroundingText };
+    } catch {
+      const repaired = repairUnescapedStringQuotes(candidate);
+      try {
+        return { value: JSON.parse(repaired) as unknown, repaired: repaired !== candidate, surroundingText };
+      } catch {
+        // Fall through
+      }
+    }
+  }
+
+  // 4. Try unescaped string quote repair on entire trimmed string
+  const repaired = repairUnescapedStringQuotes(trimmed);
+  if (repaired !== trimmed) {
+    try {
+      return { value: JSON.parse(repaired) as unknown, repaired: true };
+    } catch {
+      // Fall through
+    }
+  }
+
+  throw new Error('AI response is not valid JSON');
 }
 
 export function parseAIAssistantResponse(content: string, baseRevision?: string): AIAssistantResponse {
-  let parsed: { value: unknown; repaired: boolean };
+  let parsed: ParsedJSONResult;
   try {
     parsed = parseJSONResponse(content);
   } catch {
@@ -204,54 +237,116 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
     if (!reply) throw new Error('AI response content is empty');
     return { reply, unstructured: true };
   }
-  const { value } = parsed;
+  const { value, surroundingText } = parsed;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('AI response must be an object');
+    const reply = surroundingText || content.trim();
+    return { reply, unstructured: true };
   }
   const object = value as Record<string, unknown>;
+
+  // Extract command (if present)
+  let command: unknown = undefined;
   if (object.format === 'story-blueprint-commands') {
-    return {
-      reply: 'I prepared a Blueprint change for review.',
-      command: value,
-      ...(parsed.repaired ? { jsonRepaired: true } : {}),
+    command = value;
+  } else if (object.command !== undefined && object.command !== null) {
+    if (typeof object.command === 'object' && !Array.isArray(object.command)) {
+      const cmdObj = object.command as Record<string, unknown>;
+      if (Array.isArray(cmdObj.operations) && cmdObj.format !== 'story-blueprint-commands') {
+        command = {
+          format: BLUEPRINT_COMMAND_FORMAT,
+          version: BLUEPRINT_COMMAND_VERSION,
+          baseRevision: typeof cmdObj.baseRevision === 'string' ? cmdObj.baseRevision : (baseRevision ?? ''),
+          ...cmdObj,
+        };
+      } else {
+        command = object.command;
+      }
+    } else {
+      throw new Error('AI response command must be an object or null');
+    }
+  } else if (Array.isArray(object.operations)) {
+    if (object.format === 'story-blueprint-commands') {
+      command = object;
+    } else {
+      command = {
+        ...object,
+        format: BLUEPRINT_COMMAND_FORMAT,
+        version: BLUEPRINT_COMMAND_VERSION,
+        baseRevision: typeof object.baseRevision === 'string' ? object.baseRevision : (baseRevision ?? ''),
+        operations: object.operations,
+      };
+    }
+  } else if (typeof object.kind === 'string' && object.kind.length > 0) {
+    command = {
+      format: BLUEPRINT_COMMAND_FORMAT,
+      version: BLUEPRINT_COMMAND_VERSION,
+      baseRevision: baseRevision ?? '',
+      operations: [value],
     };
   }
-  if (baseRevision && typeof baseRevision === 'string') {
-    const operation = object.kind;
-    if (typeof operation === 'string' && operation.length > 0) {
-      return {
-        reply: 'I prepared a Blueprint change for review.',
-        command: {
-          format: BLUEPRINT_COMMAND_FORMAT,
-          version: BLUEPRINT_COMMAND_VERSION,
-          baseRevision,
-          operations: [value],
-        },
-        ...(parsed.repaired ? { jsonRepaired: true } : {}),
-      };
-    }
-    if (Array.isArray(object.operations)) {
-      return {
-        reply: 'I prepared a Blueprint change for review.',
-        command: {
-          ...object,
-          format: BLUEPRINT_COMMAND_FORMAT,
-          version: BLUEPRINT_COMMAND_VERSION,
-          baseRevision: typeof object.baseRevision === 'string' ? object.baseRevision : baseRevision,
-        },
-        ...(parsed.repaired ? { jsonRepaired: true } : {}),
-      };
+
+  // Extract or synthesize user-facing reply
+  const candidateReplyKeys = [
+    'reply',
+    'message',
+    'response',
+    'content',
+    'text',
+    'explanation',
+    'description',
+    'summary',
+    'answer',
+  ] as const;
+
+  let reply: string | undefined;
+  for (const key of candidateReplyKeys) {
+    const val = object[key];
+    if (typeof val === 'string' && val.trim().length > 0) {
+      reply = val.trim();
+      break;
     }
   }
-  if (typeof object.reply !== 'string' || !object.reply.trim()) {
-    throw new Error('AI response does not contain a user-facing reply');
+
+  // If no explicit reply field in JSON, prefer surrounding conversational text emitted by the model
+  if (!reply && surroundingText && surroundingText.length > 0) {
+    reply = surroundingText;
   }
-  const command = object.command;
-  if (command !== undefined && command !== null && typeof command !== 'object') {
-    throw new Error('AI response command must be an object or null');
+
+  // For exact legacy compatibility when format or single kind is returned without reply
+  if (!reply && (object.format === 'story-blueprint-commands' || typeof object.kind === 'string')) {
+    reply = 'I prepared a Blueprint change for review.';
   }
+
+  // If still no reply and we have a valid command, generate a helpful default reply rather than crashing
+  if (!reply && command) {
+    const rawOps =
+      typeof command === 'object' && command !== null
+        ? (command as Record<string, unknown>).operations
+        : undefined;
+    const opCount = Array.isArray(rawOps) ? rawOps.length : 0;
+    reply = opCount > 0
+      ? `已为您生成蓝图操作方案（包含 ${opCount} 项变更），请在下方预览并确认应用。`
+      : '已为您生成蓝图操作方案供预览与应用。';
+  }
+
+  // If still no reply, look for any other string property in the object
+  if (!reply) {
+    const ignoredKeys = new Set(['format', 'version', 'kind', 'baseRevision', 'type', 'id', 'status']);
+    for (const [k, v] of Object.entries(object)) {
+      if (!ignoredKeys.has(k) && typeof v === 'string' && v.trim().length > 0) {
+        reply = v.trim();
+        break;
+      }
+    }
+  }
+
+  // Ultimate fallback to ensure conversation turn is NEVER lost with a crash
+  if (!reply) {
+    reply = '已完成请求处理。';
+  }
+
   return {
-    reply: object.reply.trim(),
+    reply,
     ...(command !== undefined && command !== null ? { command } : {}),
     ...(object.needsClarification === true ? { needsClarification: true } : {}),
     ...(Array.isArray(object.questions)

@@ -207,4 +207,52 @@ describe('OpenAI-compatible provider helpers', () => {
       ],
     });
   });
+
+  it('handles responses missing reply field when command or operations are present', () => {
+    const result = parseAIAssistantResponse(
+      '{"command":{"format":"story-blueprint-commands","operations":[{"kind":"remove-node","graph":{"kind":"root"},"nodeId":"n_old"}]}}',
+    );
+    expect(result.command).toBeDefined();
+    expect(result.reply).toContain('蓝图操作方案');
+  });
+
+  it('extracts reply from alternative keys like message, explanation, or content', () => {
+    expect(
+      parseAIAssistantResponse(
+        '{"message":"这是主角的心理活动描写。","command":null}',
+      ).reply,
+    ).toBe('这是主角的心理活动描写。');
+
+    expect(
+      parseAIAssistantResponse(
+        '{"explanation":"已为您优化台词文风。","operations":[]}',
+      ).reply,
+    ).toBe('已为您优化台词文风。');
+  });
+
+  it('extracts surrounding markdown preamble/postamble as user-facing reply', () => {
+    const responseWithPreamble = `好的，我已为您将故事大纲转换成了对白节点：
+\`\`\`json
+{
+  "operations": [
+    { "kind": "add-node", "graph": { "kind": "root" }, "node": { "id": "n_intro", "type": "dialogue", "data": { "lines": [] } } }
+  ]
+}
+\`\`\`
+后续如果需要补充选项，请随时告诉我。`;
+
+    const result = parseAIAssistantResponse(responseWithPreamble, 'rev_test');
+    expect(result.reply).toContain('好的，我已为您将故事大纲转换成了对白节点');
+    expect(result.reply).toContain('后续如果需要补充选项，请随时告诉我');
+    expect(result.command).toBeDefined();
+  });
+
+  it('gracefully handles plot discussion JSON without crashing', () => {
+    const result = parseAIAssistantResponse(
+      '{"analysis":"这个支线的冲突很强烈，建议在第二幕增加一个伏笔。"}',
+    );
+    expect(result.reply).toBe('这个支线的冲突很强烈，建议在第二幕增加一个伏笔。');
+    expect(result.command).toBeUndefined();
+  });
 });
+

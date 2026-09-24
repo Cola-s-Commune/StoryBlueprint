@@ -289,6 +289,21 @@
   color: #76869a;
   font-size: 10px;
   text-transform: uppercase;
+  padding-top: 1px;
+}
+
+.chatMessageBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chatMessageText {
+  color: #cbd3dd;
+  white-space: pre-wrap;
+  user-select: text;
+  word-break: break-word;
 }
 
 .chatMessage span {
@@ -314,10 +329,77 @@
   background: #1b2026;
 }
 
+.activityContent,
 .activityMessage > div {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.inlineReasoning {
+  margin: 4px 0 6px;
+  border: 1px solid #2d333b;
+  border-radius: 4px;
+  background: #14171a;
+  overflow: hidden;
+  font-size: 11px;
+}
+
+.inlineReasoning summary {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: #8b949e;
+  background: #1a1e24;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  border-bottom: 1px solid transparent;
+}
+
+.inlineReasoning[open] summary {
+  border-bottom: 1px solid #282e36;
+}
+
+.inlineReasoning summary > span:first-child {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inlineReasoning summary button {
+  padding: 2px 6px;
+  border: 1px solid #3d444d;
+  border-radius: 3px;
+  color: #c9d1d9;
+  background: #21262d;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.inlineReasoning summary button:hover {
+  background: #30363d;
+}
+
+.inlineReasoning pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  color: #a6b3c2;
+  background: #101215;
+  font:
+    11px/1.5 'Cascadia Code',
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 .activityMessage strong {

@@ -667,7 +667,6 @@ export function AICommands() {
   const [providerError, setProviderError] = useState<string>();
   const [providerStatus, setProviderStatus] = useState<string>();
   const [modelReasoning, setModelReasoning] = useState<string>();
-  const [reasoningOpen, setReasoningOpen] = useState(false);
   const [streamedContent, setStreamedContent] = useState('');
   const [rawAIResponse, setRawAIResponse] = useState<string>();
   const [toolTrace, setToolTrace] = useState<
@@ -1042,7 +1041,6 @@ export function AICommands() {
       if (progress.phase === 'connecting') setProviderStatus('Connecting to provider…');
       else if (progress.phase === 'thinking') setProviderStatus('Thinking…');
       else if (progress.phase === 'writing') {
-        setReasoningOpen(false);
         setProviderStatus('Writing response…');
       } else if (progress.phase === 'completed') setProviderStatus('Finalizing response…');
     });
@@ -1195,7 +1193,6 @@ export function AICommands() {
     const requestId = crypto.randomUUID();
     requestIdRef.current = requestId;
     setGenerating(true);
-    setReasoningOpen(true);
     setPendingUserMessage(
       retry
         ? 'Please correct the proposed change using the validation diagnostics.'
@@ -1251,7 +1248,11 @@ export function AICommands() {
         const next: AIConversationMessage[] = [
           ...messages,
           { role: 'user', content: userMessage },
-          { role: 'assistant', content: assistant.reply },
+          {
+            role: 'assistant',
+            content: assistant.reply,
+            ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+          },
         ];
         return next.slice(-40);
       });
@@ -1761,20 +1762,40 @@ export function AICommands() {
             conversation.map((message, index) => (
               <div className={styles.chatMessage} data-role={message.role} key={index}>
                 <strong>{message.role === 'user' ? 'You' : 'AI'}</strong>
-                <span>{message.content}</span>
+                <div className={styles.chatMessageBody}>
+                  {message.role === 'assistant' && message.reasoning && (
+                    <details className={styles.inlineReasoning}>
+                      <summary>
+                        <span>
+                          Thinking process · {message.reasoning.length.toLocaleString()} characters
+                        </span>
+                        <span
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <CopyButton text={message.reasoning} label="Copy Reasoning" />
+                        </span>
+                      </summary>
+                      <pre>{message.reasoning}</pre>
+                    </details>
+                  )}
+                  <span className={styles.chatMessageText}>{message.content}</span>
+                </div>
               </div>
             ))
           )}
           {pendingUserMessage && (
             <div className={styles.chatMessage} data-role="user">
               <strong>You</strong>
-              <span>{pendingUserMessage}</span>
+              <div className={styles.chatMessageBody}>
+                <span className={styles.chatMessageText}>{pendingUserMessage}</span>
+              </div>
             </div>
           )}
           {generating && (
             <div className={styles.activityMessage}>
               <span className={styles.activitySpinner} aria-hidden="true" />
-              <div>
+              <div className={styles.activityContent}>
                 <strong>{providerStatus || 'Working on your request'}</strong>
                 <span>
                   Reading the latest{' '}
@@ -1785,6 +1806,22 @@ export function AICommands() {
                       : 'selection'}{' '}
                   and checking the Blueprint contract…
                 </span>
+                {modelReasoning && (
+                  <details className={styles.inlineReasoning} open>
+                    <summary>
+                      <span>
+                        Thinking process · {modelReasoning.length.toLocaleString()} characters
+                      </span>
+                      <span
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        <CopyButton text={modelReasoning} label="Copy Reasoning" />
+                      </span>
+                    </summary>
+                    <pre>{modelReasoning}</pre>
+                  </details>
+                )}
                 {streamedContent && <pre className={styles.streamedContent}>{streamedContent}</pre>}
               </div>
             </div>
@@ -2008,41 +2045,6 @@ export function AICommands() {
           </div>
         </div>
       </section>
-
-      <details
-        className={styles.reasoningPane}
-        open={reasoningOpen}
-        onToggle={(event) => setReasoningOpen(event.currentTarget.open)}
-      >
-        <summary>
-          <span>
-            Thinking process
-            {modelReasoning
-              ? ` · ${modelReasoning.length.toLocaleString()} characters`
-              : generating
-                ? ' · in progress'
-                : ' · no provider trace'}
-          </span>
-          {modelReasoning && (
-            <span
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              <CopyButton text={modelReasoning} label="Copy Reasoning" />
-            </span>
-          )}
-        </summary>
-        <p>Provider-supplied reasoning for reference; Dry Run remains the source of truth.</p>
-        {modelReasoning ? (
-          <pre>{modelReasoning}</pre>
-        ) : (
-          <div className={styles.reasoningPlaceholder}>
-            {generating
-              ? 'Waiting for provider reasoning…'
-              : 'This provider did not return a reasoning trace.'}
-          </div>
-        )}
-      </details>
 
       {toolTrace.length > 0 && (
         <details className={styles.toolTracePane}>
