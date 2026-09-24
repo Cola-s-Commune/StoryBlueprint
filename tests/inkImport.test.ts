@@ -16,6 +16,8 @@ import {
   buildInkBlockFallbackTransaction,
   buildInkBlockConversionTransaction,
   buildInkImportTransaction,
+  convertInkToBlueprintTransaction,
+  normalizeInkSource,
 } from '../packages/editor/src/renderer/dialogue/inkImport';
 
 nodeRegistry.registerBuiltins();
@@ -455,6 +457,68 @@ Alice: River.`;
       ),
     ).toHaveLength(2);
     expect(compileStory(executed.document).ok).toBe(true);
+  });
+
+  describe('convertInkToBlueprintTransaction for AI authoring', () => {
+    it('normalizes markdown fences, full-width colons, brackets, and arrows', () => {
+      const raw = '```ink\n主角：这里是哪里？\n* 【调查房间】 —> 调查\n* 【直接离开】 –> 离开\n```';
+      const normalized = normalizeInkSource(raw);
+      expect(normalized).toContain('主角: 这里是哪里？');
+      expect(normalized).toContain('* [调查房间] -> 调查');
+      expect(normalized).toContain('* [直接离开] -> 离开');
+    });
+
+    it('auto-creates missing characters and handles Chinese knots/diverts and 旁白', () => {
+      const document = story();
+      const inkSource = `旁白: 废墟中弥漫着尘土的气息。
+主角: 有人在这里吗？
+神秘少女: 别出声……后面有危险。
+* [拔出武器警戒] -> 战斗分支
+* [拉着她躲进掩体] -> 躲避分支
+
+=== 战斗分支 ===
+主角: 交给我吧！
+-> DONE
+
+=== 躲避分支 ===
+神秘少女: 呼……好险，谢谢你。
+-> DONE`;
+
+      const result = convertInkToBlueprintTransaction(inkSource, {
+        revision: createStorySemanticSnapshot(document).revision,
+        characters: document.characters,
+        assets: document.assets,
+        variables: document.variables,
+        autoCreateCharacters: true,
+        connectToNodeId: 'n_entry',
+      });
+
+      expect(result.ok, result.ok ? undefined : result.diagnostics).toBe(true);
+      if (!result.ok || !result.transaction) return;
+
+      expect(result.createdCharacters?.map((c) => c.name)).toEqual(['主角', '神秘少女']);
+      expect(result.summary?.dialogueNodes).toBeGreaterThanOrEqual(3);
+      expect(result.summary?.choiceNodes).toBe(1);
+      expect(result.summary?.narrationNodes).toBe(1);
+
+      // Verify execution
+      const executed = executeBlueprintCommandTransaction(document, result.transaction);
+      expect(executed.diagnostics).toEqual([]);
+      expect(executed.ok).toBe(true);
+      if (!executed.ok) return;
+
+      // Characters should now be in the document
+      expect(executed.document.characters.map((c) => c.name)).toEqual(
+        expect.arrayContaining(['alice', '主角', '神秘少女']),
+      );
+
+      // Connection from n_entry should exist
+      expect(executed.document.root.edges.some((e) => e.from.nodeId === 'n_entry')).toBe(true);
+
+      // Entire document must compile cleanly
+      const compiled = compileStory(executed.document);
+      expect(compiled.ok, compiled.ok ? undefined : compiled.diagnostics).toBe(true);
+    });
   });
 
 });

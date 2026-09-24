@@ -178,7 +178,7 @@ export function parseDialogueInk(
           endColumn: Math.max(2, parsed.text.length + 1),
           message: 'Dialogue lines must begin with “Character: ” or “Narrator: ”.',
         });
-      } else if (speakerToken.toLocaleLowerCase() === 'narrator') {
+      } else if (speakerToken.toLocaleLowerCase() === 'narrator' || speakerToken === '旁白') {
         // An omitted Line speaker explicitly means Narrator.
       } else {
         const matches = findNamed(characters, speakerToken);

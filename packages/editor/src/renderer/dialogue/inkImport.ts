@@ -140,8 +140,8 @@ type BlueprintCommandInput = BlueprintCommand extends infer Command
     : never
   : never;
 
-const knotPattern = /^\s*===\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*===\s*$/;
-const divertPattern = /^\s*->\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*$/;
+const knotPattern = /^\s*===\s*([\p{L}_][\p{L}\p{N}_.-]*)\s*===\s*$/u;
+const divertPattern = /^\s*->\s*([\p{L}_][\p{L}\p{N}_.-]*)\s*$/u;
 const variablePattern = /^\s*VAR\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/i;
 const assignmentPattern = /^\s*~\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/;
 const externalDeclarationPattern = /^\s*EXTERNAL\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*$/i;
@@ -239,7 +239,7 @@ function choiceContent(source: string): {
   target?: string;
   visibleIf?: string;
 } {
-  const inlineTarget = /^(.*?)\s*->\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*$/.exec(source);
+  const inlineTarget = /^(.*?)\s*->\s*([\p{L}_][\p{L}\p{N}_.-]*)\s*$/u.exec(source);
   let text = (inlineTarget?.[1] ?? source).trim();
   let visibleIf: string | undefined;
   const condition = /^\{([^{}]+)\}\s*(.*)$/.exec(text);
@@ -1288,5 +1288,174 @@ export function buildInkBlockConversionTransaction(
       ...imported.transaction,
       operations,
     },
+  };
+}
+
+export interface ConvertInkOptions {
+  revision: string;
+  chapterId?: string;
+  characters: readonly CharacterSource[];
+  assets: readonly AssetSource[];
+  variables: readonly VariableDefinition[];
+  events?: readonly EventSource[];
+  externalFunctionBindings?: readonly InkExternalFunctionBinding[];
+  autoCreateCharacters?: boolean;
+  connectToNodeId?: NodeId;
+}
+
+export interface ConvertInkResult {
+  ok: boolean;
+  transaction?: BlueprintCommandTransaction;
+  diagnostics: readonly InkImportDiagnostic[];
+  summary?: InkImportSummary;
+  createdCharacters?: CharacterSource[];
+}
+
+export function normalizeInkSource(source: string): string {
+  let text = source.trim();
+  const fenceMatch = text.match(/^```(?:ink|story)?\s*([\s\S]*?)\s*```$/i);
+  if (fenceMatch) {
+    text = fenceMatch[1];
+  }
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const normalizedLines = lines.map((line) => {
+    let l = line;
+    // Normalize full-width colon after speaker name: e.g. "主角：你好" -> "主角: 你好"
+    if (!/^\s*(?:===|\/\/|VAR\b|EXTERNAL\b|~|\*|\+|\{|\}|->)/i.test(l)) {
+      l = l.replace(/^(\s*[^#:=*+~/{}\r\n]+?)：\s*/, '$1: ');
+    }
+    // Normalize choice full-width brackets: e.g. "* 【选项】 -> knot" or "* ［选项］ -> knot"
+    l = l.replace(/^(\s*[*+]\s*)[【［](.+?)[】］]/, '$1[$2]');
+    // Normalize unicode arrows: e.g. "—>" or "–>" or "→" to "->"
+    l = l.replace(/\s*(?:—>|–>|→)\s*/g, ' -> ');
+    return l;
+  });
+  return normalizedLines.join('\n');
+}
+
+export function convertInkToBlueprintTransaction(
+  source: string,
+  options: ConvertInkOptions,
+): ConvertInkResult {
+  const normalized = normalizeInkSource(source);
+  if (!normalized.trim()) {
+    return {
+      ok: false,
+      diagnostics: [{ severity: 'error', line: 1, column: 1, message: 'Ink source is empty.' }],
+    };
+  }
+
+  const existingChars = options.characters;
+  const newCharacters: CharacterSource[] = [];
+
+  if (options.autoCreateCharacters) {
+    const extractedSpeakers = new Set<string>();
+    for (const line of normalized.split('\n')) {
+      const trimmed = line.trim();
+      if (
+        !trimmed ||
+        trimmed.startsWith('//') ||
+        /^(?:===|VAR\b|EXTERNAL\b|~|\*|\+|\{|\}|->)/i.test(trimmed)
+      ) {
+        continue;
+      }
+      const colonIndex = trimmed.indexOf(':');
+      if (colonIndex > 0) {
+        const candidate = trimmed.slice(0, colonIndex).trim();
+        if (
+          candidate &&
+          !candidate.includes('#') &&
+          candidate.toLowerCase() !== 'narrator' &&
+          candidate !== '旁白'
+        ) {
+          extractedSpeakers.add(candidate);
+        }
+      }
+    }
+
+    for (const speaker of extractedSpeakers) {
+      const exists = existingChars.some(
+        (c) =>
+          c.id.toLowerCase() === speaker.toLowerCase() ||
+          c.name.toLowerCase() === speaker.toLowerCase() ||
+          c.displayName.toLowerCase() === speaker.toLowerCase(),
+      );
+      if (!exists) {
+        newCharacters.push({
+          id: createStableId('character'),
+          name: speaker,
+          displayName: speaker,
+          emotions: {},
+        });
+      }
+    }
+  }
+
+  const characters = [...existingChars, ...newCharacters];
+  const importResult = buildInkImportTransaction(normalized, {
+    revision: options.revision,
+    chapterId: options.chapterId,
+    characters,
+    assets: options.assets,
+    variables: options.variables,
+    events: options.events,
+    externalFunctionBindings: options.externalFunctionBindings,
+  });
+
+  if (!importResult.ok) {
+    return {
+      ok: false,
+      diagnostics: importResult.diagnostics,
+    };
+  }
+
+  const target = graphTarget(options.chapterId);
+  const operations: BlueprintCommand[] = [];
+
+  // 1. Add any auto-created characters
+  let charOpIndex = 0;
+  for (const char of newCharacters) {
+    operations.push({
+      operationId: `ink_char_${++charOpIndex}`,
+      kind: 'add-character',
+      character: char,
+    });
+  }
+
+  // 2. Add imported operations
+  operations.push(...importResult.transaction.operations);
+
+  // 3. Connect from connectToNodeId if requested
+  if (options.connectToNodeId) {
+    const firstExecutableNode = importResult.transaction.operations.find(
+      (op): op is Extract<BlueprintCommand, { kind: 'add-node' }> =>
+        op.kind === 'add-node' &&
+        op.node.type !== StoryNodeType.FlowAnchor &&
+        op.node.type !== StoryNodeType.End &&
+        op.node.type !== StoryNodeType.Return &&
+        op.node.type !== StoryNodeType.FlowJump,
+    )?.node.id;
+
+    if (firstExecutableNode) {
+      operations.push({
+        operationId: `ink_connect_selected`,
+        kind: 'connect',
+        graph: target,
+        from: { nodeId: options.connectToNodeId, portId: 'out' },
+        to: { nodeId: firstExecutableNode, portId: 'in' },
+        replaceExisting: true,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    transaction: {
+      ...importResult.transaction,
+      operations,
+    },
+    diagnostics: importResult.diagnostics,
+    summary: importResult.summary,
+    createdCharacters: newCharacters,
   };
 }

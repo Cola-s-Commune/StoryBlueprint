@@ -294,6 +294,48 @@ describe('OpenAI-compatible provider helpers', () => {
     expect(op.node.data.lines[0].text).toEqual({ source: 'Hello, world!' });
     expect(op.node.data.lines[0].speakerId).toBe('c_mainchar');
   });
+
+  it('extracts ink field from JSON response', () => {
+    const result = parseAIAssistantResponse(
+      JSON.stringify({
+        reply: '已为您构思好了对话与分支：',
+        ink: '主角: 我们出发吧。\n艾丽丝: 好的！\n* [走大路] -> road\n* [走小径] -> path',
+      }),
+    );
+    expect(result.reply).toBe('已为您构思好了对话与分支：');
+    expect(result.ink).toBe('主角: 我们出发吧。\n艾丽丝: 好的！\n* [走大路] -> road\n* [走小径] -> path');
+    expect(result.command).toBeUndefined();
+  });
+
+  it('extracts fenced ink code blocks from markdown responses', () => {
+    const rawMarkdown = `好的，我为你编写了这一段剧情：
+
+\`\`\`ink
+主角: 怎么会这样……
+艾丽丝: 别放弃！
+* [坚持下去] -> persevere
+* [另想办法] -> rethink
+\`\`\`
+
+希望这个走向符合你的预期！`;
+
+    const result = parseAIAssistantResponse(rawMarkdown);
+    expect(result.ink).toContain('主角: 怎么会这样……');
+    expect(result.ink).toContain('* [坚持下去] -> persevere');
+    expect(result.reply).toContain('好的，我为你编写了这一段剧情：');
+    expect(result.reply).toContain('希望这个走向符合你的预期！');
+  });
+
+  it('detects plain Ink script directly from unstructured text', () => {
+    const rawScript = `主角: 今天天气真好。
+艾丽丝: 是啊，适合出门散步。
+* [去公园] -> park
+* [去海边] -> beach`;
+
+    const result = parseAIAssistantResponse(rawScript);
+    expect(result.ink).toBe(rawScript);
+    expect(result.unstructured).toBe(true);
+  });
 });
 
 

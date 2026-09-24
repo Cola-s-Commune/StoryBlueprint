@@ -3,6 +3,8 @@ const LOCAL_AI_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 export interface AIAssistantResponse {
   reply: string;
   command?: unknown;
+  /** Ink story script to be compiled into Story Blueprint nodes. */
+  ink?: string;
   needsClarification?: boolean;
   questions?: string[];
   toolRequest?: {
@@ -228,19 +230,56 @@ function parseJSONResponse(content: string): ParsedJSONResult {
   throw new Error('AI response is not valid JSON');
 }
 
+export function looksLikeInkScript(text: string): boolean {
+  const lines = text.split('\n');
+  let score = 0;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('//')) continue;
+    if (/^===\s*[\p{L}_]/u.test(line) || /^\s*[*+]\s+/u.test(line) || /^\s*VAR\s+/i.test(line)) {
+      score += 2;
+    } else if (/^[^:#：\r\n]{1,30}[：:]\s+\S/u.test(line)) {
+      score += 1;
+    }
+  }
+  return score >= 2;
+}
+
 export function parseAIAssistantResponse(content: string, baseRevision?: string): AIAssistantResponse {
   let parsed: ParsedJSONResult;
   try {
     parsed = parseJSONResponse(content);
   } catch {
-    const reply = content.trim();
-    if (!reply) throw new Error('AI response content is empty');
-    return { reply, unstructured: true };
+    const trimmedContent = content.trim();
+    if (!trimmedContent) throw new Error('AI response content is empty');
+    const inkFence = trimmedContent.match(/```(?:ink|story)?\s*([\s\S]*?)\s*```/i);
+    if (inkFence && looksLikeInkScript(inkFence[1])) {
+      const ink = inkFence[1].trim();
+      const replyBefore = trimmedContent.slice(0, inkFence.index).trim();
+      const replyAfter = trimmedContent.slice(inkFence.index! + inkFence[0].length).trim();
+      const reply = [replyBefore, replyAfter].filter(Boolean).join('\n\n') || '已为您生成 Ink 剧本并转换为蓝图节点。';
+      return { reply, ink, unstructured: true };
+    }
+    if (looksLikeInkScript(trimmedContent)) {
+      return {
+        reply: '已为您生成 Ink 剧本并转换为蓝图节点。',
+        ink: trimmedContent,
+        unstructured: true,
+      };
+    }
+    return { reply: trimmedContent, unstructured: true };
   }
   const { value, surroundingText } = parsed;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    const reply = surroundingText || content.trim();
-    return { reply, unstructured: true };
+    const rawText = surroundingText || content.trim();
+    if (looksLikeInkScript(rawText)) {
+      return {
+        reply: '已为您生成 Ink 剧本并转换为蓝图节点。',
+        ink: rawText,
+        unstructured: true,
+      };
+    }
+    return { reply: rawText, unstructured: true };
   }
   const object = value as Record<string, unknown>;
 
@@ -283,6 +322,26 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
       baseRevision: baseRevision ?? '',
       operations: [value],
     };
+  }
+
+  // Extract ink (if present)
+  let ink: string | undefined;
+  if (typeof object.ink === 'string' && object.ink.trim().length > 0) {
+    ink = object.ink.trim();
+  } else if (typeof object.script === 'string' && object.script.trim().length > 0) {
+    ink = object.script.trim();
+  } else if (typeof object.command === 'string' && looksLikeInkScript(object.command)) {
+    ink = object.command.trim();
+  } else if (surroundingText) {
+    const inkFence = surroundingText.match(/```(?:ink|story)?\s*([\s\S]*?)\s*```/i);
+    if (inkFence && looksLikeInkScript(inkFence[1])) {
+      ink = inkFence[1].trim();
+    }
+  } else if (!command) {
+    const inkFence = content.match(/```(?:ink|story)?\s*([\s\S]*?)\s*```/i);
+    if (inkFence && looksLikeInkScript(inkFence[1])) {
+      ink = inkFence[1].trim();
+    }
   }
 
   // Extract or synthesize user-facing reply
@@ -329,9 +388,14 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
       : '已为您生成蓝图操作方案供预览与应用。';
   }
 
+  // If still no reply and we have valid ink, generate a helpful default reply
+  if (!reply && ink) {
+    reply = '已为您生成 Ink 剧本并转换为蓝图节点供预览与应用。';
+  }
+
   // If still no reply, look for any other string property in the object
   if (!reply) {
-    const ignoredKeys = new Set(['format', 'version', 'kind', 'baseRevision', 'type', 'id', 'status']);
+    const ignoredKeys = new Set(['format', 'version', 'kind', 'baseRevision', 'type', 'id', 'status', 'ink', 'script']);
     for (const [k, v] of Object.entries(object)) {
       if (!ignoredKeys.has(k) && typeof v === 'string' && v.trim().length > 0) {
         reply = v.trim();
@@ -348,6 +412,7 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
   return {
     reply,
     ...(command !== undefined && command !== null ? { command } : {}),
+    ...(ink ? { ink } : {}),
     ...(object.needsClarification === true ? { needsClarification: true } : {}),
     ...(Array.isArray(object.questions)
       ? {

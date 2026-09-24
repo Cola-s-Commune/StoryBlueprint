@@ -30,6 +30,7 @@ import type {
   AIToolsMode,
 } from '../../../shared/electronApi';
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
+import { convertInkToBlueprintTransaction } from '../../dialogue/inkImport';
 import { AIQuickActions } from './AIQuickActions';
 import {
   AI_SLASH_COMMANDS,
@@ -110,9 +111,12 @@ function createProviderDraft(): AIProviderDraft {
 const AI_ASSISTANT_RESPONSE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['reply', 'command'],
+  required: ['reply'],
   properties: {
     reply: { type: 'string', minLength: 1 },
+    ink: {
+      type: ['string', 'null'],
+    },
     command: {
       anyOf: [BLUEPRINT_COMMAND_JSON_SCHEMA, { type: 'null' }],
     },
@@ -692,8 +696,14 @@ export function AICommands() {
     discardAIProposal,
     activeGraphId,
     nodes,
+    characters,
+    assets,
+    events,
   } = useStoryGraphStore();
-  const aiCommandProposal = aiProposal?.origin === 'ai' ? aiProposal : undefined;
+  const aiCommandProposal =
+    aiProposal?.origin === 'ai' || aiProposal?.origin?.startsWith('ink')
+      ? aiProposal
+      : undefined;
   const [commandText, setCommandText] = useState(() => commandTemplate(semanticSnapshot.revision));
   const [result, setResult] = useState<BlueprintTransactionResult>();
   const [previewBase, setPreviewBase] = useState<StorySemanticSnapshot>();
@@ -1328,6 +1338,41 @@ export function AICommands() {
             ? `Proposed${response.model ? ` by ${response.model}` : ''}${assistant.jsonRepaired ? ' · repaired unescaped quotes' : ''} · preview ready`
             : `Proposal from ${response.model || 'AI'} was rejected (model format mismatch) · see diagnostics`,
         );
+      } else if (assistant.ink) {
+        const selectedSingleNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : undefined;
+        const inkResult = convertInkToBlueprintTransaction(assistant.ink, {
+          revision: semanticSnapshot.revision,
+          chapterId: activeGraphId === 'root' ? undefined : activeGraphId,
+          characters,
+          assets,
+          variables: semanticSnapshot.variables,
+          events,
+          autoCreateCharacters: true,
+          connectToNodeId: selectedSingleNodeId,
+        });
+        if (inkResult.ok && inkResult.transaction) {
+          const command = JSON.stringify(inkResult.transaction, null, 2);
+          setCommandText(command);
+          const dryRunResult = dryRunText(command);
+          const summaryText = inkResult.summary
+            ? `${inkResult.summary.dialogueNodes} 对白 · ${inkResult.summary.choiceNodes} 抉择 · ${inkResult.summary.narrationNodes} 旁白`
+            : '剧本节点';
+          setProviderStatus(
+            dryRunResult?.ok
+              ? `Ink 剧本已自动编译为蓝图节点 (${summaryText})${response.model ? ` · ${response.model}` : ''} · 预览就绪`
+              : `Ink 剧本编译生成的蓝图操作校验未通过 · 请查看下方错误诊断`,
+          );
+        } else {
+          discardAIProposal();
+          setResult(undefined);
+          setPreviewBase(undefined);
+          setDryRunToken(undefined);
+          const errorDetails = (inkResult.diagnostics || [])
+            .map((d) => `第 ${d.line} 行: ${d.message}`)
+            .join('; ');
+          setProviderError(`Ink 剧本编译异常: ${errorDetails || '无法转换为蓝图节点'}`);
+          setProviderStatus('Ink 剧本编译未通过');
+        }
       } else {
         discardAIProposal();
         setResult(undefined);
