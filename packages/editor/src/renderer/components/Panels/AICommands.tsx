@@ -225,6 +225,30 @@ function connectionKey(
   return `${graphKey(graph)}:${connection.from.nodeId}.${connection.from.portId} -> ${connection.to.nodeId}.${connection.to.portId}`;
 }
 
+function formatAttachmentBadgeText(name: string, sizeBytes: number, chars?: number): string {
+  const kb = Math.round(sizeBytes / 1024) || 1;
+  if (typeof chars === 'number') {
+    if (chars >= 1000) {
+      return `📎 ${name} (${kb} KB · ${(chars / 1000).toFixed(1)}k字)`;
+    }
+    return `📎 ${name} (${kb} KB · ${chars}字)`;
+  }
+  return `📎 ${name} (${kb} KB)`;
+}
+
+function formatAttachmentSize(content: string): string {
+  const bytes =
+    typeof TextEncoder !== 'undefined'
+      ? new TextEncoder().encode(content).length
+      : content.length * 3;
+  const kb = Math.round(bytes / 1024) || 1;
+  const chars = content.length;
+  if (chars >= 1000) {
+    return `${kb} KB · ${(chars / 1000).toFixed(1)}k字`;
+  }
+  return `${kb} KB · ${chars}字`;
+}
+
 function compactText(value: string, limit = 48): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
@@ -1329,11 +1353,19 @@ export function AICommands() {
         : requestInstruction;
       const messageAttachmentSummaries =
         attachments.length > 0
-          ? attachments.map((a) => ({
-              id: a.id,
-              name: a.name,
-              size: typeof a.content === 'string' ? a.content.length : 0,
-            }))
+          ? attachments.map((a) => {
+              const str = typeof a.content === 'string' ? a.content : '';
+              const bytes =
+                typeof TextEncoder !== 'undefined'
+                  ? new TextEncoder().encode(str).length
+                  : str.length * 3;
+              return {
+                id: a.id,
+                name: a.name,
+                size: bytes,
+                chars: str.length,
+              };
+            })
           : undefined;
       setConversation((messages) => {
         const next: AIConversationMessage[] = [
@@ -1960,9 +1992,9 @@ export function AICommands() {
                           <span
                             className={styles.chatMessageAttachmentBadge}
                             key={att.id}
-                            title={`${att.name} · ${att.size.toLocaleString()} characters`}
+                            title={`${att.name} · ${att.size.toLocaleString()} bytes · ${(att.chars ?? 0).toLocaleString()} 字`}
                           >
-                            📎 {att.name} ({Math.round(att.size / 1024) || 1} KB)
+                            {formatAttachmentBadgeText(att.name, att.size, att.chars)}
                           </span>
                         ))}
                       </div>
@@ -1980,7 +2012,7 @@ export function AICommands() {
                   <div className={styles.chatMessageAttachments}>
                     {pendingAttachments.map((att) => (
                       <span className={styles.chatMessageAttachmentBadge} key={att.id}>
-                        📎 {att.name} ({Math.round((att.content?.length ?? 0) / 1024) || 1} KB)
+                        📎 {att.name} ({formatAttachmentSize(att.content)})
                       </span>
                     ))}
                   </div>
@@ -2178,7 +2210,7 @@ export function AICommands() {
                   key={attachment.id}
                   title={`${attachment.name} · ${attachment.content.length.toLocaleString()} characters`}
                 >
-                  📎 {attachment.name} ({Math.round(attachment.content.length / 1024) || 1} KB)
+                  📎 {attachment.name} ({formatAttachmentSize(attachment.content)})
                   <button
                     type="button"
                     aria-label={`Remove ${attachment.name}`}

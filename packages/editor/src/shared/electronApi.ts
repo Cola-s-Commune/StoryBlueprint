@@ -336,6 +336,7 @@ export interface AIFileAttachmentSummary {
   id: string;
   name: string;
   size: number;
+  chars?: number;
 }
 
 export interface AIConversationMessage {
