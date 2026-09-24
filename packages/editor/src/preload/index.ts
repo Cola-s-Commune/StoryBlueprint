@@ -49,7 +49,7 @@ const electronAPI = {
   openWorkspace: () => ipcRenderer.invoke('workspace:open'),
   openProject: () => ipcRenderer.invoke('workspace:open-project'),
   openRecentProject: (filePath) => ipcRenderer.invoke('workspace:open-recent-project', filePath),
-  newProject: () => ipcRenderer.invoke('workspace:new-project'),
+  newProject: (targetPath) => ipcRenderer.invoke('workspace:new-project', targetPath),
   getRecentProjects: () => ipcRenderer.invoke('workspace:get-recent-projects'),
   removeRecentProject: (filePath) =>
     ipcRenderer.invoke('workspace:remove-recent-project', filePath),

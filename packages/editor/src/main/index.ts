@@ -102,6 +102,7 @@ import {
   readWorkspaceGitConflicts,
 } from './storyGitConflict';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
+import { initializeProjectDirectory } from './projectCreation';
 import {
   replaceProjectStoriesAtomically,
   storyContentRevision,
@@ -2926,53 +2927,23 @@ function registerStoryFileHandlers(): void {
     void clearRecoverySnapshots().finally(() => mainWindow?.close());
   });
 
-  ipcMain.handle('workspace:new-project', async (event) => {
+  ipcMain.handle('workspace:new-project', async (event, customPath?: unknown) => {
     if (!isTrustedSender(event) || !mainWindow) throw new Error('Untrusted IPC sender');
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'New Story Project',
-      defaultPath: join(app.getPath('documents'), 'untitled.storyproject'),
-      filters: [{ name: 'Story Blueprint Project', extensions: ['storyproject'] }],
-    });
-    if (result.canceled || !result.filePath) return { canceled: true };
-    const projectFile = result.filePath.toLowerCase().endsWith('.storyproject')
-      ? result.filePath
-      : `${result.filePath}.storyproject`;
-    const rootPath = dirname(projectFile);
-    const rootEntries = await readdir(rootPath, { withFileTypes: true });
-    const otherProject = rootEntries.find(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.toLowerCase().endsWith('.storyproject') &&
-        join(rootPath, entry.name).toLowerCase() !== projectFile.toLowerCase(),
-    );
-    if (otherProject) throw new Error('Target folder already contains a Story project');
-    const fileStem = basename(projectFile, extname(projectFile));
-    const name =
-      fileStem
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'project';
-    const project: StoryProjectDocument = {
-      format: STORY_PROJECT_FORMAT,
-      version: STORY_PROJECT_VERSION,
-      id: createStableId('project'),
-      name,
-      displayName: fileStem,
-      stories: [],
-      characters: [],
-      assets: [],
-      variables: [],
-      events: [],
-      signals: [],
-    };
-    await writeFile(projectFile, serializeStoryProject(project), 'utf8');
-    await createProjectGitignoreIfMissing(rootPath);
-    await writeFile(join(rootPath, 'STORY_BLUEPRINT_AI.md'), DEFAULT_PROJECT_AI_INSTRUCTIONS, {
-      encoding: 'utf8',
-      flag: 'wx',
-    }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'EEXIST') throw error;
-    });
+
+    let targetPath: string;
+    if (typeof customPath === 'string' && customPath.trim().length > 0) {
+      targetPath = customPath.trim();
+    } else {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Project Directory',
+        defaultPath: app.getPath('documents'),
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (result.canceled || !result.filePaths[0]) return { canceled: true };
+      targetPath = result.filePaths[0];
+    }
+
+    const { rootPath, projectFile } = await initializeProjectDirectory(targetPath);
     const initialStory = await createInitialStoryFile(rootPath);
     await activateWorkspace(rootPath, projectFile);
     const synced = await syncWorkspaceProject();

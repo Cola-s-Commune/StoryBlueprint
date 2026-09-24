@@ -598,7 +598,7 @@ interface StoryGraphStoreValue {
   openProject: () => Promise<void>;
   openRecentProject: (filePath: string) => Promise<void>;
   removeRecentProject: (filePath: string) => Promise<void>;
-  newProject: () => Promise<void>;
+  newProject: (targetPath?: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   replaceProjectResourceReferences: (
     kind: 'character' | 'asset',
@@ -5964,11 +5964,11 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     setRecentProjects(await window.electronAPI.removeRecentProject(filePath));
   }, []);
 
-  const newProject = useCallback(async () => {
+  const newProject = useCallback(async (targetPath?: string) => {
     if (!window.electronAPI) return;
     try {
       if (!(await confirmWorkspaceChange('creating another project'))) return;
-      const result = await window.electronAPI.newProject();
+      const result = await window.electronAPI.newProject(targetPath);
       if (result.canceled) return;
       await acceptWorkspaceChange(result.workspace);
       if (result.initialStory) acceptOpenedStory(result.initialStory, {}, true);

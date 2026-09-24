@@ -480,7 +480,7 @@ export interface ElectronAPI {
   openWorkspace: () => Promise<OpenWorkspaceResult>;
   openProject: () => Promise<OpenWorkspaceResult>;
   openRecentProject: (filePath: string) => Promise<OpenWorkspaceResult>;
-  newProject: () => Promise<OpenWorkspaceResult>;
+  newProject: (targetPath?: string) => Promise<OpenWorkspaceResult>;
   getRecentProjects: () => Promise<RecentProject[]>;
   removeRecentProject: (filePath: string) => Promise<RecentProject[]>;
   confirmUnsavedStories: (storyNames: string[], action: string) => Promise<UnsavedChoice>;
