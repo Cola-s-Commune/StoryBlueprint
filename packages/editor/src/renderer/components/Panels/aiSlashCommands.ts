@@ -81,6 +81,18 @@ export const AI_SLASH_COMMANDS: AISlashCommand[] = [
       return `/fix 请检查当前蓝图中的逻辑连线、断点或孤立节点，并修复或优化连线：\n\n`;
     },
   },
+  {
+    id: 'discuss',
+    command: '/discuss',
+    aliases: ['/chat', '/idea'],
+    label: '讨论剧情',
+    icon: '💭',
+    description: '与 AI 探讨剧情构想、角色人设、情节漏洞或头脑风暴（不生成节点）',
+    recommendedScope: 'graph',
+    buildTemplate: () => {
+      return `/discuss 我想和你讨论一下当前故事的剧情构思与设定（仅探讨想法，不生成节点）：\n\n`;
+    },
+  },
 ];
 
 export interface SlashMatchResult {

@@ -103,6 +103,15 @@ export function AIQuickActions({
         >
           🔧 检查修复
         </button>
+        <button
+          type="button"
+          className={styles.quickActionButton}
+          disabled={disabled}
+          onClick={() => handleCommandClick('discuss')}
+          title="与 AI 探讨剧情构想、角色人设或头脑风暴，不生成蓝图节点 (/discuss)"
+        >
+          💭 讨论剧情
+        </button>
       </div>
       <span className={styles.quickActionTip} title="支持直接拖入文件附加至上下文，输入 / 可随时调出指令菜单">
         💡 输入 <code>/</code> 调出指令 · 支持 Attach / 拖入剧本

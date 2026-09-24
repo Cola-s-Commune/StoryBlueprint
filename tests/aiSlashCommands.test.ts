@@ -93,5 +93,10 @@ describe('aiSlashCommands', () => {
 
     const fixCmd = AI_SLASH_COMMANDS.find((c) => c.id === 'fix')!;
     expect(fixCmd.recommendedScope).toBe('graph');
+
+    const discussCmd = AI_SLASH_COMMANDS.find((c) => c.id === 'discuss')!;
+    expect(discussCmd.recommendedScope).toBe('graph');
+    expect(discussCmd.command).toBe('/discuss');
+    expect(discussCmd.aliases).toContain('/chat');
   });
 });
