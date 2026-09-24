@@ -361,6 +361,7 @@
 }
 
 .composer {
+  position: relative;
   flex: none;
   padding: 8px;
   border: 1px solid #3a414b;
@@ -828,7 +829,10 @@
 
 .quickActionsContainer {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 6px;
 }
 
@@ -837,7 +841,118 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  padding: 4px 0;
+}
+
+.quickActionTip {
+  font-size: 10px;
+  color: #6e7987;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quickActionTip code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #23272e;
+  border: 1px solid #3c424c;
+  color: #58a6ff;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.slashMenu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 250px;
+  overflow-y: auto;
+  background: #1c2026;
+  border: 1px solid #3c4654;
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.slashMenuHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: #7b8898;
+  border-bottom: 1px solid #282f3a;
+  margin-bottom: 3px;
+}
+
+.slashMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  color: #d0d7de;
+  transition: background 0.12s ease;
+  width: 100%;
+}
+
+.slashMenuItem:hover,
+.slashMenuItemSelected {
+  background: #2b3544;
+  color: #f0f6fc;
+}
+
+.slashMenuIcon {
+  font-size: 14px;
+  flex: none;
+}
+
+.slashMenuBody {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.slashMenuCommandName {
+  font-weight: 600;
+  font-size: 12px;
+  color: #58a6ff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slashMenuLabel {
+  color: #c9d1d9;
+  font-weight: normal;
+  font-size: 11px;
+}
+
+.slashMenuDesc {
+  font-size: 10px;
+  color: #8b949e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slashMenuBadge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #21262d;
+  color: #8b949e;
+  border: 1px solid #30363d;
+  flex: none;
 }
 
 .quickActionButton {

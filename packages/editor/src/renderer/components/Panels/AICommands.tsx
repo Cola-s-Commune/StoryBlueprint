@@ -31,6 +31,13 @@ import type {
 } from '../../../shared/electronApi';
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
 import { AIQuickActions } from './AIQuickActions';
+import {
+  AI_SLASH_COMMANDS,
+  applySlashCommandToText,
+  findMatchingSlashCommands,
+  type AISlashCommand,
+  type SlashMatchResult,
+} from './aiSlashCommands';
 import { CopyButton } from './CopyButton';
 import { processDroppedAIContextFiles } from '../../graph/aiAttachmentDrop';
 import panelStyles from './Panel.module.css';
@@ -748,6 +755,58 @@ export function AICommands() {
       selectedNodeIds,
     ],
   );
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [slashMenuMatch, setSlashMenuMatch] = useState<SlashMatchResult | null>(null);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+
+  const applySlashCommand = (cmd: AISlashCommand) => {
+    const firstSelected = nodes.find((n) => n.selected);
+    const template = cmd.buildTemplate({
+      selectedNodeId: firstSelected?.id,
+      selectedNodeType: firstSelected?.type as StoryNodeType | undefined,
+      hasAttachments: attachments.length > 0,
+    });
+
+    if (cmd.recommendedScope) {
+      if (cmd.recommendedScope === 'selection') {
+        if (selectedNodeIds.length > 0) {
+          setContextScope('selection');
+        } else {
+          setContextScope('graph');
+        }
+      } else {
+        setContextScope(cmd.recommendedScope);
+      }
+    }
+
+    if (slashMenuMatch) {
+      const { newText, newCursorPos } = applySlashCommandToText(
+        instruction,
+        slashMenuMatch.startIndex,
+        slashMenuMatch.endIndex,
+        template,
+      );
+      setInstruction(newText);
+      setSlashMenuMatch(null);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      }, 0);
+    } else {
+      const newText = instruction.trim() ? `${template}${instruction}` : template;
+      setInstruction(newText);
+      setSlashMenuMatch(null);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(newText.length, newText.length);
+        }
+      }, 0);
+    }
+  };
   const followUpSuggestions = useMemo(() => {
     if (generating || conversation.length === 0) return [];
     const lastMsg = conversation[conversation.length - 1];
@@ -1760,20 +1819,104 @@ export function AICommands() {
               data: node.data,
             }))}
           disabled={generating}
-          onApplyPrompt={(prompt, autoSend) => {
+          onSelectCommand={(cmd) => {
+            applySlashCommand(cmd);
+          }}
+          onApplyPrompt={(prompt, autoSend, recommendedScope) => {
             setInstruction(prompt);
+            if (recommendedScope) {
+              setContextScope(recommendedScope);
+            }
             if (autoSend) {
               void generate(false, prompt);
             }
           }}
         />
         <div className={styles.composer}>
+          {slashMenuMatch && slashMenuMatch.commands.length > 0 && (
+            <div className={styles.slashMenu} role="listbox" aria-label="Slash commands">
+              <div className={styles.slashMenuHeader}>
+                <span>快捷指令 (按 ↑↓ 选择，Enter 填入)</span>
+                <span>ESC 关闭</span>
+              </div>
+              {slashMenuMatch.commands.map((cmd, idx) => (
+                <button
+                  key={cmd.id}
+                  type="button"
+                  role="option"
+                  aria-selected={idx === selectedSlashIndex}
+                  className={`${styles.slashMenuItem} ${idx === selectedSlashIndex ? styles.slashMenuItemSelected : ''}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applySlashCommand(cmd);
+                  }}
+                  onMouseEnter={() => setSelectedSlashIndex(idx)}
+                >
+                  <span className={styles.slashMenuIcon}>{cmd.icon}</span>
+                  <div className={styles.slashMenuBody}>
+                    <div className={styles.slashMenuCommandName}>
+                      <span>{cmd.command}</span>
+                      <span className={styles.slashMenuLabel}>{cmd.label}</span>
+                    </div>
+                    <div className={styles.slashMenuDesc}>{cmd.description}</div>
+                  </div>
+                  <span className={styles.slashMenuBadge}>
+                    {cmd.recommendedScope === 'selection' ? 'Context: 选中' : 'Context: 蓝图'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
+            ref={textareaRef}
             className={styles.instruction}
             value={instruction}
             disabled={generating}
-            onChange={(event) => setInstruction(event.target.value)}
+            onChange={(event) => {
+              const val = event.target.value;
+              setInstruction(val);
+              const cursorPos = event.target.selectionStart ?? val.length;
+              const match = findMatchingSlashCommands(val, cursorPos);
+              setSlashMenuMatch(match);
+              setSelectedSlashIndex(0);
+            }}
+            onClick={(event) => {
+              const cursorPos = event.currentTarget.selectionStart ?? instruction.length;
+              const match = findMatchingSlashCommands(instruction, cursorPos);
+              setSlashMenuMatch(match);
+              setSelectedSlashIndex(0);
+            }}
             onKeyDown={(event) => {
+              if (slashMenuMatch && slashMenuMatch.commands.length > 0) {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setSelectedSlashIndex((prev) => (prev + 1) % slashMenuMatch.commands.length);
+                  return;
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setSelectedSlashIndex(
+                    (prev) => (prev - 1 + slashMenuMatch.commands.length) % slashMenuMatch.commands.length,
+                  );
+                  return;
+                }
+                if (event.key === 'Enter' || event.key === 'Tab') {
+                  if (!event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    const cmd = slashMenuMatch.commands[selectedSlashIndex];
+                    if (cmd) {
+                      applySlashCommand(cmd);
+                      return;
+                    }
+                  }
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setSlashMenuMatch(null);
+                  return;
+                }
+              }
+
               if (
                 event.key === 'Enter' &&
                 !event.shiftKey &&
@@ -1781,10 +1924,11 @@ export function AICommands() {
                 !generating
               ) {
                 event.preventDefault();
+                setSlashMenuMatch(null);
                 void generate();
               }
             }}
-            placeholder="Ask about the story, discuss an idea, or request a change…"
+            placeholder="Ask about the story, request a change, or type / for commands…"
           />
           {attachments.length > 0 && (
             <div
