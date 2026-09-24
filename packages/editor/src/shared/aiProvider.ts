@@ -379,14 +379,183 @@ function sourceString(value: unknown): string | undefined {
   return typeof source === 'string' ? source : undefined;
 }
 
-/** Repairs the common AI mix-up between Source node data and compact command text fields. */
-export function normalizeAIBlueprintCommand(command: unknown): unknown {
+/** Repairs common AI formatting errors:
+ * - Unreal/Unity graph mix-ups: nodeType, properties, position, parentId
+ * - Missing or placeholder baseRevision
+ * - Missing operationId
+ * - Missing or string graph target
+ * - Source node data vs compact command text fields
+ */
+export function normalizeAIBlueprintCommand(command: unknown, fallbackBaseRevision?: string): unknown {
   if (typeof command !== 'object' || command === null || Array.isArray(command)) return command;
   const normalized = structuredClone(command) as Record<string, unknown>;
+
+  // Ensure format and version
+  if (normalized.format !== BLUEPRINT_COMMAND_FORMAT) {
+    normalized.format = BLUEPRINT_COMMAND_FORMAT;
+  }
+  if (typeof normalized.version !== 'number') {
+    normalized.version = BLUEPRINT_COMMAND_VERSION;
+  }
+
+  // Auto-correct baseRevision if placeholder, empty, or invalid
+  const rev = normalized.baseRevision;
+  if (
+    typeof rev !== 'string' ||
+    rev.includes(' ') ||
+    rev === 'the supplied revision' ||
+    !/^rev_[a-z0-9]+$/.test(rev)
+  ) {
+    if (fallbackBaseRevision && typeof fallbackBaseRevision === 'string' && /^rev_[a-z0-9]+$/.test(fallbackBaseRevision)) {
+      normalized.baseRevision = fallbackBaseRevision;
+    }
+  }
+
   if (!Array.isArray(normalized.operations)) return normalized;
-  for (const value of normalized.operations) {
+
+  let opCounter = 1;
+  for (let i = 0; i < normalized.operations.length; i++) {
+    const value = normalized.operations[i];
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
     const operation = value as Record<string, unknown>;
+
+    // 1. Ensure operationId
+    if (typeof operation.operationId !== 'string' || !operation.operationId.trim()) {
+      operation.operationId = `op_auto_${opCounter++}`;
+    }
+
+    // 2. Strip disallowed graph coordinates/UI fields commonly emitted by weak models
+    delete operation.position;
+    delete operation.ports;
+    delete operation.definitionVersion;
+    delete operation.ui;
+
+    // 3. Normalize graph target
+    if (typeof operation.parentId === 'string') {
+      if (!operation.graph && (operation.parentId === 'root' || operation.parentId === '')) {
+        operation.graph = { kind: 'root' };
+      }
+      delete operation.parentId;
+    }
+    if (typeof operation.graph === 'string') {
+      operation.graph = (operation.graph as string) === 'root' ? { kind: 'root' } : { kind: 'chapter', chapterId: operation.graph };
+    } else if (!operation.graph || typeof operation.graph !== 'object') {
+      if (
+        operation.kind !== 'add-substory' &&
+        operation.kind !== 'update-substory' &&
+        operation.kind !== 'add-character' &&
+        operation.kind !== 'update-character' &&
+        operation.kind !== 'add-variable' &&
+        operation.kind !== 'update-variable' &&
+        operation.kind !== 'remove-variable' &&
+        operation.kind !== 'add-condition' &&
+        operation.kind !== 'update-condition' &&
+        operation.kind !== 'remove-condition'
+      ) {
+        operation.graph = { kind: 'root' };
+      }
+    }
+
+    // 4. Normalize add-node operations
+    if (operation.kind === 'add-node') {
+      // If node is not nested, or model put nodeType/properties at top-level
+      if (!operation.node || typeof operation.node !== 'object' || Array.isArray(operation.node)) {
+        operation.node = {
+          id: (typeof operation.id === 'string' && operation.id) || (typeof (operation as any).nodeId === 'string' && (operation as any).nodeId) || `n_auto_${opCounter++}`,
+          type: (typeof operation.nodeType === 'string' ? operation.nodeType.toLowerCase() : typeof operation.type === 'string' ? operation.type.toLowerCase() : 'dialogue'),
+          data: (typeof operation.properties === 'object' && operation.properties && !Array.isArray(operation.properties) ? operation.properties : (typeof operation.data === 'object' && operation.data && !Array.isArray(operation.data) ? operation.data : {})),
+        };
+        delete operation.nodeType;
+        delete operation.properties;
+        delete operation.id;
+        delete (operation as any).nodeId;
+        delete operation.type;
+      }
+
+      const node = operation.node as Record<string, unknown>;
+      delete node.position;
+      delete node.ports;
+      delete node.parentId;
+
+      // Normalize node type
+      if (node.nodeType && !node.type) {
+        node.type = node.nodeType;
+        delete node.nodeType;
+      }
+      if (typeof node.type === 'string') {
+        node.type = node.type.toLowerCase();
+      } else {
+        node.type = 'dialogue';
+      }
+
+      // Normalize node data
+      if (node.properties && !node.data) {
+        node.data = node.properties;
+        delete node.properties;
+      }
+      if (!node.data || typeof node.data !== 'object' || Array.isArray(node.data)) {
+        node.data = {};
+      }
+      const data = node.data as Record<string, unknown>;
+
+      // Ensure node ID has valid prefix ^n_[a-z0-9][a-z0-9_-]{2,}$
+      if (typeof node.id !== 'string' || !/^n_[a-z0-9][a-z0-9_-]{2,}$/.test(node.id)) {
+        const raw = typeof node.id === 'string' ? node.id.replace(/[^a-z0-9_-]/gi, '').toLowerCase() : '';
+        node.id = raw.startsWith('n_') && raw.length >= 4 ? raw : `n_${raw || `node_${opCounter++}`}`;
+      }
+
+      // Dialogue node specific repairs
+      if (node.type === 'dialogue') {
+        if (!Array.isArray(data.lines)) {
+          if (data.text) {
+            const rawText = typeof data.text === 'string' ? data.text : sourceString(data.text) ?? '';
+            data.lines = [
+              {
+                id: `ln_${opCounter++}`,
+                textId: `t_${opCounter++}`,
+                text: { source: rawText },
+              },
+            ];
+            delete data.text;
+          } else {
+            data.lines = [];
+          }
+        } else {
+          for (let li = 0; li < (data.lines as unknown[]).length; li++) {
+            const lineVal = (data.lines as unknown[])[li];
+            if (typeof lineVal !== 'object' || lineVal === null || Array.isArray(lineVal)) continue;
+            const line = lineVal as Record<string, unknown>;
+            if (!line.id || typeof line.id !== 'string') line.id = `ln_${opCounter++}`;
+            if (!line.textId || typeof line.textId !== 'string') line.textId = `t_${opCounter++}`;
+            if (typeof line.text === 'string') {
+              line.text = { source: line.text };
+            }
+            if (line.speakerId && typeof line.speakerId === 'string' && !/^c_[a-z0-9]/.test(line.speakerId)) {
+              line.speakerId = `c_${line.speakerId.replace(/[^a-z0-9_-]/gi, '').toLowerCase()}`;
+            }
+          }
+        }
+      } else if (node.type === 'narration') {
+        if (!data.textId || typeof data.textId !== 'string') data.textId = `t_${opCounter++}`;
+        if (typeof data.text === 'string') {
+          data.text = { source: data.text };
+        }
+      } else if (node.type === 'choice') {
+        if (Array.isArray(data.options)) {
+          for (let oi = 0; oi < (data.options as unknown[]).length; oi++) {
+            const optVal = (data.options as unknown[])[oi];
+            if (typeof optVal !== 'object' || optVal === null || Array.isArray(optVal)) continue;
+            const opt = optVal as Record<string, unknown>;
+            if (!opt.id || typeof opt.id !== 'string') opt.id = `o_${opCounter++}`;
+            if (typeof opt.text === 'string') {
+              opt.text = { source: opt.text };
+            }
+          }
+        }
+      }
+    }
+
+    // Repairs for compact command text fields
     if (operation.kind === 'add-dialogue-line') {
       const line = operation.line;
       if (typeof line === 'object' && line !== null && !Array.isArray(line)) {
@@ -415,4 +584,5 @@ export function normalizeAIBlueprintCommand(command: unknown): unknown {
   }
   return normalized;
 }
+
 import { BLUEPRINT_COMMAND_FORMAT, BLUEPRINT_COMMAND_VERSION } from '@story-blueprint/common';

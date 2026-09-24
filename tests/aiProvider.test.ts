@@ -254,5 +254,46 @@ describe('OpenAI-compatible provider helpers', () => {
     expect(result.reply).toBe('这个支线的冲突很强烈，建议在第二幕增加一个伏笔。');
     expect(result.command).toBeUndefined();
   });
+
+  it('tolerantly auto-repairs common model schema hallucinations (nodeType, properties, position, etc.)', () => {
+    const rejectedCommand = {
+      format: 'story-blueprint-commands',
+      version: 1,
+      baseRevision: 'the supplied revision',
+      operations: [
+        {
+          kind: 'add-node',
+          nodeType: 'Dialogue',
+          parentId: 'root',
+          position: { x: 0, y: 0 },
+          properties: {
+            lines: [
+              {
+                speakerId: 'mainChar',
+                text: 'Hello, world!',
+              },
+            ],
+            text: 'Hello, world!',
+          },
+        },
+      ],
+    };
+
+    const normalized = normalizeAIBlueprintCommand(rejectedCommand, 'rev_current') as any;
+    expect(normalized.baseRevision).toBe('rev_current');
+    expect(normalized.operations).toHaveLength(1);
+    const op = normalized.operations[0];
+    expect(op.operationId).toMatch(/^op_auto_/);
+    expect(op.position).toBeUndefined();
+    expect(op.parentId).toBeUndefined();
+    expect(op.graph).toEqual({ kind: 'root' });
+    expect(op.node).toBeDefined();
+    expect(op.node.type).toBe('dialogue');
+    expect(op.node.id).toMatch(/^n_/);
+    expect(op.node.data.lines).toHaveLength(1);
+    expect(op.node.data.lines[0].text).toEqual({ source: 'Hello, world!' });
+    expect(op.node.data.lines[0].speakerId).toBe('c_mainchar');
+  });
 });
+
 

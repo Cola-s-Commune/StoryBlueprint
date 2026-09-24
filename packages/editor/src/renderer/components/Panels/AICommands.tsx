@@ -528,6 +528,46 @@ function diagnosticText(result: BlueprintTransactionResult | undefined): string 
     .join('\n');
 }
 
+interface DiagnosticAnalysis {
+  reasons: string[];
+}
+
+function analyzeDiagnostics(text: string): DiagnosticAnalysis | undefined {
+  if (!text || !text.trim()) return undefined;
+  const reasons: string[] = [];
+  if (/position|parentId|nodeType|properties/i.test(text)) {
+    reasons.push(
+      '模型混淆了其他通用图引擎（如 Unreal / Unity 蓝图）的属性字段（如 position / properties / nodeType），未能严格遵循本软件的蓝图契约。',
+    );
+  }
+  if (/baseRevision|the supplied revision/i.test(text)) {
+    reasons.push(
+      '模型未填入有效的当前工程版本号（baseRevision），可能照抄了提示词中的占位符。',
+    );
+  }
+  if (/operationId/i.test(text)) {
+    reasons.push('模型遗漏了原子操作的唯一标识符（operationId）。');
+  }
+  if (/invalid graph target|graph/i.test(text)) {
+    reasons.push('模型未正确指定蓝图目标图（需为 { "kind": "root" } 或指定 chapterId）。');
+  }
+  if (/must match pattern "\^n_/i.test(text)) {
+    reasons.push('模型生成的节点 ID 不合规（节点 ID 必须以 n_ 开头）。');
+  }
+  if (/must match pattern "\^c_/i.test(text)) {
+    reasons.push('模型指定的角色 ID 不合规（角色 ID 必须以 c_ 开头）。');
+  }
+  if (/RELATIVE_VARIABLE_OVERWRITE/i.test(text)) {
+    reasons.push('用户请求的是相对调整（如增加/减少），但模型错误输出了绝对值覆盖。');
+  }
+  if (reasons.length === 0) {
+    reasons.push(
+      '模型输出的操作指令未能通过沙盒完整性校验，可能存在缺失必填字段或类型不匹配。',
+    );
+  }
+  return { reasons };
+}
+
 function runAIContextTool(
   snapshot: StorySemanticSnapshot,
   request: { name: string; arguments: Record<string, unknown> },
@@ -1057,7 +1097,7 @@ export function AICommands() {
       return undefined;
     }
     if (command === undefined) return undefined;
-    const normalizedCommand = normalizeAIBlueprintCommand(command);
+    const normalizedCommand = normalizeAIBlueprintCommand(command, semanticSnapshot.revision);
     const wasNormalized = JSON.stringify(normalizedCommand) !== JSON.stringify(command);
     const normalizedText = wasNormalized ? JSON.stringify(normalizedCommand, null, 2) : text;
     if (wasNormalized) setCommandText(normalizedText);
@@ -1268,13 +1308,17 @@ export function AICommands() {
       setStreamedContent('');
       setInstruction('');
       if (assistant.command) {
-        const command = JSON.stringify(normalizeAIBlueprintCommand(assistant.command), null, 2);
+        const command = JSON.stringify(
+          normalizeAIBlueprintCommand(assistant.command, semanticSnapshot.revision),
+          null,
+          2,
+        );
         setCommandText(command);
         const dryRunResult = dryRunText(command);
         setProviderStatus(
           dryRunResult?.ok
             ? `Proposed${response.model ? ` by ${response.model}` : ''}${assistant.jsonRepaired ? ' · repaired unescaped quotes' : ''} · preview ready`
-            : `Proposal from ${response.model || 'provider'} was rejected · see diagnostics`,
+            : `Proposal from ${response.model || 'AI'} was rejected (model format mismatch) · see diagnostics`,
         );
       } else {
         discardAIProposal();
@@ -2250,7 +2294,48 @@ export function AICommands() {
               )}
             </div>
           )}
-          {errors && <pre className={styles.errors}>{errors}</pre>}
+          {errors && (
+            <div className={styles.diagnosticsContainer}>
+              {(() => {
+                const analysis = analyzeDiagnostics(errors);
+                if (!analysis) return null;
+                return (
+                  <div className={styles.modelFailureBanner}>
+                    <div className={styles.modelFailureHeader}>
+                      <span className={styles.modelFailureBadge}>⚠️ 模型指令遵循异常</span>
+                      <strong className={styles.modelFailureTitle}>
+                        当前模型 ({activeProvider?.model || 'AI'}) 生成的指令格式存在缺陷
+                      </strong>
+                    </div>
+                    <p className={styles.modelFailureDesc}>
+                      AI 模型未能完全遵循 StoryBlueprint 的蓝图数据契约。为了防止损坏故事工程，系统已在沙盒校验（Dry Run）中安全拦截，未对项目应用任何更改。
+                    </p>
+                    {analysis.reasons.length > 0 && (
+                      <ul className={styles.modelFailureReasons}>
+                        {analysis.reasons.map((reason, index) => (
+                          <li key={index}>{reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className={styles.modelFailureAdvice}>
+                      <div>
+                        <strong>💡 尝试自动纠错：</strong>
+                        <span>点击上方 <strong>“Ask AI to Fix”</strong> 按钮，系统会携带错题本向模型发起自愈重试。</span>
+                      </div>
+                      <div>
+                        <strong>⚙️ 更换模型建议：</strong>
+                        <span>若该模型反复出现此类格式错误，通常是因为小参数量或未针对结构化输出微调的模型遵循能力不足。建议在右上角 ⚙️ 设置中切换为更强推理模型（如 DeepSeek-V3 / DeepSeek-R1、Claude 3.5 Sonnet、GPT-4o）。</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              <details className={styles.rawErrorsDetails}>
+                <summary>查看底层校验诊断详情 (Raw Validation Diagnostics)</summary>
+                <pre className={styles.errors}>{errors}</pre>
+              </details>
+            </div>
+          )}
         </section>
       )}
     </div>
