@@ -106,12 +106,15 @@ export {
   buildBranchSuggestionPrompt,
   buildDialoguePolishPrompt,
   buildScriptAdaptationPrompt,
+  buildSmallModelPrompt,
   type CharacterPromptContext,
   type NodePromptContext,
   type DialogueContinuationOptions,
   type BranchSuggestionOptions,
   type DialoguePolishOptions,
   type ScriptAdaptationOptions,
+  type SmallModelPromptOptions,
+  type AIHarnessMode,
 } from './ai/promptTemplates';
 export {
   formatSelectedNodesDetails,
@@ -120,6 +123,12 @@ export {
   type SelectedNodeDetail,
   type MultiTurnContextParams,
 } from './ai/chatContext';
+export {
+  compileCompactActionsToTransaction,
+  extractCompactActionsFromMarkdown,
+  type CompactBlueprintAction,
+  type CompactActionCompilationContext,
+} from './ai/compactActions';
 
 // ---- Typed graph connection rules ----
 export {

@@ -7,6 +7,8 @@ import {
   BLUEPRINT_COMMAND_VERSION,
   StoryNodeType,
   buildMultiTurnContextBlock,
+  buildSmallModelPrompt,
+  compileCompactActionsToTransaction,
   type BlueprintCommandTransaction,
   type BlueprintTransactionResult,
   type SelectedNodeDetail,
@@ -31,6 +33,13 @@ import type {
 } from '../../../shared/electronApi';
 import { normalizeAIBlueprintCommand, parseAIAssistantResponse } from '../../../shared/aiProvider';
 import { convertInkToBlueprintTransaction } from '../../dialogue/inkImport';
+import {
+  type AIHarnessMode,
+  HARNESS_MODE_OPTIONS,
+  prepareHarnessPrompt,
+  getHarnessResponseSchema,
+  processHarnessResponse,
+} from '../../ai/harness/aiCommandsHarness';
 import { AIQuickActions } from './AIQuickActions';
 import {
   AI_SLASH_COMMANDS,
@@ -138,6 +147,21 @@ const AI_ASSISTANT_RESPONSE_SCHEMA = {
         arguments: { type: 'object' },
       },
       required: ['name', 'arguments'],
+    },
+  },
+} as const;
+
+const SMALL_MODEL_RESPONSE_SCHEMA = {
+  type: 'object',
+  required: ['reply'],
+  properties: {
+    reply: { type: 'string', minLength: 1 },
+    ink: {
+      type: ['string', 'null'],
+    },
+    actions: {
+      type: 'array',
+      items: { type: 'object' },
     },
   },
 } as const;
@@ -739,6 +763,7 @@ export function AICommands() {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragCounterRef = useRef(0);
   const [contextScope, setContextScope] = useState<AIContextScope>('story');
+  const [harnessMode, setHarnessMode] = useState<AIHarnessMode>('auto');
   const [providerRegistry, setProviderRegistry] = useState<AIProviderRegistry>();
   const [instructionsStatus, setInstructionsStatus] = useState<AIInstructionsStatus>();
   const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
@@ -757,6 +782,7 @@ export function AICommands() {
   const [chatSessions, setChatSessions] = useState<AIChatSession[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState('');
   const [chatTitle, setChatTitle] = useState('');
+  const [confirmingDeleteChat, setConfirmingDeleteChat] = useState(false);
   const [loadedChatScope, setLoadedChatScope] = useState('');
   const [lastUserRequest, setLastUserRequest] = useState('');
   const [pendingUserMessage, setPendingUserMessage] = useState<string>();
@@ -814,27 +840,50 @@ export function AICommands() {
     aiCommandProposal?.transaction,
     semanticSnapshot.revision,
   ]);
-  const contextText = useMemo(
-    () =>
-      aiContext(
-        scopedSemanticSnapshot,
-        { kind: contextScope, activeGraphId, selectedNodeIds },
-        activeProvider?.tools === 'disabled' && activeProvider.contextMode === 'manifest-first'
-          ? 'compact'
-          : (activeProvider?.contextMode ?? 'full'),
-        activeProvider?.tools !== 'disabled',
-        multiTurnContextText,
-      ),
-    [
+  const isSmallModel = useMemo(() => {
+    const model = (activeProvider?.model || '').toLowerCase();
+    const endpoint = (activeProvider?.endpoint || '').toLowerCase();
+    const isLocal = /localhost|127\.0\.0\.1|::1/.test(endpoint);
+    const hasSmallTag = /(?:[0-9]+[bB]|8b|7b|14b|9b|3b|4b|1\.5b|qwen|llama|gemma|deepseek-r1-distill|minicpm|phi)/.test(model);
+    return isLocal || hasSmallTag;
+  }, [activeProvider?.model, activeProvider?.endpoint]);
+
+  const contextText = useMemo(() => {
+    return prepareHarnessPrompt({
+      mode: harnessMode,
+      isSmallModel,
+      revision: semanticSnapshot.revision,
+      selectedNodes: selectedNodeDetails,
+      characters: semanticSnapshot.characters,
       activeGraphId,
-      activeProvider?.contextMode,
-      activeProvider?.tools,
-      contextScope,
-      multiTurnContextText,
-      scopedSemanticSnapshot,
-      selectedNodeIds,
-    ],
-  );
+      userInstruction: instruction,
+      multiTurnBlock: multiTurnContextText,
+      buildFullContextPrompt: () =>
+        aiContext(
+          scopedSemanticSnapshot,
+          { kind: contextScope, activeGraphId, selectedNodeIds },
+          activeProvider?.tools === 'disabled' && activeProvider.contextMode === 'manifest-first'
+            ? 'compact'
+            : (activeProvider?.contextMode ?? 'full'),
+          activeProvider?.tools !== 'disabled',
+          multiTurnContextText,
+        ),
+    });
+  }, [
+    activeGraphId,
+    activeProvider?.contextMode,
+    activeProvider?.tools,
+    contextScope,
+    harnessMode,
+    instruction,
+    isSmallModel,
+    multiTurnContextText,
+    scopedSemanticSnapshot,
+    selectedNodeDetails,
+    selectedNodeIds,
+    semanticSnapshot.characters,
+    semanticSnapshot.revision,
+  ]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [slashMenuMatch, setSlashMenuMatch] = useState<SlashMatchResult | null>(null);
@@ -1141,7 +1190,6 @@ export function AICommands() {
       command = JSON.parse(text) as unknown;
     } catch (error) {
       setLocalError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
-      setShowTechnicalDetails(true);
       return undefined;
     }
     if (command === undefined) return undefined;
@@ -1157,7 +1205,6 @@ export function AICommands() {
       setLocalError(
         `RELATIVE_VARIABLE_OVERWRITE: ${relativeOverwrites.join(', ')} assigns a numeric literal even though the request describes a relative change. Use add-variable-adjustment with variableId and signed delta.`,
       );
-      setShowTechnicalDetails(true);
       setResult(undefined);
       setDryRunToken(undefined);
       return undefined;
@@ -1325,7 +1372,7 @@ export function AICommands() {
             ? `Correct the rejected command for this request: ${requestInstruction}`
             : requestInstruction,
           context: `${retry && retryContext ? retryContext : contextText}${toolContext}`,
-          schema: AI_ASSISTANT_RESPONSE_SCHEMA,
+          schema: getHarnessResponseSchema(isSmallModel, harnessMode) as any,
           history: conversationHistory,
           attachments,
         });
@@ -1398,66 +1445,35 @@ export function AICommands() {
       setModelReasoning(response.reasoning);
       setStreamedContent('');
       setInstruction('');
-      if (assistant.command) {
-        const command = JSON.stringify(
-          normalizeAIBlueprintCommand(assistant.command, semanticSnapshot.revision),
-          null,
-          2,
-        );
-        setCommandText(command);
-        const dryRunResult = dryRunText(command);
-        setProviderStatus(
-          dryRunResult?.ok
-            ? `Proposed${response.model ? ` by ${response.model}` : ''}${assistant.jsonRepaired ? ' · repaired unescaped quotes' : ''} · preview ready`
-            : `Proposal from ${response.model || 'AI'} was rejected (model format mismatch) · see diagnostics`,
-        );
-      } else if (assistant.ink) {
-        const selectedSingleNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : undefined;
-        const inkResult = convertInkToBlueprintTransaction(assistant.ink, {
-          revision: semanticSnapshot.revision,
-          chapterId: activeGraphId === 'root' ? undefined : activeGraphId,
-          characters,
-          assets,
-          variables: semanticSnapshot.variables,
-          events,
-          autoCreateCharacters: true,
-          connectToNodeId: selectedSingleNodeId,
-        });
-        if (inkResult.ok && inkResult.transaction) {
-          const command = JSON.stringify(inkResult.transaction, null, 2);
-          setCommandText(command);
-          const dryRunResult = dryRunText(command);
-          const summaryText = inkResult.summary
-            ? `${inkResult.summary.dialogueNodes} 对白 · ${inkResult.summary.choiceNodes} 抉择 · ${inkResult.summary.narrationNodes} 旁白`
-            : '剧本节点';
-          setProviderStatus(
-            dryRunResult?.ok
-              ? `Ink 剧本已自动编译为蓝图节点 (${summaryText})${response.model ? ` · ${response.model}` : ''} · 预览就绪`
-              : `Ink 剧本编译生成的蓝图操作校验未通过 · 请查看下方错误诊断`,
-          );
-        } else {
-          discardAIProposal();
-          setResult(undefined);
-          setPreviewBase(undefined);
-          setDryRunToken(undefined);
-          const errorDetails = (inkResult.diagnostics || [])
-            .map((d) => `第 ${d.line} 行: ${d.message}`)
-            .join('; ');
-          setProviderError(`Ink 剧本编译异常: ${errorDetails || '无法转换为蓝图节点'}`);
-          setProviderStatus('Ink 剧本编译未通过');
-        }
+
+      const harnessResult = processHarnessResponse({
+        mode: harnessMode,
+        responseContent: response.content,
+        modelName: response.model,
+        semanticSnapshot,
+        activeGraphId,
+        selectedNodeIds,
+        characters,
+        assets,
+        events,
+        dryRunTransaction: (transaction) => {
+          const commandJson = JSON.stringify(transaction, null, 2);
+          setCommandText(commandJson);
+          return dryRunText(commandJson);
+        },
+      });
+
+      if (harnessResult.hasProposal) {
+        setProviderStatus(harnessResult.status);
       } else {
         discardAIProposal();
         setResult(undefined);
         setPreviewBase(undefined);
         setDryRunToken(undefined);
-        setProviderStatus(
-          assistant.needsClarification
-            ? 'Clarification needed before proposing an edit'
-            : assistant.unstructured
-              ? `Response from ${response.model || 'provider'} was not a Blueprint JSON command`
-              : `Answered${response.model ? ` by ${response.model}` : ''}`,
-        );
+        if (harnessResult.error) {
+          setProviderError(harnessResult.error);
+        }
+        setProviderStatus(harnessResult.status);
       }
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : String(error));
@@ -1540,6 +1556,14 @@ export function AICommands() {
     })();
   };
 
+  const focusInstructionTextarea = () => {
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    }, 50);
+  };
+
   const clearProposal = () => {
     discardAIProposal();
     setResult(undefined);
@@ -1550,6 +1574,8 @@ export function AICommands() {
     setProviderStatus(undefined);
     setLocalError(undefined);
     setToolTrace([]);
+    setGenerating(false);
+    setConfirmingDeleteChat(false);
   };
 
   const activateChatSession = (session: AIChatSession) => {
@@ -1564,7 +1590,9 @@ export function AICommands() {
       [...session.messages].reverse().find((message) => message.role === 'user')?.content ?? '',
     );
     setInstruction('');
+    setSlashMenuMatch(null);
     clearProposal();
+    focusInstructionTextarea();
   };
 
   const startNewChat = () => {
@@ -1573,24 +1601,30 @@ export function AICommands() {
     setChatTitle('');
     setConversation([]);
     setConversationHistory([]);
-    // Retain current attachments so the author can continue working with the reference script in a fresh chat
     setLastUserRequest('');
     setInstruction('');
+    setSlashMenuMatch(null);
     clearProposal();
+    focusInstructionTextarea();
   };
 
-  const deleteActiveChat = async () => {
+  const executeDeleteActiveChat = async () => {
+    setConfirmingDeleteChat(false);
     const session = chatSessions.find((candidate) => candidate.id === activeChatSessionId);
     if (!session || !window.electronAPI) return;
-    if (!window.confirm(`Delete conversation "${session.title}"? This cannot be undone.`)) return;
     try {
       await window.electronAPI.deleteAIChatSession(chatScopeKey, session.id);
       const remaining = chatSessions.filter((candidate) => candidate.id !== session.id);
       setChatSessions(remaining);
-      if (remaining[0]) activateChatSession(remaining[0]);
-      else startNewChat();
+      if (remaining[0]) {
+        activateChatSession(remaining[0]);
+      } else {
+        startNewChat();
+      }
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : String(error));
+    } finally {
+      focusInstructionTextarea();
     }
   };
 
@@ -1622,81 +1656,110 @@ export function AICommands() {
           </div>
         )}
         <div className={styles.requestHeader}>
-          <div className={styles.assistantTitle}>
-            <strong>Story Assistant</strong>
-            <span>
-              {semanticSnapshot.story.displayName} · {semanticSnapshot.revision}
-            </span>
-          </div>
-          <input
-            className={styles.chatTitleInput}
-            aria-label="Conversation name"
-            value={chatTitle}
-            maxLength={120}
-            placeholder="Conversation name"
-            disabled={generating}
-            onChange={(event) => setChatTitle(event.target.value)}
-            onBlur={(event) => setChatTitle(event.target.value.trim())}
-          />
-          {chatSessions.length > 0 && (
-            <select
-              className={styles.sessionPicker}
-              value={activeChatSessionId}
-              disabled={generating}
-              title="Conversation history"
-              onChange={(event) => {
-                const session = chatSessions.find(
-                  (candidate) => candidate.id === event.target.value,
-                );
-                if (session) activateChatSession(session);
-              }}
-            >
-              {!chatSessions.some((session) => session.id === activeChatSessionId) && (
-                <option value={activeChatSessionId}>New conversation</option>
+          <div className={styles.headerMainRow}>
+            <div className={styles.assistantTitle}>
+              <strong>Story Assistant</strong>
+              <span>
+                {semanticSnapshot.story.displayName} · {semanticSnapshot.revision}
+              </span>
+            </div>
+            <div className={styles.headerModelGroup}>
+              {providerRegistry && (
+                <select
+                  className={styles.providerPicker}
+                  aria-label="Active AI provider"
+                  value={providerRegistry.activeProviderId}
+                  disabled={generating}
+                  onChange={(event) => void selectProvider(event.target.value)}
+                  title="Active AI provider"
+                >
+                  {providerRegistry.providers.map((profile) => (
+                    <option value={profile.id} key={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
               )}
-              {chatSessions.map((session) => (
-                <option value={session.id} key={session.id}>
-                  {session.title}
-                </option>
-              ))}
-            </select>
-          )}
-          <button type="button" onClick={startNewChat} disabled={generating}>
-            New Chat
-          </button>
-          {chatSessions.some((session) => session.id === activeChatSessionId) && (
-            <button
-              type="button"
-              className={styles.deleteChatButton}
-              onClick={() => void deleteActiveChat()}
+              <button
+                type="button"
+                className={styles.providerButton}
+                onClick={() => setShowProviderSettings((visible) => !visible)}
+                title="Provider Settings"
+              >
+                {showProviderSettings ? 'Hide Settings' : '⚙️ Settings'}
+              </button>
+            </div>
+          </div>
+          <div className={styles.headerSessionRow}>
+            {chatSessions.length > 0 && (
+              <select
+                className={styles.sessionPicker}
+                value={activeChatSessionId}
+                disabled={generating}
+                title="Conversation history"
+                onChange={(event) => {
+                  const session = chatSessions.find(
+                    (candidate) => candidate.id === event.target.value,
+                  );
+                  if (session) activateChatSession(session);
+                }}
+              >
+                {!chatSessions.some((session) => session.id === activeChatSessionId) && (
+                  <option value={activeChatSessionId}>New conversation</option>
+                )}
+                {chatSessions.map((session) => (
+                  <option value={session.id} key={session.id}>
+                    {session.title}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input
+              className={styles.chatTitleInput}
+              aria-label="Conversation name"
+              value={chatTitle}
+              maxLength={120}
+              placeholder="Conversation name"
               disabled={generating}
-            >
-              Delete
+              onChange={(event) => setChatTitle(event.target.value)}
+              onBlur={(event) => setChatTitle(event.target.value.trim())}
+            />
+            <button type="button" onClick={startNewChat} disabled={generating} title="New Chat">
+              + New
             </button>
-          )}
-          {providerRegistry && (
-            <select
-              className={styles.providerPicker}
-              aria-label="Active AI provider"
-              value={providerRegistry.activeProviderId}
-              disabled={generating}
-              onChange={(event) => void selectProvider(event.target.value)}
-              title="Active AI provider"
-            >
-              {providerRegistry.providers.map((profile) => (
-                <option value={profile.id} key={profile.id}>
-                  {profile.name}
-                </option>
+            {chatSessions.some((session) => session.id === activeChatSessionId) &&
+              (confirmingDeleteChat ? (
+                <span className={styles.deleteConfirmGroup}>
+                  <span className={styles.deleteConfirmPrompt}>删除当前对话？</span>
+                  <button
+                    type="button"
+                    className={styles.deleteConfirmYes}
+                    onClick={() => void executeDeleteActiveChat()}
+                    disabled={generating}
+                  >
+                    确定
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.deleteConfirmCancel}
+                    onClick={() => setConfirmingDeleteChat(false)}
+                    disabled={generating}
+                  >
+                    取消
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.deleteChatButton}
+                  onClick={() => setConfirmingDeleteChat(true)}
+                  disabled={generating}
+                  title="删除当前对话"
+                >
+                  Delete
+                </button>
               ))}
-            </select>
-          )}
-          <button
-            type="button"
-            className={styles.providerButton}
-            onClick={() => setShowProviderSettings((visible) => !visible)}
-          >
-            {showProviderSettings ? 'Hide Provider' : 'Provider Settings'}
-          </button>
+          </div>
         </div>
         {showProviderSettings && providerDraft && (
           <div className={styles.providerSettings}>
@@ -2098,7 +2161,20 @@ export function AICommands() {
             }
           }}
         />
-        <div className={styles.composer}>
+        <div
+          className={styles.composer}
+          onClick={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (
+              target &&
+              !target.closest(
+                'button, select, input, textarea, a, label, [role="radiogroup"], [role="radio"], [role="option"]',
+              )
+            ) {
+              textareaRef.current?.focus();
+            }
+          }}
+        >
           {slashMenuMatch && slashMenuMatch.commands.length > 0 && (
             <div className={styles.slashMenu} role="listbox" aria-label="Slash commands">
               <div className={styles.slashMenuHeader}>
@@ -2227,53 +2303,97 @@ export function AICommands() {
               ))}
             </div>
           )}
-          <div className={styles.requestControls}>
-            <label>
-              <span>Context</span>
-              <select
-                value={contextScope}
-                disabled={generating}
-                onChange={(event) => setContextScope(event.target.value as AIContextScope)}
-              >
-                <option value="selection">Selection ({selectedNodeIds.length})</option>
-                <option value="graph">Current Graph</option>
-                <option value="story">Whole Story</option>
-              </select>
-            </label>
-            <button type="button" disabled={generating} onClick={() => void addAttachments()}>
-              {attachments.length > 0 ? `Attach Files (${attachments.length})` : 'Attach Files'}
-            </button>
-            <span className={styles.composerHint}>Enter to send · Shift+Enter for newline</span>
-            <button
-              type="button"
-              className={styles.primaryButton}
-              disabled={generating || !activeProvider?.model || !instruction.trim()}
-              onClick={() => void generate()}
-            >
-              {generating ? 'Thinking…' : 'Send'}
-            </button>
-            {generating && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (requestIdRef.current) {
-                    window.electronAPI?.cancelAICommand(requestIdRef.current);
-                    setProviderStatus('Canceling…');
+          <div className={styles.composerToolbar}>
+            <div className={styles.composerConfigRow}>
+              <div className={styles.harnessModeSelector} role="radiogroup" aria-label="执行模式">
+                {HARNESS_MODE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={harnessMode === opt.id}
+                    className={`${styles.harnessModeButton} ${
+                      harnessMode === opt.id ? styles.harnessModeButtonActive : ''
+                    }`}
+                    onClick={() => setHarnessMode(opt.id)}
+                    title={`${opt.label} (${opt.badge})：${opt.description}`}
+                    disabled={generating}
+                  >
+                    <span className={styles.harnessModeIcon}>{opt.icon}</span>
+                    <span className={styles.harnessModeLabel}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+              <label className={styles.composerScopeGroup}>
+                <span>Context</span>
+                <select
+                  className={styles.composerScopeSelect}
+                  value={contextScope}
+                  disabled={generating}
+                  onChange={(event) => setContextScope(event.target.value as AIContextScope)}
+                >
+                  <option value="selection">Selection ({selectedNodeIds.length})</option>
+                  <option value="graph">Current Graph</option>
+                  <option value="story">Whole Story</option>
+                </select>
+              </label>
+              <span className={styles.composerHint}>Enter to send · Shift+Enter for newline</span>
+            </div>
+            <div className={styles.composerActionRow}>
+              <div className={styles.composerActionLeft}>
+                <button
+                  type="button"
+                  className={styles.attachButton}
+                  disabled={generating}
+                  onClick={() => void addAttachments()}
+                >
+                  {attachments.length > 0 ? `📎 Attach (${attachments.length})` : '📎 Attach'}
+                </button>
+                <span
+                  className={styles.providerStatus}
+                  title={
+                    providerStatus ??
+                    (!activeProvider?.model ? 'Configure a provider and model to generate' : '')
                   }
-                }}
-              >
-                Cancel
-              </button>
-            )}
-            {!generating && diagnosticText(result) && (
-              <button type="button" onClick={() => void generate(true)}>
-                Ask AI to Fix
-              </button>
-            )}
-            <span className={styles.providerStatus}>
-              {providerStatus ??
-                (!activeProvider?.model ? 'Configure a provider and model to generate' : '')}
-            </span>
+                >
+                  {providerStatus ??
+                    (!activeProvider?.model ? 'Configure a provider and model to generate' : '')}
+                </span>
+              </div>
+              <div className={styles.composerActionRight}>
+                {!generating && diagnosticText(result) && (
+                  <button
+                    type="button"
+                    className={styles.fixButton}
+                    onClick={() => void generate(true)}
+                  >
+                    Ask AI to Fix
+                  </button>
+                )}
+                {generating && (
+                  <button
+                    type="button"
+                    className={styles.cancelButton}
+                    onClick={() => {
+                      if (requestIdRef.current) {
+                        window.electronAPI?.cancelAICommand(requestIdRef.current);
+                        setProviderStatus('Canceling…');
+                      }
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  disabled={generating || !activeProvider?.model || !instruction.trim()}
+                  onClick={() => void generate()}
+                >
+                  {generating ? 'Thinking…' : 'Send'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </section>

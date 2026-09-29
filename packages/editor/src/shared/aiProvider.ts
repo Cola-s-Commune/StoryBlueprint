@@ -1,3 +1,10 @@
+import {
+  BLUEPRINT_COMMAND_FORMAT,
+  BLUEPRINT_COMMAND_VERSION,
+  type CompactBlueprintAction,
+  extractCompactActionsFromMarkdown,
+} from '@story-blueprint/common';
+
 const LOCAL_AI_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 export interface AIAssistantResponse {
@@ -5,6 +12,8 @@ export interface AIAssistantResponse {
   command?: unknown;
   /** Ink story script to be compiled into Story Blueprint nodes. */
   ink?: string;
+  /** Compact blueprint actions emitted by 8B/14B small models. */
+  actions?: CompactBlueprintAction[];
   needsClarification?: boolean;
   questions?: string[];
   toolRequest?: {
@@ -235,10 +244,10 @@ export function looksLikeInkScript(text: string): boolean {
   let score = 0;
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line || line.startsWith('//')) continue;
+    if (!line || line.startsWith('//') || line.startsWith('-') || /^\d+\./.test(line)) continue;
     if (/^===\s*[\p{L}_]/u.test(line) || /^\s*[*+]\s+/u.test(line) || /^\s*VAR\s+/i.test(line)) {
       score += 2;
-    } else if (/^[^:#：\r\n]{1,30}[：:]\s+\S/u.test(line)) {
+    } else if (/^[^:#：\r\n]{1,30}[：:]\s*\S/u.test(line)) {
       score += 1;
     }
   }
@@ -252,7 +261,15 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
   } catch {
     const trimmedContent = content.trim();
     if (!trimmedContent) throw new Error('AI response content is empty');
-    const inkFence = trimmedContent.match(/```(?:ink|story)?\s*([\s\S]*?)\s*```/i);
+    const explicitInkFence = trimmedContent.match(/```(?:ink|story)\s*([\s\S]*?)\s*```/i);
+    if (explicitInkFence && explicitInkFence[1].trim()) {
+      const ink = explicitInkFence[1].trim();
+      const replyBefore = trimmedContent.slice(0, explicitInkFence.index).trim();
+      const replyAfter = trimmedContent.slice(explicitInkFence.index! + explicitInkFence[0].length).trim();
+      const reply = [replyBefore, replyAfter].filter(Boolean).join('\n\n') || '已为您生成 Ink 剧本并转换为蓝图节点。';
+      return { reply, ink, unstructured: true };
+    }
+    const inkFence = trimmedContent.match(/```\s*([\s\S]*?)\s*```/i);
     if (inkFence && looksLikeInkScript(inkFence[1])) {
       const ink = inkFence[1].trim();
       const replyBefore = trimmedContent.slice(0, inkFence.index).trim();
@@ -267,6 +284,14 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
         unstructured: true,
       };
     }
+    const actions = extractCompactActionsFromMarkdown(trimmedContent);
+    if (actions.length > 0) {
+      return {
+        reply: trimmedContent,
+        actions,
+        unstructured: true,
+      };
+    }
     return { reply: trimmedContent, unstructured: true };
   }
   const { value, surroundingText } = parsed;
@@ -276,6 +301,14 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
       return {
         reply: '已为您生成 Ink 剧本并转换为蓝图节点。',
         ink: rawText,
+        unstructured: true,
+      };
+    }
+    const actions = extractCompactActionsFromMarkdown(rawText);
+    if (actions.length > 0) {
+      return {
+        reply: rawText,
+        actions,
         unstructured: true,
       };
     }
@@ -344,6 +377,32 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
     }
   }
 
+  // Extract actions (compact actions for 8B/14B models)
+  let actions: CompactBlueprintAction[] | undefined;
+  if (Array.isArray(object.actions) && object.actions.length > 0) {
+    actions = object.actions as CompactBlueprintAction[];
+  } else if (Array.isArray(object.modifications) && object.modifications.length > 0) {
+    actions = object.modifications as CompactBlueprintAction[];
+  } else if (Array.isArray(object.operations)) {
+    const isCompactShape = object.operations.some(
+      (op: any) => op && typeof op === 'object' && (op.type || op.action),
+    );
+    if (isCompactShape && !command) {
+      actions = object.operations.map((op: any) => ({
+        ...op,
+        type: op.type || op.action,
+      })) as CompactBlueprintAction[];
+    }
+  }
+
+  if (!command && !ink && (!actions || actions.length === 0)) {
+    const textToCheck = surroundingText || (typeof object.reply === 'string' ? object.reply : content);
+    const extracted = extractCompactActionsFromMarkdown(textToCheck);
+    if (extracted.length > 0) {
+      actions = extracted;
+    }
+  }
+
   // Extract or synthesize user-facing reply
   const candidateReplyKeys = [
     'reply',
@@ -393,9 +452,14 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
     reply = '已为您生成 Ink 剧本并转换为蓝图节点供预览与应用。';
   }
 
+  // If still no reply and we have valid compact actions, generate a helpful default reply
+  if (!reply && actions && actions.length > 0) {
+    reply = `已为您生成蓝图修改方案（包含 ${actions.length} 项动作），请在下方预览并确认应用。`;
+  }
+
   // If still no reply, look for any other string property in the object
   if (!reply) {
-    const ignoredKeys = new Set(['format', 'version', 'kind', 'baseRevision', 'type', 'id', 'status', 'ink', 'script']);
+    const ignoredKeys = new Set(['format', 'version', 'kind', 'baseRevision', 'type', 'id', 'status', 'ink', 'script', 'actions', 'modifications']);
     for (const [k, v] of Object.entries(object)) {
       if (!ignoredKeys.has(k) && typeof v === 'string' && v.trim().length > 0) {
         reply = v.trim();
@@ -413,6 +477,7 @@ export function parseAIAssistantResponse(content: string, baseRevision?: string)
     reply,
     ...(command !== undefined && command !== null ? { command } : {}),
     ...(ink ? { ink } : {}),
+    ...(actions && actions.length > 0 ? { actions } : {}),
     ...(object.needsClarification === true ? { needsClarification: true } : {}),
     ...(Array.isArray(object.questions)
       ? {
@@ -649,5 +714,3 @@ export function normalizeAIBlueprintCommand(command: unknown, fallbackBaseRevisi
   }
   return normalized;
 }
-
-import { BLUEPRINT_COMMAND_FORMAT, BLUEPRINT_COMMAND_VERSION } from '@story-blueprint/common';

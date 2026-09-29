@@ -165,11 +165,20 @@ export function parseDialogueInk(
         });
       }
       const parsed = splitLine(sourceLine);
-      const speakerSeparator = parsed.text.indexOf(':');
+      const colonMatch = /[:：]/.exec(parsed.text);
+      const speakerSeparator = colonMatch ? colonMatch.index : -1;
       const speakerToken =
         speakerSeparator > 0 ? parsed.text.slice(0, speakerSeparator).trim() : undefined;
-      const dialogueText =
+      let dialogueText =
         speakerSeparator > 0 ? parsed.text.slice(speakerSeparator + 1).replace(/^ /, '') : '';
+      const trimmedDlg = dialogueText.trim();
+      if (
+        (trimmedDlg.startsWith('“') && trimmedDlg.endsWith('”')) ||
+        (trimmedDlg.startsWith('"') && trimmedDlg.endsWith('"')) ||
+        (trimmedDlg.startsWith('「') && trimmedDlg.endsWith('」'))
+      ) {
+        dialogueText = trimmedDlg.slice(1, -1).trim();
+      }
       const draft: DialogueLineDraft = { text: { source: dialogueText } };
       if (!speakerToken) {
         diagnostics.push({

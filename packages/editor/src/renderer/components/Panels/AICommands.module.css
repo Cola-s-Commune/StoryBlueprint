@@ -32,65 +32,100 @@
 }
 
 .requestHeader {
-  flex-wrap: wrap;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-bottom: 8px;
+}
+
+.headerMainRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
 }
 
 .assistantTitle {
   display: flex;
-  min-width: 0;
-  flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.sessionPicker {
-  width: min(180px, 34vw);
-  min-width: 110px;
-  padding: 5px 7px;
+.assistantTitle strong {
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.assistantTitle span {
+  color: #77818d;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.headerModelGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .providerPicker {
-  width: min(170px, 22vw);
-  min-width: 110px;
-  padding: 5px 7px;
+  width: 140px;
+  max-width: 35vw;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.providerButton {
+  padding: 3px 8px !important;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.headerSessionRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #191c20;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid #282d34;
+}
+
+.sessionPicker {
+  width: 130px;
+  max-width: 30vw;
+  padding: 3px 6px;
+  font-size: 11px;
 }
 
 .chatTitleInput {
-  width: min(210px, 22vw);
-  min-width: 120px;
-  padding: 5px 7px;
-  border: 1px solid #434a54;
+  flex: 1;
+  min-width: 70px;
+  padding: 3px 7px;
+  border: 1px solid #3c424c;
   border-radius: 4px;
   outline: none;
   color: #dfe6ef;
-  background: #252a31;
+  background: #23272e;
   font: inherit;
   font-size: 11px;
 }
 
 .chatTitleInput:focus {
-  border-color: #728fbb;
+  border-color: #58a6ff;
+  background: #1c2128;
 }
 
 .deleteChatButton {
   color: #dca0a5 !important;
-}
-
-.assistantTitle strong {
-  color: #e2e8f0;
-}
-
-.assistantTitle span {
-  overflow: hidden;
-  color: #77818d;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.requestHeader .providerButton {
-  margin-left: auto;
+  padding: 3px 8px !important;
+  font-size: 11px;
 }
 
 .requestPane button,
@@ -466,31 +501,139 @@
 .composer {
   position: relative;
   flex: none;
-  padding: 8px;
+  padding: 8px 10px;
   border: 1px solid #3a414b;
   border-radius: 7px;
   background: #171a1f;
   box-shadow: 0 5px 18px rgb(0 0 0 / 18%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .composer .instruction {
   border: 0;
   background: transparent;
+  padding: 0;
+  min-height: 56px;
+}
+
+.composerToolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #262b32;
+}
+
+.composerConfigRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.composerScopeGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8b949e;
+  font-size: 11px;
+}
+
+.composerScopeSelect {
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: #1f242c;
+  border: 1px solid #343b46;
+  color: #c9d1d9;
 }
 
 .composerHint {
   margin-left: auto;
   color: #697481;
   font-size: 10px;
+  white-space: nowrap;
+}
+
+.composerActionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.composerActionLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.composerActionRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.attachButton {
+  padding: 4px 8px !important;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.providerStatus {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #79c0ff;
+  font-size: 11px;
+  flex: 1;
+  min-width: 0;
+}
+
+.primaryButton {
+  background: #1f6feb !important;
+  border-color: #388bfd !important;
+  color: #fff !important;
+  font-weight: 500;
+  padding: 4px 14px !important;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: #388bfd !important;
+}
+
+.cancelButton {
+  background: #3c2022 !important;
+  border-color: #6e3639 !important;
+  color: #f85149 !important;
+  padding: 4px 10px !important;
+}
+
+.cancelButton:hover {
+  background: #50282b !important;
+}
+
+.fixButton {
+  background: #2ea043 !important;
+  border-color: #3fb950 !important;
+  color: #fff !important;
+  font-weight: 500;
+  padding: 4px 10px !important;
 }
 
 .requestControls {
   margin-top: 8px;
-}
-
-.requestControls label {
-  flex-direction: row;
-  align-items: center;
 }
 
 .providerStatus {
@@ -628,10 +771,11 @@
   min-height: 0;
   flex-direction: column;
   background: #17191d;
+  border-bottom: 1px solid #292d33;
 }
 
 .technicalPane[data-expanded='true'] {
-  flex: 1;
+  flex: none;
 }
 
 .technicalSummary {
@@ -717,9 +861,10 @@
 
 .editors {
   display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
-  flex: 1;
-  min-height: 220px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  flex: none;
+  max-height: 180px;
+  overflow: auto;
 }
 
 .editorPane {
@@ -926,7 +1071,7 @@
 
   .editors {
     grid-template-columns: 1fr;
-    grid-template-rows: repeat(2, minmax(220px, 1fr));
+    max-height: 240px;
   }
 }
 
@@ -1409,5 +1554,97 @@
   overflow: auto;
   border-top: 1px solid #342822;
   background: #120f0d;
+}
+
+.harnessModeSelector {
+  display: inline-flex;
+  align-items: center;
+  background: #14171b;
+  border: 1px solid #2d333b;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.harnessModeButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #8c97a5;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.harnessModeButton:hover:not(:disabled) {
+  background: #1f242c !important;
+  color: #cbd5e1;
+}
+
+.harnessModeButtonActive {
+  background: #252e3d !important;
+  border-color: #3b506d !important;
+  color: #79c0ff !important;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.harnessModeIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.harnessModeLabel {
+  font-size: 11px;
+}
+
+.deleteConfirmGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #2a1b1b;
+  border: 1px solid #5a2e2e;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.deleteConfirmPrompt {
+  color: #e59999;
+  font-size: 11px;
+}
+
+.deleteConfirmYes {
+  padding: 2px 7px !important;
+  background: #a83838 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.deleteConfirmYes:hover:not(:disabled) {
+  background: #c24343 !important;
+}
+
+.deleteConfirmCancel {
+  padding: 2px 6px !important;
+  background: transparent !important;
+  color: #b0b8c4 !important;
+  border: 1px solid #4a5462 !important;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.deleteConfirmCancel:hover:not(:disabled) {
+  background: #323a45 !important;
+  color: #fff !important;
 }
 

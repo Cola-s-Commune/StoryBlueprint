@@ -1,4 +1,4 @@
-import { StoryNodeType } from '../types/nodes';
+import { StoryNodeType, type StoryNodeDataMap } from '../types/nodes';
 
 export interface CharacterPromptContext {
   id: string;
@@ -326,4 +326,168 @@ export function buildScriptAdaptationPrompt(options: ScriptAdaptationOptions): s
   );
 
   return instructions.join('\n');
+}
+
+export type AIHarnessMode = 'auto' | 'direct' | 'ink';
+
+export interface SmallModelPromptOptions {
+  revision: string;
+  mode?: AIHarnessMode;
+  selectedNodes?: readonly {
+    id: string;
+    type: StoryNodeType | string;
+    data: unknown;
+    title?: string;
+  }[];
+  characters?: readonly { id: string; name: string; displayName: string }[];
+  activeGraphId?: string;
+  userInstruction?: string;
+  multiTurnBlock?: string;
+}
+
+/**
+ * Builds a highly focused, lightweight prompt optimized specifically for 8B/14B models.
+ * Completely eliminates the 30KB JSON Schema overhead and provides clear instructions
+ * based on selected harness mode (auto, direct, or ink).
+ */
+export function buildSmallModelPrompt(options: SmallModelPromptOptions): string {
+  const charLines = (options.characters || []).map(
+    (c) => `- ${c.displayName} (ID: ${c.id})`,
+  );
+  const targetMode = options.mode || 'auto';
+
+  const lines: string[] = [
+    '# Story Blueprint AI 创作与修改助手 (轻量增强模式)',
+    '',
+  ];
+
+  if (targetMode === 'direct') {
+    lines.push(
+      '【当前工作模式：直接编辑蓝图】',
+      '请根据作者的要求，直接在 `actions` 字段输出修改蓝图的结构化动作列表：',
+      '```json',
+      '{',
+      '  "reply": "已为您完成蓝图修改",',
+      '  "actions": [',
+      '    { "type": "update_line", "lineIndex": 1, "text": "修改后的台词内容" },',
+      '    { "type": "add_line", "speaker": "角色名", "text": "追加的台词" },',
+      '    { "type": "update_choice_option", "optionIndex": 1, "text": "新选项文字" },',
+      '    { "type": "add_choice_option", "text": "新增选项" },',
+      '    { "type": "adjust_variable", "variable": "好感度", "delta": 1 },',
+      '    { "type": "append_dialogue", "speaker": "角色名", "text": "新对话节点" }',
+      '  ]',
+      '}',
+      '```',
+      '（注意：`lineIndex` 和 `optionIndex` 是第几句台词/第几个选项，从 1 开始编号）',
+      '',
+    );
+  } else if (targetMode === 'ink') {
+    lines.push(
+      '【当前工作模式：Ink 剧本转换与创作】',
+      '请根据作者的要求，直接输出 Ink 剧本语法（在 `ink` 字段或直接在正文中用 ```ink 代码块包裹）：',
+      '```ink',
+      '角色名: 对白文本',
+      '旁白文本（无角色名前缀）',
+      '* [分支选项 1] -> branch_1',
+      '* [分支选项 2] -> branch_2',
+      '',
+      '=== branch_1 ===',
+      '角色名: 选项1后续对白',
+      '',
+      '=== branch_2 ===',
+      '角色名: 选项2后续对白',
+      '```',
+      '系统会自动将 Ink 剧本编译为精美的蓝图对话与选择节点并自动连接！',
+      '',
+    );
+  } else {
+    // Auto mode
+    lines.push(
+      '你是互动叙事游戏《Story Blueprint》的 AI 助手。你需要根据作者的指令，选择以下三种模式之一响应：',
+      '',
+      '## 模式 1：剧本创作、剧情续写、分支与改编 (输出 Ink 剧本)',
+      '当作者需要【创作新剧情】、【续写对话】、【添加分支抉择】或【将小说/文本改编为游戏剧本】时，在 `ink` 字段或直接在正文中输出 Ink 剧本格式：',
+      '```ink',
+      '角色名: 对白文本',
+      '旁白文本（无角色名前缀）',
+      '* [分支选项 1] -> branch_1',
+      '* [分支选项 2] -> branch_2',
+      '',
+      '=== branch_1 ===',
+      '角色名: 选项1后续对白',
+      '',
+      '=== branch_2 ===',
+      '角色名: 选项2后续对白',
+      '```',
+      '系统会自动将 Ink 剧本编译为精美的蓝图对话与选择节点并自动连接！',
+      '',
+      '## 模式 2：精准修改已有蓝图 (输出 actions 动作)',
+      '当作者要求【修改现有节点的某句台词】、【修改选项】、【删除/增加内容】、【调整变量】时，在 `actions` 字段输出简明动作列表：',
+      '```json',
+      '{',
+      '  "reply": "已为您完成修改",',
+      '  "actions": [',
+      '    { "type": "update_line", "lineIndex": 1, "text": "修改后的台词内容" },',
+      '    { "type": "add_line", "speaker": "角色名", "text": "追加的台词" },',
+      '    { "type": "update_choice_option", "optionIndex": 1, "text": "新选项文字" },',
+      '    { "type": "add_choice_option", "text": "新增选项" },',
+      '    { "type": "adjust_variable", "variable": "好感度", "delta": 1 },',
+      '    { "type": "append_dialogue", "speaker": "角色名", "text": "新对话节点" }',
+      '  ]',
+      '}',
+      '```',
+      '（注意：`lineIndex` 和 `optionIndex` 是第几句台词/第几个选项，从 1 开始编号）',
+      '',
+      '## 模式 3：故事讨论与构思 (纯文本回复)',
+      '当作者仅想探讨剧情发展、分析人物性格、头脑风暴时，直接在 `reply` 中给出深入的剧情探讨和建议，`actions` 置空或省略即可。',
+      '',
+    );
+  }
+
+  lines.push(
+    '---',
+    '## 当前故事上下文',
+    `当前版本号: ${options.revision}`,
+  );
+
+  if (charLines.length > 0) {
+    lines.push('### 故事现有角色列表：', ...charLines, '');
+  }
+
+  if (options.selectedNodes && options.selectedNodes.length > 0) {
+    lines.push('### 当前在画布上选中的节点（操作目标优先指向选中节点）：');
+    for (const node of options.selectedNodes) {
+      lines.push(`- 节点 ID: "${node.id}", 类型: ${node.type}${node.title ? ` ("${node.title}")` : ''}`);
+      if (node.type === StoryNodeType.Dialogue) {
+        const dData = node.data as StoryNodeDataMap[StoryNodeType.Dialogue];
+        (dData?.lines || []).forEach((ln, idx) => {
+          const txt = typeof ln.text === 'object' && ln.text !== null && 'source' in ln.text
+            ? (ln.text as { source: string }).source
+            : String(ln.text ?? '');
+          lines.push(`  第 ${idx + 1} 句台词 [ID: "${ln.id}", Speaker: "${ln.speakerId ?? ''}"]: "${txt}"`);
+        });
+      } else if (node.type === StoryNodeType.Choice) {
+        const cData = node.data as StoryNodeDataMap[StoryNodeType.Choice];
+        (cData?.options || []).forEach((opt, idx) => {
+          const txt = typeof opt.text === 'object' && opt.text !== null && 'source' in opt.text
+            ? (opt.text as { source: string }).source
+            : String(opt.text ?? '');
+          lines.push(`  第 ${idx + 1} 个选项 [ID: "${opt.id}"]: "${txt}"`);
+        });
+      } else if (node.type === StoryNodeType.Narration) {
+        const nData = node.data as StoryNodeDataMap[StoryNodeType.Narration];
+        const txt = typeof nData?.text === 'object' && nData?.text !== null && 'source' in nData.text
+          ? (nData.text as { source: string }).source
+          : String(nData?.text ?? '');
+        lines.push(`  旁白内容: "${txt}"`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (options.multiTurnBlock) {
+    lines.push(options.multiTurnBlock, '');
+  }
+
+  return lines.join('\n');
 }

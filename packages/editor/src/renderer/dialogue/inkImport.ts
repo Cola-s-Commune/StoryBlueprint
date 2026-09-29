@@ -251,7 +251,7 @@ function choiceContent(source: string): {
   return { text, target: inlineTarget?.[2], visibleIf };
 }
 
-const namedDialogueLinePattern = /^\s*[^:#][^:]*:\s/;
+const namedDialogueLinePattern = /^\s*[^:#：][^:：]*[：:]\s*/;
 
 function splitExternalCallArguments(source: string): string[] | undefined {
   if (!source.trim()) return [];
@@ -655,7 +655,11 @@ function parseInkProfile(
 
   const targetLabels = sections.flatMap((candidate) =>
     candidate.statements.flatMap((statement) => {
-      if (statement.kind === 'divert' && statement.target.toUpperCase() !== 'DONE') {
+      if (
+        statement.kind === 'divert' &&
+        statement.target.toUpperCase() !== 'DONE' &&
+        statement.target.toUpperCase() !== 'END'
+      ) {
         return [statement.target];
       }
       if (statement.kind === 'choice') return statement.options.map((option) => option.target);
@@ -1330,7 +1334,32 @@ export function normalizeInkSource(source: string): string {
     l = l.replace(/\s*(?:—>|–>|→)\s*/g, ' -> ');
     return l;
   });
-  return normalizedLines.join('\n');
+
+  let processed = normalizedLines.join('\n');
+
+  // Auto-stub missing knots for resilient AI conversion (avoids "Divert references missing knot" failure)
+  const divertMatches = processed.matchAll(/->\s*([\p{L}_][\p{L}\p{N}_.-]*)/gu);
+  const knotMatches = new Set(
+    Array.from(processed.matchAll(/^\s*===\s*([\p{L}_][\p{L}\p{N}_.-]*)\s*===/gmu), (m) => m[1]),
+  );
+  const missingKnots: string[] = [];
+  for (const m of divertMatches) {
+    const target = m[1];
+    if (
+      target.toUpperCase() !== 'DONE' &&
+      target.toUpperCase() !== 'END' &&
+      !knotMatches.has(target)
+    ) {
+      if (!missingKnots.includes(target)) {
+        missingKnots.push(target);
+      }
+    }
+  }
+  if (missingKnots.length > 0) {
+    processed = processed + '\n\n' + missingKnots.map((k) => `=== ${k} ===\n-> DONE`).join('\n\n');
+  }
+
+  return processed;
 }
 
 export function convertInkToBlueprintTransaction(
