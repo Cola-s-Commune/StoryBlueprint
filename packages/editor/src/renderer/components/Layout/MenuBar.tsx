@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
+import { useEditorSettings } from '../../settings/EditorSettingsContext';
 import type { AppInfo, UpdateCheckResult } from '../../../shared/electronApi';
 import { AboutDialog } from './AboutDialog';
 import { UpdateDialog } from './UpdateDialog';
@@ -37,7 +38,8 @@ type SubMenuItem =
         | 'zoom-reset'
         | 'reset-layout'
         | 'updates'
-        | 'about';
+        | 'about'
+        | 'settings';
       panelId?:
         | 'resources'
         | 'storyData'
@@ -52,77 +54,83 @@ type SubMenuItem =
     }
   | { type: 'separator' };
 
-const menuItems: MenuItem[] = [
-  {
-    label: 'File',
-    submenu: [
-      { type: 'item', label: 'New Project...', action: 'new-project' },
-      { type: 'item', label: 'Open Project...', action: 'open-project' },
-      { type: 'separator' },
-      { type: 'item', label: 'New Story', shortcut: 'Ctrl+N', action: 'new' },
-      { type: 'item', label: 'Open Story...', shortcut: 'Ctrl+O', action: 'open' },
-      { type: 'item', label: 'Open Folder...', action: 'open-folder' },
-      { type: 'separator' },
-      { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
-      { type: 'item', label: 'Save All', shortcut: 'Ctrl+Alt+S', action: 'save-all' },
-      { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
-      { type: 'item', label: 'Save Project', action: 'save-project' },
-      { type: 'separator' },
-      {
-        type: 'item',
-        label: 'Build Project...',
-        shortcut: 'Ctrl+Shift+B',
-        action: 'build-project',
-      },
-      { type: 'item', label: 'Import Ink as Nodes...', action: 'import-ink' },
-      { type: 'separator' },
-      { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
-    ],
-  },
-  {
-    label: 'Edit',
-    submenu: [
-      { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: 'undo' },
-      { type: 'item', label: 'Redo', shortcut: 'Ctrl+Shift+Z', action: 'redo' },
-      { type: 'separator' },
-      { type: 'item', label: 'Cut', shortcut: 'Ctrl+X' },
-      { type: 'item', label: 'Copy', shortcut: 'Ctrl+C', action: 'copy-text' },
-      { type: 'item', label: 'Paste', shortcut: 'Ctrl+V' },
-      { type: 'item', label: 'Delete' },
-      { type: 'separator' },
-      { type: 'item', label: 'Select All', shortcut: 'Ctrl+A' },
-    ],
-  },
-  {
-    label: 'View',
-    submenu: [
-      { type: 'item', label: 'Resource Browser', panelId: 'resources' },
-      { type: 'item', label: 'Story Data', panelId: 'storyData' },
-      { type: 'item', label: 'Story Graph', panelId: 'graph' },
-      { type: 'item', label: 'Inspector', panelId: 'inspector' },
-      { type: 'item', label: 'AI Commands', panelId: 'aiCommands' },
-      { type: 'item', label: 'Story Merge', panelId: 'storyMerge' },
-      { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
-      { type: 'item', label: 'Problems', panelId: 'problems' },
-      { type: 'item', label: 'History', panelId: 'history' },
-      { type: 'item', label: 'Localization', panelId: 'localization' },
-      { type: 'separator' },
-      { type: 'item', label: 'Reset Layout', action: 'reset-layout' },
-      { type: 'separator' },
-      { type: 'item', label: 'Zoom In', shortcut: 'Ctrl++', action: 'zoom-in' },
-      { type: 'item', label: 'Zoom Out', shortcut: 'Ctrl+-', action: 'zoom-out' },
-      { type: 'item', label: 'Reset Zoom', shortcut: 'Ctrl+0', action: 'zoom-reset' },
-    ],
-  },
-  {
-    label: 'Help',
-    submenu: [
-      { type: 'item', label: 'Check for Updates...', action: 'updates' },
-      { type: 'separator' },
-      { type: 'item', label: 'About Story Blueprint', action: 'about' },
-    ],
-  },
-];
+function createMenuItems(aiCommandsEnabled: boolean): MenuItem[] {
+  return [
+    {
+      label: 'File',
+      submenu: [
+        { type: 'item', label: 'New Project...', action: 'new-project' },
+        { type: 'item', label: 'Open Project...', action: 'open-project' },
+        { type: 'separator' },
+        { type: 'item', label: 'New Story', shortcut: 'Ctrl+N', action: 'new' },
+        { type: 'item', label: 'Open Story...', shortcut: 'Ctrl+O', action: 'open' },
+        { type: 'item', label: 'Open Folder...', action: 'open-folder' },
+        { type: 'separator' },
+        { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
+        { type: 'item', label: 'Save All', shortcut: 'Ctrl+Alt+S', action: 'save-all' },
+        { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
+        { type: 'item', label: 'Save Project', action: 'save-project' },
+        { type: 'separator' },
+        {
+          type: 'item',
+          label: 'Build Project...',
+          shortcut: 'Ctrl+Shift+B',
+          action: 'build-project',
+        },
+        { type: 'item', label: 'Import Ink as Nodes...', action: 'import-ink' },
+        { type: 'separator' },
+        { type: 'item', label: 'Exit', shortcut: 'Alt+F4', action: 'exit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: 'undo' },
+        { type: 'item', label: 'Redo', shortcut: 'Ctrl+Shift+Z', action: 'redo' },
+        { type: 'separator' },
+        { type: 'item', label: 'Cut', shortcut: 'Ctrl+X' },
+        { type: 'item', label: 'Copy', shortcut: 'Ctrl+C', action: 'copy-text' },
+        { type: 'item', label: 'Paste', shortcut: 'Ctrl+V' },
+        { type: 'item', label: 'Delete' },
+        { type: 'separator' },
+        { type: 'item', label: 'Select All', shortcut: 'Ctrl+A' },
+        { type: 'separator' },
+        { type: 'item', label: 'Preferences...', shortcut: 'Ctrl+,', action: 'settings' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { type: 'item', label: 'Resource Browser', panelId: 'resources' },
+        { type: 'item', label: 'Story Data', panelId: 'storyData' },
+        { type: 'item', label: 'Story Graph', panelId: 'graph' },
+        { type: 'item', label: 'Inspector', panelId: 'inspector' },
+        ...(aiCommandsEnabled
+          ? ([{ type: 'item', label: 'AI Commands (Beta)', panelId: 'aiCommands' }] as const)
+          : []),
+        { type: 'item', label: 'Story Merge', panelId: 'storyMerge' },
+        { type: 'item', label: 'Runtime Preview', panelId: 'preview' },
+        { type: 'item', label: 'Problems', panelId: 'problems' },
+        { type: 'item', label: 'History', panelId: 'history' },
+        { type: 'item', label: 'Localization', panelId: 'localization' },
+        { type: 'separator' },
+        { type: 'item', label: 'Reset Layout', action: 'reset-layout' },
+        { type: 'separator' },
+        { type: 'item', label: 'Zoom In', shortcut: 'Ctrl++', action: 'zoom-in' },
+        { type: 'item', label: 'Zoom Out', shortcut: 'Ctrl+-', action: 'zoom-out' },
+        { type: 'item', label: 'Reset Zoom', shortcut: 'Ctrl+0', action: 'zoom-reset' },
+      ],
+    },
+    {
+      label: 'Help',
+      submenu: [
+        { type: 'item', label: 'Check for Updates...', action: 'updates' },
+        { type: 'separator' },
+        { type: 'item', label: 'About Story Blueprint', action: 'about' },
+      ],
+    },
+  ];
+}
 
 interface MenuBarProps {
   onResetLayout: () => void;
@@ -162,6 +170,11 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     undoLabel,
     redoLabel,
   } = useStoryGraphStore();
+  const { settings, openSettings } = useEditorSettings();
+  const menuItems = useMemo(
+    () => createMenuItems(settings.experimental.aiCommands),
+    [settings.experimental.aiCommands],
+  );
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -227,6 +240,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         if (event.altKey) void saveAllStories();
         else if (hasActiveStory) void saveStory(event.shiftKey);
         else if (workspace?.project) void syncWorkspaceProject();
+      } else if (key === ',') {
+        event.preventDefault();
+        openSettings();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -240,6 +256,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     saveStory,
     syncWorkspaceProject,
     workspace?.project,
+    openSettings,
   ]);
 
   const runAction = (
@@ -312,6 +329,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         setAutomaticUpdateResult(undefined);
         setUpdatesOpen(true);
         void window.electronAPI?.getAppInfo().then(setAppInfo);
+        break;
+      case 'settings':
+        openSettings();
         break;
     }
   };

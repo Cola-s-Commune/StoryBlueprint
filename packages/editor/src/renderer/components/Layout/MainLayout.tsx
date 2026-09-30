@@ -16,15 +16,26 @@ import { StoryData } from '../Panels/StoryData';
 import { RuntimePreview } from '../Panels/RuntimePreview';
 import { Problems } from '../Panels/Problems';
 import { AICommands } from '../Panels/AICommands';
+import { AICommandsBetaPlaceholder } from '../Panels/AICommandsBetaPlaceholder';
+import { SettingsDialog } from './SettingsDialog';
 import { StoryMerge } from '../Panels/StoryMerge';
 import { History } from '../Panels/History';
 import { Localization } from '../Panels/Localization';
 import { RecoveryCenter } from './RecoveryCenter';
 import { ExternalChangesCenter } from './ExternalChangesCenter';
 import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
+import { EditorSettingsProvider, useEditorSettings } from '../../settings/EditorSettingsContext';
 import styles from './MainLayout.module.css';
 
 const layoutStorageKey = 'story-blueprint:dock-layout:v7';
+
+function AICommandsPanel() {
+  const { settings } = useEditorSettings();
+  if (!settings.experimental.aiCommands) {
+    return <AICommandsBetaPlaceholder />;
+  }
+  return <AICommands />;
+}
 
 const dockComponents = {
   resources: (_props: IDockviewPanelProps) => <ResourceBrowser />,
@@ -33,7 +44,7 @@ const dockComponents = {
   inspector: (_props: IDockviewPanelProps) => <Inspector />,
   preview: (_props: IDockviewPanelProps) => <RuntimePreview />,
   problems: (_props: IDockviewPanelProps) => <Problems />,
-  aiCommands: (_props: IDockviewPanelProps) => <AICommands />,
+  aiCommands: (_props: IDockviewPanelProps) => <AICommandsPanel />,
   storyMerge: (_props: IDockviewPanelProps) => <StoryMerge />,
   history: (_props: IDockviewPanelProps) => <History />,
   localization: (_props: IDockviewPanelProps) => <Localization />,
@@ -52,7 +63,7 @@ function dockPosition(panelId: string): 'left' | 'right' | 'bottom' {
   return 'right';
 }
 
-function createDefaultLayout(api: DockviewApi) {
+function createDefaultLayout(api: DockviewApi, aiCommandsEnabled = false) {
   api.clear();
   const graph = api.addPanel({
     id: 'graph',
@@ -86,16 +97,18 @@ function createDefaultLayout(api: DockviewApi) {
     initialHeight: 320,
     minimumHeight: 160,
   });
-  api.addPanel({
-    id: 'aiCommands',
-    component: 'aiCommands',
-    title: 'AI Commands',
-    // AI authoring needs the full height of a side workbench, not a bottom output strip.
-    position: { referencePanel: inspector },
-    initialWidth: 480,
-    minimumWidth: 360,
-    maximumWidth: 760,
-  });
+  if (aiCommandsEnabled) {
+    api.addPanel({
+      id: 'aiCommands',
+      component: 'aiCommands',
+      title: 'AI Commands (Beta)',
+      // AI authoring needs the full height of a side workbench, not a bottom output strip.
+      position: { referencePanel: inspector },
+      initialWidth: 480,
+      minimumWidth: 360,
+      maximumWidth: 760,
+    });
+  }
   const bottomPanel = api.addPanel({
     id: 'preview',
     component: 'preview',
@@ -210,7 +223,7 @@ function showPanel(api: DockviewApi, panelId: DockPanelId) {
       const inspector = api.getPanel('inspector');
       api.addPanel({
         ...common,
-        title: 'AI Commands',
+        title: 'AI Commands (Beta)',
         ...((inspector ?? graph) && { position: { referencePanel: inspector ?? graph! } }),
         initialWidth: 480,
         minimumWidth: 360,
@@ -279,40 +292,44 @@ function readSavedLayout(): SerializedDockview | undefined {
   }
 }
 
-export function MainLayout() {
+function MainLayoutContent() {
   const dockApiRef = useRef<DockviewApi>();
+  const { settings, isSettingsOpen, closeSettings } = useEditorSettings();
 
   const resetLayout = useCallback(() => {
     const api = dockApiRef.current;
     if (!api) return;
     localStorage.removeItem(layoutStorageKey);
-    createDefaultLayout(api);
-  }, []);
+    createDefaultLayout(api, settings.experimental.aiCommands);
+  }, [settings.experimental.aiCommands]);
 
   const showDockPanel = useCallback((panelId: DockPanelId) => {
     const api = dockApiRef.current;
     if (api) showPanel(api, panelId);
   }, []);
 
-  const onDockReady = useCallback((event: DockviewReadyEvent) => {
-    dockApiRef.current = event.api;
-    const savedLayout = readSavedLayout();
+  const onDockReady = useCallback(
+    (event: DockviewReadyEvent) => {
+      dockApiRef.current = event.api;
+      const savedLayout = readSavedLayout();
 
-    if (savedLayout) {
-      try {
-        event.api.fromJSON(savedLayout);
-      } catch {
-        localStorage.removeItem(layoutStorageKey);
-        createDefaultLayout(event.api);
+      if (savedLayout) {
+        try {
+          event.api.fromJSON(savedLayout);
+        } catch {
+          localStorage.removeItem(layoutStorageKey);
+          createDefaultLayout(event.api, settings.experimental.aiCommands);
+        }
+      } else {
+        createDefaultLayout(event.api, settings.experimental.aiCommands);
       }
-    } else {
-      createDefaultLayout(event.api);
-    }
 
-    event.api.onDidLayoutChange(() => {
-      localStorage.setItem(layoutStorageKey, JSON.stringify(event.api.toJSON()));
-    });
-  }, []);
+      event.api.onDidLayoutChange(() => {
+        localStorage.setItem(layoutStorageKey, JSON.stringify(event.api.toJSON()));
+      });
+    },
+    [settings.experimental.aiCommands],
+  );
 
   return (
     <StoryGraphStoreProvider>
@@ -368,7 +385,18 @@ export function MainLayout() {
         <StatusBar />
         <RecoveryCenter />
         <ExternalChangesCenter onShowStoryMerge={() => showDockPanel('storyMerge')} />
+        {isSettingsOpen && (
+          <SettingsDialog onClose={closeSettings} onResetLayout={resetLayout} />
+        )}
       </div>
     </StoryGraphStoreProvider>
+  );
+}
+
+export function MainLayout() {
+  return (
+    <EditorSettingsProvider>
+      <MainLayoutContent />
+    </EditorSettingsProvider>
   );
 }
