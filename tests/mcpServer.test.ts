@@ -452,4 +452,23 @@ describe('StoryBlueprint MCP Server', () => {
     expect(promptResult.messages[0]?.content.text).toContain('Make the guard more aggressive');
     expect(promptResult.messages[0]?.content.text).toContain('story_dry_run_command');
   });
+
+  it('formats mcp config paths with forward slashes across all platforms', () => {
+    const rawWindowsPath = 'C:\\Apps\\StoryBlueprint\\resources\\mcp-server\\cli.cjs';
+    const normalized = rawWindowsPath.replace(/\\/g, '/');
+    const config = {
+      mcpServers: {
+        'story-blueprint': {
+          command: 'C:\\Apps\\StoryBlueprint\\StoryBlueprint.exe'.replace(/\\/g, '/'),
+          args: [normalized],
+        },
+      },
+    };
+    const jsonStr = JSON.stringify(config, null, 2);
+    expect(jsonStr).not.toContain('\\\\');
+    expect(jsonStr).toContain('C:/Apps/StoryBlueprint/resources/mcp-server/cli.cjs');
+    expect(JSON.parse(jsonStr).mcpServers['story-blueprint'].args[0]).toBe(
+      'C:/Apps/StoryBlueprint/resources/mcp-server/cli.cjs',
+    );
+  });
 });

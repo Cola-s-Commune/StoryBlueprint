@@ -6,22 +6,9 @@ interface McpConfigDialogProps {
   onClose: () => void;
 }
 
-const DEFAULT_MCP_CONFIG = JSON.stringify(
-  {
-    mcpServers: {
-      'story-blueprint': {
-        command: 'node',
-        args: ['D:/Projects/StoryBlueprint/packages/mcp-server/dist/cli.js'],
-      },
-    },
-  },
-  null,
-  2,
-);
-
 export function McpConfigDialog({ onClose }: McpConfigDialogProps) {
   const [copied, setCopied] = useState(false);
-  const [configJson, setConfigJson] = useState<string>(DEFAULT_MCP_CONFIG);
+  const [configJson, setConfigJson] = useState<string | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -35,11 +22,27 @@ export function McpConfigDialog({ onClose }: McpConfigDialogProps) {
     void window.electronAPI?.getMcpConfig?.().then((info: McpServerConfigInfo | undefined) => {
       if (info?.configJson) {
         setConfigJson(info.configJson);
+      } else {
+        setConfigJson(
+          JSON.stringify(
+            {
+              mcpServers: {
+                'story-blueprint': {
+                  command: 'node',
+                  args: ['<path-to-story-blueprint>/mcp-server/dist/cli.js'],
+                },
+              },
+            },
+            null,
+            2,
+          ),
+        );
       }
     });
   }, []);
 
   const handleCopy = async () => {
+    if (!configJson) return;
     try {
       if (window.electronAPI?.copyText) {
         await window.electronAPI.copyText(configJson);
@@ -81,13 +84,14 @@ export function McpConfigDialog({ onClose }: McpConfigDialogProps) {
             <span>mcpServers JSON (stdio 传输)</span>
             <button
               type="button"
+              disabled={!configJson}
               className={`${styles.copyButton} ${copied ? styles.copyButtonSuccess : ''}`}
               onClick={handleCopy}
             >
               {copied ? '✅ 已复制到剪贴板！' : '📋 复制配置 JSON'}
             </button>
           </div>
-          <pre className={styles.codeContent}>{configJson}</pre>
+          <pre className={styles.codeContent}>{configJson ?? '// 正在读取本机 MCP Server 配置路径...'}</pre>
         </div>
 
         <div className={styles.footer}>

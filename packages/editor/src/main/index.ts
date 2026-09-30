@@ -2033,6 +2033,11 @@ function registerStoryFileHandlers(): void {
       args = [cliPath];
     }
 
+    const normalizeSlash = (p: string) => p.replace(/\\/g, '/');
+    command = normalizeSlash(command);
+    args = args.map(normalizeSlash);
+    cliPath = normalizeSlash(cliPath);
+
     const serverEntry: Record<string, unknown> = {
       command,
       args,
