@@ -601,7 +601,11 @@ export function validateBlueprintCommandTransaction(
       diagnostics.push(...unexpectedKeyDiagnostics(raw, allowedKeys, path, operationIndex));
     if (requiresGraphTarget(raw.kind) && !validGraphTarget(raw.graph)) {
       diagnostics.push(
-        invalidShape('Operation has an invalid graph target', operationIndex, `${path}.graph`),
+        invalidShape(
+          `Operation has an invalid graph target: ${JSON.stringify(raw.graph)}. Expected { "kind": "root" } for the main story graph, or { "kind": "chapter", "chapterId": "ch_xxx" } for a chapter.`,
+          operationIndex,
+          `${path}.graph`,
+        ),
       );
     }
     switch (raw.kind) {
@@ -1104,7 +1108,7 @@ export function validateBlueprintCommandTransaction(
       default:
         diagnostics.push(
           invalidShape(
-            `Unsupported operation kind: ${String(raw.kind)}`,
+            `Unsupported operation kind: "${String(raw.kind)}". Supported kinds are: add-node, update-node, remove-node, connect, disconnect, add-dialogue-line, update-dialogue-line, remove-dialogue-line, add-choice-option, update-choice-option, remove-choice-option, add-variable-adjustment, add-variable, update-variable, remove-variable, add-character, update-character, add-condition, update-condition, remove-condition, set-expression.`,
             operationIndex,
             `${path}.kind`,
           ),

@@ -74,22 +74,32 @@ A Blueprint Command transaction is an object containing an \`operations\` array:
 
 1. **\`add-node\`**: Adds a new graph node.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`node: { id, type, name?, data }\`.
-2. **\`connect\`**: Connects two nodes via their ports.
+2. **\`remove-node\`**: Deletes a node.
+   - ⚡ **Cascading Behavior**: \`remove-node\` **automatically deletes all connected incoming & outgoing edges**. You do NOT need to call \`disconnect\` before removing a node. To remove a link while keeping both nodes, use \`disconnect\`.
+3. **\`connect\`**: Connects two nodes via their ports.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`from: { nodeId, portId }\`, \`to: { nodeId, portId }\`.
-   - *Note*: Connecting from a \`Choice\` node requires \`from.portId\` to match the target \`option.id\`.
-3. **\`add-variable-adjustment\`**: Creates a dedicated node that adjusts an existing numeric variable.
+   - *Note*: Connecting from a \`Choice\` node requires \`from.portId\` to match the target \`option.id\` (e.g. \`"o_alarm"\`).
+4. **\`disconnect\`**: Removes a specific edge between two ports.
+   - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`from: { nodeId, portId }\`, \`to: { nodeId, portId }\`.
+5. **\`add-variable-adjustment\`**: Creates a dedicated node that adjusts an existing numeric variable.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`node: { id, name? }\`, \`variableId\`, \`delta\` (e.g. \`1\` or \`-1\`).
-4. **\`add-character\`**: Registers a character in the story roster.
+6. **\`add-character\`**: Registers a character in the story roster.
    - Requires: \`operationId\`, \`character: { id, name, displayName, emotions?: {} }\`.
-5. **\`add-variable\`**: Declares a story state variable.
+7. **\`add-variable\`**: Declares a story state variable.
    - Requires: \`operationId\`, \`variable: { id, name, displayName, scope: "story", valueType: { kind: "number"|"boolean"|"string" }, defaultValue }\`.
-6. **Granular Operations**: \`add-dialogue-line\`, \`update-dialogue-line\`, \`add-choice-option\`, \`update-node\`, \`remove-node\`.
+   - ⚠️ *Note*: If a variable or character already exists in \`story_read_context\`, **DO NOT** call \`add-variable\` / \`add-character\` again, or it will throw \`DUPLICATE_VARIABLE_ID\`.
+8. **Granular Operations**: \`add-dialogue-line\`, \`update-dialogue-line\`, \`add-choice-option\`, \`update-node\`.
+
+### ⚠️ Variable Naming Dual-Track Rule (ID vs. Name)
+- **In Operations & Commands**: Reference variables by their stable **ID** (e.g. \`variableId: "v_alert"\`).
+- **In Expressions & Conditions** (Branch \`condition.source\`, Choice \`visibleIf\`): Reference variables by their human **name** (e.g. \`alert_level >= 2\` or \`gold >= 400\`), **NEVER** write \`v_alert\` or \`v_gold\` inside expressions!
+- **Strict ASCII Format**: IDs, variable names, and ports must be strictly lowercase alphanumeric with underscores (\`snake_case\`). Never use Chinese characters or uppercase camelCase in machine IDs.
 
 ---
 
 ## 5. End-to-End One-Shot Reference Example (Bank Heist)
 
-The following valid transaction registers a character & variable, generates a Narration beat, a Dialogue line, a Choice node, an alert increment action, and connects them:
+The following valid transaction demonstrates declaring a new variable (\`heist_heat\`), creating nodes, adjusting variables, and linking ports:
 
 \`\`\`json
 {
@@ -103,7 +113,7 @@ The following valid transaction registers a character & variable, generates a Na
     {
       "operationId": "op_reg_var",
       "kind": "add-variable",
-      "variable": { "id": "v_alert", "name": "alert_level", "displayName": "警报值", "scope": "story", "valueType": { "kind": "number" }, "defaultValue": 0 }
+      "variable": { "id": "v_heat", "name": "heist_heat", "displayName": "通缉热度", "scope": "story", "valueType": { "kind": "number" }, "defaultValue": 0 }
     },
     {
       "operationId": "op_add_intro",
@@ -152,8 +162,8 @@ The following valid transaction registers a character & variable, generates a Na
       "operationId": "op_add_alarm_action",
       "kind": "add-variable-adjustment",
       "graph": { "kind": "root" },
-      "node": { "id": "n_inc_alert", "name": "trigger_alarm" },
-      "variableId": "v_alert",
+      "node": { "id": "n_inc_heat", "name": "trigger_alarm" },
+      "variableId": "v_heat",
       "delta": 1
     },
     {
@@ -175,7 +185,7 @@ The following valid transaction registers a character & variable, generates a Na
       "kind": "connect",
       "graph": { "kind": "root" },
       "from": { "nodeId": "n_player_choice", "portId": "o_alarm" },
-      "to": { "nodeId": "n_inc_alert", "portId": "in" }
+      "to": { "nodeId": "n_inc_heat", "portId": "in" }
     }
   ]
 }

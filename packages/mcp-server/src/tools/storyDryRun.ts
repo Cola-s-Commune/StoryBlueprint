@@ -25,7 +25,7 @@ export const storyDryRunTool: ToolDefinition = {
       },
       command: {
         description:
-          'Blueprint Command transaction object or JSON string, or compact actions markdown block',
+          'Blueprint Command transaction object { version: 1, operations: [...] }. Each operation requires "operationId", "kind" (e.g. "add-node", "update-node", "remove-node", "connect", "disconnect", "add-variable-adjustment", "add-dialogue-line", "add-choice-option", "add-character", "add-variable"), and "graph": { "kind": "root" }. Node types: "dialogue", "narration", "choice", "branch", "story-entry", "end-story". All IDs must follow lowercase prefix rules: n_ for node, o_ for option (MUST be o_ not opt_), v_ for variable, c_ for character. In expressions/conditions (branch/visibleIf), use variable "name" (e.g. gold >= 400), not ID. Connect operation: { from: { nodeId, portId }, to: { nodeId, portId } } where portId is "in"/"out" or option ID. remove-node automatically cascades and removes all connected edges. Compact action markdown lines also supported.',
       },
       intent: {
         type: 'string',
