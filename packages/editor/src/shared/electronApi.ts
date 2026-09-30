@@ -454,6 +454,14 @@ export type UpdateCheckResult =
       error: string;
     };
 
+export interface McpServerConfigInfo {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  cliPath: string;
+  configJson: string;
+}
+
 export interface ElectronAPI {
   platform: string;
   isElectron: true;
@@ -461,6 +469,7 @@ export interface ElectronAPI {
   readClipboardText: () => Promise<string>;
   setWindowZoom: (action: 'in' | 'out' | 'reset') => Promise<number>;
   getAppInfo: () => Promise<AppInfo>;
+  getMcpConfig: () => Promise<McpServerConfigInfo>;
   revealLogs: () => Promise<void>;
   reportRendererError: (scope: string, message: string) => Promise<void>;
   getUpdateSettings: () => Promise<UpdateSettings>;

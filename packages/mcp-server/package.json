@@ -1,0 +1,32 @@
+{
+  "name": "@story-blueprint/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Model Context Protocol (MCP) Server for StoryBlueprint",
+  "type": "module",
+  "bin": {
+    "story-blueprint-mcp": "./dist/cli.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/cli.ts --format esm,cjs --dts --clean --sourcemap --target es2022 --tsconfig tsconfig.tsup.json",
+    "dev": "tsup src/index.ts src/cli.ts --format esm,cjs --dts --watch --sourcemap --target es2022 --tsconfig tsconfig.tsup.json",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "start": "node ./dist/cli.js"
+  },
+  "dependencies": {
+    "@story-blueprint/common": "*",
+    "@story-blueprint/compiler": "*",
+    "inkjs": "^2.3.2"
+  }
+}

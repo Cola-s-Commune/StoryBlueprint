@@ -8,6 +8,7 @@ const electronAPI = {
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   setWindowZoom: (action) => ipcRenderer.invoke('app:set-window-zoom', action),
   getAppInfo: () => ipcRenderer.invoke('app:get-info'),
+  getMcpConfig: () => ipcRenderer.invoke('app:get-mcp-config'),
   revealLogs: () => ipcRenderer.invoke('app:reveal-logs'),
   reportRendererError: (scope, message) =>
     ipcRenderer.invoke('app:report-renderer-error', scope, message),

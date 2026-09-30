@@ -1,4 +1,4 @@
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import {
   createStableId,
@@ -8,15 +8,9 @@ import {
   type StoryProjectDocument,
 } from '@story-blueprint/common';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
+import { DEFAULT_PROJECT_AI_INSTRUCTIONS } from './aiInstructions';
 
-export const DEFAULT_PROJECT_AI_INSTRUCTIONS = `# Story Blueprint AI Guidelines
-
-This workspace contains interactive narrative content managed by Story Blueprint.
-- Story logic and dialogue flow are authored as visual blueprint graphs and saved as \`.story\` files.
-- The project manifest is stored in \`*.storyproject\`.
-- Shared characters, variables, and assets are referenced across stories.
-- When adapting external text or novel files into Galgame dialogues, convert the text into Dialogue and Narration graph nodes (\`command.operations\`); do not write novel continuations or sequels.
-`;
+export { DEFAULT_PROJECT_AI_INSTRUCTIONS };
 
 export interface InitializedProjectDirectory {
   rootPath: string;
@@ -40,7 +34,7 @@ export function deriveSafeProjectName(folderPath: string): { name: string; displ
 /**
  * Initializes a project directory.
  * If the directory does not exist, it will be created recursively ("没有则创建").
- * Creates the *.storyproject manifest, .gitignore, and STORY_BLUEPRINT_AI.md files.
+ * Creates the *.storyproject manifest, .gitignore, and AGENTS.md files.
  */
 export async function initializeProjectDirectory(targetPath: string): Promise<InitializedProjectDirectory> {
   const rootPath = resolve(targetPath);
@@ -80,8 +74,20 @@ export async function initializeProjectDirectory(targetPath: string): Promise<In
   // 5. Create .gitignore if missing
   await createProjectGitignoreIfMissing(rootPath);
 
-  // 6. Create STORY_BLUEPRINT_AI.md
-  await writeFile(join(rootPath, 'STORY_BLUEPRINT_AI.md'), DEFAULT_PROJECT_AI_INSTRUCTIONS, {
+  // 6. Create AGENTS.md (or fallback to STORY_BLUEPRINT_AI.md if external AGENTS.md exists)
+  const agentsPath = join(rootPath, 'AGENTS.md');
+  const blueprintAiPath = join(rootPath, 'STORY_BLUEPRINT_AI.md');
+  let targetAiFile = agentsPath;
+  try {
+    const existing = await readFile(agentsPath, 'utf8');
+    if (!existing.includes('Story Blueprint')) {
+      targetAiFile = blueprintAiPath;
+    }
+  } catch {
+    targetAiFile = agentsPath;
+  }
+
+  await writeFile(targetAiFile, DEFAULT_PROJECT_AI_INSTRUCTIONS, {
     encoding: 'utf8',
     flag: 'wx',
   }).catch((error: NodeJS.ErrnoException) => {

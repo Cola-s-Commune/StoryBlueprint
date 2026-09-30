@@ -176,3 +176,38 @@
 .closeIcon::after {
   transform: rotate(-45deg);
 }
+
+.topRightActions {
+  display: flex;
+  align-items: center;
+  margin-right: 36px;
+  -webkit-app-region: no-drag;
+}
+
+.mcpTopButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid #444c56;
+  border-radius: 11px;
+  background: #24292f;
+  color: #adbac7;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mcpTopButton:hover {
+  border-color: #58a6ff;
+  background: #2d333b;
+  color: #58a6ff;
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.15);
+}
+
+.mcpTopIcon {
+  font-size: 11px;
+  line-height: 1;
+}

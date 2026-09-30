@@ -10,7 +10,7 @@
 
 .dialog {
   position: relative;
-  width: min(580px, calc(100vw - 48px));
+  width: min(660px, calc(100vw - 48px));
   max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
@@ -326,4 +326,182 @@
 
 .doneButton:hover {
   background: #2ea043;
+}
+
+.mcpPresetGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mcpPresetLabel {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.mcpPill {
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mcpPill:hover {
+  background: #30363d;
+  border-color: #8b949e;
+}
+
+.mcpPillActive {
+  background: #1f6feb !important;
+  border-color: #388bfd !important;
+  color: #ffffff !important;
+  font-weight: 500;
+}
+
+.mcpPathBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.mcpPathText {
+  color: #8b949e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcpPathText strong {
+  color: #c9d1d9;
+}
+
+.mcpPathCode {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #58a6ff;
+  margin-left: 6px;
+}
+
+.copyMiniButton {
+  padding: 2px 8px;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  background: #21262d;
+  color: #c9d1d9;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copyMiniButton:hover {
+  background: #30363d;
+  color: #ffffff;
+}
+
+.codeBox {
+  position: relative;
+  margin-bottom: 16px;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: #0d1117;
+  overflow: hidden;
+}
+
+.codeBoxHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.copyMainButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid #2ea043;
+  border-radius: 4px;
+  background: #238636;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.copyMainButton:hover {
+  background: #2ea043;
+}
+
+.copyMainButtonSuccess {
+  background: #1f6feb !important;
+  border-color: #388bfd !important;
+}
+
+.codeContent {
+  margin: 0;
+  padding: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #79c0ff;
+  white-space: pre;
+}
+
+.mcpCapabilities {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #30363d;
+}
+
+.mcpCapabilitiesTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c9d1d9;
+  margin-bottom: 8px;
+}
+
+.toolBadgeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.toolBadge {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.toolBadgeName {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.toolBadgeDesc {
+  color: #8b949e;
+  font-size: 10px;
+  margin-top: 2px;
 }

@@ -3,6 +3,32 @@ import { StoryNodeType, type ChapterId, type StoryId } from '@story-blueprint/co
 import type { WorkspaceEntry } from '../../../shared/electronApi';
 import { useStoryGraphStore } from '../../graph/StoryGraphStore';
 import { CopyButton } from './CopyButton';
+import {
+  IconBuild,
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconClose,
+  IconFileOpen,
+  IconFilePlus,
+  IconFolder,
+  IconFolderOpen,
+  IconFolderPlus,
+  IconGitBranch,
+  IconGitInit,
+  IconMainGraph,
+  IconNewProject,
+  IconOpenProject,
+  IconPencil,
+  IconPlus,
+  IconRefresh,
+  IconReveal,
+  IconSaveAll,
+  IconStory,
+  IconSubGraph,
+  IconSyncProject,
+  IconTrash,
+} from './ResourceIcons';
 import panelStyles from './Panel.module.css';
 import styles from './ResourceBrowser.module.css';
 
@@ -53,7 +79,7 @@ function WorkspaceTree({
               aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
               onClick={() => onToggleDirectory(entry.relativePath)}
             >
-              {isExpanded ? '▾' : '▸'}
+              {isExpanded ? <IconChevronDown /> : <IconChevronRight />}
             </button>
             <button
               type="button"
@@ -61,7 +87,9 @@ function WorkspaceTree({
               onClick={() => onSelectDirectory(entry.relativePath)}
               onDoubleClick={() => onToggleDirectory(entry.relativePath)}
             >
-              <span className={styles.folderIcon}>{isExpanded ? '▾' : '▸'}</span>
+              <span className={styles.folderIcon}>
+                {isExpanded ? <IconFolderOpen /> : <IconFolder />}
+              </span>
               <span>{entry.name}</span>
             </button>
             <span className={styles.fileActions}>
@@ -70,7 +98,7 @@ function WorkspaceTree({
                 title="Show in File Explorer"
                 onClick={() => onReveal(entry.relativePath)}
               >
-                ◎
+                <IconReveal />
               </button>
             </span>
           </div>
@@ -111,11 +139,11 @@ function WorkspaceTree({
               title="Show in File Explorer"
               onClick={() => onReveal(entry.relativePath)}
             >
-              ◎
+              <IconReveal />
             </button>
             {!isLocalization && (
               <button type="button" title="Delete Project File" onClick={() => onDelete(entry)}>
-                ×
+                <IconTrash />
               </button>
             )}
           </span>
@@ -139,7 +167,7 @@ function WorkspaceTree({
               title="Show in File Explorer"
               onClick={() => onReveal(entry.relativePath)}
             >
-              ◎
+              <IconReveal />
             </button>
           </span>
         </div>
@@ -184,7 +212,7 @@ function WorkspaceTree({
               title="Show in File Explorer"
               onClick={() => onReveal(entry.relativePath)}
             >
-              ◎
+              <IconReveal />
             </button>
             {!isTemplate && (
               <button
@@ -192,7 +220,7 @@ function WorkspaceTree({
                 title={`Delete ${isCharacter ? 'Character' : 'Asset'}`}
                 onClick={() => onDelete(entry)}
               >
-                ×
+                <IconTrash />
               </button>
             )}
           </span>
@@ -222,10 +250,10 @@ function WorkspaceTree({
             title="Show in File Explorer"
             onClick={() => onReveal(entry.relativePath)}
           >
-            ◎
+            <IconReveal />
           </button>
           <button type="button" title="Delete Story File" onClick={() => onDelete(entry)}>
-            ×
+            <IconTrash />
           </button>
         </span>
       </div>
@@ -469,7 +497,7 @@ export function ResourceBrowser() {
               title="New Project"
               onClick={() => void newProject()}
             >
-              P+
+              <IconNewProject />
             </button>
             <button
               type="button"
@@ -477,7 +505,7 @@ export function ResourceBrowser() {
               title="Open Project"
               onClick={() => void openProject()}
             >
-              P
+              <IconOpenProject />
             </button>
             {workspace && (
               <button
@@ -486,7 +514,7 @@ export function ResourceBrowser() {
                 title="Refresh Workspace"
                 onClick={() => void refreshWorkspace()}
               >
-                ↻
+                <IconRefresh />
               </button>
             )}
             <button
@@ -495,7 +523,7 @@ export function ResourceBrowser() {
               title="Open Folder"
               onClick={() => void openWorkspace()}
             >
-              ▱
+              <IconFolderOpen />
             </button>
           </div>
         </div>
@@ -505,34 +533,44 @@ export function ResourceBrowser() {
               <span>{workspace.project.stories.length} Stories</span>
               <span>{workspace.project.characters.length} Characters</span>
               <span>{workspace.project.assets.length} Assets</span>
-              {workspace.git.initialized ? (
+              {workspace.git.initialized && (
                 <span
                   className={styles.gitStatus}
                   title={`Repository: ${workspace.git.repositoryRoot ?? workspace.rootPath}`}
                 >
-                  Git ·{' '}
-                  {workspace.git.branch ??
-                    (workspace.git.headRevision
-                      ? `detached @ ${workspace.git.headRevision.slice(0, 7)}`
-                      : 'unborn')}
+                  <IconGitBranch />
+                  <span>
+                    {workspace.git.branch ??
+                      (workspace.git.headRevision
+                        ? `detached @ ${workspace.git.headRevision.slice(0, 7)}`
+                        : 'unborn')}
+                  </span>
                 </span>
-              ) : (
+              )}
+              <div className={styles.projectSummaryActions}>
+                {!workspace.git.initialized && (
+                  <button
+                    type="button"
+                    className={styles.gitInitializeButton}
+                    title={
+                      workspace.git.available
+                        ? 'Initialize Git repository'
+                        : 'Git is not installed or unavailable on PATH'
+                    }
+                    onClick={() => void initializeWorkspaceGit()}
+                  >
+                    <IconGitInit />
+                  </button>
+                )}
                 <button
                   type="button"
-                  className={styles.gitInitializeButton}
-                  title={
-                    workspace.git.available
-                      ? 'Create a Git repository in this project folder'
-                      : 'Git is not installed or unavailable on PATH'
-                  }
-                  onClick={() => void initializeWorkspaceGit()}
+                  className={styles.buildButton}
+                  title="Build Project"
+                  onClick={() => void buildProject()}
                 >
-                  Initialize Git
+                  <IconBuild />
                 </button>
-              )}
-              <button type="button" title="Build Project" onClick={() => void buildProject()}>
-                Build
-              </button>
+              </div>
             </div>
             <div className={styles.projectSettings}>
               <label>
@@ -574,13 +612,13 @@ export function ResourceBrowser() {
           <span className={styles.sectionTitle}>Open Stories</span>
           <span className={styles.sectionActions}>
             <button type="button" title="Save All Stories" onClick={() => void saveAllStories()}>
-              ⇩
+              <IconSaveAll />
             </button>
             <button type="button" title="Open Story File" onClick={() => void openStory()}>
-              ▱
+              <IconFileOpen />
             </button>
             <button type="button" title="New Unsaved Story" onClick={newStory}>
-              +
+              <IconPlus />
             </button>
           </span>
         </div>
@@ -598,7 +636,7 @@ export function ResourceBrowser() {
                     aria-label={expanded ? 'Collapse story' : 'Expand story'}
                     onClick={() => toggleStory(storyId)}
                   >
-                    {expanded ? '▾' : '▸'}
+                    {expanded ? <IconChevronDown /> : <IconChevronRight />}
                   </button>
                   <div
                     className={styles.storySelect}
@@ -609,7 +647,9 @@ export function ResourceBrowser() {
                       if (event.key === 'Enter' || event.key === ' ') switchStory(storyId);
                     }}
                   >
-                    <span className={styles.storyIcon}>▰</span>
+                    <span className={styles.storyIcon}>
+                      <IconStory />
+                    </span>
                     {editingStoryId === storyId && isActiveStory ? (
                       <input
                         autoFocus
@@ -657,11 +697,11 @@ export function ResourceBrowser() {
                         setEditingStoryId(storyId);
                       }}
                     >
-                      ✎
+                      <IconPencil />
                     </button>
                     {isActiveStory && (
                       <button type="button" title="Add Substory" onClick={() => addSubstory()}>
-                        +
+                        <IconPlus />
                       </button>
                     )}
                     {story.document.filePath && story.document.fileToken && (
@@ -671,19 +711,19 @@ export function ResourceBrowser() {
                           title="Show in File Explorer"
                           onClick={() => void revealStoryFile(storyId)}
                         >
-                          ◎
+                          <IconReveal />
                         </button>
                         <button
                           type="button"
                           title="Delete Story File"
                           onClick={() => void deleteStoryFile(storyId)}
                         >
-                          ⌫
+                          <IconTrash />
                         </button>
                       </>
                     )}
                     <button type="button" title="Close Story" onClick={() => closeStory(storyId)}>
-                      ×
+                      <IconClose />
                     </button>
                   </span>
                 </div>
@@ -697,7 +737,9 @@ export function ResourceBrowser() {
                       }`}
                       onClick={() => switchStory(storyId, 'root')}
                     >
-                      <span className={styles.graphIcon}>◆</span>
+                      <span className={styles.graphIcon}>
+                        <IconMainGraph />
+                      </span>
                       <span className={styles.resourceText}>
                         <strong>Main Story</strong>
                         <small>Root Blueprint</small>
@@ -712,7 +754,9 @@ export function ResourceBrowser() {
                         }`}
                         onClick={() => switchStory(storyId, chapter.id)}
                       >
-                        <span className={styles.subgraphIcon}>◇</span>
+                        <span className={styles.subgraphIcon}>
+                          <IconSubGraph />
+                        </span>
                         {editingChapterId === chapter.id && isActiveStory ? (
                           <input
                             autoFocus
@@ -753,7 +797,7 @@ export function ResourceBrowser() {
                                 setEditingChapterId(chapter.id);
                               }}
                             >
-                              ✎
+                              <IconPencil />
                             </button>
                             <button
                               type="button"
@@ -763,7 +807,7 @@ export function ResourceBrowser() {
                                 remove(chapter.id);
                               }}
                             >
-                              ×
+                              <IconTrash />
                             </button>
                           </span>
                         )}
@@ -786,11 +830,11 @@ export function ResourceBrowser() {
                   title="Synchronize Project Index"
                   onClick={() => void syncWorkspaceProject()}
                 >
-                  P↻
+                  <IconSyncProject />
                 </button>
               ) : (
                 <button type="button" title="Create Project File" onClick={addWorkspaceProject}>
-                  P+
+                  <IconNewProject />
                 </button>
               )}
               <button
@@ -798,10 +842,10 @@ export function ResourceBrowser() {
                 title="New Story in Selected Folder"
                 onClick={addWorkspaceStory}
               >
-                S+
+                <IconFilePlus />
               </button>
               <button type="button" title="New Folder in Selected Folder" onClick={addFolder}>
-                ▱+
+                <IconFolderPlus />
               </button>
             </span>
           )}
@@ -823,7 +867,13 @@ export function ResourceBrowser() {
                     : styles.folderIcon
               }
             >
-              {creation.kind === 'story' ? 'S' : creation.kind === 'project' ? 'P' : '▸'}
+              {creation.kind === 'story' ? (
+                'S'
+              ) : creation.kind === 'project' ? (
+                'P'
+              ) : (
+                <IconFolder />
+              )}
             </span>
             <input
               autoFocus
@@ -840,11 +890,11 @@ export function ResourceBrowser() {
                 if (event.key === 'Escape') setCreation(undefined);
               }}
             />
-            <button type="submit" disabled={!creation.name.trim()}>
-              ✓
+            <button type="submit" disabled={!creation.name.trim()} title="Confirm">
+              <IconCheck />
             </button>
-            <button type="button" onClick={() => setCreation(undefined)}>
-              ×
+            <button type="button" onClick={() => setCreation(undefined)} title="Cancel">
+              <IconClose />
             </button>
           </form>
         )}
@@ -860,7 +910,9 @@ export function ResourceBrowser() {
                 className={styles.workspaceRootSelect}
                 onClick={() => setSelectedDirectory('')}
               >
-                <span className={styles.folderIcon}>▾</span>
+                <span className={styles.folderIcon}>
+                  <IconFolderOpen />
+                </span>
                 <strong>{workspace.name}</strong>
               </button>
               <span className={styles.fileActions}>
@@ -869,7 +921,7 @@ export function ResourceBrowser() {
                   title="Show Workspace in File Explorer"
                   onClick={() => void revealWorkspaceItem('')}
                 >
-                  ◎
+                  <IconReveal />
                 </button>
               </span>
             </div>

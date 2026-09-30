@@ -64,17 +64,14 @@ describe('aiInstructions', () => {
     expect(instructions).toContain(agentRules);
   });
 
-  it('safely migrates legacy AGENTS.md starting with legacy header to STORY_BLUEPRINT_AI.md', async () => {
+  it('reads legacy STORY_BLUEPRINT_AI.md and incorporates it into prompt instructions', async () => {
     const dir = await createTempDir();
-    const legacyContent = '# Story Blueprint AI Instructions\n\nLegacy generated instructions.';
-    await writeFile(join(dir, 'AGENTS.md'), legacyContent);
+    const legacyContent = 'Legacy generated story blueprint instructions.';
+    await writeFile(join(dir, 'STORY_BLUEPRINT_AI.md'), legacyContent);
 
     const instructions = await readProjectAIInstructions(dir);
-    expect(instructions).toContain('Legacy generated instructions');
-
-    // Verify file was migrated
-    const migratedFile = await findFileCaseInsensitive(dir, 'STORY_BLUEPRINT_AI.md');
-    expect(migratedFile).toBeDefined();
+    expect(instructions).toContain('## Project-Specific AI Instructions (STORY_BLUEPRINT_AI.md)');
+    expect(instructions).toContain('Legacy generated story blueprint instructions.');
   });
 
   it('reports instructions status correctly for Agents.md and STORY_BLUEPRINT_AI.md', async () => {

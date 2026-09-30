@@ -65,9 +65,9 @@ describe('projectCreation - Project Path Selection & Automatic File Generation',
     const gitignoreContent = await readFile(join(result.rootPath, '.gitignore'), 'utf8');
     expect(gitignoreContent).toContain('*.storyc.json');
 
-    // Verify STORY_BLUEPRINT_AI.md was created
-    const aiInstructions = await readFile(join(result.rootPath, 'STORY_BLUEPRINT_AI.md'), 'utf8');
-    expect(aiInstructions).toContain('Story Blueprint AI Guidelines');
+    // Verify AGENTS.md was created
+    const aiInstructions = await readFile(join(result.rootPath, 'AGENTS.md'), 'utf8');
+    expect(aiInstructions).toContain('Narrative Agent Guidelines');
   });
 
   it('throws an error if the directory already contains a .storyproject file', async () => {

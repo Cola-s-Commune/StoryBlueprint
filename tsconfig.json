@@ -22,7 +22,8 @@
     { "path": "packages/common" },
     { "path": "packages/runtime" },
     { "path": "packages/compiler" },
-    { "path": "packages/sdk" }
+    { "path": "packages/sdk" },
+    { "path": "packages/mcp-server" }
   ],
   "exclude": ["node_modules", "dist", "build"],
   "include": []

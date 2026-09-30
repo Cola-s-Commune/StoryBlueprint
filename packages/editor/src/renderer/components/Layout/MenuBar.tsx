@@ -4,6 +4,7 @@ import { useEditorSettings } from '../../settings/EditorSettingsContext';
 import type { AppInfo, UpdateCheckResult } from '../../../shared/electronApi';
 import { AboutDialog } from './AboutDialog';
 import { UpdateDialog } from './UpdateDialog';
+import { McpConfigDialog } from './McpConfigDialog';
 import styles from './MenuBar.module.css';
 
 type MenuItem = {
@@ -179,6 +180,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
   const [maximized, setMaximized] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>();
   const [automaticUpdateResult, setAutomaticUpdateResult] = useState<UpdateCheckResult>();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -392,6 +394,17 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
             .then((state) => setMaximized(state.maximized))
         }
       />
+      <div className={styles.topRightActions}>
+        <button
+          type="button"
+          className={styles.mcpTopButton}
+          title="MCP Server"
+          onClick={() => setMcpOpen(true)}
+        >
+          <span className={styles.mcpTopIcon}>🔌</span>
+          <span>MCP</span>
+        </button>
+      </div>
       <div className={styles.windowControls}>
         <button
           type="button"
@@ -438,6 +451,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           initialResult={automaticUpdateResult}
           onClose={() => setUpdatesOpen(false)}
         />
+      )}
+      {mcpOpen && (
+        <McpConfigDialog onClose={() => setMcpOpen(false)} />
       )}
     </div>
   );

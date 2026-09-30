@@ -94,6 +94,7 @@ import type {
   WorkspaceInfo,
   ProjectResourceSnapshot,
   ProjectTransactionRecovery,
+  McpServerConfigInfo,
 } from '../shared/electronApi';
 import {
   markStoryGitConflictResolved,
@@ -2003,6 +2004,58 @@ function registerStoryFileHandlers(): void {
     };
   });
 
+  ipcMain.handle('app:get-mcp-config', async (event): Promise<McpServerConfigInfo> => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    let cliPath: string;
+    let command: string;
+    let args: string[];
+    let env: Record<string, string> | undefined;
+
+    if (app.isPackaged) {
+      cliPath = resolve(process.resourcesPath, 'mcp-server', 'cli.cjs');
+      try {
+        await stat(cliPath);
+      } catch {
+        cliPath = resolve(process.resourcesPath, 'mcp-server', 'cli.js');
+      }
+      command = process.execPath;
+      args = [cliPath];
+      env = { ELECTRON_RUN_AS_NODE: '1' };
+    } else {
+      const appPath = app.getAppPath();
+      cliPath = resolve(appPath, '..', 'mcp-server', 'dist', 'cli.js');
+      try {
+        await stat(cliPath);
+      } catch {
+        cliPath = resolve(appPath, 'packages', 'mcp-server', 'dist', 'cli.js');
+      }
+      command = 'node';
+      args = [cliPath];
+    }
+
+    const serverEntry: Record<string, unknown> = {
+      command,
+      args,
+    };
+    if (env) {
+      serverEntry.env = env;
+    }
+
+    const configObject = {
+      mcpServers: {
+        'story-blueprint': serverEntry,
+      },
+    };
+
+    return {
+      command,
+      args,
+      env,
+      cliPath,
+      configJson: JSON.stringify(configObject, null, 2),
+    };
+  });
+
   ipcMain.handle('app:reveal-logs', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     const logDirectory = app.getPath('logs');
@@ -3237,14 +3290,21 @@ If the source is too large, process it in explicit batches and report the covere
       : `${candidate.fileName}.storyproject`;
     workspaceProjectFile = join(workspaceRoot!, fileName);
     await writeFile(workspaceProjectFile, candidate.content, { encoding: 'utf8', flag: 'wx' });
-    await writeFile(
-      join(workspaceRoot!, 'STORY_BLUEPRINT_AI.md'),
-      DEFAULT_PROJECT_AI_INSTRUCTIONS,
-      {
-        encoding: 'utf8',
-        flag: 'wx',
-      },
-    ).catch((error: NodeJS.ErrnoException) => {
+    const targetAgentsPath = join(workspaceRoot!, 'AGENTS.md');
+    const targetBlueprintAiPath = join(workspaceRoot!, 'STORY_BLUEPRINT_AI.md');
+    let targetAiFile = targetAgentsPath;
+    try {
+      const existing = await readFile(targetAgentsPath, 'utf8');
+      if (!existing.includes('Story Blueprint')) {
+        targetAiFile = targetBlueprintAiPath;
+      }
+    } catch {
+      targetAiFile = targetAgentsPath;
+    }
+    await writeFile(targetAiFile, DEFAULT_PROJECT_AI_INSTRUCTIONS, {
+      encoding: 'utf8',
+      flag: 'wx',
+    }).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
     const initialStory = await createInitialStoryFile(workspaceRoot!);

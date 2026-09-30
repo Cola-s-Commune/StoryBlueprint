@@ -109,7 +109,7 @@ export function SettingsDialog({ onClose, onResetLayout }: SettingsDialogProps) 
                 <div className={styles.warningBox}>
                   <strong>⚠️ 测试版说明：</strong>
                   当前 8B / 14B
-                  等本地及轻量模型的复杂结构理解能力仍在演进中，可能产生校验报错。关闭此功能可保持工作区界面的纯净与稳定。
+                  等本地及轻量模型的复杂结构理解能力仍在演进中，可能产生校验报错。推荐优先使用蓝图工具栏的「MCP」入口连接外部前沿大模型 Harness。
                 </div>
               </div>
             </>
