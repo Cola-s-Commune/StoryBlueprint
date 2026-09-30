@@ -46,7 +46,17 @@ These guidelines define the mental model, negative constraints, node schemas, an
 | **Narration** | \`"narration"\` | \`"in"\` | \`"out"\` | \`{ "textId": "t_1", "text": { "source": "Screams echo across the bank lobby." } }\` |
 | **Choice** | \`"choice"\` | \`"in"\` | **Option IDs** (e.g. \`"opt_alarm"\`) | \`{ "prompt": { "source": "What do you do?" }, "options": [{ "id": "opt_alarm", "text": { "source": "Hit alarm" } }] }\` |
 | **Branch** | \`"branch"\` | \`"in"\` | \`"true"\`, \`"false"\` | \`{ "condition": { "source": "alert_level >= 2", "bindings": {} } }\` |
-| **Adjust Variable** | (Action) | \`"in"\` | \`"out"\` | Uses \`add-variable-adjustment\` command (requires \`variableId\` and \`delta\`). |
+| **End** | \`"end-story"\` | \`"in"\` | *None* | \`{ "title": "Ending" }\` |
+| **Adjust Variable** | (Action) | \`"in"\` | \`"out"\` | Uses \`add-variable-adjustment\` command (requires \`node.id\`, \`variableId\`, and \`delta\`). |
+
+> ⚠️ **Mandatory ID Prefix Rules (Stable IDs)**:
+> All IDs in operations must follow these prefix rules (or validation will reject them):
+> - Node ID: starts with \`n_\` (e.g. \`n_intro\`, \`n_choice_1\`)
+> - Variable ID: starts with \`v_\` (e.g. \`v_alert\`, \`v_gold\`)
+> - Character ID: starts with \`c_\` (e.g. \`c_robber\`, \`c_guard\`)
+> - Choice Option ID: starts with \`o_\` (e.g. \`o_surrender\`, \`o_alarm\` — **MUST be \`o_\`, NOT \`opt_\`**)
+> - Dialogue Line ID: starts with \`ln_\` (e.g. \`ln_shout_01\`)
+> - Text ID: starts with \`t_\` (e.g. \`t_intro_01\`)
 
 ---
 
@@ -132,8 +142,8 @@ The following valid transaction registers a character & variable, generates a Na
         "data": {
           "prompt": { "source": "子弹击碎头顶吊灯，火花四溅。你此时的反应是：" },
           "options": [
-            { "id": "opt_surrender", "text": { "source": "顺从地趴在排椅下方，暗中观察劫匪人数与武器" } },
-            { "id": "opt_alarm", "text": { "source": "趁乱踢翻垃圾桶制造声响，伸手摸向柜台暗处的报警按钮" } }
+            { "id": "o_surrender", "text": { "source": "顺从地趴在排椅下方，暗中观察劫匪人数与武器" } },
+            { "id": "o_alarm", "text": { "source": "趁乱踢翻垃圾桶制造声响，伸手摸向柜台暗处的报警按钮" } }
           ]
         }
       }
@@ -164,7 +174,7 @@ The following valid transaction registers a character & variable, generates a Na
       "operationId": "op_link_choice_alarm",
       "kind": "connect",
       "graph": { "kind": "root" },
-      "from": { "nodeId": "n_player_choice", "portId": "opt_alarm" },
+      "from": { "nodeId": "n_player_choice", "portId": "o_alarm" },
       "to": { "nodeId": "n_inc_alert", "portId": "in" }
     }
   ]
