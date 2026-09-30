@@ -73,7 +73,7 @@ export function McpConfigDialog({ onClose }: McpConfigDialogProps) {
         </div>
 
         <p className={styles.description}>
-          将下方 JSON 配置复制到您的 Agent Harness（如 Claude Desktop、Cursor、Codex、Windsurf 等）的 MCP 配置文件中即可完成接入，无需手动指定安装路径。
+          将下方 JSON 配置复制到您的 Agent Harness 的 MCP 配置文件中即可完成接入。
         </p>
 
         <div className={styles.codeBox}>
