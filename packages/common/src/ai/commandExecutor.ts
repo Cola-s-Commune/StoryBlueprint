@@ -8,7 +8,13 @@ import {
 } from '../graph/connectionValidation';
 import { NodeRegistry } from '../registry/nodeRegistry';
 import { serializeStorySource } from '../serialization/storyKdl';
-import { isStableId, type CharacterId, type ConditionId, type VariableId } from '../types/ids';
+import {
+  createStableId,
+  isStableId,
+  type CharacterId,
+  type ConditionId,
+  type VariableId,
+} from '../types/ids';
 import {
   StoryNodeType,
   type ChoiceNodeData,
@@ -392,13 +398,19 @@ function validNodeIdArray(value: unknown): value is string[] {
 }
 
 function validLineInput(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const hasValidText =
+    typeof value.text === 'string' ||
+    (isRecord(value.text) && typeof value.text.source === 'string');
+  const hasValidId =
+    value.id === undefined || (typeof value.id === 'string' && isStableId(value.id, 'line'));
+  const hasValidTextId =
+    value.textId === undefined ||
+    (typeof value.textId === 'string' && isStableId(value.textId, 'text'));
   return (
-    isRecord(value) &&
-    typeof value.id === 'string' &&
-    isStableId(value.id, 'line') &&
-    typeof value.textId === 'string' &&
-    isStableId(value.textId, 'text') &&
-    typeof value.text === 'string' &&
+    hasValidId &&
+    hasValidTextId &&
+    hasValidText &&
     (value.speakerId === undefined ||
       (typeof value.speakerId === 'string' && isStableId(value.speakerId, 'character'))) &&
     (value.voiceId === undefined ||
@@ -409,11 +421,15 @@ function validLineInput(value: unknown): boolean {
 }
 
 function validChoiceOptionInput(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const hasValidText =
+    typeof value.text === 'string' ||
+    (isRecord(value.text) && typeof value.text.source === 'string');
+  const hasValidId =
+    value.id === undefined || (typeof value.id === 'string' && isStableId(value.id, 'option'));
   return (
-    isRecord(value) &&
-    typeof value.id === 'string' &&
-    isStableId(value.id, 'option') &&
-    typeof value.text === 'string' &&
+    hasValidId &&
+    hasValidText &&
     (value.visibleIf === undefined || typeof value.visibleIf === 'string') &&
     (value.enabledIf === undefined || typeof value.enabledIf === 'string') &&
     (value.visibleConditionId === undefined ||
@@ -494,7 +510,7 @@ function requiresGraphTarget(kind: unknown): boolean {
 const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-node': ['operationId', 'kind', 'graph', 'node'],
   'add-variable-adjustment': ['operationId', 'kind', 'graph', 'node', 'variableId', 'delta'],
-  'update-node': ['operationId', 'kind', 'graph', 'nodeId', 'patch'],
+  'update-node': ['operationId', 'kind', 'graph', 'nodeId', 'patch', 'data', 'name'],
   'remove-node': ['operationId', 'kind', 'graph', 'nodeId'],
   connect: ['operationId', 'kind', 'graph', 'from', 'to', 'replaceExisting'],
   disconnect: ['operationId', 'kind', 'graph', 'from', 'to'],
@@ -660,6 +676,12 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'update-node':
+        if (!isRecord(raw.patch) && (isRecord(raw.data) || typeof raw.name === 'string')) {
+          raw.patch = {
+            ...(isRecord(raw.data) ? { data: raw.data } : {}),
+            ...(typeof raw.name === 'string' ? { name: raw.name } : {}),
+          };
+        }
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -807,7 +829,9 @@ export function validateBlueprintCommandTransaction(
           typeof raw.lineId !== 'string' ||
           !isStableId(raw.lineId, 'line') ||
           !isRecord(raw.patch) ||
-          (raw.patch.text !== undefined && typeof raw.patch.text !== 'string') ||
+          (raw.patch.text !== undefined &&
+            typeof raw.patch.text !== 'string' &&
+            !(isRecord(raw.patch.text) && typeof raw.patch.text.source === 'string')) ||
           (raw.patch.speakerId !== undefined &&
             raw.patch.speakerId !== null &&
             (typeof raw.patch.speakerId !== 'string' ||
@@ -864,7 +888,9 @@ export function validateBlueprintCommandTransaction(
           typeof raw.optionId !== 'string' ||
           !isStableId(raw.optionId, 'option') ||
           !isRecord(raw.patch) ||
-          (raw.patch.text !== undefined && typeof raw.patch.text !== 'string') ||
+          (raw.patch.text !== undefined &&
+            typeof raw.patch.text !== 'string' &&
+            !(isRecord(raw.patch.text) && typeof raw.patch.text.source === 'string')) ||
           (raw.patch.visibleIf !== undefined &&
             raw.patch.visibleIf !== null &&
             typeof raw.patch.visibleIf !== 'string') ||
@@ -2264,7 +2290,11 @@ function applyOperation(
     if (operation.patch.name === null) delete node.name;
     else if (operation.patch.name !== undefined) node.name = operation.patch.name;
     if (operation.patch.data) {
-      node.data = { ...node.data, ...structuredClone(operation.patch.data) };
+      const patchData = structuredClone(operation.patch.data) as Record<string, unknown>;
+      if (node.type === StoryNodeType.Narration && typeof patchData.text === 'string') {
+        patchData.text = { source: patchData.text };
+      }
+      node.data = { ...node.data, ...patchData };
     }
     if (node.type === StoryNodeType.CallEvent && options.semanticContext?.events) {
       const call = node.data as unknown as StoryNodeDataMap[StoryNodeType.CallEvent];
@@ -2311,17 +2341,17 @@ function applyOperation(
     const afterIndex = operation.afterLineId
       ? data.lines.findIndex((line) => line.id === operation.afterLineId)
       : undefined;
-    if (operation.afterLineId && afterIndex === -1) {
-      return operationDiagnostic(
-        operation,
-        operationIndex,
-        'UNKNOWN_LINE',
-        `Insertion line does not exist: ${operation.afterLineId}`,
-      );
-    }
+    const lineId = operation.line.id || createStableId('line');
+    const textId = operation.line.textId || createStableId('text');
+    const textSource =
+      typeof operation.line.text === 'string'
+        ? operation.line.text
+        : (operation.line.text as unknown as { source?: string })?.source ?? '';
     const line = {
       ...structuredClone(operation.line),
-      text: { source: operation.line.text },
+      id: lineId,
+      textId,
+      text: { source: textSource },
     };
     node.data = { ...data, lines: insertAfter(data.lines, line, afterIndex) };
     return undefined;
@@ -2346,7 +2376,11 @@ function applyOperation(
       );
     }
     const next = structuredClone(data.lines[index]!);
-    if (operation.patch.text !== undefined) next.text = { source: operation.patch.text };
+    const patchText =
+      typeof operation.patch.text === 'string'
+        ? operation.patch.text
+        : (operation.patch.text as unknown as { source?: string })?.source;
+    if (patchText !== undefined) next.text = { source: patchText };
     if (operation.patch.speakerId === null) delete next.speakerId;
     else if (operation.patch.speakerId !== undefined) next.speakerId = operation.patch.speakerId;
     if (operation.patch.voiceId === null) delete next.voiceId;
@@ -2465,9 +2499,14 @@ function applyOperation(
         `Insertion option does not exist: ${operation.afterOptionId}`,
       );
     }
+    const optionText =
+      typeof operation.option.text === 'string'
+        ? operation.option.text
+        : (operation.option.text as unknown as { source?: string })?.source ?? '';
+    const optionId = operation.option.id || createStableId('option');
     const option = {
-      id: operation.option.id,
-      text: { source: operation.option.text },
+      id: optionId,
+      text: { source: optionText },
       visibleIf: operation.option.visibleIf
         ? { source: operation.option.visibleIf, bindings: {} }
         : undefined,
@@ -2500,7 +2539,11 @@ function applyOperation(
       );
     }
     const next = structuredClone(data.options[index]!);
-    if (operation.patch.text !== undefined) next.text = { source: operation.patch.text };
+    const patchText =
+      typeof operation.patch.text === 'string'
+        ? operation.patch.text
+        : (operation.patch.text as unknown as { source?: string })?.source;
+    if (patchText !== undefined) next.text = { source: patchText };
     for (const property of ['visibleIf', 'enabledIf'] as const) {
       const value = operation.patch[property];
       if (value === null) delete next[property];

@@ -29,22 +29,22 @@ describe('EditorSettings', () => {
     (globalThis as unknown as { window: unknown }).window = originalWindow;
   });
 
-  it('defaults experimental.aiCommands to false', () => {
-    expect(DEFAULT_EDITOR_SETTINGS.experimental.aiCommands).toBe(false);
-    expect(loadEditorSettings().experimental.aiCommands).toBe(false);
+  it('defaults experimental.aiCommands to true', () => {
+    expect(DEFAULT_EDITOR_SETTINGS.experimental.aiCommands).toBe(true);
+    expect(loadEditorSettings().experimental.aiCommands).toBe(true);
   });
 
   it('persists and loads settings from localStorage', () => {
     const custom: EditorSettings = {
       experimental: {
-        aiCommands: true,
+        aiCommands: false,
       },
     };
     saveEditorSettings(custom);
-    expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"aiCommands":true');
+    expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"aiCommands":false');
 
     const loaded = loadEditorSettings();
-    expect(loaded.experimental.aiCommands).toBe(true);
+    expect(loaded.experimental.aiCommands).toBe(false);
   });
 
   it('handles malformed localStorage safely without throwing', () => {
@@ -56,7 +56,7 @@ describe('EditorSettings', () => {
   it('handles partial settings safely', () => {
     mockLocalStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({}));
     const loaded = loadEditorSettings();
-    expect(loaded.experimental.aiCommands).toBe(false);
+    expect(loaded.experimental.aiCommands).toBe(true);
   });
 
   it('handles environment without window.localStorage gracefully', () => {

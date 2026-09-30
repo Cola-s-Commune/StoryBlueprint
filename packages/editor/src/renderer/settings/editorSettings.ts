@@ -6,7 +6,7 @@ export interface EditorSettings {
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   experimental: {
-    aiCommands: false,
+    aiCommands: true,
   },
 };
 
@@ -22,7 +22,10 @@ export function loadEditorSettings(): EditorSettings {
     const parsed = JSON.parse(raw) as Partial<EditorSettings>;
     return {
       experimental: {
-        aiCommands: Boolean(parsed.experimental?.aiCommands),
+        aiCommands:
+          parsed.experimental?.aiCommands !== undefined
+            ? Boolean(parsed.experimental.aiCommands)
+            : DEFAULT_EDITOR_SETTINGS.experimental.aiCommands,
       },
     };
   } catch {
