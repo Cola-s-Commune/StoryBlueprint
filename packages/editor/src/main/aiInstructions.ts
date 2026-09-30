@@ -7,57 +7,202 @@ export const MAX_AI_ATTACHMENT_BYTES = 512 * 1024;
 
 export const DEFAULT_PROJECT_AI_INSTRUCTIONS = `# Narrative Agent Guidelines (AGENTS.md)
 
-This project is an interactive narrative blueprint authored with Story Blueprint.
-These guidelines define narrative conventions, visual blueprint rules, and MCP agent workflows.
+This project is an interactive narrative blueprint authored with **Story Blueprint** (a visual, node-based interactive narrative framework for games, interactive fiction, and visual novels).
+These guidelines define the mental model, negative constraints, node schemas, and MCP collaboration workflows.
 
 ---
 
-## 1. Core Narrative & Blueprint Rules
+## 1. Mental Model & Core Narrative Principles
 
-- **Executable Control Flow**: Stories are modeled as directed control-flow graphs with typed nodes and explicit pin connections, not flat prose synopses.
-- **Dialogue vs. Narration**:
-  - \`Dialogue\` nodes: Spoken lines delivered by an identified character (\`speakerId\`). NEVER include quotation marks, stage directions, scene descriptions, or inner thoughts in spoken dialogue.
-  - \`Narration\` nodes: Standalone narration for scene descriptions, sensory details, environmental atmosphere, actions, and unvoiced inner thoughts.
-- **Choice & Branching**:
-  - Player-facing interactive decisions belong in \`Choice\` nodes.
-  - Logical conditions belong in \`Branch\` nodes or reusable condition resources.
-- **Variable Mutations**:
-  - Relative changes (e.g. "Increase affection by 1") must be read-modify-write expressions (\`X + 1\`), NEVER raw assignments (\`X = 1\`). Prefer incremental adjustments to avoid stomping variables.
-- **Single Story Invariant**:
-  - Each \`*.story\` is compiled as an independent execution unit. Cross-story shared state is managed through External Functions or project-level resources.
-
----
-
-## 2. MCP Collaboration Workflow (Claude / Cursor / Codex)
-
-When collaborating via the Story Blueprint MCP Server:
-1. **Explore & Read**:
-   - Use \`story_read_context\` to inspect story blueprint structures, nodes, variables, and character rosters.
-   - Use \`story_search\` to locate specific dialogue lines, choices, or variable references.
-2. **Plan & Sandbox**:
-   - Always prepare changes as Blueprint Command transactions (\`command.operations\`).
-   - Use \`story_dry_run_command\` first to simulate changes, check pin connectivity, and detect potential variable conflicts without touching disk files.
-3. **Apply & Verify**:
-   - Commit validated changes with \`story_apply_command\` (automatically creates \`.bak\` safety snapshots).
-   - Verify story integrity with \`story_compile\`.
+- **Executable Control Flow (Not Flat Prose)**:
+  Stories are modeled as **directed control-flow graphs** with typed nodes and explicit pin connections, intended for execution in a game engine or interactive player. Each node represents a distinct interactive moment (dialogue, scene narration, player decision, or state mutation).
+- **Separation of Spoken Dialogue vs. Narration**:
+  - \`Dialogue\` (\`type: "dialogue"\`): Spoken lines delivered by an identified character (\`speakerId\`).
+    - 🚫 **NEVER** include quotation marks, stage directions, actor brackets (e.g. \`（冷笑）\` or \`[angry]\`), or inner thoughts inside spoken dialogue text. Text-to-speech / dubbing and subtitles render dialogue directly.
+  - \`Narration\` (\`type: "narration"\`): Standalone narrative text for scene setting, environmental descriptions, sensory details, physical actions, and unvoiced inner thoughts.
+- **Player Decisions & Branching**:
+  - Player choices belong strictly in \`Choice\` (\`type: "choice"\`) nodes. Each option maps to an outgoing execution pin.
+  - Logic checks (e.g. checking flags, inventory, or stats) belong in \`Branch\` (\`type: "branch"\`) nodes or reusable conditions.
+- **Variable Mutation Invariant**:
+  - Relative changes (e.g. increasing alert level or affection) must be incremental read-modify-write expressions or \`add-variable-adjustment\` commands (delta: \`+1\`), **NEVER** raw overwrites (like \`X = 1\`).
 
 ---
 
-## 3. Project Narrative World & Persona (Author Customization)
+## 2. Critical Constraints (Red Lines)
+
+- 🚫 **NEVER directly edit or handwrite \`*.story\` files**:
+  \`.story\` files contain graph topology, pin UUIDs, and layout geometry. Direct text/JSON edits will corrupt pin connections and cause runtime parser crashes.
+- ✅ **ALL mutations must be performed via the Story Blueprint MCP Server**:
+  Use \`story_dry_run_command\` to validate in sandbox, then \`story_apply_command\` to persist changes atomically.
+
+---
+
+## 3. Node Type & Pin Port Reference
+
+| Node Type | \`type\` enum | Input Ports | Output Ports | Typical Data Payload |
+|---|---|---|---|---|
+| **Entry Point** | \`"story-entry"\` | *None* | \`"out"\` | \`{ "title": "Opening" }\` |
+| **Dialogue** | \`"dialogue"\` | \`"in"\` | \`"out"\` | \`{ "lines": [{ "id": "ln_1", "textId": "t_1", "text": { "source": "Hands up!" }, "speakerId": "c_robber" }] }\` |
+| **Narration** | \`"narration"\` | \`"in"\` | \`"out"\` | \`{ "textId": "t_1", "text": { "source": "Screams echo across the bank lobby." } }\` |
+| **Choice** | \`"choice"\` | \`"in"\` | **Option IDs** (e.g. \`"opt_alarm"\`) | \`{ "prompt": { "source": "What do you do?" }, "options": [{ "id": "opt_alarm", "text": { "source": "Hit alarm" } }] }\` |
+| **Branch** | \`"branch"\` | \`"in"\` | \`"true"\`, \`"false"\` | \`{ "condition": { "source": "alert_level >= 2", "bindings": {} } }\` |
+| **Adjust Variable** | (Action) | \`"in"\` | \`"out"\` | Uses \`add-variable-adjustment\` command (requires \`variableId\` and \`delta\`). |
+
+---
+
+## 4. MCP Command Transaction Specification
+
+A Blueprint Command transaction is an object containing an \`operations\` array:
+\`\`\`json
+{
+  "version": 1,
+  "operations": [ /* ... */ ]
+}
+\`\`\`
+
+### Common \`operation\` Kinds (Kebab-Case)
+
+1. **\`add-node\`**: Adds a new graph node.
+   - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`node: { id, type, name?, data }\`.
+2. **\`connect\`**: Connects two nodes via their ports.
+   - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`from: { nodeId, portId }\`, \`to: { nodeId, portId }\`.
+   - *Note*: Connecting from a \`Choice\` node requires \`from.portId\` to match the target \`option.id\`.
+3. **\`add-variable-adjustment\`**: Creates a dedicated node that adjusts an existing numeric variable.
+   - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`node: { id, name? }\`, \`variableId\`, \`delta\` (e.g. \`1\` or \`-1\`).
+4. **\`add-character\`**: Registers a character in the story roster.
+   - Requires: \`operationId\`, \`character: { id, name, displayName, emotions?: {} }\`.
+5. **\`add-variable\`**: Declares a story state variable.
+   - Requires: \`operationId\`, \`variable: { id, name, displayName, scope: "story", valueType: { kind: "number"|"boolean"|"string" }, defaultValue }\`.
+6. **Granular Operations**: \`add-dialogue-line\`, \`update-dialogue-line\`, \`add-choice-option\`, \`update-node\`, \`remove-node\`.
+
+---
+
+## 5. End-to-End One-Shot Reference Example (Bank Heist)
+
+The following valid transaction registers a character & variable, generates a Narration beat, a Dialogue line, a Choice node, an alert increment action, and connects them:
+
+\`\`\`json
+{
+  "version": 1,
+  "operations": [
+    {
+      "operationId": "op_reg_char",
+      "kind": "add-character",
+      "character": { "id": "c_robber", "name": "Robber Leader", "displayName": "劫匪头目", "emotions": {} }
+    },
+    {
+      "operationId": "op_reg_var",
+      "kind": "add-variable",
+      "variable": { "id": "v_alert", "name": "alert_level", "displayName": "警报值", "scope": "story", "valueType": { "kind": "number" }, "defaultValue": 0 }
+    },
+    {
+      "operationId": "op_add_intro",
+      "kind": "add-node",
+      "graph": { "kind": "root" },
+      "node": {
+        "id": "n_bank_intro",
+        "type": "narration",
+        "name": "bank_intro",
+        "data": { "textId": "t_intro", "text": { "source": "刺耳的刹车声划破正午的寂静，一辆黑色防弹面包车停在市中心银行门前。" } }
+      }
+    },
+    {
+      "operationId": "op_add_shout",
+      "kind": "add-node",
+      "graph": { "kind": "root" },
+      "node": {
+        "id": "n_robber_shout",
+        "type": "dialogue",
+        "name": "robber_shout",
+        "data": {
+          "lines": [
+            { "id": "ln_shout_01", "textId": "t_shout_01", "text": { "source": "所有人把头低下！保安，手从腰上拿开！" }, "speakerId": "c_robber" }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "op_add_choice",
+      "kind": "add-node",
+      "graph": { "kind": "root" },
+      "node": {
+        "id": "n_player_choice",
+        "type": "choice",
+        "name": "heist_first_choice",
+        "data": {
+          "prompt": { "source": "子弹击碎头顶吊灯，火花四溅。你此时的反应是：" },
+          "options": [
+            { "id": "opt_surrender", "text": { "source": "顺从地趴在排椅下方，暗中观察劫匪人数与武器" } },
+            { "id": "opt_alarm", "text": { "source": "趁乱踢翻垃圾桶制造声响，伸手摸向柜台暗处的报警按钮" } }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "op_add_alarm_action",
+      "kind": "add-variable-adjustment",
+      "graph": { "kind": "root" },
+      "node": { "id": "n_inc_alert", "name": "trigger_alarm" },
+      "variableId": "v_alert",
+      "delta": 1
+    },
+    {
+      "operationId": "op_link_intro_to_shout",
+      "kind": "connect",
+      "graph": { "kind": "root" },
+      "from": { "nodeId": "n_bank_intro", "portId": "out" },
+      "to": { "nodeId": "n_robber_shout", "portId": "in" }
+    },
+    {
+      "operationId": "op_link_shout_to_choice",
+      "kind": "connect",
+      "graph": { "kind": "root" },
+      "from": { "nodeId": "n_robber_shout", "portId": "out" },
+      "to": { "nodeId": "n_player_choice", "portId": "in" }
+    },
+    {
+      "operationId": "op_link_choice_alarm",
+      "kind": "connect",
+      "graph": { "kind": "root" },
+      "from": { "nodeId": "n_player_choice", "portId": "opt_alarm" },
+      "to": { "nodeId": "n_inc_alert", "portId": "in" }
+    }
+  ]
+}
+\`\`\`
+
+---
+
+## 6. Standard 4-Step Agent Workflow
+
+1. **Step 1: Explore & Read**:
+   - Call \`story_read_context\` to inspect existing nodes, variables, and character roster.
+   - Call \`story_search\` to check existing line keywords or plot beats.
+2. **Step 2: Plan & Outline**:
+   - Draft branch logic, options, and consequences before formulating operations.
+3. **Step 3: Sandbox Validation & Commit**:
+   - Call \`story_dry_run_command\` with the prepared transaction to catch connectivity or schema issues.
+   - Call \`story_apply_command\` to atomically persist the changes to disk.
+4. **Step 4: Verify**:
+   - Call \`story_compile\` to verify narrative flow, port compatibility, and compile diagnostics.
+
+---
+
+## 7. Project Narrative World & Persona (Author Customization)
 
 <!-- Authors: Customize your narrative tone, characters, and glossary below. Agents must strictly adhere to these settings. -->
 
 ### World Setting & Tone
-- **Genre & Tone**: (e.g. Urban Fantasy, Hard Sci-Fi, Slice-of-life Mystery, etc.)
-- **Dialogue Style**: (e.g. Fast-paced, poetic, naturalistic modern, distinct dialect)
+- **Genre & Tone**: (e.g. Modern Crime Thriller, Urban Fantasy, Hard Sci-Fi, Slice-of-life Mystery)
+- **Dialogue Style**: (e.g. Fast-paced, gritty, snappy, poetic, naturalistic modern)
 
 ### Key Characters & Voice
 - **Protagonist**: Personality traits, verbal tics, speaking rhythm.
 - **Key Cast**: Unique speaking styles, relationships, emotional dynamics.
 
 ### Glossary & Canon Constraints
-- **Key Terminology**: (Special nouns, factions, world lore terms)
-- **Hard Constraints**: (Taboos, plot constraints, rules that must never be broken)
+- **Key Terminology**: (Special nouns, factions, locations, world lore terms)
+- **Hard Constraints**: (Taboos, plot rules, timeline rules that must never be broken)
 `;
 
 export async function findFileCaseInsensitive(

@@ -62,7 +62,7 @@ export function handleStoryCompile(args: CompileStoryArgs): {
       if (result.diagnostics.length > 0) {
         lines.push(`\n## Compiler Warnings (${result.diagnostics.length}):`);
         for (const d of result.diagnostics) {
-          lines.push(`- [${d.severity.toUpperCase()} ${d.code}] ${d.message} (node: ${d.nodeId ?? 'global'})`);
+          lines.push(`- [${d.severity.toUpperCase()} ${d.code}] ${d.message} (node: ${d.sourceNodeId ?? 'global'})`);
         }
       }
       return {
@@ -73,7 +73,7 @@ export function handleStoryCompile(args: CompileStoryArgs): {
       lines.push(`# Compilation Failed!`);
       lines.push(`The story graph contains errors that prevent it from compiling into a runnable program:\n`);
       for (const d of result.diagnostics) {
-        lines.push(`- **[${d.severity.toUpperCase()} ${d.code}]**: ${d.message}${d.nodeId ? ` (node: \`${d.nodeId}\`)` : ''}`);
+        lines.push(`- **[${d.severity.toUpperCase()} ${d.code}]**: ${d.message}${d.sourceNodeId ? ` (node: \`${d.sourceNodeId}\`)` : ''}`);
       }
       return {
         success: false,

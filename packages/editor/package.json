@@ -10,7 +10,7 @@
   "scripts": {
     "predev": "npm run build --workspace @story-blueprint/common",
     "dev": "node scripts/dev.cjs",
-    "prebuild": "npm run build --workspace @story-blueprint/common && npm run build --workspace @story-blueprint/mcp-server",
+    "prebuild": "npm run build --workspace @story-blueprint/common && npm run build --workspace @story-blueprint/compiler && npm run build --workspace @story-blueprint/mcp-server",
     "build": "electron-vite build",
     "prerelease:win:dir": "node scripts/check-release-node.cjs",
     "release:win:dir": "npm run build && electron-builder --win --x64 --dir",
