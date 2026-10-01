@@ -401,7 +401,7 @@ describe('StoryBlueprint MCP Server', () => {
       ],
     };
 
-    // 1. Missing userConfirmed is blocked by gatekeeper
+    // 1. Default: calling story_apply_command stages as a pending proposal in the editor (no chat blocking)
     await server.handleMessage({
       jsonrpc: '2.0',
       id: 8,
@@ -409,20 +409,6 @@ describe('StoryBlueprint MCP Server', () => {
       params: {
         name: 'story_apply_command',
         arguments: { storyPath, command, createBackup: true },
-      },
-    });
-    const blockedResult = sentResponse as CallToolResult;
-    expect(blockedResult.isError).toBe(true);
-    expect(blockedResult.content[0]?.text).toContain('Review Gatekeeper Blocked');
-
-    // 2. Default: autoApply is off, so it stages as a pending proposal for editor review
-    await server.handleMessage({
-      jsonrpc: '2.0',
-      id: 9,
-      method: 'tools/call',
-      params: {
-        name: 'story_apply_command',
-        arguments: { storyPath, command, createBackup: true, userConfirmed: true },
       },
     });
 

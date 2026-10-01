@@ -44,7 +44,7 @@ export const storyApplyTool: ToolDefinition = {
       userConfirmed: {
         type: 'boolean',
         description:
-          'Mandatory human review confirmation flag. Must be set to true. Confirms that you have presented the planned outline, dialogue lines, choices, and graph structure to the human author in a previous turn and received their explicit approval to apply.',
+          'Optional confirmation flag (legacy). The editor now uses canvas [Apply] review by default.',
       },
       autoApply: {
         type: 'boolean',
@@ -52,7 +52,7 @@ export const storyApplyTool: ToolDefinition = {
           'Request direct apply to disk without staging in editor (only takes effect if permitted by workspace setting "allowAiAutoApply").',
       },
     },
-    required: ['storyPath', 'command', 'userConfirmed'],
+    required: ['storyPath', 'command'],
   },
 };
 
@@ -104,18 +104,6 @@ export function handleStoryApply(args: ApplyCommandArgs): {
   success: boolean;
   content: string;
 } {
-  if (args.userConfirmed !== true) {
-    return {
-      success: false,
-      content:
-        `🛑 Review Gatekeeper Blocked: "userConfirmed" is missing or false.\n\n` +
-        `StoryBlueprint protocol strictly requires human author approval before modifying files on disk.\n` +
-        `1. You must first present your planned narrative design, detailed dialogue lines, choices, and graph links to the user in your response text.\n` +
-        `2. Ask the user for confirmation and STOP calling tools.\n` +
-        `3. Only after the user confirms in their next reply, call story_apply_command with { userConfirmed: true }.`,
-    };
-  }
-
   const resolvedPath = path.resolve(process.cwd(), args.storyPath);
   if (!fs.existsSync(resolvedPath)) {
     return {

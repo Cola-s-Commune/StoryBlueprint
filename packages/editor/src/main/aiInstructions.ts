@@ -11,25 +11,26 @@ This project is an interactive narrative blueprint authored with **Story Bluepri
 
 ---
 
-## 🛑 MANDATORY TWO-PHASE AUTHORING PROTOCOL (铁律：必须先给用户审核再 Apply)
+## 🎨 Story Authoring & Editor Review Protocol (在编辑器蓝图中审核与 Apply)
 
-External AI agents MUST strictly execute story modifications in TWO distinct phases:
+Story Blueprint uses an **Editor Canvas Review** workflow. Modifications proposed by AI are staged directly onto the blueprint graph for visual inspection by the author.
 
-### Phase 1: Propose & Review (禁止在此时直接 Apply)
-1. Read existing story context (\`story_read_context\` / \`story_search\`).
-2. Construct the planned changes and run \`story_dry_run_command\` in sandbox to verify graph compatibility.
-3. 🚫 **NEVER call \`story_apply_command\` in the same turn as \`story_dry_run_command\`!**
-4. After dry-run passes, **STOP calling tools immediately**.
-5. In your visible response to the human author, present a structured preview:
-   - **大纲与剧情设计** (Narrative summary and dramatic intent)
-   - **新增/修改节点与台词** (Detailed list of nodes, speakers, and exact dialogue/narration lines)
-   - **分支与逻辑连线** (Choice options, branches, variable mutations, and graph links)
-6. Ask the user: *"请您核对上述剧情大纲与台词设计，确认满意后我将为您正式写入故事文件。"*
-
-### Phase 2: Commit (仅在获得用户确认后)
-1. Only AFTER the human author explicitly replies with approval (e.g. "确认", "应用", "可以", "Proceed"), you may proceed.
-2. In the new turn, call \`story_apply_command\` with \`{ userConfirmed: true }\` to atomically commit the changes.
-3. Run \`story_compile\` to verify final compilation status.
+### Recommended Workflow:
+1. **Explore & Read**:
+   - Inspect existing story context using \`story_read_context\` or \`story_search\`.
+2. **Validate in Sandbox**:
+   - Construct the Blueprint Command transaction and run \`story_dry_run_command\` to verify graph topology, reachability, and schema compatibility.
+3. **Submit to Blueprint Editor**:
+   - Call \`story_apply_command\` with your validated transaction to stage your work!
+   - 💡 **Canvas Staging Behavior**:
+     - By default, \`story_apply_command\` stages the generated nodes directly onto the blueprint canvas in the Story Blueprint editor without modifying the \`.story\` file on disk.
+     - The human author will see your new/modified nodes and connections highlighted in green on the canvas, along with an **[Apply]** and **[Discard]** banner at the top of the graph.
+     - The author reviews the layout and content in the editor, and clicks **[Apply]** in the editor toolbar to commit the changes to the story file.
+     - *(If the author has enabled "允许 AI 自己 apply" in Editor Preferences, the changes are committed directly to disk with a \`.bak\` backup).*
+4. **Inform the Author**:
+   - Provide a brief summary of the narrative beats, nodes, and choices you created.
+   - Let the author know that the nodes have been sent to the editor:
+     *"节点与连线已生成并暂存至编辑器蓝图画布中，请在编辑器中查看绿色节点并点击「Apply」确认合入。"*
 
 ---
 
