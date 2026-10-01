@@ -674,6 +674,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
   );
   const [nodes, setNodes, applyNodesChange] = useNodesState<EditorGraphNode>(initialGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<EditorGraphEdge>(initialGraph.edges);
+  const activeStagedProposalIdRef = useRef<string | null>(null);
   const nodeDragTransactionRef = useRef<{
     changes: Map<string, NodeChange<EditorGraphNode>>;
     frame: number | null;
@@ -1668,6 +1669,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const clearAIChanges = useCallback(() => setAIChanges(undefined), []);
   const discardAIProposal = useCallback(() => {
+    activeStagedProposalIdRef.current = null;
     setAIProposal((current) => {
       if (current?.origin.startsWith('ink')) {
         setInkImportReport(undefined);
@@ -1992,6 +1994,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
 
   const applyAIProposal = useCallback(() => {
     if (!aiProposal) return undefined;
+    activeStagedProposalIdRef.current = null;
     const result = executeBlueprintCommands(aiProposal.transaction, { origin: aiProposal.origin });
     if (window.electronAPI?.clearPendingAIProposal) {
       void window.electronAPI.clearPendingAIProposal(document.filePath);
@@ -5582,13 +5585,23 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     [absoluteWorkspacePath, currentStoryItems, externalFileChanges, loadStory, storyItemToSource],
   );
 
+  const executeBlueprintCommandsRef = useRef(executeBlueprintCommands);
+  executeBlueprintCommandsRef.current = executeBlueprintCommands;
+
   useEffect(() => {
     const api = window.electronAPI;
     if (!api || !api.onPendingAIProposalChanged) return;
 
     const handleProposal = (proposal: PendingAIProposal | null) => {
       if (!proposal) {
-        setAIProposal((current) => (current?.origin === 'ai-command' ? undefined : current));
+        if (activeStagedProposalIdRef.current !== null) {
+          activeStagedProposalIdRef.current = null;
+          setAIProposal((current) => (current?.origin === 'ai-command' ? undefined : current));
+        }
+        return;
+      }
+      if (activeStagedProposalIdRef.current === proposal.id) {
+        // Already staged this exact proposal; do not re-run staging or reset positions
         return;
       }
       const currentPath = document.filePath?.toLowerCase().replace(/\\/g, '/');
@@ -5611,10 +5624,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         Boolean(!currentPath);
 
       if (isMatch && proposal.command) {
-        const result = executeBlueprintCommands(proposal.command as BlueprintCommandTransaction, {
-          stage: true,
-          origin: 'ai-command',
-        });
+        activeStagedProposalIdRef.current = proposal.id;
+        const result = executeBlueprintCommandsRef.current(
+          proposal.command as BlueprintCommandTransaction,
+          {
+            stage: true,
+            origin: 'ai-command',
+          },
+        );
         if (!result.ok) {
           console.warn('[AI Proposal] Staging proposal returned diagnostics:', result.diagnostics);
         }
@@ -5626,7 +5643,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     });
 
     return api.onPendingAIProposalChanged(handleProposal);
-  }, [document.filePath, executeBlueprintCommands]);
+  }, [document.filePath]);
 
   useEffect(() => {
     const api = window.electronAPI;

@@ -1433,8 +1433,11 @@ export function StoryGraph() {
     };
   }, [aiChanges, flowInstance]);
 
+  const lastFittedProposalNonceRef = useRef<number | undefined>();
   useEffect(() => {
     if (!aiProposal || !flowInstance || aiProposal.addedNodeIds.length === 0) return;
+    if (lastFittedProposalNonceRef.current === aiProposal.nonce) return;
+    lastFittedProposalNonceRef.current = aiProposal.nonce;
     const frame = requestAnimationFrame(() => {
       void flowInstance.fitView({
         nodes: aiProposal.addedNodeIds.map((id) => ({ id })),
@@ -2203,9 +2206,15 @@ export function StoryGraph() {
           deleteKeyCode={null}
           multiSelectionKeyCode={['Shift', 'Control']}
           selectionKeyCode={controlMode === 'blueprint' ? null : 'Shift'}
-          selectionOnDrag={controlMode === 'blueprint'}
+          selectionOnDrag={controlMode === 'blueprint' && !aiProposal}
           selectionMode={SelectionMode.Partial}
-          panOnDrag={controlMode === 'blueprint' ? [2] : [0, 1]}
+          panOnDrag={
+            controlMode === 'blueprint'
+              ? aiProposal
+                ? [0, 1, 2]
+                : [2]
+              : [0, 1]
+          }
           panActivationKeyCode={controlMode === 'blueprint' ? null : 'Space'}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3d3d3d" />
