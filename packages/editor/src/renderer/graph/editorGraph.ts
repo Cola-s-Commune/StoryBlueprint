@@ -161,22 +161,39 @@ export function autoLayoutGraph(
     executionTo.set(edge.target, [...(executionTo.get(edge.target) ?? []), edge]);
   }
 
-  const terminalTargets = (sourceId: NodeId): NodeId[] => {
-    const targets = new Set<NodeId>();
-    const pending = (executionFrom.get(sourceId) ?? []).map((edge) => edge.target);
-    const traversed = new Set<NodeId>();
-    while (pending.length > 0) {
-      const targetId = pending.shift()!;
-      if (traversed.has(targetId)) continue;
-      traversed.add(targetId);
-      const target = nodesById.get(targetId);
-      if (target?.type === StoryNodeType.Reroute) {
-        pending.push(...(executionFrom.get(targetId) ?? []).map((edge) => edge.target));
-      } else if (target && layoutIds.has(target.id)) {
-        targets.add(target.id);
+  const incomingConnections = new Map<NodeId, Array<{ sourceId: NodeId; sourceHandle?: string }>>();
+  const outgoingConnections = new Map<NodeId, Array<{ targetId: NodeId; sourceHandle?: string }>>();
+
+  for (const node of layoutNodes) {
+    const fromEdges = executionFrom.get(node.id) ?? [];
+    for (const firstEdge of fromEdges) {
+      const sourceHandle = firstEdge.sourceHandle;
+      const pending: NodeId[] = [firstEdge.target];
+      const traversed = new Set<NodeId>();
+      while (pending.length > 0) {
+        const targetId = pending.shift()!;
+        if (traversed.has(targetId)) continue;
+        traversed.add(targetId);
+        const targetNode = nodesById.get(targetId);
+        if (targetNode?.type === StoryNodeType.Reroute) {
+          pending.push(...(executionFrom.get(targetId) ?? []).map((edge) => edge.target));
+        } else if (targetNode && layoutIds.has(targetNode.id)) {
+          outgoingConnections.set(node.id, [
+            ...(outgoingConnections.get(node.id) ?? []),
+            { targetId: targetNode.id, sourceHandle },
+          ]);
+          incomingConnections.set(targetNode.id, [
+            ...(incomingConnections.get(targetNode.id) ?? []),
+            { sourceId: node.id, sourceHandle },
+          ]);
+        }
       }
     }
-    return [...targets];
+  }
+
+  const terminalTargets = (sourceId: NodeId): NodeId[] => {
+    const conns = outgoingConnections.get(sourceId) ?? [];
+    return [...new Set(conns.map((conn) => conn.targetId))];
   };
   const outgoing = new Map<NodeId, NodeId[]>();
   const incoming = new Map<NodeId, NodeId[]>();
@@ -303,6 +320,27 @@ export function autoLayoutGraph(
     }
   }
 
+  const initialPositions = new Map(layoutNodes.map((node) => [node.id, node.position.y]));
+  const nodeExecutionPorts = (node: EditorGraphNode) => {
+    return resolveNodePorts(node).ports.filter(
+      (port) => port.direction === 'output' && port.kind === 'execution',
+    );
+  };
+  const sourcePortFraction = (node: EditorGraphNode, sourceHandle?: string) => {
+    if (!sourceHandle) return 0.5;
+    const ports = nodeExecutionPorts(node);
+    if (ports.length <= 1) return 0.5;
+    const index = ports.findIndex((port) => port.id === sourceHandle);
+    if (index === -1) return 0.5;
+    return (index + 0.5) / ports.length;
+  };
+  const sourcePortAnchorY = (node: EditorGraphNode, sourceHandle?: string) => {
+    const pos = positions.get(node.id) ?? node.position;
+    const height = layoutNodeHeight(node);
+    const fraction = sourcePortFraction(node, sourceHandle);
+    return pos.y + height * fraction;
+  };
+
   const byLayer = new Map<number, EditorGraphNode[]>();
   for (const node of layoutNodes) {
     const layer = layers.get(node.id) ?? 0;
@@ -310,13 +348,45 @@ export function autoLayoutGraph(
     column.push(node);
     byLayer.set(layer, column);
   }
-  for (const column of byLayer.values()) {
-    column.sort(
-      (left, right) => left.position.y - right.position.y || left.id.localeCompare(right.id),
-    );
-  }
 
   const orderedColumns = [...byLayer.entries()].sort(([left], [right]) => left - right);
+  for (const [layer, column] of orderedColumns) {
+    column.sort((a, b) => {
+      if (layer > 0) {
+        const inConnsA = incomingConnections.get(a.id) ?? [];
+        const inConnsB = incomingConnections.get(b.id) ?? [];
+        const anchorsA = inConnsA
+          .filter((c) => (layers.get(c.sourceId) ?? layer) < layer)
+          .map((c) => {
+            const s = nodesById.get(c.sourceId);
+            return s
+              ? s.position.y + layoutNodeHeight(s) * sourcePortFraction(s, c.sourceHandle)
+              : undefined;
+          })
+          .filter((y): y is number => y !== undefined);
+        const anchorsB = inConnsB
+          .filter((c) => (layers.get(c.sourceId) ?? layer) < layer)
+          .map((c) => {
+            const s = nodesById.get(c.sourceId);
+            return s
+              ? s.position.y + layoutNodeHeight(s) * sourcePortFraction(s, c.sourceHandle)
+              : undefined;
+          })
+          .filter((y): y is number => y !== undefined);
+        const avgA =
+          anchorsA.length > 0 ? anchorsA.reduce((sum, y) => sum + y, 0) / anchorsA.length : undefined;
+        const avgB =
+          anchorsB.length > 0 ? anchorsB.reduce((sum, y) => sum + y, 0) / anchorsB.length : undefined;
+        if (avgA !== undefined && avgB !== undefined && Math.abs(avgA - avgB) > 0.001) {
+          return avgA - avgB;
+        }
+      }
+      const initialPosA = initialPositions.get(a.id) ?? a.position.y;
+      const initialPosB = initialPositions.get(b.id) ?? b.position.y;
+      return initialPosA - initialPosB || a.id.localeCompare(b.id);
+    });
+  }
+
   const incomingOriginX = Math.max(
     ...boundaryIncoming.map((edge) => {
       const source = nodesById.get(edge.source)!;
@@ -361,18 +431,63 @@ export function autoLayoutGraph(
     const position = positions.get(nodeId);
     return node && position ? position.y + layoutNodeHeight(node) / 2 : undefined;
   };
-  const placeColumnByNeighbors = (
+  const forwardDesiredCenter = (node: EditorGraphNode, currentLayer: number): number => {
+    const inConns = incomingConnections.get(node.id) ?? [];
+    const validAnchors = inConns
+      .filter((conn) => (layers.get(conn.sourceId) ?? currentLayer) < currentLayer)
+      .map((conn) => {
+        const sourceNode = nodesById.get(conn.sourceId);
+        return sourceNode ? sourcePortAnchorY(sourceNode, conn.sourceHandle) : undefined;
+      })
+      .filter((y): y is number => y !== undefined);
+
+    if (validAnchors.length > 0) {
+      return validAnchors.reduce((sum, y) => sum + y, 0) / validAnchors.length;
+    }
+    const currentPos = positions.get(node.id) ?? node.position;
+    return currentPos.y + layoutNodeHeight(node) / 2;
+  };
+
+  const backwardDesiredCenter = (node: EditorGraphNode, currentLayer: number): number => {
+    const outConns = outgoingConnections.get(node.id) ?? [];
+    const validCenters = outConns
+      .filter((conn) => (layers.get(conn.targetId) ?? currentLayer) > currentLayer)
+      .map((conn) => {
+        const targetCenter = nodeCenterY(conn.targetId);
+        if (targetCenter === undefined) return undefined;
+        const fraction = sourcePortFraction(node, conn.sourceHandle);
+        const offsetFromCenter = (fraction - 0.5) * layoutNodeHeight(node);
+        return targetCenter - offsetFromCenter;
+      })
+      .filter((y): y is number => y !== undefined);
+
+    if (validCenters.length > 0) {
+      return validCenters.reduce((sum, y) => sum + y, 0) / validCenters.length;
+    }
+    const currentPos = positions.get(node.id) ?? node.position;
+    return currentPos.y + layoutNodeHeight(node) / 2;
+  };
+
+  const placeColumn = (
     column: EditorGraphNode[],
-    neighborsFor: (nodeId: NodeId) => readonly NodeId[],
+    getDesiredCenter: (node: EditorGraphNode) => number,
   ) => {
-    const desiredCenters = column.map((node) => {
-      const centers = neighborsFor(node.id)
-        .map(nodeCenterY)
-        .filter((center): center is number => center !== undefined);
-      return centers.length > 0
-        ? centers.reduce((sum, center) => sum + center, 0) / centers.length
-        : nodeCenterY(node.id) ?? originY + layoutNodeHeight(node) / 2;
+    const desiredCenters = new Map<NodeId, number>();
+    for (const node of column) {
+      desiredCenters.set(node.id, getDesiredCenter(node));
+    }
+
+    column.sort((a, b) => {
+      const desiredA = desiredCenters.get(a.id) ?? 0;
+      const desiredB = desiredCenters.get(b.id) ?? 0;
+      if (Math.abs(desiredA - desiredB) > 0.001) {
+        return desiredA - desiredB;
+      }
+      const initialPosA = initialPositions.get(a.id) ?? a.position.y;
+      const initialPosB = initialPositions.get(b.id) ?? b.position.y;
+      return initialPosA - initialPosB || a.id.localeCompare(b.id);
     });
+
     const relativeY: number[] = [];
     let cursor = 0;
     for (const node of column) {
@@ -385,7 +500,7 @@ export function autoLayoutGraph(
         0,
       ) / column.length;
     const desiredAverage =
-      desiredCenters.reduce((sum, center) => sum + center, 0) / desiredCenters.length;
+      column.reduce((sum, node) => sum + (desiredCenters.get(node.id) ?? 0), 0) / column.length;
     const offset = desiredAverage - actualAverage;
     column.forEach((node, index) => {
       const current = positions.get(node.id)!;
@@ -398,27 +513,15 @@ export function autoLayoutGraph(
   // column back across the graph.
   for (let pass = 0; pass < 2; pass += 1) {
     for (const [layer, column] of orderedColumns.slice(1)) {
-      placeColumnByNeighbors(column, (nodeId) =>
-        (incoming.get(nodeId) ?? []).filter(
-          (sourceId) => (layers.get(sourceId) ?? layer) < layer,
-        ),
-      );
+      placeColumn(column, (node) => forwardDesiredCenter(node, layer));
     }
     for (const [layer, column] of [...orderedColumns].reverse().slice(1)) {
-      placeColumnByNeighbors(column, (nodeId) =>
-        (outgoing.get(nodeId) ?? []).filter(
-          (targetId) => (layers.get(targetId) ?? layer) > layer,
-        ),
-      );
+      placeColumn(column, (node) => backwardDesiredCenter(node, layer));
     }
   }
   // Finish left-to-right so convergence nodes use the final positions of every incoming branch.
   for (const [layer, column] of orderedColumns.slice(1)) {
-    placeColumnByNeighbors(column, (nodeId) =>
-      (incoming.get(nodeId) ?? []).filter(
-        (sourceId) => (layers.get(sourceId) ?? layer) < layer,
-      ),
-    );
+    placeColumn(column, (node) => forwardDesiredCenter(node, layer));
   }
   const minimumY = Math.min(...layoutNodes.map((node) => positions.get(node.id)!.y));
   const verticalOffset = originY - minimumY;
@@ -760,7 +863,33 @@ export function prepareAIGraphChanges(
     node: afterById.get(nodeId)!,
     position,
   }));
-  const pending = new Set(addedNodeIds);
+  const getMinIncomingPortFraction = (nodeId: NodeId): number => {
+    const inEdges = after.edges.filter((e) => e.target === nodeId);
+    let minFraction = 0.5;
+    for (const edge of inEdges) {
+      const source = afterById.get(edge.source);
+      if (source && edge.sourceHandle) {
+        const ports = resolveNodePorts(source).ports.filter(
+          (p) => p.direction === 'output' && p.kind === 'execution',
+        );
+        if (ports.length > 1) {
+          const idx = ports.findIndex((p) => p.id === edge.sourceHandle);
+          if (idx !== -1) {
+            const fraction = (idx + 0.5) / ports.length;
+            if (fraction < minFraction) minFraction = fraction;
+          }
+        }
+      }
+    }
+    return minFraction;
+  };
+  const sortedAddedNodeIds = [...addedNodeIds].sort((a, b) => {
+    const fractionA = getMinIncomingPortFraction(a);
+    const fractionB = getMinIncomingPortFraction(b);
+    if (Math.abs(fractionA - fractionB) > 0.001) return fractionA - fractionB;
+    return a.localeCompare(b);
+  });
+  const pending = new Set(sortedAddedNodeIds);
   const horizontalGap = 280;
   const verticalGap = 170;
   const existingRight = Math.max(

@@ -284,4 +284,67 @@ describe('automatic graph layout', () => {
     );
     expect(replacement.position.x).toBeLessThan(1000);
   });
+
+  it('places branch true target above false target to prevent crossed wires', () => {
+    const branch = node('n_branch', StoryNodeType.Branch, 0, 0);
+    // Deliberately initialize false target with smaller Y than true target to test crossing elimination
+    const trueTarget = node('n_spotted', StoryNodeType.Dialogue, 100, 500);
+    const falseTarget = node('n_suspect', StoryNodeType.Dialogue, 100, 0);
+
+    const graph: EditorGraphState = {
+      nodes: [branch, trueTarget, falseTarget],
+      edges: [
+        { id: 'e_true', source: 'n_branch', sourceHandle: 'true', target: 'n_spotted', targetHandle: 'in' },
+        { id: 'e_false', source: 'n_branch', sourceHandle: 'false', target: 'n_suspect', targetHandle: 'in' },
+      ],
+    };
+
+    const result = autoLayoutGraph(graph);
+    const posSpotted = result.nodes.find((n) => n.id === 'n_spotted')!.position;
+    const posSuspect = result.nodes.find((n) => n.id === 'n_suspect')!.position;
+
+    expect(posSpotted.y).toBeLessThan(posSuspect.y);
+  });
+
+  it('places choice option targets in sequential vertical order to prevent crossed wires', () => {
+    const opt1Id = 'opt_first';
+    const opt2Id = 'opt_second';
+    const opt3Id = 'opt_third';
+    const choice: EditorGraphNode = {
+      id: 'n_choice',
+      type: StoryNodeType.Choice,
+      position: { x: 0, y: 0 },
+      data: {
+        prompt: { source: 'Choose' },
+        options: [
+          { id: opt1Id, text: { source: 'Option 1' } },
+          { id: opt2Id, text: { source: 'Option 2' } },
+          { id: opt3Id, text: { source: 'Option 3' } },
+        ],
+      },
+      definitionVersion: 1,
+      selected: false,
+    };
+    // Deliberately initialize in reverse vertical order
+    const target1 = node('n_target1', StoryNodeType.Dialogue, 100, 600);
+    const target2 = node('n_target2', StoryNodeType.Dialogue, 100, 300);
+    const target3 = node('n_target3', StoryNodeType.Dialogue, 100, 0);
+
+    const graph: EditorGraphState = {
+      nodes: [choice, target1, target2, target3],
+      edges: [
+        { id: 'e_opt1', source: 'n_choice', sourceHandle: opt1Id, target: 'n_target1', targetHandle: 'in' },
+        { id: 'e_opt2', source: 'n_choice', sourceHandle: opt2Id, target: 'n_target2', targetHandle: 'in' },
+        { id: 'e_opt3', source: 'n_choice', sourceHandle: opt3Id, target: 'n_target3', targetHandle: 'in' },
+      ],
+    };
+
+    const result = autoLayoutGraph(graph);
+    const y1 = result.nodes.find((n) => n.id === 'n_target1')!.position.y;
+    const y2 = result.nodes.find((n) => n.id === 'n_target2')!.position.y;
+    const y3 = result.nodes.find((n) => n.id === 'n_target3')!.position.y;
+
+    expect(y1).toBeLessThan(y2);
+    expect(y2).toBeLessThan(y3);
+  });
 });

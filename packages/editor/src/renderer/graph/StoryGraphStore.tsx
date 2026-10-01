@@ -73,6 +73,7 @@ import {
   type StorySourceDocument,
   type StoryLocalizationDocument,
   type PendingAIProposal,
+  type BlueprintLayoutRequest,
 } from '@story-blueprint/common';
 import type { ExternalWorkspaceFileChange, RecoveryCandidate } from '../../shared/electronApi';
 import {
@@ -1836,7 +1837,27 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         ),
       };
       const prepared = prepareAIGraphChanges(graph, proposalGraph);
-      const movedNodeIds = proposalGraph.nodes
+      const layoutRequestsToApply: readonly BlueprintLayoutRequest[] =
+        result.layoutRequests.length > 0
+          ? result.layoutRequests
+          : prepared.addedNodeIds.length > 0
+            ? [
+                {
+                  operationId: 'auto-layout-proposal',
+                  kind: 'layout-neighborhood' as const,
+                  graph:
+                    activeGraphId === 'root'
+                      ? ({ kind: 'root' } as const)
+                      : ({ kind: 'chapter', chapterId: activeGraphId } as const),
+                  nodeIds: prepared.addedNodeIds,
+                },
+              ]
+            : [];
+      const laidOutGraph =
+        layoutRequestsToApply.length > 0
+          ? applyBlueprintLayoutRequests(prepared.graph, layoutRequestsToApply)
+          : prepared.graph;
+      const movedNodeIds = laidOutGraph.nodes
         .filter((node) => {
           const before = graph.nodes.find((candidate) => candidate.id === node.id);
           return (
@@ -1872,8 +1893,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         setAIProposal({
           nonce: Date.now(),
           graph: {
-            nodes: prepared.graph.nodes.map((node) => ({ ...node, selected: false })),
-            edges: prepared.graph.edges.map((edge) => ({ ...edge, selected: false })),
+            nodes: laidOutGraph.nodes.map((node) => ({ ...node, selected: false })),
+            edges: laidOutGraph.edges.map((edge) => ({ ...edge, selected: false })),
           },
           transaction: structuredClone(transactionValue),
           origin: options.origin ?? 'ai',
@@ -1904,8 +1925,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
           ? aiProposal
           : undefined;
       const committedGraph = stagedProposal
-        ? applyAIProposalPositions(prepared.graph, stagedProposal.graph)
-        : prepared.graph;
+        ? applyAIProposalPositions(laidOutGraph, stagedProposal.graph)
+        : laidOutGraph;
       checkpoint(
         undefined,
         stagedProposal?.origin === 'ink-conversion'

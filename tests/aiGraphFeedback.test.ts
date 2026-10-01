@@ -112,4 +112,28 @@ describe('AI graph feedback', () => {
       y: 0,
     });
   });
+
+  it('places added branch targets with true target above false target', () => {
+    const branch = node('n_branch', StoryNodeType.Branch, 0, 0, {
+      condition: { source: 'true', bindings: {} },
+    });
+    const spotted = node('n_spotted', StoryNodeType.Dialogue, 9999, 9999, {
+      lines: [{ id: 'ln_spotted', textId: 't_spotted', text: { source: 'Spotted' } }],
+    });
+    const suspect = node('n_suspect', StoryNodeType.Dialogue, 9999, 9999, {
+      lines: [{ id: 'ln_suspect', textId: 't_suspect', text: { source: 'Suspect' } }],
+    });
+    const before: EditorGraphState = { nodes: [branch], edges: [] };
+    const after: EditorGraphState = {
+      nodes: [branch, suspect, spotted],
+      edges: [
+        { id: 'e_true', source: 'n_branch', sourceHandle: 'true', target: 'n_spotted', targetHandle: 'in' },
+        { id: 'e_false', source: 'n_branch', sourceHandle: 'false', target: 'n_suspect', targetHandle: 'in' },
+      ],
+    };
+    const result = prepareAIGraphChanges(before, after);
+    const spottedY = result.graph.nodes.find((n) => n.id === 'n_spotted')!.position.y;
+    const suspectY = result.graph.nodes.find((n) => n.id === 'n_suspect')!.position.y;
+    expect(spottedY).toBeLessThan(suspectY);
+  });
 });
