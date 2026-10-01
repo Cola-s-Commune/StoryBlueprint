@@ -2,15 +2,39 @@ import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AIInstructionsStatus } from '../shared/electronApi';
 
-export const AI_INSTRUCTIONS_VERSION = 8;
+export const AI_INSTRUCTIONS_VERSION = 9;
 export const MAX_AI_ATTACHMENT_BYTES = 512 * 1024;
 
 export const DEFAULT_AGENTS_ENTRY_TEMPLATE = `# Narrative Agent Guidelines (AGENTS.md)
 
 This project is an interactive narrative blueprint authored with **Story Blueprint** (a visual, node-based interactive narrative framework for games, interactive fiction, and visual novels).
 
-> ⚠️ **CRITICAL FRAMEWORK RULE FOR AI AGENTS**:
-> Before directly editing story logic, creating nodes, or executing MCP commands, you **MUST** read and strictly adhere to the framework specifications, node schemas, and mutation constraints defined in:
+---
+
+## 🛑 MANDATORY TWO-PHASE AUTHORING PROTOCOL (铁律：必须先给用户审核再 Apply)
+
+External AI agents MUST strictly execute story modifications in TWO distinct phases:
+
+### Phase 1: Propose & Review (禁止在此时直接 Apply)
+1. Read existing story context (\`story_read_context\` / \`story_search\`).
+2. Construct the planned changes and run \`story_dry_run_command\` in sandbox to verify graph compatibility.
+3. 🚫 **NEVER call \`story_apply_command\` in the same turn as \`story_dry_run_command\`!**
+4. After dry-run passes, **STOP calling tools immediately**.
+5. In your visible response to the human author, present a structured preview:
+   - **大纲与剧情设计** (Narrative summary and dramatic intent)
+   - **新增/修改节点与台词** (Detailed list of nodes, speakers, and exact dialogue/narration lines)
+   - **分支与逻辑连线** (Choice options, branches, variable mutations, and graph links)
+6. Ask the user: *"请您核对上述剧情大纲与台词设计，确认满意后我将为您正式写入故事文件。"*
+
+### Phase 2: Commit (仅在获得用户确认后)
+1. Only AFTER the human author explicitly replies with approval (e.g. "确认", "应用", "可以", "Proceed"), you may proceed.
+2. In the new turn, call \`story_apply_command\` with \`{ userConfirmed: true }\` to atomically commit the changes.
+3. Run \`story_compile\` to verify final compilation status.
+
+---
+
+> ⚠️ **FULL FRAMEWORK SPECIFICATION & NODE SCHEMAS**:
+> For detailed node schemas, IDs, variable dual-track rules, and operations:
 > 👉 **[STORY_BLUEPRINT_AI.md](./STORY_BLUEPRINT_AI.md)**
 
 ---
@@ -32,7 +56,7 @@ This project is an interactive narrative blueprint authored with **Story Bluepri
 - **Hard Constraints**: (Taboos, plot rules, timeline rules that must never be broken)
 `;
 
-export const DEFAULT_FRAMEWORK_AI_INSTRUCTIONS = `<!-- story-blueprint-ai-version: 8 -->
+export const DEFAULT_FRAMEWORK_AI_INSTRUCTIONS = `<!-- story-blueprint-ai-version: 9 -->
 # Story Blueprint Framework Specifications (STORY_BLUEPRINT_AI.md)
 
 This specification defines the core mental model, constraints, node schemas, and MCP collaboration workflows for Story Blueprint.
@@ -248,13 +272,15 @@ The following valid transaction demonstrates declaring a new variable (\`heist_h
    - Call \`story_search\` to check existing line keywords or plot beats.
 2. **Step 2: Plan & Outline**:
    - Draft branch logic, options, and consequences before formulating operations.
-3. **Step 3: Sandbox Validation & Human Review (Mandatory Protocol)**:
+3. **Step 3: Sandbox Validation & Editor Proposal (Human-in-the-Loop Protocol)**:
    - Call \`story_dry_run_command\` with the prepared transaction to catch connectivity, dangling nodes, or schema issues.
    - 🛑 **MANDATORY HUMAN REVIEW PROTOCOL**:
-     - **Do NOT** call \`story_apply_command\` immediately after dry-run.
-     - You **MUST** first present your planned changes (outline, narrative summary, newly written dialogue lines, choice options, and branch connections) to the user.
-     - Wait for the user's explicit confirmation or review feedback before applying.
-   - Once confirmed by the user, call \`story_apply_command\` to atomically commit the changes to disk (a \`.bak\` backup will be created automatically).
+     - **Do NOT** assume changes take effect on disk without author confirmation.
+     - You **MUST** first present your planned changes (outline, narrative summary, newly written dialogue lines, choice options, and branch connections) to the user in chat.
+     - Wait for the user's explicit confirmation or review feedback.
+   - Once confirmed by the user in dialogue, call \`story_apply_command\` with \`{ userConfirmed: true }\`:
+     - **Default Editor Review Mode** (when "允许 AI 自己 apply" is off): The transaction is validated and staged as a pending visual proposal in the Story Blueprint editor. The human author sees the changes highlighted in green on the canvas graph and clicks **[Apply]** in the editor toolbar to commit the changes to the story file (or **[Discard]** to reject).
+     - **Direct Auto-Apply Mode** (when "允许 AI 自己 apply" is enabled by the author in Editor Preferences > 实验性与协作设置): The server directly commits the changes to the \`.story\` file on disk with an automatic \`.bak\` backup.
 4. **Step 4: Verify**:
    - Call \`story_compile\` to verify narrative flow, port compatibility, and compile diagnostics.
 `;

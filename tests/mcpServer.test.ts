@@ -401,24 +401,67 @@ describe('StoryBlueprint MCP Server', () => {
       ],
     };
 
+    // 1. Missing userConfirmed is blocked by gatekeeper
     await server.handleMessage({
       jsonrpc: '2.0',
-      id: 9,
+      id: 8,
       method: 'tools/call',
       params: {
         name: 'story_apply_command',
         arguments: { storyPath, command, createBackup: true },
       },
     });
+    const blockedResult = sentResponse as CallToolResult;
+    expect(blockedResult.isError).toBe(true);
+    expect(blockedResult.content[0]?.text).toContain('Review Gatekeeper Blocked');
 
-    const toolResult = sentResponse as CallToolResult;
-    expect(toolResult.isError).toBeFalsy();
-    expect(toolResult.content[0]?.text).toContain('Successfully Applied Changes to Story');
+    // 2. Default: autoApply is off, so it stages as a pending proposal for editor review
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 9,
+      method: 'tools/call',
+      params: {
+        name: 'story_apply_command',
+        arguments: { storyPath, command, createBackup: true, userConfirmed: true },
+      },
+    });
+
+    const stagedResult = sentResponse as CallToolResult;
+    expect(stagedResult.isError).toBeFalsy();
+    expect(stagedResult.content[0]?.text).toContain('Staged for Author Review in Editor');
+    const pendingProposalPath = path.join(tmpDir, '.storyblueprint', 'pending_proposal.json');
+    expect(fs.existsSync(pendingProposalPath)).toBe(true);
+    // Story file is not modified on disk yet
+    expect(fs.readFileSync(storyPath, 'utf-8')).not.toContain('By order of the King!');
+
+    // 3. When allowAiAutoApply is enabled in workspace settings, it directly applies to disk
+    const settingsDir = path.join(tmpDir, '.storyblueprint');
+    fs.mkdirSync(settingsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(settingsDir, 'settings.json'),
+      JSON.stringify({ allowAiAutoApply: true }),
+      'utf-8',
+    );
+
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'tools/call',
+      params: {
+        name: 'story_apply_command',
+        arguments: { storyPath, command, createBackup: true, userConfirmed: true },
+      },
+    });
+
+    const autoApplyResult = sentResponse as CallToolResult;
+    expect(autoApplyResult.isError).toBeFalsy();
+    expect(autoApplyResult.content[0]?.text).toContain('Successfully Applied Changes to Story');
     expect(fs.existsSync(`${storyPath}.bak`)).toBe(true);
 
-    // Verify the file on disk was updated
+    // Verify the file on disk was updated and pending proposal was cleaned up
     const updatedContent = fs.readFileSync(storyPath, 'utf-8');
     expect(updatedContent).toContain('By order of the King!');
+    expect(fs.existsSync(pendingProposalPath)).toBe(false);
   });
 
   it('lists and retrieves prompts', async () => {
@@ -627,6 +670,21 @@ describe('StoryBlueprint MCP Server', () => {
         text: { source: 'Rain pours relentlessly onto the muddy cobblestones.' },
       },
     });
+    // Add Branch node with true and false branches
+    story.root.nodes.push({
+      id: 'n_branch_1',
+      type: StoryNodeType.Branch,
+      definitionVersion: 1,
+      position: { x: 300, y: 100 },
+      data: {
+        condition: { source: 'alert_level >= 2' },
+      },
+    });
+    story.root.edges.push(
+      { from: { nodeId: 'n_branch_1', portId: 'true' }, to: { nodeId: 'n_end_1', portId: 'in' } },
+      { from: { nodeId: 'n_branch_1', portId: 'false' }, to: { nodeId: 'n_dialogue_1', portId: 'in' } },
+    );
+
     const storyPath = path.join(tmpDir, 'narration_test.story');
     fs.writeFileSync(storyPath, serializeStorySource(story), 'utf-8');
 
@@ -648,7 +706,7 @@ describe('StoryBlueprint MCP Server', () => {
     expect(searchRes.content[0]?.text).toContain('[Narration in Node `n_narration_1`]');
     expect(searchRes.content[0]?.text).toContain('cobblestones');
 
-    // 2. Export Ink with narration
+    // 2. Export Ink with narration and branch true/false ports
     await server.handleMessage({
       jsonrpc: '2.0',
       id: 41,
@@ -663,6 +721,10 @@ describe('StoryBlueprint MCP Server', () => {
     const inkRes = sentResponse as CallToolResult;
     expect(inkRes.isError).toBeFalsy();
     expect(inkRes.content[0]?.text).toContain('Rain pours relentlessly onto the muddy cobblestones.');
+    expect(inkRes.content[0]?.text).toContain('{ alert_level >= 2:');
+    expect(inkRes.content[0]?.text).toContain('-> n_end_1');
+    expect(inkRes.content[0]?.text).toContain('- else:');
+    expect(inkRes.content[0]?.text).toContain('-> n_dialogue_1');
   });
 
   it('supports lenient input shapes for remove-node, update-node and surfaces review prompt in dry-run', async () => {

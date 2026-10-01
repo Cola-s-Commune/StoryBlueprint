@@ -29,22 +29,27 @@ describe('EditorSettings', () => {
     (globalThis as unknown as { window: unknown }).window = originalWindow;
   });
 
-  it('defaults experimental.aiCommands to true', () => {
+  it('defaults experimental.aiCommands to true and allowAiAutoApply to false', () => {
     expect(DEFAULT_EDITOR_SETTINGS.experimental.aiCommands).toBe(true);
+    expect(DEFAULT_EDITOR_SETTINGS.experimental.allowAiAutoApply).toBe(false);
     expect(loadEditorSettings().experimental.aiCommands).toBe(true);
+    expect(loadEditorSettings().experimental.allowAiAutoApply).toBe(false);
   });
 
   it('persists and loads settings from localStorage', () => {
     const custom: EditorSettings = {
       experimental: {
         aiCommands: false,
+        allowAiAutoApply: true,
       },
     };
     saveEditorSettings(custom);
     expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"aiCommands":false');
+    expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"allowAiAutoApply":true');
 
     const loaded = loadEditorSettings();
     expect(loaded.experimental.aiCommands).toBe(false);
+    expect(loaded.experimental.allowAiAutoApply).toBe(true);
   });
 
   it('handles malformed localStorage safely without throwing', () => {

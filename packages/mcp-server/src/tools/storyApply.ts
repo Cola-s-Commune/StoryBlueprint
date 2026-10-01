@@ -9,6 +9,10 @@ import {
   extractCompactActionsFromMarkdown,
   createStorySemanticSnapshot,
   type BlueprintCommandTransaction,
+  type StoryBlueprintWorkspaceSettings,
+  type PendingAIProposal,
+  WORKSPACE_SETTINGS_RELATIVE_PATH,
+  PENDING_PROPOSAL_RELATIVE_PATH,
 } from '@story-blueprint/common';
 import { relativeVariableOverwriteOperations } from './variableValidation';
 import type { ToolDefinition } from '../protocol/mcpTypes';
@@ -16,7 +20,7 @@ import type { ToolDefinition } from '../protocol/mcpTypes';
 export const storyApplyTool: ToolDefinition = {
   name: 'story_apply_command',
   description:
-    'Atomically applies a validated Blueprint Command transaction to a .story file. Performs sandbox dry-run validation first, creates a backup, and persists the modified story to disk.',
+    'Atomically applies a validated Blueprint Command transaction to a .story file. If the editor setting "allowAiAutoApply" is off (the default), changes are staged as a pending proposal in the editor for the human author to review and click [Apply]. When "allowAiAutoApply" is enabled, changes are directly committed to disk.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -37,8 +41,18 @@ export const storyApplyTool: ToolDefinition = {
         type: 'boolean',
         description: 'Whether to create a backup file (.bak) before saving (default: true)',
       },
+      userConfirmed: {
+        type: 'boolean',
+        description:
+          'Mandatory human review confirmation flag. Must be set to true. Confirms that you have presented the planned outline, dialogue lines, choices, and graph structure to the human author in a previous turn and received their explicit approval to apply.',
+      },
+      autoApply: {
+        type: 'boolean',
+        description:
+          'Request direct apply to disk without staging in editor (only takes effect if permitted by workspace setting "allowAiAutoApply").',
+      },
     },
-    required: ['storyPath', 'command'],
+    required: ['storyPath', 'command', 'userConfirmed'],
   },
 };
 
@@ -47,12 +61,61 @@ export interface ApplyCommandArgs {
   command: unknown;
   intent?: string;
   createBackup?: boolean;
+  userConfirmed?: boolean;
+  autoApply?: boolean;
+}
+
+export function findWorkspaceRoot(storyFilePath: string): string {
+  let current = path.dirname(path.resolve(process.cwd(), storyFilePath));
+  for (let depth = 0; depth < 5; depth++) {
+    try {
+      const entries = fs.readdirSync(current, { withFileTypes: true });
+      const hasProject = entries.some(
+        (e) => e.isFile() && (e.name.endsWith('.storyproject') || e.name === 'story.project.kdl'),
+      );
+      const hasConfig = entries.some((e) => e.isDirectory() && e.name === '.storyblueprint');
+      if (hasProject || hasConfig) {
+        return current;
+      }
+    } catch {
+      break;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return path.dirname(path.resolve(process.cwd(), storyFilePath));
+}
+
+export function readWorkspaceSettings(workspaceRoot: string): StoryBlueprintWorkspaceSettings {
+  try {
+    const settingsPath = path.join(workspaceRoot, WORKSPACE_SETTINGS_RELATIVE_PATH);
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8');
+      return JSON.parse(raw) as StoryBlueprintWorkspaceSettings;
+    }
+  } catch {
+    // fallback
+  }
+  return { allowAiAutoApply: false };
 }
 
 export function handleStoryApply(args: ApplyCommandArgs): {
   success: boolean;
   content: string;
 } {
+  if (args.userConfirmed !== true) {
+    return {
+      success: false,
+      content:
+        `🛑 Review Gatekeeper Blocked: "userConfirmed" is missing or false.\n\n` +
+        `StoryBlueprint protocol strictly requires human author approval before modifying files on disk.\n` +
+        `1. You must first present your planned narrative design, detailed dialogue lines, choices, and graph links to the user in your response text.\n` +
+        `2. Ask the user for confirmation and STOP calling tools.\n` +
+        `3. Only after the user confirms in their next reply, call story_apply_command with { userConfirmed: true }.`,
+    };
+  }
+
   const resolvedPath = path.resolve(process.cwd(), args.storyPath);
   if (!fs.existsSync(resolvedPath)) {
     return {
@@ -147,6 +210,47 @@ export function handleStoryApply(args: ApplyCommandArgs): {
       };
     }
 
+    const workspaceRoot = findWorkspaceRoot(resolvedPath);
+    const workspaceSettings = readWorkspaceSettings(workspaceRoot);
+    const canAutoApply = workspaceSettings.allowAiAutoApply === true;
+    const tx = transaction as BlueprintCommandTransaction;
+
+    // When auto-apply is disabled in editor settings (default), stage proposal for human author review
+    if (!canAutoApply) {
+      const proposalId = `prop_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const pendingProposal: PendingAIProposal = {
+        id: proposalId,
+        storyPath: args.storyPath,
+        targetFilePath: resolvedPath,
+        command: transaction,
+        intent: args.intent,
+        createdAt: new Date().toISOString(),
+      };
+
+      const pendingDir = path.join(workspaceRoot, '.storyblueprint');
+      if (!fs.existsSync(pendingDir)) {
+        fs.mkdirSync(pendingDir, { recursive: true });
+      }
+      const pendingPath = path.join(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
+      fs.writeFileSync(pendingPath, JSON.stringify(pendingProposal, null, 2), 'utf-8');
+
+      return {
+        success: true,
+        content: [
+          `# 📋 Staged for Author Review in Editor!`,
+          `- **File**: \`${resolvedPath}\``,
+          `- **Revision**: \`${snapshot.revision}\``,
+          `- **Operations Staged**: ${tx.operations?.length ?? 0}`,
+          `- **Editor Mode**: Manual Review (Editor switch "允许 AI 自己 apply" is off)`,
+          ``,
+          `> **Action Required**: The changes have been validated and staged as a pending proposal in the Story Blueprint editor.`,
+          `> The human author will see the changes highlighted on canvas and can click **[Apply]** in the editor toolbar to commit them, or **[Discard]** to reject.`,
+          ``,
+          `*(Tip: To enable direct file writes without manual Apply button confirmation in the editor, turn on "允许 AI 自己 apply" in Editor Preferences).*`,
+        ].join('\n'),
+      };
+    }
+
     // Execute commit
     const commitResult = executeBlueprintCommandTransaction(source, transaction, { dryRun: false });
     if (!commitResult.ok || !commitResult.document) {
@@ -168,10 +272,19 @@ export function handleStoryApply(args: ApplyCommandArgs): {
     const newKdl = serializeStorySource(commitResult.document);
     fs.writeFileSync(resolvedPath, newKdl, 'utf-8');
 
+    // Clean up any pending proposal file if it matches this story
+    try {
+      const pendingPath = path.join(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
+      if (fs.existsSync(pendingPath)) {
+        fs.unlinkSync(pendingPath);
+      }
+    } catch {
+      // ignore
+    }
+
     // Re-parse from persisted KDL to guarantee identical revision with subsequent read operations
     const persistedSource = parseStorySource(newKdl);
     const updatedSnapshot = createStorySemanticSnapshot(persistedSource);
-    const tx = transaction as BlueprintCommandTransaction;
 
     return {
       success: true,

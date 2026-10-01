@@ -72,6 +72,7 @@ import {
   type StoryId,
   type StorySourceDocument,
   type StoryLocalizationDocument,
+  type PendingAIProposal,
 } from '@story-blueprint/common';
 import type { ExternalWorkspaceFileChange, RecoveryCandidate } from '../../shared/electronApi';
 import {
@@ -1673,6 +1674,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       return undefined;
     });
+    if (window.electronAPI?.clearPendingAIProposal) {
+      void window.electronAPI.clearPendingAIProposal();
+    }
   }, []);
   const dismissInkImportReport = useCallback(() => setInkImportReport(undefined), []);
   const updateAIProposalNodes = useCallback<OnNodesChange<EditorGraphNode>>((changes) => {
@@ -1972,13 +1976,14 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     ],
   );
 
-  const applyAIProposal = useCallback(
-    () =>
-      aiProposal
-        ? executeBlueprintCommands(aiProposal.transaction, { origin: aiProposal.origin })
-        : undefined,
-    [aiProposal, executeBlueprintCommands],
-  );
+  const applyAIProposal = useCallback(() => {
+    if (!aiProposal) return undefined;
+    const result = executeBlueprintCommands(aiProposal.transaction, { origin: aiProposal.origin });
+    if (window.electronAPI?.clearPendingAIProposal) {
+      void window.electronAPI.clearPendingAIProposal();
+    }
+    return result;
+  }, [aiProposal, executeBlueprintCommands]);
 
   const importInkFile = useCallback(async () => {
     if (!hasActiveStory || !window.electronAPI) return;
@@ -5562,6 +5567,35 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     },
     [absoluteWorkspacePath, currentStoryItems, externalFileChanges, loadStory, storyItemToSource],
   );
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api || !api.onPendingAIProposalChanged) return;
+
+    const handleProposal = (proposal: PendingAIProposal | null) => {
+      if (!proposal) return;
+      const currentPath = document.filePath?.toLowerCase().replace(/\\/g, '/');
+      const targetPath = proposal.targetFilePath?.toLowerCase().replace(/\\/g, '/');
+      const relPath = proposal.storyPath?.toLowerCase().replace(/\\/g, '/');
+
+      const isMatch =
+        Boolean(currentPath && targetPath && currentPath === targetPath) ||
+        Boolean(currentPath && relPath && (currentPath.endsWith(relPath) || relPath.endsWith(currentPath)));
+
+      if (isMatch && proposal.command) {
+        executeBlueprintCommands(proposal.command as BlueprintCommandTransaction, {
+          stage: true,
+          origin: 'ai-command',
+        });
+      }
+    };
+
+    void api.getPendingAIProposal().then((proposal) => {
+      if (proposal) handleProposal(proposal);
+    });
+
+    return api.onPendingAIProposalChanged(handleProposal);
+  }, [document.filePath, executeBlueprintCommands]);
 
   useEffect(() => {
     const api = window.electronAPI;

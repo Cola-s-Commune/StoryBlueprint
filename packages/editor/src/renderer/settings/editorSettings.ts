@@ -1,12 +1,14 @@
 export interface EditorSettings {
   experimental: {
     aiCommands: boolean;
+    allowAiAutoApply?: boolean;
   };
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   experimental: {
     aiCommands: true,
+    allowAiAutoApply: false,
   },
 };
 
@@ -26,6 +28,10 @@ export function loadEditorSettings(): EditorSettings {
           parsed.experimental?.aiCommands !== undefined
             ? Boolean(parsed.experimental.aiCommands)
             : DEFAULT_EDITOR_SETTINGS.experimental.aiCommands,
+        allowAiAutoApply:
+          parsed.experimental?.allowAiAutoApply !== undefined
+            ? Boolean(parsed.experimental.allowAiAutoApply)
+            : DEFAULT_EDITOR_SETTINGS.experimental.allowAiAutoApply,
       },
     };
   } catch {

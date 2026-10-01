@@ -7,6 +7,7 @@ import {
   type DialogueNodeData,
   type NarrationNodeData,
   type ChoiceNodeData,
+  type BranchNodeData,
 } from '@story-blueprint/common';
 import type { ToolDefinition } from '../protocol/mcpTypes';
 
@@ -123,6 +124,24 @@ export function handleStoryExportInk(args: ExportInkArgs): {
               lines.push(`* [${opt.text?.source || ''}]${divert}`);
             }
           }
+        } else if (node.type === StoryNodeType.Branch) {
+          const data = node.data as BranchNodeData;
+          const outgoing = connectionsByFrom.get(node.id) ?? [];
+          const trueConn = outgoing.find((c) => c.fromPort === 'true');
+          const falseConn = outgoing.find((c) => c.fromPort === 'false');
+          const condExpr = data.condition?.source || 'true';
+
+          lines.push(`{ ${condExpr}:`);
+          if (trueConn) {
+            lines.push(`    -> ${trueConn.toNode}`);
+          } else {
+            lines.push(`    -> END`);
+          }
+          if (falseConn) {
+            lines.push(`- else:`);
+            lines.push(`    -> ${falseConn.toNode}`);
+          }
+          lines.push(`}`);
         } else {
           // Normal linear outgoing connection
           const outgoing = connectionsByFrom.get(node.id) ?? [];

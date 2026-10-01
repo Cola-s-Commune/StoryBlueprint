@@ -337,3 +337,10 @@ export {
   type CompiledStoryProgram,
   type CompiledStoryProject,
 } from './types/compiledProject';
+
+export {
+  type StoryBlueprintWorkspaceSettings,
+  type PendingAIProposal,
+  WORKSPACE_SETTINGS_RELATIVE_PATH,
+  PENDING_PROPOSAL_RELATIVE_PATH,
+} from './ai/workspaceSettings';

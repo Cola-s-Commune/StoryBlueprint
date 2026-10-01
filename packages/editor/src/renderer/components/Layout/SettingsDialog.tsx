@@ -19,6 +19,28 @@ export function SettingsDialog({ onClose, onResetLayout }: SettingsDialogProps) 
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    if (window.electronAPI?.getWorkspaceAISettings) {
+      window.electronAPI
+        .getWorkspaceAISettings()
+        .then((workspaceSettings) => {
+          if (
+            workspaceSettings?.allowAiAutoApply !== undefined &&
+            workspaceSettings.allowAiAutoApply !== settings.experimental.allowAiAutoApply
+          ) {
+            updateSettings((prev) => ({
+              ...prev,
+              experimental: {
+                ...prev.experimental,
+                allowAiAutoApply: workspaceSettings.allowAiAutoApply,
+              },
+            }));
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, [settings.experimental.allowAiAutoApply, updateSettings]);
+
   const toggleAiCommands = () => {
     updateSettings((prev) => ({
       ...prev,
@@ -27,6 +49,22 @@ export function SettingsDialog({ onClose, onResetLayout }: SettingsDialogProps) 
         aiCommands: !prev.experimental.aiCommands,
       },
     }));
+  };
+
+  const toggleAllowAiAutoApply = () => {
+    const nextValue = !settings.experimental.allowAiAutoApply;
+    updateSettings((prev) => ({
+      ...prev,
+      experimental: {
+        ...prev.experimental,
+        allowAiAutoApply: nextValue,
+      },
+    }));
+    if (window.electronAPI?.setWorkspaceAISettings) {
+      void window.electronAPI.setWorkspaceAISettings({
+        allowAiAutoApply: nextValue,
+      });
+    }
   };
 
   return (
@@ -111,6 +149,37 @@ export function SettingsDialog({ onClose, onResetLayout }: SettingsDialogProps) 
                   当前 8B / 14B
                   等本地及轻量模型的复杂结构理解能力仍在演进中，可能产生校验报错。推荐优先使用蓝图工具栏的「MCP」入口连接外部前沿大模型 Harness。
                 </div>
+              </div>
+
+              <div className={styles.featureCard}>
+                <div className={styles.featureCardHeader}>
+                  <div className={styles.featureTitleGroup}>
+                    <span className={styles.featureName}>允许 AI 自己 Apply (Allow AI Auto-Apply)</span>
+                    <span className={styles.betaBadge}>协作设置</span>
+                  </div>
+                  <label className={styles.switchLabel}>
+                    <span
+                      className={`${styles.switchStatus} ${
+                        settings.experimental.allowAiAutoApply ? styles.switchStatusActive : ''
+                      }`}
+                    >
+                      {settings.experimental.allowAiAutoApply ? '已开启' : '已关闭'}
+                    </span>
+                    <span className={styles.switch}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(settings.experimental.allowAiAutoApply)}
+                        onChange={toggleAllowAiAutoApply}
+                        aria-label="Toggle Allow AI Auto-Apply"
+                      />
+                      <span className={styles.slider} />
+                    </span>
+                  </label>
+                </div>
+
+                <p className={styles.featureDescription}>
+                  开启后，外部 AI 工具调用 <code>story_apply_command</code> 时将直接写入并保存至 <code>.story</code> 文件；关闭时（默认推荐），AI 的修改将作为待审提案暂存，需作者在画布上方点击「Apply」确认后方可合入。
+                </p>
               </div>
             </>
           )}

@@ -20,6 +20,7 @@ import {
   rename,
   stat,
   unlink,
+  rm,
   writeFile,
 } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
@@ -66,6 +67,10 @@ import {
   type StoryProjectDocument,
   type StorySourceDocument,
   type StoryLocalizationDocument,
+  type StoryBlueprintWorkspaceSettings,
+  type PendingAIProposal,
+  WORKSPACE_SETTINGS_RELATIVE_PATH,
+  PENDING_PROPOSAL_RELATIVE_PATH,
 } from '@story-blueprint/common';
 import { compileStory } from '@story-blueprint/compiler';
 import type {
@@ -192,6 +197,51 @@ const WORKSPACE_FILE_POLL_INTERVAL_MS = 1_500;
 const aiRequests = new Map<string, AbortController>();
 const canceledAIRequests = new Set<string>();
 let aiChatWriteQueue: Promise<void> = Promise.resolve();
+let lastPendingAIProposalHash: string | undefined;
+
+async function readWorkspaceAISettings(): Promise<StoryBlueprintWorkspaceSettings> {
+  if (!workspaceRoot) return { allowAiAutoApply: false };
+  const settingsFile = resolve(workspaceRoot, WORKSPACE_SETTINGS_RELATIVE_PATH);
+  try {
+    const raw = await readFile(settingsFile, 'utf8');
+    return JSON.parse(raw) as StoryBlueprintWorkspaceSettings;
+  } catch {
+    return { allowAiAutoApply: false };
+  }
+}
+
+async function writeWorkspaceAISettings(settings: StoryBlueprintWorkspaceSettings): Promise<void> {
+  if (!workspaceRoot) return;
+  const settingsFile = resolve(workspaceRoot, WORKSPACE_SETTINGS_RELATIVE_PATH);
+  await mkdir(dirname(settingsFile), { recursive: true });
+  await writeFile(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+async function readPendingAIProposal(): Promise<PendingAIProposal | null> {
+  if (!workspaceRoot) return null;
+  const proposalFile = resolve(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
+  try {
+    const raw = await readFile(proposalFile, 'utf8');
+    return JSON.parse(raw) as PendingAIProposal;
+  } catch {
+    return null;
+  }
+}
+
+async function clearPendingAIProposal(): Promise<void> {
+  if (!workspaceRoot) return;
+  const proposalFile = resolve(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
+  lastPendingAIProposalHash = undefined;
+  try {
+    await rm(proposalFile, { force: true });
+  } catch {
+    // Ignore error
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('workspace:pending-ai-proposal-changed', null);
+  }
+}
+
 type WindowZoomAction = 'in' | 'out' | 'reset';
 
 function errorLogFile(): string {
@@ -317,6 +367,23 @@ async function pollWorkspaceFiles(): Promise<void> {
     workspaceFileSnapshot = next;
     if (decision.changes.length > 0 && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('workspace:files-changed', decision.changes);
+    }
+    if (workspaceRoot && mainWindow && !mainWindow.isDestroyed()) {
+      const proposalFile = resolve(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
+      try {
+        const metadata = await stat(proposalFile);
+        const currentHash = `${metadata.size}:${metadata.mtimeMs}`;
+        if (currentHash !== lastPendingAIProposalHash) {
+          lastPendingAIProposalHash = currentHash;
+          const proposal = await readPendingAIProposal();
+          mainWindow.webContents.send('workspace:pending-ai-proposal-changed', proposal);
+        }
+      } catch {
+        if (lastPendingAIProposalHash !== undefined) {
+          lastPendingAIProposalHash = undefined;
+          mainWindow.webContents.send('workspace:pending-ai-proposal-changed', null);
+        }
+      }
     }
     workspaceFilePollFailures = 0;
   } catch {
@@ -2203,6 +2270,24 @@ function registerStoryFileHandlers(): void {
   ipcMain.handle('ai:get-instructions-status', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readAIInstructionsStatus(workspaceRoot);
+  });
+  ipcMain.handle('workspace:get-pending-ai-proposal', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return readPendingAIProposal();
+  });
+  ipcMain.handle('workspace:clear-pending-ai-proposal', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return clearPendingAIProposal();
+  });
+  ipcMain.handle('workspace:get-ai-settings', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    return readWorkspaceAISettings();
+  });
+  ipcMain.handle('workspace:set-ai-settings', async (event, value: unknown) => {
+    if (!isTrustedSender(event) || typeof value !== 'object' || value === null) {
+      throw new Error('Invalid workspace AI settings');
+    }
+    await writeWorkspaceAISettings(value as StoryBlueprintWorkspaceSettings);
   });
   ipcMain.handle('ai:sync-instructions', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');

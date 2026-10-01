@@ -2337,14 +2337,14 @@ export function StoryGraph() {
                     ? 'Ink Block conversion preview'
                     : aiProposal.origin === 'ink-import'
                       ? 'Ink import preview'
-                      : 'AI proposal preview'}
+                      : 'AI 提案预览 (AI proposal preview)'}
               </strong>
               <span>
                 {aiProposal.origin.startsWith('ink') && inkImportReport?.summary
                     ? inkImportReport.summary.mode === 'ink-block-fallback'
                       ? 'The complete Ink source will be preserved as one embedded Ink Block. It remains editable and runnable as Ink. Move the block, then Apply or Discard.'
                       : `${inkImportReport.summary.dialogueNodes} Dialogue · ${inkImportReport.summary.narrationNodes} Narration · ${inkImportReport.summary.choiceNodes} Choice · ${inkImportReport.summary.branchNodes} Branch · ${inkImportReport.summary.externalFunctionNodes ?? 0} External Function · ${inkImportReport.summary.variablesAdded} variables. Move nodes, then Apply or Discard.`
-                    : 'Move the green nodes, then Apply or Discard. Story is unchanged.'}
+                    : '移动绿色节点后点击「Apply」确认合入，或点击「Discard」放弃。原故事文件未受影响。(Move green nodes, then Apply or Discard. Story is unchanged.)'}
               </span>
             </div>
             <button type="button" onClick={() => void applyAIProposal()}>

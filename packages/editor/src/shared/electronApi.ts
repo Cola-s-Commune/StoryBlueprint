@@ -587,6 +587,13 @@ export interface ElectronAPI {
   setStoryDirty: (dirty: boolean) => void;
   onSaveBeforeClose: (listener: () => void) => () => void;
   finishClose: (saved: boolean) => void;
+  getPendingAIProposal: () => Promise<PendingAIProposal | null>;
+  clearPendingAIProposal: () => Promise<void>;
+  onPendingAIProposalChanged: (
+    listener: (proposal: PendingAIProposal | null) => void,
+  ) => () => void;
+  getWorkspaceAISettings: () => Promise<StoryBlueprintWorkspaceSettings>;
+  setWorkspaceAISettings: (settings: StoryBlueprintWorkspaceSettings) => Promise<void>;
 }
 import type {
   AssetSource,
@@ -598,4 +605,6 @@ import type {
   StoryProjectDocument,
   StoryLocalizationDocument,
   VariableDefinition,
+  PendingAIProposal,
+  StoryBlueprintWorkspaceSettings,
 } from '@story-blueprint/common';
