@@ -587,13 +587,16 @@ export interface ElectronAPI {
   setStoryDirty: (dirty: boolean) => void;
   onSaveBeforeClose: (listener: () => void) => () => void;
   finishClose: (saved: boolean) => void;
-  getPendingAIProposal: () => Promise<PendingAIProposal | null>;
-  clearPendingAIProposal: () => Promise<void>;
+  getPendingAIProposal: (storyFilePath?: string) => Promise<PendingAIProposal | null>;
+  clearPendingAIProposal: (storyFilePath?: string) => Promise<void>;
   onPendingAIProposalChanged: (
     listener: (proposal: PendingAIProposal | null) => void,
   ) => () => void;
-  getWorkspaceAISettings: () => Promise<StoryBlueprintWorkspaceSettings>;
-  setWorkspaceAISettings: (settings: StoryBlueprintWorkspaceSettings) => Promise<void>;
+  getWorkspaceAISettings: (storyFilePath?: string) => Promise<StoryBlueprintWorkspaceSettings>;
+  setWorkspaceAISettings: (
+    settings: StoryBlueprintWorkspaceSettings,
+    storyFilePath?: string,
+  ) => Promise<void>;
 }
 import type {
   AssetSource,

@@ -153,17 +153,20 @@ const electronAPI = {
     return () => ipcRenderer.removeListener('app:save-before-close', handler);
   },
   finishClose: (saved) => ipcRenderer.send('app:finish-close', saved),
-  getPendingAIProposal: () => ipcRenderer.invoke('workspace:get-pending-ai-proposal'),
-  clearPendingAIProposal: () => ipcRenderer.invoke('workspace:clear-pending-ai-proposal'),
+  getPendingAIProposal: (storyFilePath?: string) =>
+    ipcRenderer.invoke('workspace:get-pending-ai-proposal', storyFilePath),
+  clearPendingAIProposal: (storyFilePath?: string) =>
+    ipcRenderer.invoke('workspace:clear-pending-ai-proposal', storyFilePath),
   onPendingAIProposalChanged: (listener) => {
     const handler = (_event: IpcRendererEvent, proposal: Parameters<typeof listener>[0]) =>
       listener(proposal);
     ipcRenderer.on('workspace:pending-ai-proposal-changed', handler);
     return () => ipcRenderer.removeListener('workspace:pending-ai-proposal-changed', handler);
   },
-  getWorkspaceAISettings: () => ipcRenderer.invoke('workspace:get-ai-settings'),
-  setWorkspaceAISettings: (settings) =>
-    ipcRenderer.invoke('workspace:set-ai-settings', settings),
+  getWorkspaceAISettings: (storyFilePath?: string) =>
+    ipcRenderer.invoke('workspace:get-ai-settings', storyFilePath),
+  setWorkspaceAISettings: (settings, storyFilePath?: string) =>
+    ipcRenderer.invoke('workspace:set-ai-settings', settings, storyFilePath),
 } satisfies ElectronAPI;
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

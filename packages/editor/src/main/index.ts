@@ -23,6 +23,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -199,46 +200,148 @@ const canceledAIRequests = new Set<string>();
 let aiChatWriteQueue: Promise<void> = Promise.resolve();
 let lastPendingAIProposalHash: string | undefined;
 
-async function readWorkspaceAISettings(): Promise<StoryBlueprintWorkspaceSettings> {
-  if (!workspaceRoot) return { allowAiAutoApply: false };
-  const settingsFile = resolve(workspaceRoot, WORKSPACE_SETTINGS_RELATIVE_PATH);
-  try {
-    const raw = await readFile(settingsFile, 'utf8');
-    return JSON.parse(raw) as StoryBlueprintWorkspaceSettings;
-  } catch {
-    return { allowAiAutoApply: false };
+function findWorkspaceRootForPath(storyFilePath: string): string {
+  let current = dirname(resolve(storyFilePath));
+  for (let depth = 0; depth < 6; depth++) {
+    try {
+      const entries = readdirSync(current, { withFileTypes: true });
+      const hasProject = entries.some(
+        (e) => e.isFile() && (e.name.endsWith('.storyproject') || e.name === 'story.project.kdl'),
+      );
+      const hasConfig = entries.some((e) => e.isDirectory() && e.name === '.storyblueprint');
+      if (hasProject || hasConfig) {
+        return current;
+      }
+    } catch {
+      break;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
   }
+  return dirname(resolve(storyFilePath));
 }
 
-async function writeWorkspaceAISettings(settings: StoryBlueprintWorkspaceSettings): Promise<void> {
-  if (!workspaceRoot) return;
-  const settingsFile = resolve(workspaceRoot, WORKSPACE_SETTINGS_RELATIVE_PATH);
+function resolveCandidateWorkspaceRoots(storyFilePath?: string): string[] {
+  const candidates = new Set<string>();
+  if (workspaceRoot) {
+    candidates.add(workspaceRoot);
+  }
+  if (storyFilePath && typeof storyFilePath === 'string') {
+    candidates.add(findWorkspaceRootForPath(storyFilePath));
+  }
+  for (const openedPath of storyFileTokens.keys()) {
+    candidates.add(findWorkspaceRootForPath(openedPath));
+  }
+  return Array.from(candidates);
+}
+
+async function readWorkspaceAISettings(storyFilePath?: string): Promise<StoryBlueprintWorkspaceSettings> {
+  const candidateRoots = resolveCandidateWorkspaceRoots(storyFilePath);
+  for (const root of candidateRoots) {
+    const settingsFile = resolve(root, WORKSPACE_SETTINGS_RELATIVE_PATH);
+    try {
+      const raw = await readFile(settingsFile, 'utf8');
+      return JSON.parse(raw) as StoryBlueprintWorkspaceSettings;
+    } catch {
+      // try next
+    }
+  }
+  return { allowAiAutoApply: false };
+}
+
+async function writeWorkspaceAISettings(
+  settings: StoryBlueprintWorkspaceSettings,
+  storyFilePath?: string,
+): Promise<void> {
+  const candidateRoots = resolveCandidateWorkspaceRoots(storyFilePath);
+  const targetRoot = candidateRoots[0];
+  if (!targetRoot) return;
+  const settingsFile = resolve(targetRoot, WORKSPACE_SETTINGS_RELATIVE_PATH);
   await mkdir(dirname(settingsFile), { recursive: true });
   await writeFile(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
 }
 
-async function readPendingAIProposal(): Promise<PendingAIProposal | null> {
-  if (!workspaceRoot) return null;
-  const proposalFile = resolve(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
-  try {
-    const raw = await readFile(proposalFile, 'utf8');
-    return JSON.parse(raw) as PendingAIProposal;
-  } catch {
-    return null;
+async function readPendingAIProposal(storyFilePath?: string): Promise<PendingAIProposal | null> {
+  const candidateRoots = resolveCandidateWorkspaceRoots(storyFilePath);
+  for (const root of candidateRoots) {
+    const proposalFile = resolve(root, PENDING_PROPOSAL_RELATIVE_PATH);
+    try {
+      const raw = await readFile(proposalFile, 'utf8');
+      const proposal = JSON.parse(raw) as PendingAIProposal;
+      if (storyFilePath) {
+        const normCurrent = storyFilePath.toLowerCase().replace(/\\/g, '/');
+        const normTarget = proposal.targetFilePath?.toLowerCase().replace(/\\/g, '/');
+        const normStory = proposal.storyPath?.toLowerCase().replace(/\\/g, '/');
+        const isMatch =
+          Boolean(
+            normTarget &&
+              (normCurrent === normTarget ||
+                normCurrent.endsWith(normTarget) ||
+                normTarget.endsWith(normCurrent)),
+          ) ||
+          Boolean(
+            normStory &&
+              (normCurrent === normStory ||
+                normCurrent.endsWith(normStory) ||
+                normStory.endsWith(normCurrent)),
+          );
+        if (!isMatch) {
+          continue;
+        }
+      }
+      return proposal;
+    } catch {
+      // try next
+    }
   }
+  return null;
 }
 
-async function clearPendingAIProposal(): Promise<void> {
-  if (!workspaceRoot) return;
-  const proposalFile = resolve(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
+async function clearPendingAIProposal(storyFilePath?: string): Promise<void> {
+  const candidateRoots = resolveCandidateWorkspaceRoots(storyFilePath);
   lastPendingAIProposalHash = undefined;
-  try {
-    await rm(proposalFile, { force: true });
-  } catch {
-    // Ignore error
+  for (const root of candidateRoots) {
+    const proposalFile = resolve(root, PENDING_PROPOSAL_RELATIVE_PATH);
+    try {
+      await rm(proposalFile, { force: true });
+    } catch {
+      // Ignore error
+    }
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('workspace:pending-ai-proposal-changed', null);
+  }
+}
+
+async function pollPendingAIProposal(): Promise<void> {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const candidateRoots = resolveCandidateWorkspaceRoots();
+  if (candidateRoots.length === 0) return;
+
+  for (const root of candidateRoots) {
+    const proposalFile = resolve(root, PENDING_PROPOSAL_RELATIVE_PATH);
+    try {
+      const metadata = await stat(proposalFile);
+      const currentHash = `${proposalFile}:${metadata.size}:${metadata.mtimeMs}`;
+      if (currentHash !== lastPendingAIProposalHash) {
+        lastPendingAIProposalHash = currentHash;
+        const proposal = await readPendingAIProposal();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('workspace:pending-ai-proposal-changed', proposal);
+        }
+      }
+      return;
+    } catch {
+      // try next
+    }
+  }
+
+  if (lastPendingAIProposalHash !== undefined) {
+    lastPendingAIProposalHash = undefined;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:pending-ai-proposal-changed', null);
+    }
   }
 }
 
@@ -368,23 +471,6 @@ async function pollWorkspaceFiles(): Promise<void> {
     if (decision.changes.length > 0 && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('workspace:files-changed', decision.changes);
     }
-    if (workspaceRoot && mainWindow && !mainWindow.isDestroyed()) {
-      const proposalFile = resolve(workspaceRoot, PENDING_PROPOSAL_RELATIVE_PATH);
-      try {
-        const metadata = await stat(proposalFile);
-        const currentHash = `${metadata.size}:${metadata.mtimeMs}`;
-        if (currentHash !== lastPendingAIProposalHash) {
-          lastPendingAIProposalHash = currentHash;
-          const proposal = await readPendingAIProposal();
-          mainWindow.webContents.send('workspace:pending-ai-proposal-changed', proposal);
-        }
-      } catch {
-        if (lastPendingAIProposalHash !== undefined) {
-          lastPendingAIProposalHash = undefined;
-          mainWindow.webContents.send('workspace:pending-ai-proposal-changed', null);
-        }
-      }
-    }
     workspaceFilePollFailures = 0;
   } catch {
     // Transient replacement writes are retried without replacing the last known snapshot.
@@ -430,7 +516,10 @@ function startWorkspaceGitPolling(): void {
 }
 
 function startWorkspaceFilePolling(): void {
-  const timer = setInterval(() => void pollWorkspaceFiles(), WORKSPACE_FILE_POLL_INTERVAL_MS);
+  const timer = setInterval(() => {
+    void pollWorkspaceFiles();
+    void pollPendingAIProposal();
+  }, WORKSPACE_FILE_POLL_INTERVAL_MS);
   timer.unref();
 }
 
@@ -2271,23 +2360,26 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readAIInstructionsStatus(workspaceRoot);
   });
-  ipcMain.handle('workspace:get-pending-ai-proposal', async (event) => {
+  ipcMain.handle('workspace:get-pending-ai-proposal', async (event, storyFilePath?: unknown) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
-    return readPendingAIProposal();
+    return readPendingAIProposal(typeof storyFilePath === 'string' ? storyFilePath : undefined);
   });
-  ipcMain.handle('workspace:clear-pending-ai-proposal', async (event) => {
+  ipcMain.handle('workspace:clear-pending-ai-proposal', async (event, storyFilePath?: unknown) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
-    return clearPendingAIProposal();
+    return clearPendingAIProposal(typeof storyFilePath === 'string' ? storyFilePath : undefined);
   });
-  ipcMain.handle('workspace:get-ai-settings', async (event) => {
+  ipcMain.handle('workspace:get-ai-settings', async (event, storyFilePath?: unknown) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
-    return readWorkspaceAISettings();
+    return readWorkspaceAISettings(typeof storyFilePath === 'string' ? storyFilePath : undefined);
   });
-  ipcMain.handle('workspace:set-ai-settings', async (event, value: unknown) => {
+  ipcMain.handle('workspace:set-ai-settings', async (event, value: unknown, storyFilePath?: unknown) => {
     if (!isTrustedSender(event) || typeof value !== 'object' || value === null) {
       throw new Error('Invalid workspace AI settings');
     }
-    await writeWorkspaceAISettings(value as StoryBlueprintWorkspaceSettings);
+    await writeWorkspaceAISettings(
+      value as StoryBlueprintWorkspaceSettings,
+      typeof storyFilePath === 'string' ? storyFilePath : undefined,
+    );
   });
   ipcMain.handle('ai:sync-instructions', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');

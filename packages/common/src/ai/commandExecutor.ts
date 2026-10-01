@@ -110,6 +110,7 @@ export interface BlueprintSemanticContext {
 
 export interface BlueprintTransactionOptions {
   dryRun?: boolean;
+  ignoreRevisionConflict?: boolean;
   /** Resolved project resources used for Revision, AI Snapshot, and cross-resource validation. */
   semanticContext?: BlueprintSemanticContext;
   /**
@@ -3033,7 +3034,12 @@ export function executeBlueprintCommandTransaction(
       };
     }
   }
-  if (transaction.baseRevision !== currentSnapshot.revision) {
+  const standaloneSnapshot = createStorySemanticSnapshot(source);
+  const revisionMatches =
+    options.ignoreRevisionConflict === true ||
+    transaction.baseRevision === currentSnapshot.revision ||
+    transaction.baseRevision === standaloneSnapshot.revision;
+  if (!revisionMatches) {
     return {
       ok: false,
       committed: false,

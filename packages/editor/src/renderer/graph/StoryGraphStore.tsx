@@ -1675,9 +1675,9 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       return undefined;
     });
     if (window.electronAPI?.clearPendingAIProposal) {
-      void window.electronAPI.clearPendingAIProposal();
+      void window.electronAPI.clearPendingAIProposal(document.filePath);
     }
-  }, []);
+  }, [document.filePath]);
   const dismissInkImportReport = useCallback(() => setInkImportReport(undefined), []);
   const updateAIProposalNodes = useCallback<OnNodesChange<EditorGraphNode>>((changes) => {
     const allowed = changes.filter(
@@ -1750,8 +1750,21 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         !options.dryRun && !options.stage
           ? appliedOperationLedgerRef.current.get(document.id)
           : undefined;
-      const result = executeBlueprintCommandTransaction(commandSource, transactionValue, {
+      const isStagingOrAICommit = Boolean(options.stage || options.origin === 'ai-command');
+      let transactionToExecute = transactionValue;
+      if (
+        isStagingOrAICommit &&
+        typeof transactionValue === 'object' &&
+        transactionValue !== null
+      ) {
+        transactionToExecute = {
+          ...(transactionValue as object),
+          baseRevision: semanticSnapshot.revision,
+        };
+      }
+      const result = executeBlueprintCommandTransaction(commandSource, transactionToExecute, {
         dryRun: options.dryRun,
+        ignoreRevisionConflict: isStagingOrAICommit,
         semanticContext: aiSemanticContext,
         appliedOperationIds,
       });
@@ -1973,6 +1986,7 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       source,
       workspace?.project,
       writeProjectVariables,
+      semanticSnapshot.revision,
     ],
   );
 
@@ -1980,10 +1994,10 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     if (!aiProposal) return undefined;
     const result = executeBlueprintCommands(aiProposal.transaction, { origin: aiProposal.origin });
     if (window.electronAPI?.clearPendingAIProposal) {
-      void window.electronAPI.clearPendingAIProposal();
+      void window.electronAPI.clearPendingAIProposal(document.filePath);
     }
     return result;
-  }, [aiProposal, executeBlueprintCommands]);
+  }, [aiProposal, executeBlueprintCommands, document.filePath]);
 
   const importInkFile = useCallback(async () => {
     if (!hasActiveStory || !window.electronAPI) return;
@@ -5573,24 +5587,41 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
     if (!api || !api.onPendingAIProposalChanged) return;
 
     const handleProposal = (proposal: PendingAIProposal | null) => {
-      if (!proposal) return;
+      if (!proposal) {
+        setAIProposal((current) => (current?.origin === 'ai-command' ? undefined : current));
+        return;
+      }
       const currentPath = document.filePath?.toLowerCase().replace(/\\/g, '/');
       const targetPath = proposal.targetFilePath?.toLowerCase().replace(/\\/g, '/');
       const relPath = proposal.storyPath?.toLowerCase().replace(/\\/g, '/');
 
       const isMatch =
-        Boolean(currentPath && targetPath && currentPath === targetPath) ||
-        Boolean(currentPath && relPath && (currentPath.endsWith(relPath) || relPath.endsWith(currentPath)));
+        Boolean(
+          currentPath &&
+            targetPath &&
+            (currentPath === targetPath ||
+              currentPath.endsWith(targetPath) ||
+              targetPath.endsWith(currentPath)),
+        ) ||
+        Boolean(
+          currentPath &&
+            relPath &&
+            (currentPath.endsWith(relPath) || relPath.endsWith(currentPath)),
+        ) ||
+        Boolean(!currentPath);
 
       if (isMatch && proposal.command) {
-        executeBlueprintCommands(proposal.command as BlueprintCommandTransaction, {
+        const result = executeBlueprintCommands(proposal.command as BlueprintCommandTransaction, {
           stage: true,
           origin: 'ai-command',
         });
+        if (!result.ok) {
+          console.warn('[AI Proposal] Staging proposal returned diagnostics:', result.diagnostics);
+        }
       }
     };
 
-    void api.getPendingAIProposal().then((proposal) => {
+    void api.getPendingAIProposal(document.filePath).then((proposal) => {
       if (proposal) handleProposal(proposal);
     });
 
