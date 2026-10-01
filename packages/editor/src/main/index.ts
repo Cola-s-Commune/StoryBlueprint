@@ -139,6 +139,7 @@ import {
   DEFAULT_PROJECT_AI_INSTRUCTIONS,
   readAIInstructionsStatus,
   readProjectAIInstructions,
+  syncProjectAIInstructions,
 } from './aiInstructions';
 import {
   canReuseWorkspaceFileFingerprint,
@@ -2203,6 +2204,11 @@ function registerStoryFileHandlers(): void {
     if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
     return readAIInstructionsStatus(workspaceRoot);
   });
+  ipcMain.handle('ai:sync-instructions', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+    if (!workspaceRoot) throw new Error('No workspace open');
+    return syncProjectAIInstructions(workspaceRoot);
+  });
   ipcMain.handle('ai:list-chat-sessions', async (event, scopeKey: unknown) => {
     if (
       !isTrustedSender(event) ||
@@ -3295,23 +3301,7 @@ If the source is too large, process it in explicit batches and report the covere
       : `${candidate.fileName}.storyproject`;
     workspaceProjectFile = join(workspaceRoot!, fileName);
     await writeFile(workspaceProjectFile, candidate.content, { encoding: 'utf8', flag: 'wx' });
-    const targetAgentsPath = join(workspaceRoot!, 'AGENTS.md');
-    const targetBlueprintAiPath = join(workspaceRoot!, 'STORY_BLUEPRINT_AI.md');
-    let targetAiFile = targetAgentsPath;
-    try {
-      const existing = await readFile(targetAgentsPath, 'utf8');
-      if (!existing.includes('Story Blueprint')) {
-        targetAiFile = targetBlueprintAiPath;
-      }
-    } catch {
-      targetAiFile = targetAgentsPath;
-    }
-    await writeFile(targetAiFile, DEFAULT_PROJECT_AI_INSTRUCTIONS, {
-      encoding: 'utf8',
-      flag: 'wx',
-    }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'EEXIST') throw error;
-    });
+    await syncProjectAIInstructions(workspaceRoot!);
     const initialStory = await createInitialStoryFile(workspaceRoot!);
     const synced = await syncWorkspaceProject();
     await writeFile(

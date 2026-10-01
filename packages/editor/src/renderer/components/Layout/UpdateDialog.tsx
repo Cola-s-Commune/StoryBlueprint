@@ -14,10 +14,10 @@ interface UpdateDialogProps {
 }
 
 const defaultSettings: UpdateSettings = {
-  enabled: false,
-  feedUrl: '',
+  enabled: true,
+  feedUrl: 'https://storyblueprint.biaozi.biz:8443/updates',
   channel: 'stable',
-  autoCheck: false,
+  autoCheck: true,
 };
 
 function resultMessage(result: UpdateCheckResult): string {
@@ -152,7 +152,7 @@ export function UpdateDialog({ currentVersion, initialResult, onClose }: UpdateD
           <input
             value={draft.feedUrl}
             onChange={(event) => setDraft((value) => ({ ...value, feedUrl: event.target.value }))}
-            placeholder="https://updates.example.com/story-blueprint/"
+            placeholder="https://storyblueprint.biaozi.biz:8443/updates"
             spellCheck={false}
             inputMode="url"
           />

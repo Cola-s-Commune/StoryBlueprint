@@ -49,6 +49,7 @@ import {
   type SlashMatchResult,
 } from './aiSlashCommands';
 import { CopyButton } from './CopyButton';
+import { FeedbackDialog, type FeedbackAIContext } from '../Layout/FeedbackDialog';
 import { processDroppedAIContextFiles } from '../../graph/aiAttachmentDrop';
 import panelStyles from './Panel.module.css';
 import styles from './AICommands.module.css';
@@ -769,6 +770,8 @@ export function AICommands() {
   const [providerDraft, setProviderDraft] = useState<AIProviderDraft>();
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [showProviderSettings, setShowProviderSettings] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackAIContext, setFeedbackAIContext] = useState<FeedbackAIContext>();
   const [providerError, setProviderError] = useState<string>();
   const [providerStatus, setProviderStatus] = useState<string>();
   const [modelReasoning, setModelReasoning] = useState<string>();
@@ -2013,8 +2016,33 @@ export function AICommands() {
             </strong>
             {instructionsStatus && (
               <span title={instructionsStatus.projectInstructionsPath}>
-                Rules v{instructionsStatus.builtInVersion} · Project AI{' '}
-                {instructionsStatus.projectInstructions}
+                Rules v{instructionsStatus.frameworkVersion ?? instructionsStatus.builtInVersion}
+                {instructionsStatus.needsUpdate ? (
+                  <button
+                    type="button"
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 11,
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      background: 'var(--color-primary, #3b82f6)',
+                      color: '#fff',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      void window.electronAPI
+                        ?.syncAIInstructions()
+                        .then((updated) => setInstructionsStatus(updated))
+                        .catch(() => undefined);
+                    }}
+                    title="升级框架 AI 规范 (STORY_BLUEPRINT_AI.md)，保留自定义 AGENTS.md"
+                  >
+                    升级至 v{instructionsStatus.builtInVersion}
+                  </button>
+                ) : (
+                  <> · Project AI {instructionsStatus.projectInstructions}</>
+                )}
               </span>
             )}
           </div>
@@ -2548,6 +2576,34 @@ export function AICommands() {
             </span>
             {errors && <CopyButton text={errors} label="Copy Result" />}
             {errors && <CopyButton text={retryContext} label="Copy Retry Context" />}
+            {errors && (
+              <button
+                type="button"
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  border: '1px solid #4b5969',
+                  background: '#2d3947',
+                  color: '#e7edf4',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                onClick={() => {
+                  setFeedbackAIContext({
+                    model: activeProvider?.model,
+                    errorMessage: errors.slice(0, 300),
+                    errorStack: errors,
+                  });
+                  setFeedbackOpen(true);
+                }}
+                title="将此 AI 报错直接反馈至 GitHub Issue"
+              >
+                <span>🐛</span> 反馈异常
+              </button>
+            )}
           </div>
 
           {diff && (
@@ -2645,6 +2701,16 @@ export function AICommands() {
             </div>
           )}
         </section>
+      )}
+      {feedbackOpen && (
+        <FeedbackDialog
+          initialCategory="ai_diagnostic"
+          aiContext={feedbackAIContext}
+          onClose={() => {
+            setFeedbackOpen(false);
+            setFeedbackAIContext(undefined);
+          }}
+        />
       )}
     </div>
   );

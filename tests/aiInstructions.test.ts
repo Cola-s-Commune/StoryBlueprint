@@ -2,11 +2,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import {
+  AI_INSTRUCTIONS_VERSION,
+  DEFAULT_AGENTS_ENTRY_TEMPLATE,
+  DEFAULT_FRAMEWORK_AI_INSTRUCTIONS,
   DEFAULT_PROJECT_AI_INSTRUCTIONS,
+  extractAIInstructionsVersion,
   findFileCaseInsensitive,
   readAIInstructionsStatus,
   readProjectAIInstructions,
+  syncProjectAIInstructions,
 } from '../packages/editor/src/main/aiInstructions';
 
 describe('aiInstructions', () => {
@@ -85,5 +91,58 @@ describe('aiInstructions', () => {
     await writeFile(join(dir, 'Agents.md'), '# Galgame Rules');
     status = await readAIInstructionsStatus(dir);
     expect(status.projectInstructions).toBe('loaded');
+  });
+
+  it('extracts framework version correctly from header comment', () => {
+    expect(extractAIInstructionsVersion('<!-- story-blueprint-ai-version: 8 -->\n# Specs')).toBe(8);
+    expect(extractAIInstructionsVersion('<!--story-blueprint-ai-version:12-->\n# Specs')).toBe(12);
+    expect(extractAIInstructionsVersion('# No version header')).toBeUndefined();
+  });
+
+  it('syncs project AI instructions by generating AGENTS.md and STORY_BLUEPRINT_AI.md', async () => {
+    const dir = await createTempDir();
+    const status = await syncProjectAIInstructions(dir);
+
+    expect(status.frameworkVersion).toBe(AI_INSTRUCTIONS_VERSION);
+    expect(status.needsUpdate).toBe(false);
+
+    // Verify AGENTS.md was created with reference to STORY_BLUEPRINT_AI.md
+    const agentsContent = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    expect(agentsContent).toContain('STORY_BLUEPRINT_AI.md');
+    expect(agentsContent).toContain('Project Narrative World & Persona');
+
+    // Verify STORY_BLUEPRINT_AI.md was created with version header
+    const frameworkContent = await readFile(join(dir, 'STORY_BLUEPRINT_AI.md'), 'utf8');
+    expect(frameworkContent).toContain(`<!-- story-blueprint-ai-version: ${AI_INSTRUCTIONS_VERSION} -->`);
+  });
+
+  it('updates outdated STORY_BLUEPRINT_AI.md while strictly preserving author custom AGENTS.md', async () => {
+    const dir = await createTempDir();
+
+    // User has custom AGENTS.md
+    const customUserStoryRules = '# My Epic Game Rules\nProtagonist is named Alex. Never kill him.';
+    await writeFile(join(dir, 'AGENTS.md'), customUserStoryRules);
+
+    // Outdated STORY_BLUEPRINT_AI.md (v2)
+    const outdatedFramework = '<!-- story-blueprint-ai-version: 2 -->\n# Old Framework Specs';
+    await writeFile(join(dir, 'STORY_BLUEPRINT_AI.md'), outdatedFramework);
+
+    // Verify status flags update requirement
+    const beforeStatus = await readAIInstructionsStatus(dir);
+    expect(beforeStatus.frameworkVersion).toBe(2);
+    expect(beforeStatus.needsUpdate).toBe(true);
+
+    // Perform sync
+    const afterStatus = await syncProjectAIInstructions(dir);
+    expect(afterStatus.frameworkVersion).toBe(AI_INSTRUCTIONS_VERSION);
+    expect(afterStatus.needsUpdate).toBe(false);
+
+    // Crucial check: User AGENTS.md is 100% UNTOUCHED
+    const agentsContent = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    expect(agentsContent).toBe(customUserStoryRules);
+
+    // Framework file was upgraded
+    const updatedFramework = await readFile(join(dir, 'STORY_BLUEPRINT_AI.md'), 'utf8');
+    expect(updatedFramework).toContain(`<!-- story-blueprint-ai-version: ${AI_INSTRUCTIONS_VERSION} -->`);
   });
 });

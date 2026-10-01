@@ -1,0 +1,161 @@
+.backdrop {
+  position: fixed;
+  z-index: 10001;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 58%);
+  -webkit-app-region: no-drag;
+}
+
+.dialog {
+  position: relative;
+  width: min(560px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 24px 28px 20px;
+  border: 1px solid #454b55;
+  border-radius: 8px;
+  background: #20242b;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 55%);
+  color: #e7edf4;
+}
+
+.dialog h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.subtitle {
+  color: #9faaba;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0 0 16px;
+}
+
+.dialog label {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  color: #aeb9c7;
+  font-size: 11px;
+}
+
+.dialog input:not([type='checkbox']),
+.dialog select,
+.dialog textarea {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #3d4652;
+  border-radius: 4px;
+  outline: none;
+  background: #171b20;
+  color: #e7edf4;
+  font: inherit;
+  font-size: 12px;
+}
+
+.dialog textarea {
+  resize: vertical;
+  min-height: 90px;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
+.dialog input:focus,
+.dialog select:focus,
+.dialog textarea:focus {
+  border-color: #6d9ed3;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.envBox {
+  margin: 14px 0 6px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #191c22;
+  border: 1px solid #2d3540;
+  font-size: 11px;
+  color: #8c98a9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.aiBox {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #27211e;
+  border: 1px solid #63432e;
+  font-size: 11px;
+  color: #dfb28e;
+}
+
+.aiBox pre {
+  margin: 4px 0 0;
+  font-size: 10px;
+  white-space: pre-wrap;
+  max-height: 70px;
+  overflow-y: auto;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.actions button {
+  padding: 7px 14px;
+  border: 1px solid #4b5969;
+  border-radius: 4px;
+  background: #2d3947;
+  color: #e7edf4;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.actions button:hover {
+  background: #394759;
+}
+
+.submitBtn {
+  background: #316dca !important;
+  border-color: #4a82d8 !important;
+  color: #ffffff !important;
+  font-weight: 500;
+}
+
+.submitBtn:hover {
+  background: #3a7ce0 !important;
+}
+
+.close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #8c98a9;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.close:hover {
+  background: rgb(255 255 255 / 10%);
+  color: #ffffff;
+}

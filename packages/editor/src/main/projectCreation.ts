@@ -8,9 +8,13 @@ import {
   type StoryProjectDocument,
 } from '@story-blueprint/common';
 import { createProjectGitignoreIfMissing } from './projectGitignore';
-import { DEFAULT_PROJECT_AI_INSTRUCTIONS } from './aiInstructions';
+import {
+  DEFAULT_AGENTS_ENTRY_TEMPLATE,
+  DEFAULT_FRAMEWORK_AI_INSTRUCTIONS,
+  DEFAULT_PROJECT_AI_INSTRUCTIONS,
+} from './aiInstructions';
 
-export { DEFAULT_PROJECT_AI_INSTRUCTIONS };
+export { DEFAULT_AGENTS_ENTRY_TEMPLATE, DEFAULT_FRAMEWORK_AI_INSTRUCTIONS, DEFAULT_PROJECT_AI_INSTRUCTIONS };
 
 export interface InitializedProjectDirectory {
   rootPath: string;
@@ -74,20 +78,18 @@ export async function initializeProjectDirectory(targetPath: string): Promise<In
   // 5. Create .gitignore if missing
   await createProjectGitignoreIfMissing(rootPath);
 
-  // 6. Create AGENTS.md (or fallback to STORY_BLUEPRINT_AI.md if external AGENTS.md exists)
-  const agentsPath = join(rootPath, 'AGENTS.md');
+  // 6. Create STORY_BLUEPRINT_AI.md (framework specs, auto-updatable)
   const blueprintAiPath = join(rootPath, 'STORY_BLUEPRINT_AI.md');
-  let targetAiFile = agentsPath;
-  try {
-    const existing = await readFile(agentsPath, 'utf8');
-    if (!existing.includes('Story Blueprint')) {
-      targetAiFile = blueprintAiPath;
-    }
-  } catch {
-    targetAiFile = agentsPath;
-  }
+  await writeFile(blueprintAiPath, DEFAULT_FRAMEWORK_AI_INSTRUCTIONS, {
+    encoding: 'utf8',
+    flag: 'wx',
+  }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EEXIST') throw error;
+  });
 
-  await writeFile(targetAiFile, DEFAULT_PROJECT_AI_INSTRUCTIONS, {
+  // 7. Create AGENTS.md (project entry template pointing to STORY_BLUEPRINT_AI.md, never overwrite)
+  const agentsPath = join(rootPath, 'AGENTS.md');
+  await writeFile(agentsPath, DEFAULT_AGENTS_ENTRY_TEMPLATE, {
     encoding: 'utf8',
     flag: 'wx',
   }).catch((error: NodeJS.ErrnoException) => {

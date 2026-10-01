@@ -287,6 +287,8 @@ export interface AIInstructionsStatus {
   builtInVersion: number;
   projectInstructions: 'loaded' | 'missing' | 'oversized';
   projectInstructionsPath?: string;
+  frameworkVersion?: number;
+  needsUpdate?: boolean;
 }
 
 export interface SaveAIProviderProfileRequest {
@@ -530,6 +532,7 @@ export interface ElectronAPI {
   updateProjectLocalization: (document: StoryLocalizationDocument) => Promise<WorkspaceInfo>;
   getAIProviderRegistry: () => Promise<AIProviderRegistry>;
   getAIInstructionsStatus: () => Promise<AIInstructionsStatus>;
+  syncAIInstructions: () => Promise<AIInstructionsStatus>;
   saveAIProviderProfile: (settings: SaveAIProviderProfileRequest) => Promise<AIProviderRegistry>;
   deleteAIProviderProfile: (providerId: string) => Promise<AIProviderRegistry>;
   selectAIProvider: (providerId: string) => Promise<AIProviderRegistry>;

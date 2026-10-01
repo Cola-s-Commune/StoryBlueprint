@@ -12,11 +12,13 @@ interface SemVer {
   prerelease: readonly (number | string)[];
 }
 
+export const DEFAULT_OFFICIAL_FEED_URL = 'https://storyblueprint.biaozi.biz:8443/updates';
+
 export const defaultUpdateSettings: UpdateSettings = {
-  enabled: false,
-  feedUrl: '',
+  enabled: true,
+  feedUrl: DEFAULT_OFFICIAL_FEED_URL,
   channel: 'stable',
-  autoCheck: false,
+  autoCheck: true,
 };
 
 export function isAllowedUpdateUrl(value: string): boolean {

@@ -47,6 +47,7 @@ function response(manifest: UpdateManifest): typeof fetch {
 describe('application update checker', () => {
   it('accepts HTTPS and localhost HTTP while rejecting remote HTTP and unsafe protocols', () => {
     expect(isAllowedUpdateUrl('https://updates.example.com/update.json')).toBe(true);
+    expect(isAllowedUpdateUrl('https://storyblueprint.biaozi.biz:8443/updates')).toBe(true);
     expect(isAllowedUpdateUrl('http://localhost:8080/update.json')).toBe(true);
     expect(isAllowedUpdateUrl('http://127.0.0.1:8080/update.json')).toBe(true);
     expect(isAllowedUpdateUrl('http://updates.example.com/update.json')).toBe(false);
@@ -54,6 +55,9 @@ describe('application update checker', () => {
     expect(
       isUpdateSettings({ ...settings, feedUrl: 'http://updates.example.com/update.json' }),
     ).toBe(false);
+    expect(
+      isUpdateSettings({ ...settings, feedUrl: 'https://storyblueprint.biaozi.biz:8443/updates' }),
+    ).toBe(true);
   });
 
   it('orders stable and prerelease SemVer values correctly', () => {

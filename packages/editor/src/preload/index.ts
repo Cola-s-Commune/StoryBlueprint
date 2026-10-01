@@ -79,6 +79,7 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:update-localization', document),
   getAIProviderRegistry: () => ipcRenderer.invoke('ai:get-provider-registry'),
   getAIInstructionsStatus: () => ipcRenderer.invoke('ai:get-instructions-status'),
+  syncAIInstructions: () => ipcRenderer.invoke('ai:sync-instructions'),
   saveAIProviderProfile: (settings) => ipcRenderer.invoke('ai:save-provider-profile', settings),
   deleteAIProviderProfile: (providerId) =>
     ipcRenderer.invoke('ai:delete-provider-profile', providerId),

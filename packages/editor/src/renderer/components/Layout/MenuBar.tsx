@@ -4,6 +4,7 @@ import { useEditorSettings } from '../../settings/EditorSettingsContext';
 import type { AppInfo, UpdateCheckResult } from '../../../shared/electronApi';
 import { AboutDialog } from './AboutDialog';
 import { UpdateDialog } from './UpdateDialog';
+import { FeedbackDialog } from './FeedbackDialog';
 import { McpConfigDialog } from './McpConfigDialog';
 import styles from './MenuBar.module.css';
 
@@ -40,6 +41,7 @@ type SubMenuItem =
         | 'reset-layout'
         | 'updates'
         | 'about'
+        | 'feedback'
         | 'settings';
       panelId?:
         | 'resources'
@@ -126,6 +128,7 @@ function createMenuItems(aiCommandsEnabled: boolean): MenuItem[] {
       label: 'Help',
       submenu: [
         { type: 'item', label: 'Check for Updates...', action: 'updates' },
+        { type: 'item', label: 'Report Issue / Feedback...', action: 'feedback' },
         { type: 'separator' },
         { type: 'item', label: 'About Story Blueprint', action: 'about' },
       ],
@@ -180,6 +183,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
   const [maximized, setMaximized] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>();
   const [automaticUpdateResult, setAutomaticUpdateResult] = useState<UpdateCheckResult>();
@@ -332,6 +336,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
         setUpdatesOpen(true);
         void window.electronAPI?.getAppInfo().then(setAppInfo);
         break;
+      case 'feedback':
+        setFeedbackOpen(true);
+        break;
       case 'settings':
         openSettings();
         break;
@@ -451,6 +458,9 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           initialResult={automaticUpdateResult}
           onClose={() => setUpdatesOpen(false)}
         />
+      )}
+      {feedbackOpen && (
+        <FeedbackDialog onClose={() => setFeedbackOpen(false)} />
       )}
       {mcpOpen && (
         <McpConfigDialog onClose={() => setMcpOpen(false)} />

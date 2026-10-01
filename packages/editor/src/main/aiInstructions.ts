@@ -1,14 +1,42 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AIInstructionsStatus } from '../shared/electronApi';
 
 export const AI_INSTRUCTIONS_VERSION = 8;
 export const MAX_AI_ATTACHMENT_BYTES = 512 * 1024;
 
-export const DEFAULT_PROJECT_AI_INSTRUCTIONS = `# Narrative Agent Guidelines (AGENTS.md)
+export const DEFAULT_AGENTS_ENTRY_TEMPLATE = `# Narrative Agent Guidelines (AGENTS.md)
 
 This project is an interactive narrative blueprint authored with **Story Blueprint** (a visual, node-based interactive narrative framework for games, interactive fiction, and visual novels).
-These guidelines define the mental model, negative constraints, node schemas, and MCP collaboration workflows.
+
+> ⚠️ **CRITICAL FRAMEWORK RULE FOR AI AGENTS**:
+> Before directly editing story logic, creating nodes, or executing MCP commands, you **MUST** read and strictly adhere to the framework specifications, node schemas, and mutation constraints defined in:
+> 👉 **[STORY_BLUEPRINT_AI.md](./STORY_BLUEPRINT_AI.md)**
+
+---
+
+## Project Narrative World & Persona (Author Customization)
+
+<!-- Authors: Customize your narrative tone, characters, world setting, and glossary below. Agents must strictly adhere to these settings. -->
+
+### World Setting & Tone
+- **Genre & Tone**: (e.g. Modern Crime Thriller, Urban Fantasy, Hard Sci-Fi, Slice-of-life Mystery)
+- **Dialogue Style**: (e.g. Fast-paced, gritty, snappy, poetic, naturalistic modern)
+
+### Key Characters & Voice
+- **Protagonist**: Personality traits, verbal tics, speaking rhythm.
+- **Key Cast**: Unique speaking styles, relationships, emotional dynamics.
+
+### Glossary & Canon Constraints
+- **Key Terminology**: (Special nouns, factions, locations, world lore terms)
+- **Hard Constraints**: (Taboos, plot rules, timeline rules that must never be broken)
+`;
+
+export const DEFAULT_FRAMEWORK_AI_INSTRUCTIONS = `<!-- story-blueprint-ai-version: 8 -->
+# Story Blueprint Framework Specifications (STORY_BLUEPRINT_AI.md)
+
+This specification defines the core mental model, constraints, node schemas, and MCP collaboration workflows for Story Blueprint.
+External AI agents and IDE assistants MUST strictly follow these rules when editing story files.
 
 ---
 
@@ -229,25 +257,14 @@ The following valid transaction demonstrates declaring a new variable (\`heist_h
    - Once confirmed by the user, call \`story_apply_command\` to atomically commit the changes to disk (a \`.bak\` backup will be created automatically).
 4. **Step 4: Verify**:
    - Call \`story_compile\` to verify narrative flow, port compatibility, and compile diagnostics.
-
----
-
-## 7. Project Narrative World & Persona (Author Customization)
-
-<!-- Authors: Customize your narrative tone, characters, and glossary below. Agents must strictly adhere to these settings. -->
-
-### World Setting & Tone
-- **Genre & Tone**: (e.g. Modern Crime Thriller, Urban Fantasy, Hard Sci-Fi, Slice-of-life Mystery)
-- **Dialogue Style**: (e.g. Fast-paced, gritty, snappy, poetic, naturalistic modern)
-
-### Key Characters & Voice
-- **Protagonist**: Personality traits, verbal tics, speaking rhythm.
-- **Key Cast**: Unique speaking styles, relationships, emotional dynamics.
-
-### Glossary & Canon Constraints
-- **Key Terminology**: (Special nouns, factions, locations, world lore terms)
-- **Hard Constraints**: (Taboos, plot rules, timeline rules that must never be broken)
 `;
+
+export const DEFAULT_PROJECT_AI_INSTRUCTIONS = DEFAULT_FRAMEWORK_AI_INSTRUCTIONS;
+
+export function extractAIInstructionsVersion(content: string): number | undefined {
+  const match = /<!--\s*story-blueprint-ai-version:\s*(\d+)\s*-->/i.exec(content);
+  return match ? Number(match[1]) : undefined;
+}
 
 export async function findFileCaseInsensitive(
   dir: string,
@@ -263,34 +280,55 @@ export async function findFileCaseInsensitive(
   }
 }
 
+export async function syncProjectAIInstructions(
+  workspaceRoot: string,
+): Promise<AIInstructionsStatus> {
+  const agentsMdPath =
+    (await findFileCaseInsensitive(workspaceRoot, 'AGENTS.md')) ?? join(workspaceRoot, 'AGENTS.md');
+  const blueprintAiPath =
+    (await findFileCaseInsensitive(workspaceRoot, 'STORY_BLUEPRINT_AI.md')) ??
+    join(workspaceRoot, 'STORY_BLUEPRINT_AI.md');
+
+  // 1. Ensure AGENTS.md exists (never overwrite existing AGENTS.md to protect author's customization)
+  try {
+    await stat(agentsMdPath);
+  } catch {
+    await writeFile(agentsMdPath, DEFAULT_AGENTS_ENTRY_TEMPLATE, 'utf8');
+  }
+
+  // 2. Ensure STORY_BLUEPRINT_AI.md exists and is up to date
+  let needFrameworkWrite = false;
+  try {
+    const existingContent = await readFile(blueprintAiPath, 'utf8');
+    const existingVersion = extractAIInstructionsVersion(existingContent);
+    if (existingVersion === undefined || existingVersion < AI_INSTRUCTIONS_VERSION) {
+      needFrameworkWrite = true;
+    }
+  } catch {
+    needFrameworkWrite = true;
+  }
+
+  if (needFrameworkWrite) {
+    await writeFile(blueprintAiPath, DEFAULT_FRAMEWORK_AI_INSTRUCTIONS, 'utf8');
+  }
+
+  return readAIInstructionsStatus(workspaceRoot);
+}
+
 export async function readProjectAIInstructions(workspaceRoot?: string): Promise<string> {
-  if (!workspaceRoot) return DEFAULT_PROJECT_AI_INSTRUCTIONS;
+  if (!workspaceRoot) return DEFAULT_FRAMEWORK_AI_INSTRUCTIONS;
   try {
     const agentsMdPath = await findFileCaseInsensitive(workspaceRoot, 'AGENTS.md');
     const blueprintAiPath = await findFileCaseInsensitive(workspaceRoot, 'STORY_BLUEPRINT_AI.md');
 
-    const sections: string[] = [DEFAULT_PROJECT_AI_INSTRUCTIONS];
+    const sections: string[] = [DEFAULT_FRAMEWORK_AI_INSTRUCTIONS];
 
-    if (agentsMdPath) {
-      try {
-        const content = await readFile(agentsMdPath, 'utf8');
-        if (Buffer.byteLength(content, 'utf8') <= MAX_AI_ATTACHMENT_BYTES) {
-          const trimmed = content.trim();
-          if (trimmed && trimmed !== DEFAULT_PROJECT_AI_INSTRUCTIONS.trim()) {
-            sections.push(`## Project Agent Guidelines (AGENTS.md)\n\n${trimmed}`);
-          }
-        }
-      } catch {
-        // Silently skip unreadable file
-      }
-    }
-
-    if (blueprintAiPath && blueprintAiPath !== agentsMdPath) {
+    if (blueprintAiPath) {
       try {
         const content = await readFile(blueprintAiPath, 'utf8');
         if (Buffer.byteLength(content, 'utf8') <= MAX_AI_ATTACHMENT_BYTES) {
           const trimmed = content.trim();
-          if (trimmed && trimmed !== DEFAULT_PROJECT_AI_INSTRUCTIONS.trim()) {
+          if (trimmed && trimmed !== DEFAULT_FRAMEWORK_AI_INSTRUCTIONS.trim()) {
             sections.push(`## Project-Specific AI Instructions (STORY_BLUEPRINT_AI.md)\n\n${trimmed}`);
           }
         }
@@ -299,33 +337,72 @@ export async function readProjectAIInstructions(workspaceRoot?: string): Promise
       }
     }
 
-    return sections.length > 1 ? sections.join('\n\n') : DEFAULT_PROJECT_AI_INSTRUCTIONS;
+    if (agentsMdPath) {
+      try {
+        const content = await readFile(agentsMdPath, 'utf8');
+        if (Buffer.byteLength(content, 'utf8') <= MAX_AI_ATTACHMENT_BYTES) {
+          const trimmed = content.trim();
+          if (
+            trimmed &&
+            trimmed !== DEFAULT_FRAMEWORK_AI_INSTRUCTIONS.trim() &&
+            trimmed !== DEFAULT_AGENTS_ENTRY_TEMPLATE.trim()
+          ) {
+            sections.push(`## Project Agent Guidelines (AGENTS.md)\n\n${trimmed}`);
+          }
+        }
+      } catch {
+        // Silently skip unreadable file
+      }
+    }
+
+    return sections.length > 1 ? sections.join('\n\n') : DEFAULT_FRAMEWORK_AI_INSTRUCTIONS;
   } catch {
-    return DEFAULT_PROJECT_AI_INSTRUCTIONS;
+    return DEFAULT_FRAMEWORK_AI_INSTRUCTIONS;
   }
 }
 
 export async function readAIInstructionsStatus(
   workspaceRoot?: string,
 ): Promise<AIInstructionsStatus> {
-  if (!workspaceRoot)
+  if (!workspaceRoot) {
     return { builtInVersion: AI_INSTRUCTIONS_VERSION, projectInstructions: 'missing' };
+  }
   try {
     const agentsMdPath = await findFileCaseInsensitive(workspaceRoot, 'AGENTS.md');
     const blueprintAiPath = await findFileCaseInsensitive(workspaceRoot, 'STORY_BLUEPRINT_AI.md');
-    const targetPath = agentsMdPath ?? blueprintAiPath ?? join(workspaceRoot, 'AGENTS.md');
+    const targetPath = blueprintAiPath ?? agentsMdPath ?? join(workspaceRoot, 'AGENTS.md');
+
+    let frameworkVersion: number | undefined;
+    if (blueprintAiPath) {
+      try {
+        const bpContent = await readFile(blueprintAiPath, 'utf8');
+        frameworkVersion = extractAIInstructionsVersion(bpContent);
+      } catch {
+        // Silently skip
+      }
+    }
+
+    const needsUpdate =
+      frameworkVersion !== undefined
+        ? frameworkVersion < AI_INSTRUCTIONS_VERSION
+        : Boolean(agentsMdPath && !blueprintAiPath);
+
     try {
       const metadata = await stat(targetPath);
       return {
         builtInVersion: AI_INSTRUCTIONS_VERSION,
         projectInstructions: metadata.size > MAX_AI_ATTACHMENT_BYTES ? 'oversized' : 'loaded',
         projectInstructionsPath: targetPath,
+        frameworkVersion,
+        needsUpdate,
       };
     } catch {
       return {
         builtInVersion: AI_INSTRUCTIONS_VERSION,
         projectInstructions: 'missing',
         projectInstructionsPath: targetPath,
+        frameworkVersion,
+        needsUpdate,
       };
     }
   } catch {
@@ -333,6 +410,7 @@ export async function readAIInstructionsStatus(
       builtInVersion: AI_INSTRUCTIONS_VERSION,
       projectInstructions: 'missing',
       projectInstructionsPath: join(workspaceRoot, 'AGENTS.md'),
+      needsUpdate: false,
     };
   }
 }
