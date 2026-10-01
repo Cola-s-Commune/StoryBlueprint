@@ -34,6 +34,11 @@ export const storyDryRunTool: ToolDefinition = {
         description:
           'Optional description of what the change intends to do, used to check for relative overwrite violations',
       },
+      strict: {
+        type: 'boolean',
+        description:
+          'Optional strict mode (default: false). When true, any flow integrity warnings (such as UNREACHABLE_NODE or DEAD_END_NODE) will cause the dry run to fail, enforcing strict graph completeness for CI/CD or automated pipelines.',
+      },
     },
     required: ['storyPath', 'command'],
   },
@@ -43,6 +48,7 @@ export interface DryRunArgs {
   storyPath: string;
   command: unknown;
   intent?: string;
+  strict?: boolean;
 }
 
 export function handleStoryDryRun(args: DryRunArgs): {
@@ -158,6 +164,7 @@ export function handleStoryDryRun(args: DryRunArgs): {
     }
 
     // Static compiler checks on the resulting sandbox document
+    const isStrict = args.strict === true;
     if (result.document) {
       nodeRegistry.registerBuiltins();
       const compileRes = compileStory(result.document);
@@ -174,6 +181,12 @@ export function handleStoryDryRun(args: DryRunArgs): {
         for (const w of warnings) {
           lines.push(`- **[${w.code}]**: ${w.message}${w.sourceNodeId ? ` (node: \`${w.sourceNodeId}\`)` : ''}`);
         }
+      }
+      if (isStrict && (errors.length > 0 || warnings.length > 0)) {
+        return {
+          success: false,
+          content: `# Dry Run Failed (Strict Mode Gate)!\n` + lines.slice(1).join('\n'),
+        };
       }
     }
 

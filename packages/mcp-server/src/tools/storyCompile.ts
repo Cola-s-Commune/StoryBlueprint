@@ -15,6 +15,11 @@ export const storyCompileTool: ToolDefinition = {
         type: 'string',
         description: 'File path to the .story file to compile',
       },
+      strict: {
+        type: 'boolean',
+        description:
+          'Optional strict mode (default: false). When true, warnings (such as UNREACHABLE_NODE or DEAD_END_NODE) cause compilation to fail, ideal for CI/CD and release gatekeeping.',
+      },
     },
     required: ['storyPath'],
   },
@@ -22,6 +27,7 @@ export const storyCompileTool: ToolDefinition = {
 
 export interface CompileStoryArgs {
   storyPath: string;
+  strict?: boolean;
 }
 
 export function handleStoryCompile(args: CompileStoryArgs): {
@@ -43,7 +49,8 @@ export function handleStoryCompile(args: CompileStoryArgs): {
     const result = compileStory(source);
 
     const lines: string[] = [];
-    if (result.ok) {
+    const isStrict = args.strict === true;
+    if (result.ok && (!isStrict || result.diagnostics.length === 0)) {
       const blockCount = Object.keys(result.program.blocks || {}).length;
       let totalInstructions = 0;
       if (result.program.blocks) {
@@ -71,8 +78,12 @@ export function handleStoryCompile(args: CompileStoryArgs): {
         content: lines.join('\n'),
       };
     } else {
-      lines.push(`# Compilation Failed!`);
-      lines.push(`The story graph contains errors that prevent it from compiling into a runnable program:\n`);
+      lines.push(isStrict && result.ok ? `# Compilation Failed (Strict Release Gate)!` : `# Compilation Failed!`);
+      lines.push(
+        isStrict && result.ok
+          ? `The story graph contains integrity warnings (such as unreachable nodes or dead ends) that fail strict release validation:\n`
+          : `The story graph contains errors that prevent it from compiling into a runnable program:\n`,
+      );
       for (const d of result.diagnostics) {
         lines.push(`- **[${d.severity.toUpperCase()} ${d.code}]**: ${d.message}${d.sourceNodeId ? ` (node: \`${d.sourceNodeId}\`)` : ''}`);
       }
