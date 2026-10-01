@@ -49,7 +49,7 @@ export function handleReadStoryContext(args: ReadStoryContextArgs): {
   if (!fs.existsSync(resolvedPath)) {
     return {
       success: false,
-      content: `Error: File not found at path: ${resolvedPath}`,
+      content: `Error: File not found at path: ${resolvedPath}. To create a new story file, use the "story_create" tool.`,
     };
   }
 
@@ -70,9 +70,12 @@ export function handleReadStoryContext(args: ReadStoryContextArgs): {
       content: formatSemanticSnapshotSummary(snapshot, args.chapterId),
     };
   } catch (error) {
+    const backupPath = `${resolvedPath}.bak`;
+    const hasBackup = fs.existsSync(backupPath);
+    const backupHint = hasBackup ? ` A backup file exists at "${backupPath}".` : '';
     return {
       success: false,
-      content: `Failed to parse story file: ${error instanceof Error ? error.message : String(error)}`,
+      content: `Failed to parse story file: ${error instanceof Error ? error.message : String(error)}.${backupHint} If the .story file has syntax errors or is corrupted, you may ask the user for permission and attempt to inspect and repair it.`,
     };
   }
 }

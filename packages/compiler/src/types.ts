@@ -28,6 +28,7 @@ export type CompilerDiagnosticCode =
   | 'INK_WARNING'
   | 'DANGLING_EDGE'
   | 'UNREACHABLE_NODE'
+  | 'DEAD_END_NODE'
   | 'MULTIPLE_ENTRY_NODES'
   | 'INVALID_END_LOCATION'
   | 'SUBSTORY_CALL_CYCLE'

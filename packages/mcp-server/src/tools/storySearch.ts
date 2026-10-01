@@ -5,6 +5,7 @@ import {
   createStorySemanticSnapshot,
   StoryNodeType,
   type DialogueNodeData,
+  type NarrationNodeData,
   type ChoiceNodeData,
 } from '@story-blueprint/common';
 import type { ToolDefinition } from '../protocol/mcpTypes';
@@ -12,7 +13,7 @@ import type { ToolDefinition } from '../protocol/mcpTypes';
 export const storySearchTool: ToolDefinition = {
   name: 'story_search',
   description:
-    'Searches across all dialogue lines, choices, speakers, variables, and node titles in a .story file. Returns matching nodes and contextual text.',
+    'Searches across all dialogue lines, narration text, choices, speakers, variables, and node titles in a .story file. Returns matching nodes and contextual text.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -26,7 +27,7 @@ export const storySearchTool: ToolDefinition = {
       },
       filter: {
         type: 'string',
-        enum: ['all', 'dialogue', 'speaker', 'variable', 'choice'],
+        enum: ['all', 'dialogue', 'narration', 'speaker', 'variable', 'choice'],
         description: 'Optional filter by content type (default: all)',
       },
     },
@@ -37,7 +38,7 @@ export const storySearchTool: ToolDefinition = {
 export interface SearchStoryArgs {
   storyPath: string;
   query: string;
-  filter?: 'all' | 'dialogue' | 'speaker' | 'variable' | 'choice';
+  filter?: 'all' | 'dialogue' | 'narration' | 'speaker' | 'variable' | 'choice';
 }
 
 export function handleStorySearch(args: SearchStoryArgs): {
@@ -96,6 +97,16 @@ export function handleStorySearch(args: SearchStoryArgs): {
                 );
               }
             }
+          }
+        }
+
+        // Narration text
+        if ((filter === 'all' || filter === 'narration') && node.type === StoryNodeType.Narration) {
+          const data = node.data as NarrationNodeData;
+          if (data.text?.source?.toLowerCase().includes(q)) {
+            matches.push(
+              `- **[Narration in Node \`${node.id}\`]** "${data.text?.source || ''}" (graph: \`${graphName}\`)`,
+            );
           }
         }
 

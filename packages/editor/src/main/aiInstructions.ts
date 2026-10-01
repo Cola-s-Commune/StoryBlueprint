@@ -2,7 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AIInstructionsStatus } from '../shared/electronApi';
 
-export const AI_INSTRUCTIONS_VERSION = 6;
+export const AI_INSTRUCTIONS_VERSION = 8;
 export const MAX_AI_ATTACHMENT_BYTES = 512 * 1024;
 
 export const DEFAULT_PROJECT_AI_INSTRUCTIONS = `# Narrative Agent Guidelines (AGENTS.md)
@@ -28,12 +28,21 @@ These guidelines define the mental model, negative constraints, node schemas, an
 
 ---
 
-## 2. Critical Constraints (Red Lines)
+## 2. Critical Constraints (Red Lines & Recovery Protocol)
 
-- 🚫 **NEVER directly edit or handwrite \`*.story\` files**:
+- 🚫 **NEVER directly edit or handwrite \`*.story\` files during normal workflow**:
   \`.story\` files contain graph topology, pin UUIDs, and layout geometry. Direct text/JSON edits will corrupt pin connections and cause runtime parser crashes.
-- ✅ **ALL mutations must be performed via the Story Blueprint MCP Server**:
+- ✅ **ALL normal mutations must be performed via the Story Blueprint MCP Server**:
   Use \`story_dry_run_command\` to validate in sandbox, then \`story_apply_command\` to persist changes atomically.
+- 🆕 **Creating New \`.story\` Files**:
+  To create a new story file in multi-story projects, call the MCP tool \`story_create\` (e.g. \`storyPath: "bus.story"\`). This automatically generates a valid \`.story\` skeleton (with entry node, valid topology) and registers the story in \`.storyproject\`. **Never handwrite a new \`.story\` file from scratch.**
+- 🛠️ **File Corruption & Syntax Error Recovery Protocol**:
+  If a \`.story\` file is damaged, has syntax errors, or fails to parse (e.g. MCP reports \`Failed to parse story file\`):
+  1. **Ask the user for permission**: Clearly explain the error and ask if they would like you to attempt a file repair or restore from backup.
+  2. If the user agrees:
+     - Check if \`<story>.story.bak\` exists. If present and valid, you can restore from the backup.
+     - Alternatively, inspect the corrupted KDL source and repair syntax defects (e.g. unclosed nodes, invalid attributes, corrupted quotes).
+     - Immediately verify the fix with \`story_read_context\` and \`story_compile\` to ensure the story is fully valid and executable.
 
 ---
 
@@ -75,20 +84,28 @@ A Blueprint Command transaction is an object containing an \`operations\` array:
 1. **\`add-node\`**: Adds a new graph node.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`node: { id, type, name?, data }\`.
 2. **\`remove-node\`**: Deletes a node.
+   - Accepts: \`nodeId\` (or \`id\`, or \`node: { id }\`).
    - ⚡ **Cascading Behavior**: \`remove-node\` **automatically deletes all connected incoming & outgoing edges**. You do NOT need to call \`disconnect\` before removing a node. To remove a link while keeping both nodes, use \`disconnect\`.
-3. **\`connect\`**: Connects two nodes via their ports.
+3. **\`update-node\`**: Updates an existing node's data or name (e.g. modify narration text, dialogue text, or choice prompt).
+   - Format: \`{ "operationId": "op_update", "kind": "update-node", "graph": { "kind": "root" }, "nodeId": "n_intro", "patch": { "data": { "text": { "source": "新旁白文本" } } } }\`
+   - Lenient aliases supported: \`{ "nodeId": "n_intro", "data": { ... } }\` or \`{ "node": { "id": "n_intro", "data": { ... } } }\`.
+4. **\`connect\`**: Connects two nodes via their ports.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`from: { nodeId, portId }\`, \`to: { nodeId, portId }\`.
    - *Note*: Connecting from a \`Choice\` node requires \`from.portId\` to match the target \`option.id\` (e.g. \`"o_alarm"\`).
-4. **\`disconnect\`**: Removes a specific edge between two ports.
+5. **\`disconnect\`**: Removes a specific edge between two ports.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`from: { nodeId, portId }\`, \`to: { nodeId, portId }\`.
-5. **\`add-variable-adjustment\`**: Creates a dedicated node that adjusts an existing numeric variable.
+6. **\`add-variable-adjustment\`**: Creates a dedicated node that adjusts an existing numeric variable.
    - Requires: \`operationId\`, \`graph: { "kind": "root" }\`, \`node: { id, name? }\`, \`variableId\`, \`delta\` (e.g. \`1\` or \`-1\`).
-6. **\`add-character\`**: Registers a character in the story roster.
+7. **\`add-character\`**: Registers a character in the story roster.
    - Requires: \`operationId\`, \`character: { id, name, displayName, emotions?: {} }\`.
-7. **\`add-variable\`**: Declares a story state variable.
+8. **\`add-variable\`**: Declares a story state variable.
    - Requires: \`operationId\`, \`variable: { id, name, displayName, scope: "story", valueType: { kind: "number"|"boolean"|"string" }, defaultValue }\`.
    - ⚠️ *Note*: If a variable or character already exists in \`story_read_context\`, **DO NOT** call \`add-variable\` / \`add-character\` again, or it will throw \`DUPLICATE_VARIABLE_ID\`.
-8. **Granular Operations**: \`add-dialogue-line\`, \`update-dialogue-line\`, \`add-choice-option\`, \`update-node\`.
+9. **Granular Operations (Appending Details to Existing Nodes)**:
+   - **\`add-dialogue-line\`**: Appends a spoken line to an existing Dialogue node without recreating it.
+     - Format: \`{ "operationId": "op_add_line", "kind": "add-dialogue-line", "graph": { "kind": "root" }, "nodeId": "n_dialogue", "line": { "id": "ln_2", "textId": "t_2", "text": { "source": "新台词" }, "speakerId": "c_robber" } }\`
+   - **\`add-choice-option\`**: Appends an option to an existing Choice node without recreating it.
+     - Format: \`{ "operationId": "op_add_opt", "kind": "add-choice-option", "graph": { "kind": "root" }, "nodeId": "n_choice", "option": { "id": "o_new", "text": { "source": "新选项" } } }\`
 
 ### ⚠️ Variable Naming Dual-Track Rule (ID vs. Name)
 - **In Operations & Commands**: Reference variables by their stable **ID** (e.g. \`variableId: "v_alert"\`).
@@ -193,16 +210,23 @@ The following valid transaction demonstrates declaring a new variable (\`heist_h
 
 ---
 
-## 6. Standard 4-Step Agent Workflow
+## 6. Standard Story Authoring Workflow
 
+0. **Step 0: Initialize Story (For New Stories)**:
+   - When building a new standalone story (e.g. \`bus.story\`), call \`story_create\` with \`storyPath: "bus.story"\`.
+   - The server will generate the valid initial skeleton (Start & End nodes) and register it in \`.storyproject\`.
 1. **Step 1: Explore & Read**:
    - Call \`story_read_context\` to inspect existing nodes, variables, and character roster.
    - Call \`story_search\` to check existing line keywords or plot beats.
 2. **Step 2: Plan & Outline**:
    - Draft branch logic, options, and consequences before formulating operations.
-3. **Step 3: Sandbox Validation & Commit**:
-   - Call \`story_dry_run_command\` with the prepared transaction to catch connectivity or schema issues.
-   - Call \`story_apply_command\` to atomically persist the changes to disk.
+3. **Step 3: Sandbox Validation & Human Review (Mandatory Protocol)**:
+   - Call \`story_dry_run_command\` with the prepared transaction to catch connectivity, dangling nodes, or schema issues.
+   - 🛑 **MANDATORY HUMAN REVIEW PROTOCOL**:
+     - **Do NOT** call \`story_apply_command\` immediately after dry-run.
+     - You **MUST** first present your planned changes (outline, narrative summary, newly written dialogue lines, choice options, and branch connections) to the user.
+     - Wait for the user's explicit confirmation or review feedback before applying.
+   - Once confirmed by the user, call \`story_apply_command\` to atomically commit the changes to disk (a \`.bak\` backup will be created automatically).
 4. **Step 4: Verify**:
    - Call \`story_compile\` to verify narrative flow, port compatibility, and compile diagnostics.
 

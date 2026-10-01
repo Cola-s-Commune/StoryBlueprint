@@ -8,4 +8,5 @@ export * from './tools/storyCompile';
 export * from './tools/storySearch';
 export * from './tools/storyInspectProject';
 export * from './tools/storyExportInk';
+export * from './tools/storyCreate';
 export * from './prompts/storyPrompts';

@@ -510,8 +510,8 @@ function requiresGraphTarget(kind: unknown): boolean {
 const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'add-node': ['operationId', 'kind', 'graph', 'node'],
   'add-variable-adjustment': ['operationId', 'kind', 'graph', 'node', 'variableId', 'delta'],
-  'update-node': ['operationId', 'kind', 'graph', 'nodeId', 'patch', 'data', 'name'],
-  'remove-node': ['operationId', 'kind', 'graph', 'nodeId'],
+  'update-node': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'patch', 'data', 'name'],
+  'remove-node': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node'],
   connect: ['operationId', 'kind', 'graph', 'from', 'to', 'replaceExisting'],
   disconnect: ['operationId', 'kind', 'graph', 'from', 'to'],
   'add-variable': ['operationId', 'kind', 'variable'],
@@ -525,14 +525,14 @@ const operationKeys: Readonly<Record<string, readonly string[]>> = {
   'update-character': ['operationId', 'kind', 'characterId', 'patch'],
   'add-substory': ['operationId', 'kind', 'substory'],
   'update-substory': ['operationId', 'kind', 'chapterId', 'patch'],
-  'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'line', 'afterLineId'],
-  'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'patch'],
-  'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId'],
-  'move-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'lineId', 'afterLineId'],
-  'add-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'option', 'afterOptionId'],
-  'update-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId', 'patch'],
-  'remove-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId'],
-  'move-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'optionId', 'afterOptionId'],
+  'add-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'line', 'data', 'afterLineId'],
+  'update-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'lineId', 'patch', 'data'],
+  'remove-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'lineId'],
+  'move-dialogue-line': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'lineId', 'afterLineId'],
+  'add-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'option', 'data', 'afterOptionId'],
+  'update-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'optionId', 'patch', 'data'],
+  'remove-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'optionId'],
+  'move-choice-option': ['operationId', 'kind', 'graph', 'nodeId', 'id', 'node', 'optionId', 'afterOptionId'],
   'set-expression': ['operationId', 'kind', 'graph', 'nodeId', 'target', 'source'],
   'layout-selection': ['operationId', 'kind', 'graph', 'nodeIds'],
   'layout-neighborhood': ['operationId', 'kind', 'graph', 'nodeIds'],
@@ -557,6 +557,13 @@ function unexpectedKeyDiagnostics(
         path ? `${path}.${key}` : key,
       ),
     );
+}
+
+function normalizeNodeId(raw: Record<string, unknown>): void {
+  if (!raw.nodeId) {
+    if (typeof raw.id === 'string') raw.nodeId = raw.id;
+    else if (isRecord(raw.node) && typeof raw.node.id === 'string') raw.nodeId = raw.node.id;
+  }
 }
 
 /** Runtime shape validation for untrusted JSON produced by an AI or plugin. */
@@ -676,6 +683,15 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'update-node':
+        normalizeNodeId(raw);
+        if (isRecord(raw.node)) {
+          if (!raw.patch && !raw.data && isRecord(raw.node.data)) {
+            raw.data = raw.node.data;
+          }
+          if (!raw.name && typeof raw.node.name === 'string') {
+            raw.name = raw.node.name;
+          }
+        }
         if (!isRecord(raw.patch) && (isRecord(raw.data) || typeof raw.name === 'string')) {
           raw.patch = {
             ...(isRecord(raw.data) ? { data: raw.data } : {}),
@@ -692,14 +708,23 @@ export function validateBlueprintCommandTransaction(
           (raw.patch.data !== undefined && !isRecord(raw.patch.data))
         ) {
           diagnostics.push(
-            invalidShape('update-node has an invalid nodeId or patch', operationIndex, path),
+            invalidShape(
+              'update-node requires a valid nodeId and patch or data (e.g. { kind: "update-node", graph: { kind: "root" }, nodeId: "n_xxx", patch: { data: {...} } } or { nodeId: "n_xxx", data: {...} })',
+              operationIndex,
+              path,
+            ),
           );
         }
         break;
       case 'remove-node':
+        normalizeNodeId(raw);
         if (typeof raw.nodeId !== 'string' || !isStableId(raw.nodeId, 'node')) {
           diagnostics.push(
-            invalidShape('remove-node requires a valid nodeId', operationIndex, `${path}.nodeId`),
+            invalidShape(
+              'remove-node requires a valid nodeId (e.g. { kind: "remove-node", graph: { kind: "root" }, nodeId: "n_xxx" })',
+              operationIndex,
+              `${path}.nodeId`,
+            ),
           );
         }
         break;
@@ -812,6 +837,13 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'add-dialogue-line':
+        normalizeNodeId(raw);
+        if (!raw.line && raw.data) {
+          raw.line = raw.data;
+        }
+        if (typeof raw.line === 'string') {
+          raw.line = { text: raw.line };
+        }
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -819,10 +851,20 @@ export function validateBlueprintCommandTransaction(
           (raw.afterLineId !== undefined &&
             (typeof raw.afterLineId !== 'string' || !isStableId(raw.afterLineId, 'line')))
         ) {
-          diagnostics.push(invalidShape('add-dialogue-line is invalid', operationIndex, path));
+          diagnostics.push(
+            invalidShape(
+              'add-dialogue-line is invalid. Expected: { kind: "add-dialogue-line", graph: { kind: "root" }, nodeId: "n_xxx", line: { text: "...", speakerId?: "c_xxx" } }',
+              operationIndex,
+              path,
+            ),
+          );
         }
         break;
       case 'update-dialogue-line':
+        normalizeNodeId(raw);
+        if (!isRecord(raw.patch) && isRecord(raw.data)) {
+          raw.patch = raw.data;
+        }
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -848,6 +890,7 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'remove-dialogue-line':
+        normalizeNodeId(raw);
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -858,6 +901,7 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'move-dialogue-line':
+        normalizeNodeId(raw);
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -871,6 +915,13 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'add-choice-option':
+        normalizeNodeId(raw);
+        if (!raw.option && raw.data) {
+          raw.option = raw.data;
+        }
+        if (typeof raw.option === 'string') {
+          raw.option = { text: raw.option };
+        }
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -878,10 +929,20 @@ export function validateBlueprintCommandTransaction(
           (raw.afterOptionId !== undefined &&
             (typeof raw.afterOptionId !== 'string' || !isStableId(raw.afterOptionId, 'option')))
         ) {
-          diagnostics.push(invalidShape('add-choice-option is invalid', operationIndex, path));
+          diagnostics.push(
+            invalidShape(
+              'add-choice-option is invalid. Expected: { kind: "add-choice-option", graph: { kind: "root" }, nodeId: "n_xxx", option: { text: "...", id?: "o_xxx" } }',
+              operationIndex,
+              path,
+            ),
+          );
         }
         break;
       case 'update-choice-option':
+        normalizeNodeId(raw);
+        if (!isRecord(raw.patch) && isRecord(raw.data)) {
+          raw.patch = raw.data;
+        }
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -910,6 +971,7 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'remove-choice-option':
+        normalizeNodeId(raw);
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||
@@ -920,6 +982,7 @@ export function validateBlueprintCommandTransaction(
         }
         break;
       case 'move-choice-option':
+        normalizeNodeId(raw);
         if (
           typeof raw.nodeId !== 'string' ||
           !isStableId(raw.nodeId, 'node') ||

@@ -57,7 +57,7 @@ export function handleStoryApply(args: ApplyCommandArgs): {
   if (!fs.existsSync(resolvedPath)) {
     return {
       success: false,
-      content: `Error: File not found at path: ${resolvedPath}`,
+      content: `Error: Story file not found at path: ${resolvedPath}. To create a new story file, use the "story_create" tool.`,
     };
   }
 
@@ -168,7 +168,9 @@ export function handleStoryApply(args: ApplyCommandArgs): {
     const newKdl = serializeStorySource(commitResult.document);
     fs.writeFileSync(resolvedPath, newKdl, 'utf-8');
 
-    const updatedSnapshot = createStorySemanticSnapshot(commitResult.document);
+    // Re-parse from persisted KDL to guarantee identical revision with subsequent read operations
+    const persistedSource = parseStorySource(newKdl);
+    const updatedSnapshot = createStorySemanticSnapshot(persistedSource);
     const tx = transaction as BlueprintCommandTransaction;
 
     return {
@@ -184,9 +186,12 @@ export function handleStoryApply(args: ApplyCommandArgs): {
       ].join('\n'),
     };
   } catch (error) {
+    const backupPath = `${resolvedPath}.bak`;
+    const hasBackup = fs.existsSync(backupPath);
+    const backupHint = hasBackup ? ` A backup file exists at "${backupPath}".` : '';
     return {
       success: false,
-      content: `Failed to apply command: ${error instanceof Error ? error.message : String(error)}`,
+      content: `Failed to apply command: ${error instanceof Error ? error.message : String(error)}.${backupHint} If the .story file has syntax errors or is corrupted, you may ask the user for permission and attempt to inspect and repair it.`,
     };
   }
 }

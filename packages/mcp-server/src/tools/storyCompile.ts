@@ -54,7 +54,8 @@ export function handleStoryCompile(args: CompileStoryArgs): {
       }
       lines.push(`# Compilation Succeeded!`);
       lines.push(`- **Status**: Valid & Executable`);
-      lines.push(`- **Story ID**: \`${result.program.id}\``);
+      lines.push(`- **Story ID**: \`${source.id}\``);
+      lines.push(`- **Compiled Program ID**: \`${result.program.id}\``);
       lines.push(`- **Total Blocks**: ${blockCount}`);
       lines.push(`- **Total Instructions**: ${totalInstructions}`);
       lines.push(`- **Entry Block**: \`${result.program.entryBlockId ?? 'none'}\``);

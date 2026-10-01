@@ -455,6 +455,23 @@ export class DefaultStoryCompiler implements StoryCompiler {
           pendingReachability.push(edge.to.nodeId);
         }
       }
+      for (const node of graph.nodes) {
+        if (
+          node.type === StoryNodeType.Comment ||
+          node.type === StoryNodeType.Reroute ||
+          node.type === StoryNodeType.FlowAnchor
+        ) {
+          continue;
+        }
+        if (!reachableNodeIds.has(node.id)) {
+          diagnostics.push({
+            code: 'UNREACHABLE_NODE',
+            severity: 'warning',
+            message: `Node "${node.name || node.id}" (${node.id}, type: ${node.type}) is unreachable from the story entry point`,
+            sourceNodeId: node.id,
+          });
+        }
+      }
       const resolveTarget = (
         nodeId: NodeId,
         portId: string,
@@ -991,8 +1008,17 @@ export class DefaultStoryCompiler implements StoryCompiler {
               }
             }
             const target = resolveTarget(node.id, 'out');
-            if (target) instructions.push(jump(node, target));
-            else instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            if (target) {
+              instructions.push(jump(node, target));
+            } else {
+              diagnostics.push({
+                code: 'DEAD_END_NODE',
+                severity: 'warning',
+                message: `Dialogue node "${node.name || node.id}" (${node.id}) has no outgoing connection (falls through to end-story)`,
+                sourceNodeId: node.id,
+              });
+              instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            }
             break;
           }
           case StoryNodeType.Narration: {
@@ -1023,8 +1049,17 @@ export class DefaultStoryCompiler implements StoryCompiler {
               });
             }
             const target = resolveTarget(node.id, 'out');
-            if (target) instructions.push(jump(node, target));
-            else instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            if (target) {
+              instructions.push(jump(node, target));
+            } else {
+              diagnostics.push({
+                code: 'DEAD_END_NODE',
+                severity: 'warning',
+                message: `Narration node "${node.name || node.id}" (${node.id}) has no outgoing connection (falls through to end-story)`,
+                sourceNodeId: node.id,
+              });
+              instructions.push({ id: instructionId(node.id, 'end'), op: 'end-story' });
+            }
             break;
           }
           case StoryNodeType.InkBlock: {

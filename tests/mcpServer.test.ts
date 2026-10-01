@@ -5,9 +5,15 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
   STORY_SOURCE_FORMAT,
   STORY_SOURCE_VERSION,
+  STORY_PROJECT_FORMAT,
+  STORY_PROJECT_VERSION,
   StoryNodeType,
   serializeStorySource,
+  parseStorySource,
+  serializeStoryProject,
+  parseStoryProject,
   type StorySourceDocument,
+  type StoryProjectDocument,
 } from '../packages/common/src';
 import { StoryBlueprintMcpServer } from '../packages/mcp-server/src';
 import { StdioTransport } from '../packages/mcp-server/src/protocol/stdioTransport';
@@ -470,5 +476,270 @@ describe('StoryBlueprint MCP Server', () => {
     expect(JSON.parse(jsonStr).mcpServers['story-blueprint'].args[0]).toBe(
       'C:/Apps/StoryBlueprint/resources/mcp-server/cli.cjs',
     );
+  });
+
+  it('creates a new story file and registers it in workspace .storyproject', async () => {
+    // Setup a workspace with a .storyproject
+    const projectDoc: StoryProjectDocument = {
+      format: STORY_PROJECT_FORMAT,
+      version: STORY_PROJECT_VERSION,
+      id: 'prj_test_multi',
+      name: 'multi_story_prj',
+      displayName: 'Multi Story Project',
+      stories: [
+        { id: 's_main', path: 'main.story', name: 'main', displayName: 'Main Story' },
+      ],
+      characters: [],
+      assets: [],
+      events: [],
+      signals: [],
+      variables: [],
+    };
+    const projectPath = path.join(tmpDir, 'game.storyproject');
+    fs.writeFileSync(projectPath, serializeStoryProject(projectDoc), 'utf-8');
+
+    let sentResponse: unknown = null;
+    const mockTransport = {
+      sendResponse: (_id: string | number, res: unknown) => {
+        sentResponse = res;
+      },
+    } as unknown as StdioTransport;
+    const server = new StoryBlueprintMcpServer(mockTransport);
+
+    // Call story_create to create bus.story
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'tools/call',
+      params: {
+        name: 'story_create',
+        arguments: {
+          storyPath: 'bus.story',
+          workspacePath: tmpDir,
+          displayName: 'Bus Heist',
+        },
+      },
+    });
+
+    const callResult = sentResponse as CallToolResult;
+    expect(callResult.isError).toBe(false);
+    expect(callResult.content[0]?.text).toContain('Successfully created new story file');
+    expect(callResult.content[0]?.text).toContain('Registered into project manifest');
+
+    // Verify bus.story exists and is valid KDL
+    const createdFile = path.join(tmpDir, 'bus.story');
+    expect(fs.existsSync(createdFile)).toBe(true);
+    const parsed = parseStorySource(fs.readFileSync(createdFile, 'utf-8'));
+    expect(parsed.name).toBe('bus');
+    expect(parsed.displayName).toBe('Bus Heist');
+    expect(parsed.root.nodes.some((n) => n.type === StoryNodeType.Start)).toBe(true);
+    expect(parsed.root.nodes.some((n) => n.type === StoryNodeType.End)).toBe(true);
+
+    // Verify .storyproject was updated with the new story
+    const updatedProject = parseStoryProject(fs.readFileSync(projectPath, 'utf-8'));
+    expect(updatedProject.stories).toHaveLength(2);
+    expect(updatedProject.stories.some((s) => s.path === 'bus.story')).toBe(true);
+
+    // Calling it again on the same path fails with clear message
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'tools/call',
+      params: {
+        name: 'story_create',
+        arguments: {
+          storyPath: 'bus.story',
+          workspacePath: tmpDir,
+        },
+      },
+    });
+    const duplicateResult = sentResponse as CallToolResult;
+    expect(duplicateResult.isError).toBe(true);
+    expect(duplicateResult.content[0]?.text).toContain('already exists');
+  });
+
+  it('provides repair and backup guidance when a story file is corrupted or missing', async () => {
+    let sentResponse: unknown = null;
+    const mockTransport = {
+      sendResponse: (_id: string | number, res: unknown) => {
+        sentResponse = res;
+      },
+    } as unknown as StdioTransport;
+    const server = new StoryBlueprintMcpServer(mockTransport);
+
+    // 1. Missing file: advises using story_create
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'tools/call',
+      params: {
+        name: 'story_read_context',
+        arguments: {
+          storyPath: path.join(tmpDir, 'non_existent.story'),
+        },
+      },
+    });
+    const missingResult = sentResponse as CallToolResult;
+    expect(missingResult.isError).toBe(true);
+    expect(missingResult.content[0]?.text).toContain('story_create');
+
+    // 2. Corrupted file: provides backup hint and repair guidance
+    const corruptedPath = path.join(tmpDir, 'corrupted.story');
+    fs.writeFileSync(corruptedPath, 'this is totally not valid { [ kdl story syntax', 'utf-8');
+    fs.writeFileSync(`${corruptedPath}.bak`, 'backup content', 'utf-8');
+
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'tools/call',
+      params: {
+        name: 'story_read_context',
+        arguments: {
+          storyPath: corruptedPath,
+        },
+      },
+    });
+    const corruptedResult = sentResponse as CallToolResult;
+    expect(corruptedResult.isError).toBe(true);
+    expect(corruptedResult.content[0]?.text).toContain('backup file exists');
+    expect(corruptedResult.content[0]?.text).toContain('ask the user for permission and attempt to inspect and repair it');
+  });
+
+  it('searches narration text and exports narration in Ink format', async () => {
+    let sentResponse: unknown = null;
+    const mockTransport = {
+      sendResponse: (_id: string | number, res: unknown) => {
+        sentResponse = res;
+      },
+    } as unknown as StdioTransport;
+    const server = new StoryBlueprintMcpServer(mockTransport);
+
+    const story = createSampleStory();
+    // Add narration node
+    story.root.nodes.push({
+      id: 'n_narration_1',
+      name: 'scene_atmosphere',
+      type: StoryNodeType.Narration,
+      definitionVersion: 1,
+      position: { x: 200, y: 100 },
+      data: {
+        textId: 't_narr_1',
+        text: { source: 'Rain pours relentlessly onto the muddy cobblestones.' },
+      },
+    });
+    const storyPath = path.join(tmpDir, 'narration_test.story');
+    fs.writeFileSync(storyPath, serializeStorySource(story), 'utf-8');
+
+    // 1. Search narration
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 40,
+      method: 'tools/call',
+      params: {
+        name: 'story_search',
+        arguments: {
+          storyPath,
+          query: 'cobblestones',
+        },
+      },
+    });
+    const searchRes = sentResponse as CallToolResult;
+    expect(searchRes.isError).toBeFalsy();
+    expect(searchRes.content[0]?.text).toContain('[Narration in Node `n_narration_1`]');
+    expect(searchRes.content[0]?.text).toContain('cobblestones');
+
+    // 2. Export Ink with narration
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 41,
+      method: 'tools/call',
+      params: {
+        name: 'story_export_ink',
+        arguments: {
+          storyPath,
+        },
+      },
+    });
+    const inkRes = sentResponse as CallToolResult;
+    expect(inkRes.isError).toBeFalsy();
+    expect(inkRes.content[0]?.text).toContain('Rain pours relentlessly onto the muddy cobblestones.');
+  });
+
+  it('supports lenient input shapes for remove-node, update-node and surfaces review prompt in dry-run', async () => {
+    let sentResponse: unknown = null;
+    const mockTransport = {
+      sendResponse: (_id: string | number, res: unknown) => {
+        sentResponse = res;
+      },
+    } as unknown as StdioTransport;
+    const server = new StoryBlueprintMcpServer(mockTransport);
+
+    const storyPath = path.join(tmpDir, 'test.story');
+
+    // Test dry run with lenient remove-node shape: node: { id: "n_end_1" }
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 42,
+      method: 'tools/call',
+      params: {
+        name: 'story_dry_run_command',
+        arguments: {
+          storyPath,
+          command: {
+            version: 1,
+            operations: [
+              {
+                operationId: 'op_rem',
+                kind: 'remove-node',
+                graph: { kind: 'root' },
+                node: { id: 'n_end_1' },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const dryRunRes = sentResponse as CallToolResult;
+    expect(dryRunRes.isError).toBeFalsy();
+    expect(dryRunRes.content[0]?.text).toContain('Review Required Before Apply');
+    // Notice n_choice_1 options will now have dangling dead-ends because n_end_1 was removed
+    expect(dryRunRes.content[0]?.text).toContain('Flow Integrity Errors');
+    expect(dryRunRes.content[0]?.text).toContain('MISSING_CONNECTION');
+
+    // Test update-node with lenient shape: { nodeId: "...", data: { ... } }
+    await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 43,
+      method: 'tools/call',
+      params: {
+        name: 'story_dry_run_command',
+        arguments: {
+          storyPath,
+          command: {
+            version: 1,
+            operations: [
+              {
+                operationId: 'op_upd',
+                kind: 'update-node',
+                graph: { kind: 'root' },
+                nodeId: 'n_dialogue_1',
+                data: {
+                  lines: [
+                    {
+                      id: 'ln_g2',
+                      textId: 't_g2',
+                      text: { source: 'New greeting!' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const updateRes = sentResponse as CallToolResult;
+    expect(updateRes.isError).toBeFalsy();
+    expect(updateRes.content[0]?.text).toContain('Dry Run Succeeded!');
   });
 });

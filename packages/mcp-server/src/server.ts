@@ -19,6 +19,7 @@ import { storyCompileTool, handleStoryCompile } from './tools/storyCompile';
 import { storySearchTool, handleStorySearch } from './tools/storySearch';
 import { storyInspectProjectTool, handleInspectProject } from './tools/storyInspectProject';
 import { storyExportInkTool, handleStoryExportInk } from './tools/storyExportInk';
+import { storyCreateTool, handleStoryCreate } from './tools/storyCreate';
 import { storyPrompts, handleGetPrompt } from './prompts/storyPrompts';
 
 export class StoryBlueprintMcpServer {
@@ -31,6 +32,7 @@ export class StoryBlueprintMcpServer {
     storySearchTool,
     storyInspectProjectTool,
     storyExportInkTool,
+    storyCreateTool,
   ];
 
   constructor(transport?: StdioTransport) {
@@ -196,6 +198,15 @@ export class StoryBlueprintMcpServer {
 
         case 'story_export_ink': {
           const result = handleStoryExportInk(args as unknown as Parameters<typeof handleStoryExportInk>[0]);
+          return {
+            content: [{ type: 'text', text: result.content }],
+            isError: !result.success,
+          };
+        }
+
+        case 'story_create':
+        case 'create_story': {
+          const result = handleStoryCreate(args as unknown as Parameters<typeof handleStoryCreate>[0]);
           return {
             content: [{ type: 'text', text: result.content }],
             isError: !result.success,

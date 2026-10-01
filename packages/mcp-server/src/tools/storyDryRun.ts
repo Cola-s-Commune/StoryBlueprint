@@ -7,15 +7,17 @@ import {
   compileCompactActionsToTransaction,
   extractCompactActionsFromMarkdown,
   createStorySemanticSnapshot,
+  nodeRegistry,
   type BlueprintCommandTransaction,
 } from '@story-blueprint/common';
+import { compileStory } from '@story-blueprint/compiler';
 import { relativeVariableOverwriteOperations } from './variableValidation';
 import type { ToolDefinition } from '../protocol/mcpTypes';
 
 export const storyDryRunTool: ToolDefinition = {
   name: 'story_dry_run_command',
   description:
-    'Dry-runs and validates a Blueprint Command transaction in sandbox without modifying the story file. Returns validation status, diagnostics, and visual diff preview.',
+    'Dry-runs and validates a Blueprint Command transaction in sandbox without modifying the story file. Returns validation status, operation summary, and static compiler diagnostics (reachability, dead ends).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -51,7 +53,7 @@ export function handleStoryDryRun(args: DryRunArgs): {
   if (!fs.existsSync(resolvedPath)) {
     return {
       success: false,
-      content: `Error: File not found at path: ${resolvedPath}`,
+      content: `Error: Story file not found at path: ${resolvedPath}. To create a new story file, use the "story_create" tool.`,
     };
   }
 
@@ -155,14 +157,41 @@ export function handleStoryDryRun(args: DryRunArgs): {
       lines.push(`- \`${op.kind}\` (ID: \`${op.operationId}\`)`);
     }
 
+    // Static compiler checks on the resulting sandbox document
+    if (result.document) {
+      nodeRegistry.registerBuiltins();
+      const compileRes = compileStory(result.document);
+      const warnings = compileRes.diagnostics.filter((d) => d.severity === 'warning');
+      const errors = compileRes.diagnostics.filter((d) => d.severity === 'error');
+      if (errors.length > 0) {
+        lines.push(`\n## ⚠️ Flow Integrity Errors:`);
+        for (const e of errors) {
+          lines.push(`- **[${e.code}]**: ${e.message}${e.sourceNodeId ? ` (node: \`${e.sourceNodeId}\`)` : ''}`);
+        }
+      }
+      if (warnings.length > 0) {
+        lines.push(`\n## ⚠️ Flow Integrity Warnings:`);
+        for (const w of warnings) {
+          lines.push(`- **[${w.code}]**: ${w.message}${w.sourceNodeId ? ` (node: \`${w.sourceNodeId}\`)` : ''}`);
+        }
+      }
+    }
+
+    lines.push('\n---');
+    lines.push('🛑 **Review Required Before Apply**:');
+    lines.push('Do NOT apply immediately. Present your planned narrative design, dialogue lines, choices, and graph structure to the user for review and wait for their confirmation before calling `story_apply_command`.');
+
     return {
       success: true,
       content: lines.join('\n'),
     };
   } catch (error) {
+    const backupPath = `${resolvedPath}.bak`;
+    const hasBackup = fs.existsSync(backupPath);
+    const backupHint = hasBackup ? ` A backup file exists at "${backupPath}".` : '';
     return {
       success: false,
-      content: `Dry run error: ${error instanceof Error ? error.message : String(error)}`,
+      content: `Dry run error: ${error instanceof Error ? error.message : String(error)}.${backupHint} If the .story file has syntax errors or is corrupted, you may ask the user for permission and attempt to inspect and repair it.`,
     };
   }
 }

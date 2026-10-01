@@ -5,6 +5,7 @@ import {
   createStorySemanticSnapshot,
   StoryNodeType,
   type DialogueNodeData,
+  type NarrationNodeData,
   type ChoiceNodeData,
 } from '@story-blueprint/common';
 import type { ToolDefinition } from '../protocol/mcpTypes';
@@ -103,6 +104,11 @@ export function handleStoryExportInk(args: ExportInkArgs): {
               const speakerTag = dl.speakerId ? ` #speaker: ${dl.speakerId}` : '';
               lines.push(`${dl.text?.source || ''}${speakerTag}`);
             }
+          }
+        } else if (node.type === StoryNodeType.Narration) {
+          const data = node.data as NarrationNodeData;
+          if (data.text?.source) {
+            lines.push(data.text.source);
           }
         }
 

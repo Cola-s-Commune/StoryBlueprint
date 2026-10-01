@@ -39,20 +39,25 @@ export function handleInspectProject(args: InspectProjectArgs): {
     const lines: string[] = [`# StoryBlueprint Project Overview`];
     lines.push(`- **Location**: \`${resolvedDir}\``);
 
-    // Look for story.project.kdl
-    const projectFilePath = path.join(resolvedDir, 'story.project.kdl');
-    if (fs.existsSync(projectFilePath)) {
+    // Look for *.storyproject or story.project.kdl
+    const entries = fs.readdirSync(resolvedDir, { withFileTypes: true });
+    const projectEntry = entries.find(
+      (e) => e.isFile() && (e.name.endsWith('.storyproject') || e.name === 'story.project.kdl'),
+    );
+    const projectFilePath = projectEntry ? path.join(resolvedDir, projectEntry.name) : null;
+    if (projectFilePath && fs.existsSync(projectFilePath)) {
       try {
         const rawProject = fs.readFileSync(projectFilePath, 'utf-8');
         const project = parseStoryProject(rawProject);
         lines.push(`- **Project Title**: ${project.displayName || project.name || project.id}`);
         lines.push(`- **Project ID**: \`${project.id}\``);
+        lines.push(`- **Project File**: \`${path.basename(projectFilePath)}\``);
         lines.push(`- **Format Version**: ${project.version}`);
         lines.push(`- **Configured Stories**: ${project.stories.length}`);
         lines.push(`- **Configured Characters**: ${project.characters.length}`);
       } catch (e) {
         lines.push(
-          `- **Project File**: \`story.project.kdl\` (error reading: ${e instanceof Error ? e.message : String(e)})`,
+          `- **Project File**: \`${path.basename(projectFilePath)}\` (error reading: ${e instanceof Error ? e.message : String(e)})`,
         );
       }
     } else {
