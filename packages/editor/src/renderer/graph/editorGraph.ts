@@ -316,7 +316,14 @@ export function autoLayoutGraph(
     for (const predecessorId of predecessors) {
       if ((outgoing.get(predecessorId) ?? []).length !== 1) continue;
       const predecessorLayer = layers.get(predecessorId) ?? 0;
-      if (predecessorLayer < mergeLayer - 1) layers.set(predecessorId, mergeLayer - 1);
+      const predecessorInLayers = (incoming.get(predecessorId) ?? []).map(
+        (id) => acyclicLayers.get(id) ?? layers.get(id) ?? 0,
+      );
+      const maxInLayer = predecessorInLayers.length > 0 ? Math.max(...predecessorInLayers) : 0;
+      const targetLayer = mergeLayer - 1;
+      if (predecessorLayer < targetLayer && targetLayer - maxInLayer <= 2) {
+        layers.set(predecessorId, targetLayer);
+      }
     }
   }
 
@@ -488,38 +495,102 @@ export function autoLayoutGraph(
       return initialPosA - initialPosB || a.id.localeCompare(b.id);
     });
 
-    const relativeY: number[] = [];
-    let cursor = 0;
-    for (const node of column) {
-      relativeY.push(cursor);
-      cursor += layoutNodeHeight(node) + autoLayoutRowGap;
-    }
-    const actualAverage =
-      relativeY.reduce(
-        (sum, y, index) => sum + y + layoutNodeHeight(column[index]) / 2,
-        0,
-      ) / column.length;
-    const desiredAverage =
-      column.reduce((sum, node) => sum + (desiredCenters.get(node.id) ?? 0), 0) / column.length;
-    const offset = desiredAverage - actualAverage;
-    column.forEach((node, index) => {
+    if (column.length === 1) {
+      const node = column[0];
+      const desired = desiredCenters.get(node.id) ?? originY + layoutNodeHeight(node) / 2;
       const current = positions.get(node.id)!;
-      positions.set(node.id, { x: current.x, y: relativeY[index] + offset });
+      positions.set(node.id, {
+        x: current.x,
+        y: desired - layoutNodeHeight(node) / 2,
+      });
+      return;
+    }
+
+    interface NodeBlock {
+      nodes: EditorGraphNode[];
+      top: number;
+      height: number;
+      desiredCenterSum: number;
+    }
+
+    let blocks: NodeBlock[] = column.map((node) => {
+      const h = layoutNodeHeight(node);
+      const desired = desiredCenters.get(node.id) ?? originY + h / 2;
+      return {
+        nodes: [node],
+        top: desired - h / 2,
+        height: h,
+        desiredCenterSum: desired,
+      };
     });
+
+    // Iteratively merge any blocks that collide or violate minimum row gap
+    let merged = true;
+    while (merged) {
+      merged = false;
+      const nextBlocks: NodeBlock[] = [];
+      for (let i = 0; i < blocks.length; i++) {
+        if (nextBlocks.length === 0) {
+          nextBlocks.push(blocks[i]);
+          continue;
+        }
+        const prev = nextBlocks[nextBlocks.length - 1];
+        const curr = blocks[i];
+        if (curr.top < prev.top + prev.height + autoLayoutRowGap) {
+          const combinedNodes = [...prev.nodes, ...curr.nodes];
+          const combinedDesiredSum = prev.desiredCenterSum + curr.desiredCenterSum;
+          const avgDesiredCenter = combinedDesiredSum / combinedNodes.length;
+
+          let totalHeight = 0;
+          for (let k = 0; k < combinedNodes.length; k++) {
+            totalHeight += layoutNodeHeight(combinedNodes[k]);
+            if (k < combinedNodes.length - 1) totalHeight += autoLayoutRowGap;
+          }
+
+          const newTop = avgDesiredCenter - totalHeight / 2;
+          nextBlocks[nextBlocks.length - 1] = {
+            nodes: combinedNodes,
+            top: newTop,
+            height: totalHeight,
+            desiredCenterSum: combinedDesiredSum,
+          };
+          merged = true;
+        } else {
+          nextBlocks.push(curr);
+        }
+      }
+      blocks = nextBlocks;
+    }
+
+    for (const block of blocks) {
+      let cursor = block.top;
+      for (const node of block.nodes) {
+        const current = positions.get(node.id)!;
+        positions.set(node.id, { x: current.x, y: cursor });
+        cursor += layoutNodeHeight(node) + autoLayoutRowGap;
+      }
+    }
   };
 
   // Sugiyama-style barycentric sweeps keep split branches around their source and place a shared
   // successor between its predecessors. Only forward edges participate, so loops cannot pull a
   // column back across the graph.
-  for (let pass = 0; pass < 2; pass += 1) {
-    for (const [layer, column] of orderedColumns.slice(1)) {
-      placeColumn(column, (node) => forwardDesiredCenter(node, layer));
-    }
-    for (const [layer, column] of [...orderedColumns].reverse().slice(1)) {
-      placeColumn(column, (node) => backwardDesiredCenter(node, layer));
-    }
+  // 1. Initial forward pass: propagate source anchors left-to-right
+  for (const [layer, column] of orderedColumns.slice(1)) {
+    placeColumn(column, (node) => forwardDesiredCenter(node, layer));
   }
-  // Finish left-to-right so convergence nodes use the final positions of every incoming branch.
+  // 2. Backward pass: center split/branch roots between their outgoing children.
+  // Columns with no forward outgoing edges (e.g. terminals) are skipped to prevent drift.
+  for (const [layer, column] of [...orderedColumns].reverse().slice(1)) {
+    const hasOutgoing = column.some((node) =>
+      (outgoingConnections.get(node.id) ?? []).some(
+        (c) => (layers.get(c.targetId) ?? layer) > layer,
+      ),
+    );
+    if (!hasOutgoing) continue;
+    placeColumn(column, (node) => backwardDesiredCenter(node, layer));
+  }
+  // 3. Final forward pass: align branches horizontally with their established sources.
   for (const [layer, column] of orderedColumns.slice(1)) {
     placeColumn(column, (node) => forwardDesiredCenter(node, layer));
   }

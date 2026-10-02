@@ -347,4 +347,27 @@ describe('automatic graph layout', () => {
     expect(y1).toBeLessThan(y2);
     expect(y2).toBeLessThan(y3);
   });
+
+  it('lays out bus.story cleanly without overlapping or clumped branches', async () => {
+    const fs = await import('fs');
+    const { parseStorySource } = await import('../packages/common/src');
+    const { fromSourceGraph } = await import('../packages/editor/src/renderer/graph/editorGraph');
+    const busPath = 'C:/Users/qwe/Documents/TestStory/bus.story';
+    if (!fs.existsSync(busPath)) return;
+    const content = fs.readFileSync(busPath, 'utf-8');
+    const doc = parseStorySource(content);
+    const editorGraph = fromSourceGraph(doc.root);
+    const result = autoLayoutGraph(editorGraph);
+
+    const pos = (id: string) => result.nodes.find((n) => n.id === id)!.position;
+
+    // Option 1 narration and Option 2 dialogue: option 1 must be above option 2
+    expect(pos('n_keep').y).toBeLessThan(pos('n_rage').y);
+
+    // End win connects to keep: should stay in top branch, close to keep.y
+    expect(pos('n_end_win').y).toBeLessThan(pos('n_rage').y);
+
+    // Bust arrest connects to rage: should stay in bottom branch
+    expect(pos('n_bust_arrest').y).toBeGreaterThan(pos('n_keep').y);
+  });
 });
