@@ -1,5 +1,13 @@
 # Dev Log
 
+- 官方 Web 发布门户与全链路分发验证体系（Release Portal & Pipeline）：
+  1. 在 `portal/` 下实现独立高保真的官方 Web 发布下载门户，基于蓝图深色科技质感设计，具备 Hero 产品概览、特性矩阵与架构说明；
+  2. 新增 `portal/config.json` 专属配置文件，随 `portal/` 目录便携分发，支持配置本地端口、服务器地址、更新源与 GitHub 链接；
+  3. 前端 `portal/app.js` 优先拉取静态 `config.json` 自动更新更新源与外链，`portal/serve.cjs` 优先加载 `portal/config.json` 并回退 `release.config.json`；
+  4. 动态拉取 `/updates/stable.json`，自适应渲染当前最新版本、发布时间、更新日志（Markdown 格式化）及 Ed25519 签名状态；
+  5. 双通道提供 Windows NSIS 安装程序（`.exe`）与 Portable 便携单文件，展示精确文件大小与一键复制 SHA-512 安全哈希；
+  6. 新增 `portal/serve.cjs` 本地联调服务器（支持 `npm run serve:portal`），同时托管 Web 门户（`/`）与发布产物目录（`/updates/`），支持 Range 断点续传与跨源调试；
+  7. 优化发版密钥生成与清单签名脚本（`generate-update-manifest.cjs` 自动解析 `.release-keys/` 签名私钥），端到端跑通 `npm run release:win` 打包、Ed25519 签名与 `npm run verify:release:win` 验签全流程。
 - Router（Reroute 节点）辅助整理与正交排版支持：`autoLayoutGraph` 彻底重构前向 Reroute 的定位算法，废除旧有的对角线中点插值，改为目标列前方间隙正交锚定与水平避障通道保持；支持单 Router 拐角对齐与多 Router 的标准 U/Z 型避障航道，并在 `bus.story` 中应用 Router 节点实现长跨度分支零交叉布线。
 - 蓝图级智能连线路由器（`BlueprintSmoothStepEdge`）：定制并全局注册 React Flow 自定义边组件，替换默认 `smoothstep` 在 50% 水平中点盲目下折的缺陷；对跨列长前向连线（$\Delta X > 60$）将垂直变轨点精确锚定在紧邻目标列的空隙（`targetX - Math.min(45, deltaX / 2)`），让长连线始终在来源高度的专属水平空阔通道飞行，彻底消除中间垂直穿切无关节点的交叉线。
 - 图自动排版算法（Auto Layout）体系级重构与优化：

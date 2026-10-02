@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Story Blueprint | 跨引擎可视化剧情叙事框架</title>
+  <meta name="description" content="Story Blueprint 是一个独立于具体游戏引擎的可视化剧情/任务蓝图编辑器，支持跨引擎统一运行时、AI提案审查与Git三方合并。">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="blueprint-theme">
+  <!-- 顶部导航栏 -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="#" class="brand">
+        <img src="assets/logo.png" alt="Story Blueprint Logo" class="brand-logo">
+        <span class="brand-name">Story Blueprint</span>
+        <span class="brand-badge" id="nav-badge">v0.1.0</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">核心特性</a>
+        <a href="#downloads">版本下载</a>
+        <a href="#architecture">架构与适配</a>
+        <a href="#changelog">更新日志</a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer" class="github-link">
+          <svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero 区域 -->
+  <section class="hero-section">
+    <div class="grid-background"></div>
+    <div class="glow-orb glow-1"></div>
+    <div class="glow-orb glow-2"></div>
+    <div class="container hero-content">
+      <div class="channel-status" id="channel-status-pill">
+        <span class="status-dot"></span>
+        <span id="channel-status-text">官方稳定通道已就绪 · Stable</span>
+      </div>
+      <h1 class="hero-title">
+        跨引擎视觉叙事蓝图框架
+        <span class="gradient-text">Story Blueprint</span>
+      </h1>
+      <p class="hero-subtitle">
+        独立于游戏引擎的 Blueprint 风格剧情编辑器。提供统一的故事数据、分支对白、任务流与运行时适配方案，支持 Unreal Engine、Unity 与 Godot。
+      </p>
+
+      <div class="hero-cta">
+        <a href="#downloads" class="btn btn-primary" id="hero-download-btn">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>立即下载 Windows 安装包</span>
+        </a>
+        <a href="#downloads" class="btn btn-secondary">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+          <span>便携免安装版 (Portable)</span>
+        </a>
+      </div>
+
+      <div class="hero-meta">
+        <span class="meta-item">
+          <svg class="meta-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+          </svg>
+          Ed25519 官方防篡改签名
+        </span>
+        <span class="meta-item">
+          <svg class="meta-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+          </svg>
+          SHA-512 完整性校验
+        </span>
+        <span class="meta-item">
+          <svg class="meta-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"></path>
+          </svg>
+          支持 Git 三方拓扑合并
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下载区域卡片 -->
+  <section class="downloads-section" id="downloads">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">官方发布通道与下载</h2>
+        <p class="section-desc">客户端内置自动验签机制。所有发版清单均经过私钥加签，下载包提供精准 SHA-512 完整性比对。</p>
+      </div>
+
+      <div class="release-card">
+        <!-- 头部版本信息栏 -->
+        <div class="release-header">
+          <div class="release-title-group">
+            <span class="release-tag">Official Release</span>
+            <h3 class="release-version" id="manifest-version">Story Blueprint v0.1.0</h3>
+            <span class="release-date" id="manifest-date">发布日期: 2026-10-01</span>
+          </div>
+          <div class="release-signature-badge" id="signature-badge">
+            <svg class="sig-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+            <span id="sig-text">Ed25519 签名有效 (Key: release-2026)</span>
+          </div>
+        </div>
+
+        <!-- 产物下载卡片网格 -->
+        <div class="artifacts-grid">
+          <!-- NSIS 安装版 -->
+          <div class="artifact-box primary-artifact">
+            <div class="artifact-badge">推荐方式</div>
+            <div class="artifact-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+              </svg>
+            </div>
+            <h4 class="artifact-name">Windows 安装程序 (NSIS)</h4>
+            <p class="artifact-desc">支持创建开始菜单、桌面快捷方式，支持应用内一键静默自动安装更新与重启。</p>
+            <div class="artifact-meta">
+              <span class="meta-label">文件大小:</span>
+              <span class="meta-val" id="installer-size">~85 MB</span>
+            </div>
+            <div class="sha-box">
+              <div class="sha-header">
+                <span>SHA-512 校验码:</span>
+                <button class="copy-btn" id="copy-installer-sha" title="复制 SHA-512">复制</button>
+              </div>
+              <code class="sha-code" id="installer-sha">计算中...</code>
+            </div>
+            <a href="#" class="btn btn-primary download-action-btn" id="download-installer-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>下载 Setup 安装包 (.exe)</span>
+            </a>
+          </div>
+
+          <!-- Portable 便携版 -->
+          <div class="artifact-box">
+            <div class="artifact-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+            </div>
+            <h4 class="artifact-name">Windows 便携绿色版 (Portable)</h4>
+            <p class="artifact-desc">无需管理员权限，解压即用。单文件可执行文件，适合 U 盘随身携带或隔离环境测试。</p>
+            <div class="artifact-meta">
+              <span class="meta-label">文件大小:</span>
+              <span class="meta-val" id="portable-size">~80 MB</span>
+            </div>
+            <div class="sha-box">
+              <div class="sha-header">
+                <span>SHA-512 校验码:</span>
+                <button class="copy-btn" id="copy-portable-sha" title="复制 SHA-512">复制</button>
+              </div>
+              <code class="sha-code" id="portable-sha">计算中...</code>
+            </div>
+            <a href="#" class="btn btn-secondary download-action-btn" id="download-portable-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>下载 Portable 单文件 (.exe)</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- 更新日志卡片 -->
+        <div class="release-notes-wrapper" id="changelog">
+          <h4 class="notes-title">
+            <svg class="notes-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            最新更新日志
+          </h4>
+          <div class="notes-content markdown-body" id="manifest-notes">
+            正在从发布清单拉取更新日志...
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 核心特性网格 -->
+  <section class="features-section" id="features">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">专为游戏叙事开发者设计</h2>
+        <p class="section-desc">摒弃繁琐的散乱配置与传统 Word 文档，以直观且专业的节点图驾驭宏大剧情分支。</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon bg-cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+              <line x1="4" y1="22" x2="4" y2="15"></line>
+            </svg>
+          </div>
+          <h3>蓝图级智能连线与自动排版</h3>
+          <p>独家定制 <code>BlueprintSmoothStepEdge</code> 路由器，跨列长连线紧邻目标列正交变轨；端口感知垂直排序，实现复杂长流程 0 交叉排版。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon bg-purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+          </div>
+          <h3>AI 提案暂存审查沙盒 (Staging)</h3>
+          <p>AI 执行蓝图修改在画布以暂存预览态呈现（新增绿、修改黄），顶部提供 Apply / Discard 审核横幅与局部邻域自动排版，安全透明。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon bg-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="6" y1="3" x2="6" y2="15"></line>
+              <circle cx="18" cy="6" r="3"></circle>
+              <circle cx="6" cy="18" r="3"></circle>
+              <path d="M18 9a9 9 0 0 1-9 9"></path>
+            </svg>
+          </div>
+          <h3>Git 三方语义冲突合并</h3>
+          <p>真正理解蓝图拓扑的冲突消解器，自动识别连通变化区域、并发插入链、执行边竞争与有序列表对齐，团队多人协作零风险。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon bg-amber">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 7 4 4 20 4 20 7"></polyline>
+              <line x1="9" y1="20" x2="15" y2="20"></line>
+              <line x1="12" y1="4" x2="12" y2="20"></line>
+            </svg>
+          </div>
+          <h3>Ink 互操作与双视图编辑</h3>
+          <p>Monaco Lines 结构化视图与剧本级 Ink 文本流双向无缝实时同步，支持对白段合并拆分、说话人前缀与类型表达式插值。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon bg-blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+          </div>
+          <h3>强类型角色与资源闭环</h3>
+          <p>角色定义强类型字段（如 <code>Player.gold</code>），与表情（Emotion）、立绘、语音、全局变量形成全静态引用索引，重命名与删除绝对安全。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon bg-red">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          </div>
+          <h3>安全防篡改更新与双通道反馈</h3>
+          <p>集成 Ed25519 签名验签与流式 SHA-512 防篡改更新体系；内置用户建议与 AI 异常诊断直通 GitHub Issues 双通道快速闭环。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 架构说明区域 -->
+  <section class="arch-section" id="architecture">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">引擎无关 · 数据驱动架构</h2>
+        <p class="section-desc">一次编写，随处运行。游戏引擎负责表现，Story Blueprint 负责逻辑。</p>
+      </div>
+
+      <div class="arch-diagram">
+        <div class="arch-node-box">
+          <div class="box-tag">Editor</div>
+          <h4>Story Blueprint Editor</h4>
+          <p>Electron + React Flow 可视化编辑环境，生成声明式 KDL 资源</p>
+        </div>
+        <div class="arch-arrow">
+          <span class="arrow-line"></span>
+          <span class="arrow-text">Source (.story)</span>
+        </div>
+        <div class="arch-node-box">
+          <div class="box-tag">Compiler</div>
+          <h4>Story Compiler</h4>
+          <p>AST 构建、死锁检测、引脚校验，导出优化后的执行字节码/JSON</p>
+        </div>
+        <div class="arch-arrow">
+          <span class="arrow-line"></span>
+          <span class="arrow-text">Artifact (.storyc.json)</span>
+        </div>
+        <div class="arch-node-box highlight-box">
+          <div class="box-tag">Runtime</div>
+          <h4>Story Runtime Engine</h4>
+          <p>轻量、无任何引擎依赖的状态机与指令解释器</p>
+        </div>
+        <div class="arch-arrow">
+          <span class="arrow-line"></span>
+          <span class="arrow-text">Adapter Bridge</span>
+        </div>
+        <div class="arch-adapters-container">
+          <div class="adapter-chip">Unreal Engine 5 (C++)</div>
+          <div class="adapter-chip">Unity (C# Runtime)</div>
+          <div class="adapter-chip">Godot 4 (GDScript / C#)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 快捷反馈与参与开源 -->
+  <section class="community-section">
+    <div class="container community-box">
+      <div class="community-content">
+        <h2>参与构建或反馈问题</h2>
+        <p>遇到 Bug 或是想要新功能？我们通过 GitHub Issues 追踪所有需求。客户端内置了一键提交诊断日志的功能。</p>
+      </div>
+      <div class="community-actions">
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/issues/new" target="_blank" rel="noreferrer" class="btn btn-secondary">
+          <span>提交 GitHub Issue</span>
+        </a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer" class="btn btn-primary">
+          <span>Star 我们的项目</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 页脚 -->
+  <footer class="footer">
+    <div class="container footer-content">
+      <div class="footer-left">
+        <div class="footer-brand">
+          <img src="assets/logo.png" alt="Logo" class="footer-logo">
+          <span>Story Blueprint</span>
+        </div>
+        <p class="copyright">Copyright © 2026 Story Blueprint Contributors. Released under the MIT License.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/blob/main/readme.md" target="_blank" rel="noreferrer">文档</a>
+        <a href="#changelog">更新日志</a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/issues" target="_blank" rel="noreferrer">反馈通道</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast 通知弹窗 -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

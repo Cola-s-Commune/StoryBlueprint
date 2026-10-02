@@ -11,6 +11,7 @@ const { basename, resolve } = require('node:path');
 const workspaceRoot = resolve(__dirname, '../../..');
 const releaseRoot = resolve(__dirname, '../../../release');
 const packageFile = resolve(__dirname, '../package.json');
+const { loadReleaseConfig } = require('./load-release-config.cjs');
 
 function option(args, name) {
   const index = args.indexOf(name);
@@ -126,10 +127,12 @@ async function generateUpdateManifest(options) {
 
 async function main() {
   const args = process.argv.slice(2);
+  const { config: releaseConf } = loadReleaseConfig(workspaceRoot);
   const packageJson = JSON.parse(readFileSync(packageFile, 'utf8'));
   const channel = validateChannel(
     option(args, '--channel') ??
       process.env.STORY_BLUEPRINT_UPDATE_CHANNEL ??
+      releaseConf.release?.channel ??
       (packageJson.version.includes('-') ? 'beta' : 'stable'),
   );
   const notesFile = option(args, '--notes-file') ?? process.env.STORY_BLUEPRINT_RELEASE_NOTES_FILE;
@@ -137,12 +140,21 @@ async function main() {
     notes: option(args, '--notes') ?? process.env.STORY_BLUEPRINT_RELEASE_NOTES,
     notesFile,
   });
+  const defaultKeyFile = releaseConf.release?.privateKeyFile ?? '.release-keys/release-2026.pem';
+  const privateKeyFile =
+    option(args, '--private-key-file') ??
+    process.env.STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE ??
+    (existsSync(resolve(workspaceRoot, defaultKeyFile)) ? defaultKeyFile : undefined);
+  const keyId = option(args, '--key-id') ?? process.env.STORY_BLUEPRINT_UPDATE_KEY_ID ?? releaseConf.release?.keyId;
   const result = await generateUpdateManifest({
     releaseRoot,
     version: packageJson.version,
     channel,
     releaseDate: option(args, '--release-date'),
     notes,
+    keyId,
+    privateKeyFile,
+    privateKey: option(args, '--private-key') ?? process.env.STORY_BLUEPRINT_UPDATE_PRIVATE_KEY,
   });
   console.log(
     `Generated ${result.outputPath} for ${result.manifest.latestVersion} (${channel}) with SHA-512 hashes and Ed25519 signature`,

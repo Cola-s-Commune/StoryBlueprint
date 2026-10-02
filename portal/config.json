@@ -1,0 +1,10 @@
+{
+  "$comment": "Story Blueprint 发布门户独立配置文件。可随 portal/ 目录直接部署至 Nginx / 静态托管服务。",
+  "port": 8443,
+  "host": "0.0.0.0",
+  "serverUrl": "https://storyblueprint.biaozi.biz:8443",
+  "feedUrl": "https://storyblueprint.biaozi.biz:8443/updates",
+  "channel": "stable",
+  "githubUrl": "https://github.com/Cola-s-Commune/StoryBlueprint",
+  "brandName": "Story Blueprint"
+}

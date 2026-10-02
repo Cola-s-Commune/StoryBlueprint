@@ -1011,6 +1011,9 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] AI 协作规范解耦为双层架构：`AGENTS.md`（用户自有入口，引导 AI 并预留作者设定）与 `STORY_BLUEPRINT_AI.md`（系统版本化规范）；规范升级时原子替换框架文件，严格保护用户自定义世界观与角色设定
 - [x] 用户与 AI 双通道 GitHub 反馈系统：`Help -> Report Issue / Feedback...` 菜单入口与 AI 面板指令违规拦截快捷反馈，自动抓取环境与报错堆栈直通 GitHub Issues
 - [x] 编制发布页、在线更新与反馈系统规范文档 (`docs/release-portal-specification.md`)
+- [x] 官方 Web 发布与下载门户主页 (`portal/`)：深色蓝图科技风 UI、特性展示、动态拉取 `stable.json`、双通道下载与 SHA-512 一键复制
+- [x] 本地发布与在线更新联调服务 (`portal/serve.cjs`，`npm run serve:portal`)：支持 HTTP/HTTPS 端口、Range 断点续传与跨源调试
+- [x] 打通一键构建打包、Ed25519 签名与 `verify:release:win` 验签全流程并生成完整发布包 (`release/`)
 
 ---
 

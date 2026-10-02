@@ -13,9 +13,14 @@ interface UpdateDialogProps {
   onClose: () => void;
 }
 
+declare const __OFFICIAL_FEED_URL__: string | undefined;
+
 const defaultSettings: UpdateSettings = {
   enabled: true,
-  feedUrl: 'https://storyblueprint.biaozi.biz:8443/updates',
+  feedUrl:
+    typeof __OFFICIAL_FEED_URL__ !== 'undefined'
+      ? __OFFICIAL_FEED_URL__
+      : 'https://storyblueprint.biaozi.biz:8443/updates',
   channel: 'stable',
   autoCheck: true,
 };

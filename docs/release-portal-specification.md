@@ -42,11 +42,16 @@ Story Blueprint 采用**轻量、安全、解耦**的分发与反馈体系：
 服务器的 Web 根目录（如 Nginx 静态站点）需开放以下路径：
 
 ```text
-/updates/
-├── stable.json                        # 稳定版更新元数据清单（必需）
-├── beta.json                          # 测试版更新元数据清单（可选）
-├── StoryBlueprint-Setup-0.1.0-x64.exe  # Windows NSIS 安装包
-└── StoryBlueprint-Portable-0.1.0-x64.exe # Windows 便携绿色版
+/ (Web 门户根目录, 对应仓库 portal/)
+├── index.html                         # 现代化官方发布与下载门户主页
+├── styles.css                         # 蓝图深色科技质感样式
+├── app.js                             # 动态拉取 Manifest 与下载交互逻辑
+├── assets/                            # Logo、图标与媒体静态资产
+└── updates/                           # 客户端在线更新源与发行包产物（对应仓库 release/）
+    ├── stable.json                    # 稳定版更新元数据清单（必需）
+    ├── beta.json                      # 测试版更新元数据清单（可选）
+    ├── StoryBlueprint-Setup-0.1.0-x64.exe  # Windows NSIS 安装包
+    └── StoryBlueprint-Portable-0.1.0-x64.exe # Windows 便携绿色版
 ```
 
 ### 2.2 更新清单协议契约 (`UpdateManifest`)
@@ -78,6 +83,32 @@ Story Blueprint 采用**轻量、安全、解耦**的分发与反馈体系：
 > **注意**：
 > - `installerUrl` 与 `portableUrl` 可使用相对路径（如 `./StoryBlueprint-Setup-xxx.exe`），客户端会自动基于 `feedUrl` 解析出完整下载链接。
 > - 签名校验：客户端使用内置的公钥表对规范化后的 JSON 进行验签，阻止中间人劫持与篡改。
+
+### 2.3 统一发布配置文件 (`release.config.json`)
+
+项目根目录提供统一的发布与联调配置文件 `release.config.json`（支持别名 `release.conf.json`），用户可直接在此修改发布页本地端口与发版服务器地址：
+
+```json
+{
+  "portal": {
+    "port": 8443,
+    "host": "0.0.0.0"
+  },
+  "server": {
+    "url": "https://storyblueprint.biaozi.biz:8443",
+    "feedUrl": "https://storyblueprint.biaozi.biz:8443/updates"
+  },
+  "release": {
+    "channel": "stable",
+    "keyId": "release-2026",
+    "privateKeyFile": ".release-keys/release-2026.pem"
+  }
+}
+```
+
+- **发布页端口与主机**：`portal.port`（可通过 `npm run serve:portal -- --port <port>` 临时覆盖）；
+- **发版服务器地址**：`server.url` 与 `server.feedUrl`，编辑器打包时（`npm run release:win` 或 `npm run build`）会自动将该服务器地址编译注入为客户端内置的默认更新源；
+- **发版通道与密钥**：`release.channel`、`release.keyId` 与 `release.privateKeyFile`，生成签名 Manifest 时自动作为默认凭据。
 
 ---
 
@@ -169,21 +200,21 @@ This specification defines the core mental model, constraints, node schemas, and
 
 发版人员在本地或 CI 构建机执行发布时，按以下步骤进行：
 
-1. **打包产物**：
+1. **打包产物与签名清单**：
    ```bash
-   npm run build --workspaces
-   npm run release:win:installer --workspace @story-blueprint/editor
-   npm run release:win:portable --workspace @story-blueprint/editor
+   # 编译工作区包
+   npm run build
+   # 一键构建 Windows NSIS 安装包、便携版并生成 Ed25519 签名清单 stable.json
+   npm run release:win
    ```
-2. **生成签名清单**：
+2. **本地双重验证**：
    ```bash
-   # 配置私钥环境变量
-   export STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE=".release-keys/update-private.pem"
-   npm run release:win:manifest --workspace @story-blueprint/editor
-   ```
-3. **上传服务器**：
-   将 `release/` 目录下的 `stable.json`、`StoryBlueprint-Setup-*.exe`、`StoryBlueprint-Portable-*.exe` 部署至发布服务器的 `/updates/` 目录下。
-4. **验证验证链路**：
-   ```bash
+   # 自动化烟雾测试、ASAR 校验与 Ed25519 签名有效性核对
    npm run verify:release:win
+   # 启动本地官方 Web 门户与更新服务（支持浏览器访问与客户端联调更新）
+   npm run serve:portal
    ```
+3. **部署至生产服务器**：
+   - 将 `portal/` 内容部署至 Web 根目录 `/`；
+   - 将 `release/` 内容（`stable.json`、`.exe`、`.blockmap`）部署至 Web 根目录的 `/updates/` 下。
+
