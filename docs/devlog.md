@@ -1,5 +1,15 @@
 # Dev Log
 
+- Router（Reroute 节点）辅助整理与正交排版支持：`autoLayoutGraph` 彻底重构前向 Reroute 的定位算法，废除旧有的对角线中点插值，改为目标列前方间隙正交锚定与水平避障通道保持；支持单 Router 拐角对齐与多 Router 的标准 U/Z 型避障航道，并在 `bus.story` 中应用 Router 节点实现长跨度分支零交叉布线。
+- 蓝图级智能连线路由器（`BlueprintSmoothStepEdge`）：定制并全局注册 React Flow 自定义边组件，替换默认 `smoothstep` 在 50% 水平中点盲目下折的缺陷；对跨列长前向连线（$\Delta X > 60$）将垂直变轨点精确锚定在紧邻目标列的空隙（`targetX - Math.min(45, deltaX / 2)`），让长连线始终在来源高度的专属水平空阔通道飞行，彻底消除中间垂直穿切无关节点的交叉线。
+- 图自动排版算法（Auto Layout）体系级重构与优化：
+  1. 端口感知垂直排序（`sourcePortAnchorY`）：严格保证 `Branch` 的 `true` 在上、`false` 在下，`Choice` 选项自上而下垂直对齐，根除发散连线交叉颠倒；
+  2. 非重叠分块合并（Block Relaxation）：采用动态块合并算法保证行间最小间距（`autoLayoutRowGap`），避免密集挤压；
+  3. 汇聚节点长跨度前驱强拉抑制：限制向汇聚层靠拢的最大跨度，防止早期分支节点被拉伸跨越多个无关列破坏叙事结构；
+  4. 稳定 3 阶段扫掠消灭漂移：跳过终端层反向计算，消除负向反馈漂移死循环；
+  5. 平直水平流向（Straight-Line Flow）：单前驱单后继连线与分支延续线强制水平对齐（Y 坐标完全一致），蓝图呈现清晰专业的泳道式视觉流。
+- AI 提案画布暂存与审查工作流（Proposal Staging）：AI Blueprint Commands 执行默认在画布中进入暂存预览态（新节点绿色高亮、修改黄色高亮），顶部展示 Apply / Discard 审查横幅；新增协作设置项 `allowAIAutoApply`（支持直接落盘写入并自动保留 `.bak` 备份）；修复预览态下画布无法平移移动的问题，允许鼠标中键/右键/空格自由漫游画布。
+- AI 新建节点自动局部排版预览：当 AI 生成节点未附带坐标时，暂存器自动构建并执行 `layout-neighborhood` 局部排版，确保预览态直接呈现整齐舒展的节点流。
 - Windows Release 流程在 NSIS 和 Portable 均成功后自动生成 `stable.json` / `beta.json`，记录版本、日期、Release Notes、相对产物 URL、精确大小和 Base64 SHA-512；Release 验证器会重新计算并核对清单，避免旧产物或错误 Feed 被发布。支持环境变量选择通道和说明文件，并记录 localhost 静态服务器端到端测试方式。
 - 新增应用级更新检查基础设施：Help 菜单可配置自定义 Feed URL、Stable / Beta 和启动检查，设置仅保存在 Electron userData；主进程限制远程 HTTPS（localhost 可用 HTTP），解析版本化 JSON Manifest、比较含 prerelease 的 SemVer，并仅在发现新版本时提供安装器 / Portable 外部下载入口。当前不自动下载或安装，签名验证仍是启用自动更新前的硬前置。
 - Expression 快捷运算符按结果类型收紧：String 只显示拼接和括号，`==` / `!=` 仅在 Boolean 条件中作为比较操作出现；底层仍保留字符串比较能力。
@@ -197,13 +207,22 @@ npm run dev
 - `.story` 切换到不兼容 v1 的紧凑 v2：短 ID、整数坐标、可选节点名、无持久化 Edge ID、默认端口和版本省略。
 - 默认 Compiler 将节点图降级为无坐标、无编辑器节点 ID 的 Runtime Program；Runtime 提供表达式求值、模板渲染和选项过滤。
 
-### Next
+### Next: 后续演进路线规划 (Roadmap Assessment)
 
-**[M7/M8] Compiler + Runtime Preview**
+**Priority 1: AI 深度剧情创作与逻辑重构 (AI Capabilities)**
+- 跨多列长连线自动 Router 辅助建议：长距离跳转或多层汇聚时由 AI 智能插入 Reroute 节点辅助规整布线
+- 剧本逻辑自检与一致性诊断：变量流动闭环、孤立死锁分支与角色性格前后一致性扫描
+- 连续多轮自然语言重构：支持复杂自然语言指令（如“重写第三幕对话，增加追逐结局分支并挂接变量判断”）
 
-- 实现 Dialogue / Choice / Branch / End 的最小执行器
-- 编辑器内运行当前 Story
-- 见 `docs/task.md` → Milestone 7 / 8
+**Priority 2: 游戏引擎运行时适配器 (Engine Adapters)**
+- Unity C# Runtime Package：轻量级驱动、读取 `.storyc.json`、Dialogue UI 事件绑定与变量持久化存档
+- Unreal Engine 5 插件评估：Gameplay / Dialogue Subsystem 接入规范与示例工程
+- Godot 4 GDExtension / GDScript Adapter 评估
+
+**Priority 3: 画布交互舒适度提升 (Canvas QoL & Workflow)**
+- 双击连线插入 Reroute 自动正交吸附到推荐转折通道
+- 智能对齐辅助线与吸附增强（Smart Snapping / Alignment Guides）
+- 剧情分组注释框（Comment Grouping & Framing）：多选节点一键包裹为可折叠/染色的 Comment Block
 
 ---
 
@@ -211,6 +230,10 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| 2026-10-02 | Router（Reroute 节点）正交排版优化，支持列间隙锚定与水平避障通道保持，实现复杂长分支零交叉布线                   |
+| 2026-10-02 | 蓝图级连线路由器（BlueprintSmoothStepEdge）定制，跨列前向连线目标间隙折线，消除中间穿切交叉线                     |
+| 2026-10-02 | 自动排版重构：端口感知有序排列、非重叠分块合并、汇聚节点跨度约束、稳定三阶段扫掠与水平平直对齐                   |
+| 2026-10-01 | AI 提案画布暂存与审查工作流（Proposal Staging）、Auto-Apply 配置选项与预览态画布自由漫游支持                     |
 | 2026-07-27 | Dialogue Inspector 接入离线 Monaco Ink 编辑视图，支持行级元数据、诊断、稳定 ID 对齐、原生剪贴板及 Lines 双向同步   |
 | 2026-07-25 | 增加左下 Story Data、变量/角色编辑、拖拽创建 Get/Set/Dialogue，以及 Inspector 模板和表达式变量投放                 |
 | 2026-07-25 | `.story` 改为紧凑 v2：短稳定 ID、整数坐标、可选节点名、无 Edge ID；不兼容且不迁移旧格式                            |
@@ -259,3 +282,7 @@ npm run dev
 - 新增项目级 `STORY_BLUEPRINT_AI.md` AI 协作契约：明确编辑目标是可执行的故事控制流图而非剧情梗概，新建项目自动生成；使用专用文件名避免被开发代理当作仓库指令。AI 面板支持作者显式附加受限文本参考文件，附件仅进入当前请求且在主进程边界校验。
 - AI 会话标题改为独立可编辑字段：首条消息只初始化默认标题，重命名后随会话保存。
 - 在线更新补齐 Installer 安装闭环：下载完成后可显式安装并重启，主进程校验路径和未保存状态；Portable 仍保持手动替换。
+- 预设官方更新发布源为 `https://storyblueprint.biaozi.biz:8443/updates`，客户端默认开启版本检测，支持相对路径包下载、Ed25519 签名验证和 SHA-512 完整性校验。
+- 重构 AI 协作规范为双层解耦架构：用户掌控入口 `AGENTS.md`（引导 AI 并预留作者自定义设定）与框架托管规范 `STORY_BLUEPRINT_AI.md`（带版本元数据）；更新规范时原子替换系统文件，100% 保护用户自定义内容。
+- 新增用户与 AI 双通道 GitHub 反馈系统：菜单栏提供 `Report Issue / Feedback...` 弹窗；AI 面板在模型格式违约拦截时提供 `[🐛 反馈异常]`，自动结构化组装上下文直通 GitHub Issues。
+- 编写《发布页、在线更新与反馈系统规范》(`docs/release-portal-specification.md`)。

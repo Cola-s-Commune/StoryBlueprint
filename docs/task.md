@@ -930,10 +930,11 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [ ] AI Dialogue Generation
 - [ ] AI Branch Suggestion
 - [ ] AI Translation
-- [ ] AI Logic Validation
+- [ ] AI Logic Validation：变量流动闭环、孤立死锁分支与角色性格一致性扫描
 - [ ] AI Ink Conversion
-- [ ] AI Chapter Refactoring
+- [ ] AI Chapter Refactoring：根据复杂自然语言指令重构章节/分支
 - [ ] AI Character / Voice / Emotion Completion
+- [ ] AI Router Assistance：跨多列长连线与分支汇聚时智能插入 Reroute 节点辅助规整布线
 
 ---
 
@@ -958,8 +959,12 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] Local / Remote 同时替换 Start 时生成入口二选一冲突，Apply 前强制每个 Graph 只有一个入口
 - [x] Line / Option / Parameter 等有序集合在同一位置并发插入时显式选择 Local-first / Remote-first
 - [x] 复杂 JSON 值按字段和数组元素做三方语义合并；无稳定 ID 的数组使用序列对齐，冲突定位到具体嵌套路径，并忽略编辑器内部类型标记
-- [x] 复杂 JSON 冲突可视化：显示嵌套字段短名、完整路径及 Base / Local / Remote 三方值；容器顺序冲突提供 Local-first / Remote-first 决策
 - [x] AI Commands 支持 `layout-selection` 与 `layout-neighborhood` 布局意图，不允许 AI 直接生成 `x/y`
+- [x] AI Commands 在编辑器画布内以 Proposal 暂存并提供 Apply / Discard 审核横幅；支持 `allowAIAutoApply` 协作设置直接落盘与自动 `.bak` 备份
+- [x] AI 预览态支持画布中键/右键/空格自由平移漫游，并在新增节点未显式包含布局时自动注入 `layout-neighborhood` 局部排版
+- [x] 自动排版算法体系级优化：端口感知有序排布（Branch / Choice 出口无交叉）、分块非重叠间距松弛、汇聚前驱跨度约束、稳定三阶段扫掠消除终端漂移、单链平直水平泳道
+- [x] 蓝图级定制连线路由器 `BlueprintSmoothStepEdge`：跨列长连线在紧邻目标列间隙处正交变轨，消除中间下折穿越无关分支
+- [x] Router（Reroute 节点）正交排版与避障支持：在列间隙精准锚定，保持水平通道高度与标准直角 U/Z 型避障，实现复杂长流程 0 交叉
 - [ ] Multi-user
 
 ---
@@ -967,9 +972,17 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 ## Runtime
 
 - [x] External Function Out 数据 Pin：Call External Function 的每个返回值可作为强类型数据源，连接到 Set Variable / Branch 等节点；运行时缓存可序列化并支持多个消费者，保留 `resultVariableIds` 兼容路径
-- [ ] Unity Adapter
-- [ ] Unreal Adapter
-- [ ] Godot Adapter
+- [ ] Unity Adapter：C# Runtime Package，读取 `.storyc.json`、Dialogue UI 事件绑定与变量持久化存档
+- [ ] Unreal Adapter：UE5 Gameplay / Dialogue Subsystem 接入规范与示例工程
+- [ ] Godot Adapter：Godot 4 GDExtension / GDScript 驱动包
+
+---
+
+## Canvas QoL & Workflow
+
+- [ ] 双击连线插入 Reroute 自动正交吸附到推荐转折通道
+- [ ] 智能对齐辅助线与吸附增强（Smart Snapping / Alignment Guides）
+- [ ] 剧情分组注释框（Comment Grouping & Framing）：多选节点一键包裹为可折叠/染色的 Comment Block
 
 ---
 
@@ -994,6 +1007,10 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] 发布公钥内置、Ed25519 Manifest 签名验证；未签名、篡改或未知 key 的清单拒绝进入更新流程
 - [x] 应用内下载已验签 Artifact，流式 SHA-512 / 大小校验、进度、取消和安全落盘；Installer / Portable 均由用户显式打开
 - [x] NSIS Installer 下载后显式确认、检查未保存 Story、退出并启动安装器；Portable 仅下载和提示替换
+- [x] 官方发布源默认预设为 `https://storyblueprint.biaozi.biz:8443/updates`，客户端默认开启版本检查，支持相对路径产物下载
+- [x] AI 协作规范解耦为双层架构：`AGENTS.md`（用户自有入口，引导 AI 并预留作者设定）与 `STORY_BLUEPRINT_AI.md`（系统版本化规范）；规范升级时原子替换框架文件，严格保护用户自定义世界观与角色设定
+- [x] 用户与 AI 双通道 GitHub 反馈系统：`Help -> Report Issue / Feedback...` 菜单入口与 AI 面板指令违规拦截快捷反馈，自动抓取环境与报错堆栈直通 GitHub Issues
+- [x] 编制发布页、在线更新与反馈系统规范文档 (`docs/release-portal-specification.md`)
 
 ---
 
