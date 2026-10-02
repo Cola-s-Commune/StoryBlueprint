@@ -45,6 +45,7 @@ import {
   type CommentNodeData,
 } from '@story-blueprint/common';
 import { nodeTypes } from '../Nodes';
+import { edgeTypes } from '../Edges';
 import {
   autoLayoutGraph,
   createGraphClipboard,
@@ -2192,6 +2193,7 @@ export function StoryGraph() {
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           nodesConnectable={!aiProposal && !mergePreviewActive}
           elementsSelectable={!aiProposal && !mergePreviewActive}
           defaultEdgeOptions={{

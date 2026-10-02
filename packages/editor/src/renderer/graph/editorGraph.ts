@@ -655,11 +655,59 @@ export function autoLayoutGraph(
     const forward = targetX > sourceX;
     const routeY = forward ? undefined : graphBottom + 100 + returnLane++ * (autoLayoutRowGap + 18);
     chain.forEach((reroute, index) => {
-      const fraction = (index + 1) / (chain.length + 1);
-      const centerX = sourceX + (targetX - sourceX) * fraction;
-      const sourceY = source.position.y + layoutNodeHeight(source) / 2;
+      if (!forward) {
+        const fraction = (index + 1) / (chain.length + 1);
+        const centerX = sourceX + (targetX - sourceX) * fraction;
+        const centerY = routeY!;
+        positions.set(reroute.id, {
+          x: Math.round(centerX - layoutNodeWidth(reroute) / 2),
+          y: Math.round(centerY - layoutNodeHeight(reroute) / 2),
+        });
+        return;
+      }
+
+      // Forward reroute chain: position orthogonally in column gaps aligned with flow lanes
+      const sourceEdge = executionFrom.get(source.id)?.find(
+        (e) => e.target === reroute.id || chain.some((c) => c.id === e.target),
+      );
+      const sourceY =
+        sourcePortAnchorY(source, sourceEdge?.sourceHandle) ??
+        source.position.y + layoutNodeHeight(source) / 2;
       const targetY = target.position.y + layoutNodeHeight(target) / 2;
-      const centerY = routeY ?? sourceY + (targetY - sourceY) * fraction;
+      const initialY = initialPositions.get(reroute.id) ?? reroute.position.y;
+      const isBypass =
+        initialY < Math.min(sourceY, targetY) - 30 || initialY > Math.max(sourceY, targetY) + 30;
+
+      let centerX: number;
+      let centerY: number;
+
+      if (chain.length === 1) {
+        const initialX = reroute.position.x;
+        const closerToSource = Math.abs(initialX - sourceX) < Math.abs(initialX - targetX);
+        if (closerToSource) {
+          centerX = sourceX + autoLayoutColumnGap / 2;
+          centerY = isBypass ? initialY : targetY;
+        } else {
+          centerX = targetX - autoLayoutColumnGap / 2;
+          centerY = isBypass ? initialY : sourceY;
+        }
+      } else {
+        if (index === 0) {
+          centerX = sourceX + autoLayoutColumnGap / 2;
+          centerY = isBypass ? initialY : sourceY;
+        } else if (index === chain.length - 1) {
+          centerX = targetX - autoLayoutColumnGap / 2;
+          centerY = isBypass ? initialY : targetY;
+        } else {
+          const fraction = index / (chain.length - 1);
+          centerX =
+            sourceX +
+            autoLayoutColumnGap +
+            (targetX - sourceX - 2 * autoLayoutColumnGap) * fraction;
+          centerY = isBypass ? initialY : sourceY;
+        }
+      }
+
       positions.set(reroute.id, {
         x: Math.round(centerX - layoutNodeWidth(reroute) / 2),
         y: Math.round(centerY - layoutNodeHeight(reroute) / 2),

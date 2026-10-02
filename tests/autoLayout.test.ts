@@ -369,5 +369,11 @@ describe('automatic graph layout', () => {
 
     // Bust arrest connects to rage: should stay in bottom branch
     expect(pos('n_bust_arrest').y).toBeGreaterThan(pos('n_keep').y);
+
+    if (result.nodes.some((n) => n.id === 'n_route_bust_sus')) {
+      expect(pos('n_route_bust_sus').y).toBeLessThan(pos('n_keep').y);
+      expect(pos('n_route_bust_sus').x).toBeGreaterThan(pos('n_end_win').x);
+      expect(pos('n_route_bust_sus').x).toBeLessThan(pos('n_end_bust').x);
+    }
   });
 });
