@@ -4474,8 +4474,14 @@ async function createWindow(): Promise<void> {
     minWidth: 1024,
     minHeight: 640,
     title: 'Story Blueprint',
-    icon: join(app.getAppPath(), 'build', 'icon.ico'),
+    icon: join(
+      app.getAppPath(),
+      'build',
+      process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+    ),
     frame: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
+    trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 10 } : undefined,
     show: !releaseSmokeTest,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

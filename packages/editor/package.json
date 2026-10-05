@@ -17,8 +17,11 @@
     "prerelease:win:portable": "node scripts/check-release-node.cjs",
     "release:win:portable": "npm run build && electron-builder --win portable --x64",
     "prerelease:win:installer": "node scripts/check-release-node.cjs",
-    "release:win:installer": "npm run build && electron-builder --win nsis --x64",
     "release:win:manifest": "node scripts/generate-update-manifest.cjs",
+    "release:linux:appimage": "npm run build && electron-builder --linux AppImage --x64",
+    "release:linux:tar": "npm run build && electron-builder --linux tar.gz --x64",
+    "release:mac:dmg": "npm run build && electron-builder --mac dmg",
+    "release:mac:zip": "npm run build && electron-builder --mac zip",
     "release:keygen": "node scripts/generate-update-keypair.cjs",
     "verify:win": "node scripts/verify-release.cjs",
     "preview": "electron-vite preview",
@@ -99,6 +102,38 @@
       "shortcutName": "Story Blueprint",
       "uninstallDisplayName": "Story Blueprint",
       "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "StoryBlueprint-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "tar.gz",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Development",
+      "artifactName": "StoryBlueprint-${version}-${arch}.${ext}"
     }
   }
 }

@@ -151,7 +151,7 @@ async function loadManifest() {
         manifest = await resp.json();
         activeUrl = new URL(ep, window.location.href).toString();
         const statusText = document.getElementById('channel-status-text');
-        if (statusText) statusText.textContent = `已连接更新源 · ${manifest.channel || 'Stable'}`;
+        if (statusText) statusText.textContent = `最新稳定版本 · v${manifest.latestVersion || '0.1.0'}`;
         break;
       }
     } catch (e) {
@@ -162,7 +162,7 @@ async function loadManifest() {
   if (!manifest) {
     manifest = DEFAULT_MANIFEST;
     const statusText = document.getElementById('channel-status-text');
-    if (statusText) statusText.textContent = `当前展示本地基线配置 · Stable v${manifest.latestVersion}`;
+    if (statusText) statusText.textContent = `最新稳定版本 · v${manifest.latestVersion || '0.1.0'}`;
   }
 
   applyManifestToDOM(manifest, activeUrl);
@@ -223,6 +223,16 @@ function applyManifestToDOM(manifest, manifestUrl) {
     notesContainer.innerHTML = renderMarkdown(manifest.notes);
   }
 
+  // 绑定 macOS 与 Linux 下载链接
+  const macDmgBtn = document.getElementById('download-mac-dmg-btn');
+  if (macDmgBtn) macDmgBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.dmg`);
+  const macZipBtn = document.getElementById('download-mac-zip-btn');
+  if (macZipBtn) macZipBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.zip`);
+  const linuxAppImageBtn = document.getElementById('download-linux-appimage-btn');
+  if (linuxAppImageBtn) linuxAppImageBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-x64.AppImage`);
+  const linuxTarBtn = document.getElementById('download-linux-tar-btn');
+  if (linuxTarBtn) linuxTarBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-x64.tar.gz`);
+
   // 复制按钮事件
   setupCopyBtn('copy-installer-sha', manifest.installerSha512);
   setupCopyBtn('copy-portable-sha', manifest.portableSha512);
@@ -247,7 +257,40 @@ function setupCopyBtn(btnId, text) {
   };
 }
 
+function setupPlatformTabs() {
+  const tabs = document.querySelectorAll('.platform-tab');
+  const contents = document.querySelectorAll('.platform-content');
+
+  function switchTab(platform) {
+    tabs.forEach((tab) => {
+      tab.classList.toggle('active', tab.getAttribute('data-platform') === platform);
+    });
+    contents.forEach((content) => {
+      content.classList.toggle('active', content.id === `platform-${platform}`);
+    });
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const p = tab.getAttribute('data-platform');
+      if (p) switchTab(p);
+    });
+  });
+
+  // 自动根据 User-Agent 智能高亮用户当前操作系统
+  const ua = (navigator.userAgent || '').toLowerCase();
+  let defaultPlatform = 'windows';
+  if (ua.includes('macintosh') || ua.includes('mac os')) {
+    defaultPlatform = 'macos';
+  } else if (ua.includes('linux')) {
+    defaultPlatform = 'linux';
+  }
+  switchTab(defaultPlatform);
+}
+
 // 页面载入初始化
 document.addEventListener('DOMContentLoaded', () => {
+  setupPlatformTabs();
   loadManifest();
 });
+

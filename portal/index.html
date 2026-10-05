@@ -43,7 +43,7 @@
     <div class="container hero-content">
       <div class="channel-status" id="channel-status-pill">
         <span class="status-dot"></span>
-        <span id="channel-status-text">官方稳定通道已就绪 · Stable</span>
+        <span id="channel-status-text">最新稳定版本 · v0.1.0</span>
       </div>
       <h1 class="hero-title">
         跨引擎视觉叙事蓝图框架
@@ -76,19 +76,19 @@
           <svg class="meta-icon" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
           </svg>
-          Ed25519 官方防篡改签名
+          支持 Windows 10 / 11 (x64)
         </span>
         <span class="meta-item">
           <svg class="meta-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+            <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm1 5a1 1 0 00-1 1v6a1 1 0 001 1h12a1 1 0 001-1v-6a1 1 0 00-1-1H4zm3 3a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" clip-rule="evenodd"></path>
           </svg>
-          SHA-512 完整性校验
+          本地优先 · 离线开箱即用
         </span>
         <span class="meta-item">
           <svg class="meta-icon" viewBox="0 0 20 20" fill="currentColor">
             <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"></path>
           </svg>
-          支持 Git 三方拓扑合并
+          Git 三方多人协同合并
         </span>
       </div>
     </div>
@@ -98,8 +98,8 @@
   <section class="downloads-section" id="downloads">
     <div class="container">
       <div class="section-header">
-        <h2 class="section-title">官方发布通道与下载</h2>
-        <p class="section-desc">客户端内置自动验签机制。所有发版清单均经过私钥加签，下载包提供精准 SHA-512 完整性比对。</p>
+        <h2 class="section-title">下载 Story Blueprint</h2>
+        <p class="section-desc">轻量、现代的独立剧情流程编辑器。选择适合您的版本，即刻开始构建故事。</p>
       </div>
 
       <div class="release-card">
@@ -110,80 +110,199 @@
             <h3 class="release-version" id="manifest-version">Story Blueprint v0.1.0</h3>
             <span class="release-date" id="manifest-date">发布日期: 2026-10-01</span>
           </div>
-          <div class="release-signature-badge" id="signature-badge">
-            <svg class="sig-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-              <polyline points="9 12 11 14 15 10"></polyline>
+        </div>
+
+        <!-- 平台切换器 -->
+        <div class="platform-tabs" id="platform-tabs">
+          <button class="platform-tab active" data-platform="windows">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
             </svg>
-            <span id="sig-text">Ed25519 签名有效 (Key: release-2026)</span>
+            <span>Windows (x64)</span>
+          </button>
+          <button class="platform-tab" data-platform="macos">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.62-.75 1.04-1.8 0.92-2.85-.9.04-1.99.6-2.61 1.34-.55.63-1.03 1.68-.9 2.7.99.08 2.02-.49 2.59-1.19z"/>
+            </svg>
+            <span>macOS (Apple Silicon & Intel)</span>
+          </button>
+          <button class="platform-tab" data-platform="linux">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12.003 2c-3.167 0-5.733 2.567-5.733 5.733 0 1.2.37 2.313 1 3.234L6 14.5l2 1.5-1 2 2.5 1 1 2 3-1 3 1 1-2 2.5-1-1-2 2-1.5-1.27-3.533c.63-.921 1-2.034 1-3.234C17.73 4.567 15.17 2 12.003 2z"/>
+            </svg>
+            <span>Linux (x64)</span>
+          </button>
+        </div>
+
+        <!-- 平台 1: Windows 内容 -->
+        <div class="platform-content active" id="platform-windows">
+          <div class="artifacts-grid">
+            <div class="artifact-box primary-artifact">
+              <div class="artifact-badge">推荐方式</div>
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="12" y1="8" x2="12" y2="16"></line>
+                  <line x1="8" y1="12" x2="16" y2="12"></line>
+                </svg>
+              </div>
+              <h4 class="artifact-name">Windows 安装程序 (NSIS)</h4>
+              <p class="artifact-desc">完整安装体验，支持开始菜单与桌面快捷方式，支持无缝版本更新与重启。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">文件大小</span>
+                <span class="meta-val" id="installer-size">~98 MB</span>
+              </div>
+              <a href="#" class="btn btn-primary download-action-btn" id="download-installer-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载安装包 (.exe)</span>
+              </a>
+              <details class="checksum-details">
+                <summary>校验信息 (SHA-512)</summary>
+                <div class="checksum-body">
+                  <code class="sha-code" id="installer-sha">加载中...</code>
+                  <button class="copy-btn" id="copy-installer-sha" title="复制 SHA-512">复制哈希</button>
+                </div>
+              </details>
+            </div>
+
+            <div class="artifact-box">
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+              </div>
+              <h4 class="artifact-name">Windows 便携绿色版 (Portable)</h4>
+              <p class="artifact-desc">无需安装、解压即用。单文件可执行程序，适合放在移动存储设备随身携带。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">文件大小</span>
+                <span class="meta-val" id="portable-size">~87 MB</span>
+              </div>
+              <a href="#" class="btn btn-secondary download-action-btn" id="download-portable-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载免安装便携版 (.exe)</span>
+              </a>
+              <details class="checksum-details">
+                <summary>校验信息 (SHA-512)</summary>
+                <div class="checksum-body">
+                  <code class="sha-code" id="portable-sha">加载中...</code>
+                  <button class="copy-btn" id="copy-portable-sha" title="复制 SHA-512">复制哈希</button>
+                </div>
+              </details>
+            </div>
           </div>
         </div>
 
-        <!-- 产物下载卡片网格 -->
-        <div class="artifacts-grid">
-          <!-- NSIS 安装版 -->
-          <div class="artifact-box primary-artifact">
-            <div class="artifact-badge">推荐方式</div>
-            <div class="artifact-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="12" y1="8" x2="12" y2="16"></line>
-                <line x1="8" y1="12" x2="16" y2="12"></line>
-              </svg>
-            </div>
-            <h4 class="artifact-name">Windows 安装程序 (NSIS)</h4>
-            <p class="artifact-desc">支持创建开始菜单、桌面快捷方式，支持应用内一键静默自动安装更新与重启。</p>
-            <div class="artifact-meta">
-              <span class="meta-label">文件大小:</span>
-              <span class="meta-val" id="installer-size">~85 MB</span>
-            </div>
-            <div class="sha-box">
-              <div class="sha-header">
-                <span>SHA-512 校验码:</span>
-                <button class="copy-btn" id="copy-installer-sha" title="复制 SHA-512">复制</button>
+        <!-- 平台 2: macOS 内容 -->
+        <div class="platform-content" id="platform-macos">
+          <div class="artifacts-grid">
+            <div class="artifact-box primary-artifact">
+              <div class="artifact-badge">DMG 镜像</div>
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
               </div>
-              <code class="sha-code" id="installer-sha">计算中...</code>
+              <h4 class="artifact-name">macOS 磁盘镜像 (.dmg)</h4>
+              <p class="artifact-desc">拖拽安装至“应用程序”，原生适配 macOS 交通灯标题栏，支持 Apple Silicon 与 Intel 双架构。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">适用系统</span>
+                <span class="meta-val">macOS 12+ (Universal)</span>
+              </div>
+              <a href="#" class="btn btn-primary download-action-btn" id="download-mac-dmg-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载 macOS 镜像 (.dmg)</span>
+              </a>
             </div>
-            <a href="#" class="btn btn-primary download-action-btn" id="download-installer-btn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span>下载 Setup 安装包 (.exe)</span>
-            </a>
-          </div>
 
-          <!-- Portable 便携版 -->
-          <div class="artifact-box">
-            <div class="artifact-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                <line x1="12" y1="22.08" x2="12" y2="12"></line>
-              </svg>
-            </div>
-            <h4 class="artifact-name">Windows 便携绿色版 (Portable)</h4>
-            <p class="artifact-desc">无需管理员权限，解压即用。单文件可执行文件，适合 U 盘随身携带或隔离环境测试。</p>
-            <div class="artifact-meta">
-              <span class="meta-label">文件大小:</span>
-              <span class="meta-val" id="portable-size">~80 MB</span>
-            </div>
-            <div class="sha-box">
-              <div class="sha-header">
-                <span>SHA-512 校验码:</span>
-                <button class="copy-btn" id="copy-portable-sha" title="复制 SHA-512">复制</button>
+            <div class="artifact-box">
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                </svg>
               </div>
-              <code class="sha-code" id="portable-sha">计算中...</code>
+              <h4 class="artifact-name">macOS 免安装归档 (.zip)</h4>
+              <p class="artifact-desc">解压即用无需挂载 dmg 磁盘。适合本地快速解包或自动化工作流集成。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">适用系统</span>
+                <span class="meta-val">macOS 12+ (Universal)</span>
+              </div>
+              <a href="#" class="btn btn-secondary download-action-btn" id="download-mac-zip-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载 macOS 归档 (.zip)</span>
+              </a>
             </div>
-            <a href="#" class="btn btn-secondary download-action-btn" id="download-portable-btn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span>下载 Portable 单文件 (.exe)</span>
-            </a>
+          </div>
+        </div>
+
+        <!-- 平台 3: Linux 内容 -->
+        <div class="platform-content" id="platform-linux">
+          <div class="artifacts-grid">
+            <div class="artifact-box primary-artifact">
+              <div class="artifact-badge">通用免安装</div>
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                  <polyline points="2 17 12 22 22 17"></polyline>
+                  <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+              </div>
+              <h4 class="artifact-name">Linux AppImage (.AppImage)</h4>
+              <p class="artifact-desc">单文件即可执行，添加执行权限即可直接运行，兼容 Ubuntu、Debian、Fedora、Arch 等主流发行版。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">架构平台</span>
+                <span class="meta-val">x86_64 / glibc 2.28+</span>
+              </div>
+              <a href="#" class="btn btn-primary download-action-btn" id="download-linux-appimage-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载 AppImage 包 (.AppImage)</span>
+              </a>
+            </div>
+
+            <div class="artifact-box">
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                </svg>
+              </div>
+              <h4 class="artifact-name">Linux 压缩归档 (.tar.gz)</h4>
+              <p class="artifact-desc">包含完整二进制与运行时，方便 Linux 极客自定义安装目录或编写 desktop 入口。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">架构平台</span>
+                <span class="meta-val">x86_64</span>
+              </div>
+              <a href="#" class="btn btn-secondary download-action-btn" id="download-linux-tar-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载 Tar 归档包 (.tar.gz)</span>
+              </a>
+            </div>
           </div>
         </div>
 
@@ -278,11 +397,11 @@
         <div class="feature-card">
           <div class="feature-icon bg-red">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
           </div>
-          <h3>安全防篡改更新与双通道反馈</h3>
-          <p>集成 Ed25519 签名验签与流式 SHA-512 防篡改更新体系；内置用户建议与 AI 异常诊断直通 GitHub Issues 双通道快速闭环。</p>
+          <h3>任务、事件与信号状态机</h3>
+          <p>内置任务生命周期与事件总线。支持 <code>WaitSignal</code> 跨图异步信号监听与 <code>CallEvent</code> 参数求值，轻松构建大型非线性剧情网络。</p>
         </div>
       </div>
     </div>

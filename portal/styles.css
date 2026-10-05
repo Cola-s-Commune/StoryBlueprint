@@ -403,22 +403,53 @@ body {
   font-size: 0.9rem;
 }
 
-.release-signature-badge {
+/* Platform Tabs */
+.platform-tabs {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  padding: 6px 14px;
-  border-radius: var(--radius-md);
-  color: #34d399;
-  font-size: 0.85rem;
-  font-weight: 500;
+  gap: 10px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+  flex-wrap: wrap;
 }
 
-.sig-icon {
+.platform-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.platform-tab:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.platform-tab.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.tab-icon {
   width: 16px;
   height: 16px;
+}
+
+.platform-content {
+  display: none;
+}
+
+.platform-content.active {
+  display: block;
 }
 
 /* Artifacts Grid */
@@ -503,27 +534,36 @@ body {
   margin-bottom: 12px;
 }
 
-.meta-val {
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-  font-weight: 600;
+.checksum-details {
+  margin-top: 14px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 10px;
 }
 
-.sha-box {
+.checksum-details summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  transition: var(--transition);
+}
+
+.checksum-details summary:hover {
+  color: var(--accent-cyan);
+}
+
+.checksum-body {
+  margin-top: 8px;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-sm);
-  padding: 10px;
-  margin-bottom: 20px;
-}
-
-.sha-header {
+  padding: 8px 10px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-bottom: 4px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .copy-btn {
@@ -532,9 +572,10 @@ body {
   color: var(--accent-cyan);
   font-size: 0.72rem;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 4px;
   cursor: pointer;
+  white-space: nowrap;
   transition: var(--transition);
 }
 
@@ -545,15 +586,17 @@ body {
 
 .sha-code {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: #cbd5e1;
+  font-size: 0.72rem;
+  color: #94a3b8;
   word-break: break-all;
-  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .download-action-btn {
   width: 100%;
-  margin-top: auto;
+  margin-top: 6px;
 }
 
 /* Release Notes */

@@ -179,6 +179,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
     () => createMenuItems(settings.experimental.aiCommands),
     [settings.experimental.aiCommands],
   );
+  const isMac = window.electronAPI?.platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -346,7 +347,7 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
   };
 
   return (
-    <div className={styles.bar} ref={menuRef}>
+    <div className={`${styles.bar} ${isMac ? styles.barMac : ''}`} ref={menuRef}>
       {menuItems.map((item, i) => (
         <div
           key={item.label}
@@ -412,39 +413,41 @@ export function MenuBar({ onResetLayout, onShowPanel }: MenuBarProps) {
           <span>MCP</span>
         </button>
       </div>
-      <div className={styles.windowControls}>
-        <button
-          type="button"
-          className={styles.windowButton}
-          aria-label="Minimize window"
-          title="Minimize"
-          onClick={() => void window.electronAPI?.minimizeWindow()}
-        >
-          <span className={styles.minimizeIcon} />
-        </button>
-        <button
-          type="button"
-          className={styles.windowButton}
-          aria-label={maximized ? 'Restore window' : 'Maximize window'}
-          title={maximized ? 'Restore' : 'Maximize'}
-          onClick={() =>
-            void window.electronAPI
-              ?.toggleMaximizeWindow()
-              .then((state) => setMaximized(state.maximized))
-          }
-        >
-          <span className={maximized ? styles.restoreIcon : styles.maximizeIcon} />
-        </button>
-        <button
-          type="button"
-          className={`${styles.windowButton} ${styles.closeButton}`}
-          aria-label="Close window"
-          title="Close"
-          onClick={() => void window.electronAPI?.closeWindow()}
-        >
-          <span className={styles.closeIcon} />
-        </button>
-      </div>
+      {!isMac && (
+        <div className={styles.windowControls}>
+          <button
+            type="button"
+            className={styles.windowButton}
+            aria-label="Minimize window"
+            title="Minimize"
+            onClick={() => void window.electronAPI?.minimizeWindow()}
+          >
+            <span className={styles.minimizeIcon} />
+          </button>
+          <button
+            type="button"
+            className={styles.windowButton}
+            aria-label={maximized ? 'Restore window' : 'Maximize window'}
+            title={maximized ? 'Restore' : 'Maximize'}
+            onClick={() =>
+              void window.electronAPI
+                ?.toggleMaximizeWindow()
+                .then((state) => setMaximized(state.maximized))
+            }
+          >
+            <span className={maximized ? styles.restoreIcon : styles.maximizeIcon} />
+          </button>
+          <button
+            type="button"
+            className={`${styles.windowButton} ${styles.closeButton}`}
+            aria-label="Close window"
+            title="Close"
+            onClick={() => void window.electronAPI?.closeWindow()}
+          >
+            <span className={styles.closeIcon} />
+          </button>
+        </div>
+      )}
       {aboutOpen && (
         <AboutDialog
           appInfo={appInfo}
