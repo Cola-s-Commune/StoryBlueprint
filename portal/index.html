@@ -258,7 +258,7 @@
         <div class="platform-content" id="platform-linux">
           <div class="artifacts-grid">
             <div class="artifact-box primary-artifact">
-              <div class="artifact-badge">通用免安装</div>
+              <div class="artifact-badge">x86_64</div>
               <div class="artifact-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
@@ -266,8 +266,8 @@
                   <polyline points="2 12 12 17 22 12"></polyline>
                 </svg>
               </div>
-              <h4 class="artifact-name">Linux AppImage (.AppImage)</h4>
-              <p class="artifact-desc">单文件即可执行，添加执行权限即可直接运行，兼容 Ubuntu、Debian、Fedora、Arch 等主流发行版。</p>
+              <h4 class="artifact-name">Linux AppImage (x86_64)</h4>
+              <p class="artifact-desc">适用于 Intel/AMD PC 桌面。赋予执行权限即可直接运行，兼容 Ubuntu、Debian、Fedora 等。</p>
               <div class="artifact-meta">
                 <span class="meta-label">架构平台</span>
                 <span class="meta-val">x86_64 / glibc 2.28+</span>
@@ -278,7 +278,32 @@
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>下载 AppImage 包 (.AppImage)</span>
+                <span>下载 AppImage (x86_64)</span>
+              </a>
+            </div>
+
+            <div class="artifact-box primary-artifact">
+              <div class="artifact-badge">ARM64</div>
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                  <polyline points="2 17 12 22 22 17"></polyline>
+                  <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+              </div>
+              <h4 class="artifact-name">Linux AppImage (ARM64)</h4>
+              <p class="artifact-desc">适用于 ARM 架构 Linux（如统信 UOS / 麒麟飞腾/鲲鹏、树莓派 4/5 桌面等）。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">架构平台</span>
+                <span class="meta-val">aarch64 / ARM64</span>
+              </div>
+              <a href="#" class="btn btn-primary download-action-btn" id="download-linux-arm64-appimage-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载 AppImage (ARM64)</span>
               </a>
             </div>
 
@@ -288,8 +313,8 @@
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                 </svg>
               </div>
-              <h4 class="artifact-name">Linux 压缩归档 (.tar.gz)</h4>
-              <p class="artifact-desc">包含完整二进制与运行时，方便 Linux 极客自定义安装目录或编写 desktop 入口。</p>
+              <h4 class="artifact-name">Linux 归档包 (x86_64 tar.gz)</h4>
+              <p class="artifact-desc">包含完整二进制与运行时，方便 Linux 用户自定义安装目录或编写 desktop 入口。</p>
               <div class="artifact-meta">
                 <span class="meta-label">架构平台</span>
                 <span class="meta-val">x86_64</span>
@@ -300,7 +325,29 @@
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>下载 Tar 归档包 (.tar.gz)</span>
+                <span>下载 Tar 归档包 (x86_64)</span>
+              </a>
+            </div>
+
+            <div class="artifact-box">
+              <div class="artifact-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                </svg>
+              </div>
+              <h4 class="artifact-name">Linux 归档包 (ARM64 tar.gz)</h4>
+              <p class="artifact-desc">适配 aarch64 / ARM64 设备的便携式压缩包，解压后直接执行二进制即可运行。</p>
+              <div class="artifact-meta">
+                <span class="meta-label">架构平台</span>
+                <span class="meta-val">aarch64 / ARM64</span>
+              </div>
+              <a href="#" class="btn btn-secondary download-action-btn" id="download-linux-arm64-tar-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载 Tar 归档包 (ARM64)</span>
               </a>
             </div>
           </div>

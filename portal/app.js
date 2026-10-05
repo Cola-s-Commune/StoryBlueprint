@@ -230,8 +230,12 @@ function applyManifestToDOM(manifest, manifestUrl) {
   if (macZipBtn) macZipBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.zip`);
   const linuxAppImageBtn = document.getElementById('download-linux-appimage-btn');
   if (linuxAppImageBtn) linuxAppImageBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-x64.AppImage`);
+  const linuxArm64AppImageBtn = document.getElementById('download-linux-arm64-appimage-btn');
+  if (linuxArm64AppImageBtn) linuxArm64AppImageBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.AppImage`);
   const linuxTarBtn = document.getElementById('download-linux-tar-btn');
   if (linuxTarBtn) linuxTarBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-x64.tar.gz`);
+  const linuxArm64TarBtn = document.getElementById('download-linux-arm64-tar-btn');
+  if (linuxArm64TarBtn) linuxArm64TarBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.tar.gz`);
 
   // 复制按钮事件
   setupCopyBtn('copy-installer-sha', manifest.installerSha512);
