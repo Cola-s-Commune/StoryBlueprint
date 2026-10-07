@@ -236,11 +236,19 @@ export async function checkUpdateFeed(
       checkedAt,
     };
   } catch (error) {
+    let errorMsg = 'Update check failed';
+    if (error instanceof Error) {
+      const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+      const causeDetail = cause?.code || cause?.message;
+      errorMsg = causeDetail ? `${error.message} (${causeDetail})` : error.message;
+    } else if (error) {
+      errorMsg = String(error);
+    }
     return {
       status: 'error',
       currentVersion,
       checkedAt,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMsg,
     };
   }
 }
