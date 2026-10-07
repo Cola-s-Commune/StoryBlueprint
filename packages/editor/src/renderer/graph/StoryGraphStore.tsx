@@ -381,7 +381,7 @@ interface AIEditorChanges {
 interface AIEditorProposal extends AIEditorChanges {
   graph: EditorGraphState;
   transaction: unknown;
-  origin: 'ai' | 'ink-import' | 'ink-conversion';
+  origin: 'ai' | 'ai-command' | 'ink-import' | 'ink-conversion';
 }
 
 type ProblemOrigin = 'authoring' | 'build';

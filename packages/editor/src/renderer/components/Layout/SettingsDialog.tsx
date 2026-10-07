@@ -9,7 +9,7 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ onClose, onResetLayout }: SettingsDialogProps) {
   const { settings, updateSettings } = useEditorSettings();
-  const [activeTab, setActiveTab] = useState<'experimental' | 'general'>('experimental');
+  const [activeTab, setActiveTab] = useState<'general' | 'experimental'>('general');
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -89,17 +89,17 @@ export function SettingsDialog({ onClose, onResetLayout }: SettingsDialogProps) 
         <nav className={styles.tabBar} aria-label="Settings categories">
           <button
             type="button"
-            className={`${styles.tabButton} ${activeTab === 'experimental' ? styles.tabButtonActive : ''}`}
-            onClick={() => setActiveTab('experimental')}
-          >
-            🧪 实验性功能 (Experimental)
-          </button>
-          <button
-            type="button"
             className={`${styles.tabButton} ${activeTab === 'general' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('general')}
           >
             ⚙️ 常规 (General)
+          </button>
+          <button
+            type="button"
+            className={`${styles.tabButton} ${activeTab === 'experimental' ? styles.tabButtonActive : ''}`}
+            onClick={() => setActiveTab('experimental')}
+          >
+            🧪 实验性功能 (Experimental)
           </button>
         </nav>
 

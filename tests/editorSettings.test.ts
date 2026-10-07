@@ -29,26 +29,26 @@ describe('EditorSettings', () => {
     (globalThis as unknown as { window: unknown }).window = originalWindow;
   });
 
-  it('defaults experimental.aiCommands to true and allowAiAutoApply to false', () => {
-    expect(DEFAULT_EDITOR_SETTINGS.experimental.aiCommands).toBe(true);
+  it('defaults experimental.aiCommands to false and allowAiAutoApply to false', () => {
+    expect(DEFAULT_EDITOR_SETTINGS.experimental.aiCommands).toBe(false);
     expect(DEFAULT_EDITOR_SETTINGS.experimental.allowAiAutoApply).toBe(false);
-    expect(loadEditorSettings().experimental.aiCommands).toBe(true);
+    expect(loadEditorSettings().experimental.aiCommands).toBe(false);
     expect(loadEditorSettings().experimental.allowAiAutoApply).toBe(false);
   });
 
   it('persists and loads settings from localStorage', () => {
     const custom: EditorSettings = {
       experimental: {
-        aiCommands: false,
+        aiCommands: true,
         allowAiAutoApply: true,
       },
     };
     saveEditorSettings(custom);
-    expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"aiCommands":false');
+    expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"aiCommands":true');
     expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('"allowAiAutoApply":true');
 
     const loaded = loadEditorSettings();
-    expect(loaded.experimental.aiCommands).toBe(false);
+    expect(loaded.experimental.aiCommands).toBe(true);
     expect(loaded.experimental.allowAiAutoApply).toBe(true);
   });
 
@@ -61,7 +61,7 @@ describe('EditorSettings', () => {
   it('handles partial settings safely', () => {
     mockLocalStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({}));
     const loaded = loadEditorSettings();
-    expect(loaded.experimental.aiCommands).toBe(true);
+    expect(loaded.experimental.aiCommands).toBe(false);
   });
 
   it('handles environment without window.localStorage gracefully', () => {

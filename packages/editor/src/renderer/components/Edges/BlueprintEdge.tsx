@@ -14,7 +14,7 @@ export function BlueprintSmoothStepEdge({
   className,
   interactionWidth,
   ...delegated
-}: EdgeProps) {
+}: EdgeProps & { className?: string }) {
   const deltaX = targetX - sourceX;
   // If target is comfortably to the right of source, place the vertical bend near the target column.
   // This keeps long forward wires in their source horizontal lane, preventing premature vertical drops

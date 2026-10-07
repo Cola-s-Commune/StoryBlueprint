@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   DockviewReact,
   type DockviewApi,
@@ -27,7 +27,7 @@ import { StoryGraphStoreProvider } from '../../graph/StoryGraphStore';
 import { EditorSettingsProvider, useEditorSettings } from '../../settings/EditorSettingsContext';
 import styles from './MainLayout.module.css';
 
-const layoutStorageKey = 'story-blueprint:dock-layout:v7';
+const layoutStorageKey = 'story-blueprint:dock-layout:v8';
 
 function AICommandsPanel() {
   const { settings } = useEditorSettings();
@@ -308,6 +308,17 @@ function MainLayoutContent() {
     if (api) showPanel(api, panelId);
   }, []);
 
+  useEffect(() => {
+    const api = dockApiRef.current;
+    if (!api) return;
+    if (!settings.experimental.aiCommands) {
+      const panel = api.getPanel('aiCommands');
+      if (panel) {
+        panel.api.close();
+      }
+    }
+  }, [settings.experimental.aiCommands]);
+
   const onDockReady = useCallback(
     (event: DockviewReadyEvent) => {
       dockApiRef.current = event.api;
@@ -316,6 +327,12 @@ function MainLayoutContent() {
       if (savedLayout) {
         try {
           event.api.fromJSON(savedLayout);
+          if (!settings.experimental.aiCommands) {
+            const aiPanel = event.api.getPanel('aiCommands');
+            if (aiPanel) {
+              aiPanel.api.close();
+            }
+          }
         } catch {
           localStorage.removeItem(layoutStorageKey);
           createDefaultLayout(event.api, settings.experimental.aiCommands);

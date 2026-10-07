@@ -7,7 +7,7 @@ export interface EditorSettings {
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   experimental: {
-    aiCommands: true,
+    aiCommands: false,
     allowAiAutoApply: false,
   },
 };
