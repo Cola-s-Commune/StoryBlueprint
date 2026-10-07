@@ -24,6 +24,7 @@
     "release:linux:appimage:arm64": "npm run release:linux:appimage:arm64 --workspace @story-blueprint/editor",
     "release:mac:dmg": "npm run release:mac:dmg --workspace @story-blueprint/editor",
     "deploy": "node packages/editor/scripts/deploy.cjs",
+    "deploy:portal": "node packages/editor/scripts/deploy.cjs --only-portal",
     "release:deploy": "npm run release:win && node packages/editor/scripts/deploy.cjs",
     "verify:release:win": "npm run verify:win --workspace @story-blueprint/editor",
     "serve:portal": "node portal/serve.cjs",

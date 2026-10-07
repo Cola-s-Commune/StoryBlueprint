@@ -26,6 +26,7 @@
     "release:mac:zip": "npm run build && electron-builder --mac zip",
     "release:keygen": "node scripts/generate-update-keypair.cjs",
     "deploy": "node scripts/deploy.cjs",
+    "deploy:portal": "node scripts/deploy.cjs --only-portal",
     "release:deploy": "npm run release:win:installer && npm run release:win:portable && npm run release:win:manifest && node scripts/deploy.cjs",
     "verify:win": "node scripts/verify-release.cjs",
     "preview": "electron-vite preview",

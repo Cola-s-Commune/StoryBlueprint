@@ -53,7 +53,9 @@ Story Blueprint 自动化发版推送工具
   --port <端口>        SSH 端口 (默认: 22)
   --remote-dir <路径>  远程更新目录 (如: /Users/user/www/storyblueprint/updates)
   --portal             一并推送 portal/ 发布页前端文件到根目录
+  --only-portal        【快速】仅推送 portal/ 门户网页与服务脚本（不上传大型安装包）
   --only-manifest      仅推送 stable.json 更新元数据清单
+  --create-dirs        自动在服务器上预先执行 mkdir -p 创建目标目录
   --tool <rsync|scp>   强制指定传输工具 (默认优先自动探测 rsync，回退 scp)
   --dry-run            仅打印将要上传的文件清单，不执行实际传输
   -h, --help           查看帮助信息
@@ -80,14 +82,15 @@ const targetUser = getArg('--user') || deployConf.user;
 const targetPort = parseInt(getArg('--port') || deployConf.port || '22', 10);
 const remoteDir = getArg('--remote-dir') || deployConf.remoteDir;
 const portalRemoteDir = getArg('--portal-dir') || deployConf.portalRemoteDir || (remoteDir ? remoteDir.replace(/\/updates\/?$/, '') : '');
-const shouldDeployPortal = hasFlag('--portal') || Boolean(deployConf.deployPortal);
+const onlyPortal = hasFlag('--only-portal') || hasFlag('--portal-only');
+const shouldDeployPortal = onlyPortal || hasFlag('--portal') || Boolean(deployConf.deployPortal);
 const shouldCreateDirs = hasFlag('--create-dirs') || Boolean(deployConf.createDirs);
 const onlyManifest = hasFlag('--only-manifest');
 const isDryRun = hasFlag('--dry-run');
 const forcedTool = getArg('--tool') || deployConf.tool;
 
 // 配置校验与友好提示
-if (!targetHost || !targetUser || !remoteDir) {
+if (!targetHost || !targetUser || (!onlyPortal && !remoteDir) || (onlyPortal && !portalRemoteDir)) {
   console.error('\n❌ [deploy] 缺少远程服务器连接配置！');
   console.error(`请在 ${filePath ? basename(filePath) : 'release.config.json'} 中配置 deploy 字段，或通过命令行参数传入：\n`);
   console.error(`  示例 release.config.json 配置：
@@ -101,38 +104,41 @@ if (!targetHost || !targetUser || !remoteDir) {
   process.exit(1);
 }
 
-// 2. 收集待上传的发布产物
-if (!existsSync(releaseDir)) {
-  console.error(`❌ [deploy] 未找到 release/ 目录: ${releaseDir}`);
-  console.error('请先执行 npm run release:win 构建安装包后再执行推送。');
-  process.exit(1);
-}
+// 2. 收集待上传的发布产物 (若为 onlyPortal 则跳过 release 安装包)
+let releaseFiles = [];
+if (!onlyPortal) {
+  if (!existsSync(releaseDir)) {
+    console.error(`❌ [deploy] 未找到 release/ 目录: ${releaseDir}`);
+    console.error('请先执行 npm run release:win 构建安装包后再执行推送。');
+    process.exit(1);
+  }
 
-const releaseFiles = readdirSync(releaseDir)
-  .filter((f) => {
-    // 排除解包中间目录与调试日志
-    if (f.endsWith('-unpacked') || f === 'builder-debug.yml') return false;
-    const stat = statSync(join(releaseDir, f));
-    if (!stat.isFile()) return false;
-    if (onlyManifest) return f === 'stable.json';
-    return (
-      f === 'stable.json' ||
-      f.endsWith('.exe') ||
-      f.endsWith('.tar.gz') ||
-      f.endsWith('.dmg') ||
-      f.endsWith('.zip') ||
-      f.endsWith('.blockmap')
-    );
-  })
-  .map((f) => ({
-    name: f,
-    path: join(releaseDir, f),
-    size: statSync(join(releaseDir, f)).size,
-  }));
+  releaseFiles = readdirSync(releaseDir)
+    .filter((f) => {
+      // 排除解包中间目录与调试日志
+      if (f.endsWith('-unpacked') || f === 'builder-debug.yml') return false;
+      const stat = statSync(join(releaseDir, f));
+      if (!stat.isFile()) return false;
+      if (onlyManifest) return f === 'stable.json';
+      return (
+        f === 'stable.json' ||
+        f.endsWith('.exe') ||
+        f.endsWith('.tar.gz') ||
+        f.endsWith('.dmg') ||
+        f.endsWith('.zip') ||
+        f.endsWith('.blockmap')
+      );
+    })
+    .map((f) => ({
+      name: f,
+      path: join(releaseDir, f),
+      size: statSync(join(releaseDir, f)).size,
+    }));
 
-if (releaseFiles.length === 0) {
-  console.error('❌ [deploy] 在 release/ 目录下未发现可上传的发布文件！');
-  process.exit(1);
+  if (releaseFiles.length === 0) {
+    console.error('❌ [deploy] 在 release/ 目录下未发现可上传的发布文件！');
+    process.exit(1);
+  }
 }
 
 // 格式化文件大小
@@ -143,17 +149,27 @@ function formatBytes(bytes) {
 }
 
 console.log('\n======================================================');
-console.log('🚀 Story Blueprint 自动化发布推送服务');
+console.log(onlyPortal ? '🚀 Story Blueprint 门户页面独立推送服务 (跳过安装包)' : '🚀 Story Blueprint 自动化发布推送服务');
 console.log('======================================================');
 console.log(`🌐 目标服务器  : ${targetUser}@${targetHost}:${targetPort}`);
-console.log(`📂 发行包目录  : ${remoteDir}`);
+if (!onlyPortal) {
+  console.log(`📂 发行包目录  : ${remoteDir}`);
+}
 if (shouldDeployPortal) {
   console.log(`🌐 门户网目录  : ${portalRemoteDir}`);
 }
-console.log(`📦 待推送产物  : ${releaseFiles.length} 个文件`);
-releaseFiles.forEach((f) => {
-  console.log(`   - ${f.name.padEnd(42)} (${formatBytes(f.size)})`);
-});
+if (!onlyPortal) {
+  console.log(`📦 待推送产物  : ${releaseFiles.length} 个文件`);
+  releaseFiles.forEach((f) => {
+    console.log(`   - ${f.name.padEnd(42)} (${formatBytes(f.size)})`);
+  });
+} else {
+  const portalItems = readdirSync(portalDir).filter((f) => !f.startsWith('.') && f !== 'node_modules' && f !== 'updates');
+  console.log(`📄 待推送门户项: ${portalItems.length} 个文件/子项`);
+  portalItems.forEach((f) => {
+    console.log(`   - ${f}`);
+  });
+}
 console.log('======================================================\n');
 
 if (isDryRun) {
@@ -188,7 +204,8 @@ let totalSuccess = true;
 // 可选：预先在远程服务器创建目标目录
 if (shouldCreateDirs) {
   console.log('📁 正在远程服务器预先创建目标目录...');
-  const dirs = [remoteDir];
+  const dirs = [];
+  if (!onlyPortal && remoteDir) dirs.push(remoteDir);
   if (shouldDeployPortal && portalRemoteDir) dirs.push(portalRemoteDir);
   const mkdirCmd = `mkdir -p ${dirs.map((d) => `"${d}"`).join(' ')}`;
   const sshRes = spawnSync('ssh', ['-p', String(targetPort), `${targetUser}@${targetHost}`, mkdirCmd], {
@@ -202,25 +219,27 @@ if (shouldCreateDirs) {
 
 if (tool === 'rsync') {
   // rsync 方案：原生支持断点续传 (-P / --partial)、增量压缩 (-z)、归档模式 (-a)
-  console.log('📡 正在调用 rsync 进行增量同步（支持断点续传）...');
-  const remoteTarget = `${targetUser}@${targetHost}:${remoteDir}/`;
-  const filePaths = releaseFiles.map((f) => f.path);
+  if (!onlyPortal && releaseFiles.length > 0) {
+    console.log('📡 正在调用 rsync 进行增量同步（支持断点续传）...');
+    const remoteTarget = `${targetUser}@${targetHost}:${remoteDir}/`;
+    const filePaths = releaseFiles.map((f) => f.path);
 
-  const rsyncArgs = [
-    '-avzP',
-    '--partial',
-    '-e',
-    `ssh -p ${targetPort} -o ServerAliveInterval=15 -o ServerAliveCountMax=20`,
-    ...filePaths,
-    remoteTarget,
-  ];
+    const rsyncArgs = [
+      '-avzP',
+      '--partial',
+      '-e',
+      `ssh -p ${targetPort} -o ServerAliveInterval=15 -o ServerAliveCountMax=20`,
+      ...filePaths,
+      remoteTarget,
+    ];
 
-  const res = spawnSync('rsync', rsyncArgs, { stdio: 'inherit', cwd: workspaceRoot });
-  if (res.status !== 0) {
-    console.error('❌ rsync 同步过程中断！可直接重新运行本脚本继续断点续传。');
-    totalSuccess = false;
-  } else {
-    console.log('✅ 发行包同步完成！');
+    const res = spawnSync('rsync', rsyncArgs, { stdio: 'inherit', cwd: workspaceRoot });
+    if (res.status !== 0) {
+      console.error('❌ rsync 同步过程中断！可直接重新运行本脚本继续断点续传。');
+      totalSuccess = false;
+    } else {
+      console.log('✅ 发行包同步完成！');
+    }
   }
 
   // 同步前端网页
@@ -245,8 +264,6 @@ if (tool === 'rsync') {
   }
 } else {
   // scp 方案：一次性批量传输所有文件，仅需输入一次密码！
-  console.log('📡 正在使用增强型批量 SCP 传输 (已开启防掉线心跳)...');
-
   const scpOptions = [
     '-P',
     String(targetPort),
@@ -259,24 +276,27 @@ if (tool === 'rsync') {
     'ConnectTimeout=15',
   ];
 
-  const remoteTarget = `${targetUser}@${targetHost}:${remoteDir}/`;
-  const filePaths = releaseFiles.map((f) => f.path);
+  if (!onlyPortal && releaseFiles.length > 0) {
+    console.log('📡 正在使用增强型批量 SCP 传输 (已开启防掉线心跳)...');
+    const remoteTarget = `${targetUser}@${targetHost}:${remoteDir}/`;
+    const filePaths = releaseFiles.map((f) => f.path);
 
-  console.log(`\n⏳ 正在批量传输 ${releaseFiles.length} 个文件到远程目录 (只需验证一次密码)...`);
-  const res = spawnSync('scp', [...scpOptions, ...filePaths, remoteTarget], {
-    stdio: 'inherit',
-    cwd: workspaceRoot,
-  });
+    console.log(`\n⏳ 正在批量传输 ${releaseFiles.length} 个文件到远程目录 (只需验证一次密码)...`);
+    const res = spawnSync('scp', [...scpOptions, ...filePaths, remoteTarget], {
+      stdio: 'inherit',
+      cwd: workspaceRoot,
+    });
 
-  if (res.status !== 0) {
-    console.error('❌ 文件批量传输中断。');
-    console.error(`💡 提示: 若报错包含 "remote mkdir: No such file or directory"，说明远程目录不存在。`);
-    console.error(`   当前目标路径: ${remoteDir}`);
-    console.error(`   请检查配置文件，或在服务器上执行: mkdir -p "${remoteDir}"`);
-    console.error(`   也可以附加 --create-dirs 参数自动创建: npm run deploy -- --create-dirs`);
-    totalSuccess = false;
-  } else {
-    console.log('✅ 所有安装包与清单批量传输成功！');
+    if (res.status !== 0) {
+      console.error('❌ 文件批量传输中断。');
+      console.error(`💡 提示: 若报错包含 "remote mkdir: No such file or directory"，说明远程目录不存在。`);
+      console.error(`   当前目标路径: ${remoteDir}`);
+      console.error(`   请检查配置文件，或在服务器上执行: mkdir -p "${remoteDir}"`);
+      console.error(`   也可以附加 --create-dirs 参数自动创建: npm run deploy -- --create-dirs`);
+      totalSuccess = false;
+    } else {
+      console.log('✅ 所有安装包与清单批量传输成功！');
+    }
   }
 
   // 同步 portal 目录
@@ -306,8 +326,12 @@ if (tool === 'rsync') {
 // 5. 校验线上健康状态
 if (totalSuccess) {
   console.log('\n======================================================');
-  console.log('🎉 恭喜！本次更新已成功部署至 macOS 服务器！');
-  console.log(`📡 在线清单源: ${config.server.feedUrl}/stable.json`);
+  if (onlyPortal) {
+    console.log('🎉 恭喜！门户网页与服务脚本已成功更新至 macOS 服务器！');
+  } else {
+    console.log('🎉 恭喜！本次更新已成功部署至 macOS 服务器！');
+    console.log(`📡 在线清单源: ${config.server.feedUrl}/stable.json`);
+  }
   console.log(`🌐 在线发布页: ${config.server.url}`);
   console.log('======================================================\n');
 } else {
