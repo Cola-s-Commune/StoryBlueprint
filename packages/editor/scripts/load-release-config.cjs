@@ -35,6 +35,15 @@ function loadReleaseConfig(searchDir) {
             keyId: parsed.release?.keyId ?? 'release-2026',
             privateKeyFile: parsed.release?.privateKeyFile ?? '.release-keys/release-2026.pem',
           },
+          deploy: {
+            host: parsed.deploy?.host ?? '',
+            user: parsed.deploy?.user ?? '',
+            port: parsed.deploy?.port ?? 22,
+            remoteDir: parsed.deploy?.remoteDir ?? '',
+            portalRemoteDir: parsed.deploy?.portalRemoteDir ?? '',
+            deployPortal: parsed.deploy?.deployPortal ?? false,
+            target: parsed.deploy?.target ?? 'ssh',
+          },
         };
 
         return { config: resolved, raw: parsed, filePath: fullPath };
@@ -55,6 +64,15 @@ function loadReleaseConfig(searchDir) {
         channel: 'stable',
         keyId: 'release-2026',
         privateKeyFile: '.release-keys/release-2026.pem',
+      },
+      deploy: {
+        host: '',
+        user: '',
+        port: 22,
+        remoteDir: '',
+        portalRemoteDir: '',
+        deployPortal: false,
+        target: 'ssh',
       },
     },
     raw: {},

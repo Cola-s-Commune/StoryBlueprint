@@ -25,6 +25,8 @@
     "release:mac:dmg": "npm run build && electron-builder --mac dmg",
     "release:mac:zip": "npm run build && electron-builder --mac zip",
     "release:keygen": "node scripts/generate-update-keypair.cjs",
+    "deploy": "node scripts/deploy.cjs",
+    "release:deploy": "npm run release:win:installer && npm run release:win:portable && npm run release:win:manifest && node scripts/deploy.cjs",
     "verify:win": "node scripts/verify-release.cjs",
     "preview": "electron-vite preview",
     "lint": "eslint src --ext .ts,.tsx",

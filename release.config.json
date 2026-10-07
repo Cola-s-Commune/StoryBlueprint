@@ -13,5 +13,13 @@
     "channel": "stable",
     "keyId": "release-2026",
     "privateKeyFile": ".release-keys/release-2026.pem"
+  },
+  "deploy": {
+    "host": "192.168.1.50",
+    "user": "mac_username",
+    "port": 22,
+    "remoteDir": "/Users/mac_username/www/storyblueprint/updates",
+    "portalRemoteDir": "/Users/mac_username/www/storyblueprint",
+    "deployPortal": false
   }
 }
