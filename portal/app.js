@@ -12,8 +12,8 @@ const DEFAULT_MANIFEST = {
 - **AI 提案暂存审查沙盒 (Staging)**：AI Commands 执行进入画布暂存态（新节点绿、修改黄），顶部 Apply / Discard 审核横幅与局部邻域自动排版。
 - **官方发布与自更新体系**：集成 Ed25519 非对称签名验签与 SHA-512 流式校验，支持 Windows NSIS 安装包与便携绿色版。
 - **双通道问题反馈系统**：新增 Help 菜单与 AI 拦截报错直通 GitHub Issues 快速提交。`,
-  installerUrl: './StoryBlueprint-Setup-0.1.0-x64.exe',
-  portableUrl: './StoryBlueprint-Portable-0.1.0-x64.exe',
+  installerUrl: './updates/StoryBlueprint-Setup-0.1.0-x64.exe',
+  portableUrl: './updates/StoryBlueprint-Portable-0.1.0-x64.exe',
   installerSha512: '7bH8N...[等待生成]',
   portableSha512: '9aK2M...[等待生成]',
   installerSize: 89452010,
@@ -148,8 +148,10 @@ async function loadManifest() {
 
   const endpoints = [
     '/updates/stable.json',
-    '../release/stable.json',
     './updates/stable.json',
+    '/stable.json',
+    './stable.json',
+    '../release/stable.json',
     ...(configuredFeedUrl ? [configuredFeedUrl] : []),
     'https://storyblueprint.biaozi.biz:8443/updates/stable.json',
   ];
@@ -199,8 +201,8 @@ function applyManifestToDOM(manifest, manifestUrl) {
   }
 
   // 产物 URL 解析
-  const installerFinalUrl = resolveArtifactUrl(manifestUrl, manifest.installerUrl || `./StoryBlueprint-Setup-${version}-x64.exe`);
-  const portableFinalUrl = resolveArtifactUrl(manifestUrl, manifest.portableUrl || `./StoryBlueprint-Portable-${version}-x64.exe`);
+  const installerFinalUrl = resolveArtifactUrl(manifestUrl, manifest.installerUrl || `./updates/StoryBlueprint-Setup-${version}-x64.exe`);
+  const portableFinalUrl = resolveArtifactUrl(manifestUrl, manifest.portableUrl || `./updates/StoryBlueprint-Portable-${version}-x64.exe`);
 
   // 安装包
   const installerBtn = document.getElementById('download-installer-btn');
@@ -238,17 +240,17 @@ function applyManifestToDOM(manifest, manifestUrl) {
 
   // 绑定 macOS 与 Linux 下载链接
   const macDmgBtn = document.getElementById('download-mac-dmg-btn');
-  if (macDmgBtn) macDmgBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.dmg`);
+  if (macDmgBtn) macDmgBtn.href = resolveArtifactUrl(manifestUrl, `./updates/StoryBlueprint-${version}-arm64.dmg`);
   const macZipBtn = document.getElementById('download-mac-zip-btn');
-  if (macZipBtn) macZipBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.zip`);
+  if (macZipBtn) macZipBtn.href = resolveArtifactUrl(manifestUrl, `./updates/StoryBlueprint-${version}-arm64.zip`);
   const linuxAppImageBtn = document.getElementById('download-linux-appimage-btn');
-  if (linuxAppImageBtn) linuxAppImageBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-x64.AppImage`);
+  if (linuxAppImageBtn) linuxAppImageBtn.href = resolveArtifactUrl(manifestUrl, `./updates/StoryBlueprint-${version}-x64.AppImage`);
   const linuxArm64AppImageBtn = document.getElementById('download-linux-arm64-appimage-btn');
-  if (linuxArm64AppImageBtn) linuxArm64AppImageBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.AppImage`);
+  if (linuxArm64AppImageBtn) linuxArm64AppImageBtn.href = resolveArtifactUrl(manifestUrl, `./updates/StoryBlueprint-${version}-arm64.AppImage`);
   const linuxTarBtn = document.getElementById('download-linux-tar-btn');
-  if (linuxTarBtn) linuxTarBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-x64.tar.gz`);
+  if (linuxTarBtn) linuxTarBtn.href = resolveArtifactUrl(manifestUrl, `./updates/StoryBlueprint-${version}-x64.tar.gz`);
   const linuxArm64TarBtn = document.getElementById('download-linux-arm64-tar-btn');
-  if (linuxArm64TarBtn) linuxArm64TarBtn.href = resolveArtifactUrl(manifestUrl, `./StoryBlueprint-${version}-arm64.tar.gz`);
+  if (linuxArm64TarBtn) linuxArm64TarBtn.href = resolveArtifactUrl(manifestUrl, `./updates/StoryBlueprint-${version}-arm64.tar.gz`);
 
   // 复制按钮事件
   setupCopyBtn('copy-installer-sha', manifest.installerSha512);

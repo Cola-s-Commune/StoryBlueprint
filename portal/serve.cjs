@@ -121,6 +121,32 @@ function serveFile(req, res, filePath) {
   }
 }
 
+const CANDIDATE_RELEASE_DIRS = [
+  path.resolve(portalRoot, 'updates'),
+  path.resolve(workspaceRoot, 'release'),
+  path.resolve(workspaceRoot, 'updates'),
+  path.resolve(portalRoot),
+];
+
+// 如果配置中有额外指定目录，也加入检索
+if (rawData.deploy?.remoteDir) {
+  CANDIDATE_RELEASE_DIRS.push(path.resolve(rawData.deploy.remoteDir));
+}
+if (rawData.releaseDir) {
+  CANDIDATE_RELEASE_DIRS.push(path.resolve(rawData.releaseDir));
+}
+
+function findReleaseFile(filename) {
+  const safeName = path.basename(filename);
+  for (const dir of CANDIDATE_RELEASE_DIRS) {
+    const candidate = path.resolve(dir, safeName);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   let pathname = decodeURIComponent(parsedUrl.pathname);
@@ -136,21 +162,40 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 1. /updates/* 路由到 release 目录
+  // 1. /updates/* 路由到 release/updates 产物目录
   if (pathname.startsWith('/updates/')) {
     const subPath = pathname.replace(/^\/updates\//, '');
-    const targetFile = path.resolve(releaseRoot, subPath);
-    // 安全防护：防止路径穿越
-    if (!targetFile.startsWith(releaseRoot)) {
-      res.writeHead(403);
-      res.end('Forbidden');
+    const found = findReleaseFile(subPath);
+    if (found) {
+      serveFile(req, res, found);
       return;
     }
+    // 回退到 releaseRoot 路径
+    const targetFile = path.resolve(releaseRoot, subPath);
     serveFile(req, res, targetFile);
     return;
   }
 
-  // 2. 其余请求路由到 portal 目录
+  // 2. 根目录直接请求安装包或更新清单（例如 /StoryBlueprint-Setup-0.1.0-x64.exe 或 /stable.json）
+  const isReleaseArtifact =
+    pathname === '/stable.json' ||
+    pathname.endsWith('.exe') ||
+    pathname.endsWith('.dmg') ||
+    pathname.endsWith('.tar.gz') ||
+    pathname.endsWith('.zip') ||
+    pathname.endsWith('.AppImage') ||
+    pathname.endsWith('.blockmap');
+
+  if (isReleaseArtifact) {
+    const fileName = path.basename(pathname);
+    const found = findReleaseFile(fileName);
+    if (found) {
+      serveFile(req, res, found);
+      return;
+    }
+  }
+
+  // 3. 其余静态页面请求路由到 portal 目录
   if (pathname === '/' || pathname === '') {
     pathname = '/index.html';
   }
@@ -166,16 +211,20 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`\n========================================================`);
-  console.log(`🚀 Story Blueprint 发布门户 & 更新服务已在本地启动:`);
+  console.log(`🚀 Story Blueprint 发布门户 & 更新服务已启动:`);
   if (conf.file) {
     console.log(`⚙️ 已加载配置文件   : ${conf.file}`);
   } else {
     console.log(`⚙️ 配置文件状态     : 未找到 release.config.json (使用默认配置)`);
   }
-  console.log(`🌐 本地 Web 发布门户: http://localhost:${PORT}`);
-  console.log(`📡 本地更新源 Feed  : http://localhost:${PORT}/updates/stable.json`);
-  console.log(`☁️ 配置的生产服务器 : ${SERVER_URL}`);
-  console.log(`📂 本地发布产物目录 : ${releaseRoot}`);
+  console.log(`🌐 Web 发布门户地址 : http://localhost:${PORT}`);
+  console.log(`📡 更新源 Feed 地址 : http://localhost:${PORT}/updates/stable.json`);
+  console.log(`☁️ 外部生产服务器   : ${SERVER_URL}`);
+  console.log(`📂 产物检索目录列表 :`);
+  CANDIDATE_RELEASE_DIRS.forEach((d) => {
+    const exists = fs.existsSync(d);
+    console.log(`   ${exists ? '✓ (有效)' : '✗ (不存在)'} ${d}`);
+  });
   console.log(`========================================================\n`);
 });
 

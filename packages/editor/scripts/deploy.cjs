@@ -261,9 +261,12 @@ if (tool === 'rsync') {
 
   // 同步 portal 目录
   if (shouldDeployPortal && totalSuccess) {
-    console.log('\n⏳ 正在传输 portal/ 门户网页...');
+    console.log('\n⏳ 正在传输 portal/ 门户网页与服务脚本...');
     const remotePortalTarget = `${targetUser}@${targetHost}:${portalRemoteDir}/`;
-    const res = spawnSync('scp', [...scpOptions, '-r', `${portalDir}/*`, remotePortalTarget], {
+    const portalEntries = readdirSync(portalDir)
+      .filter((f) => !f.startsWith('.') && f !== 'node_modules')
+      .map((f) => join(portalDir, f));
+    const res = spawnSync('scp', [...scpOptions, '-r', ...portalEntries, remotePortalTarget], {
       stdio: 'inherit',
       cwd: workspaceRoot,
     });
