@@ -2,7 +2,8 @@
   "$comment": "Story Blueprint 发布与更新配置文件。修改后可控制发布页本地端口、发版服务器地址及更新签名参数。",
   "portal": {
     "port": 8443,
-    "host": "0.0.0.0"
+    "host": "0.0.0.0",
+    "showGithub": false
   },
   "server": {
     "url": "https://storyblueprint.biaozi.biz:8443",

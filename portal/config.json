@@ -5,6 +5,7 @@
   "serverUrl": "https://storyblueprint.biaozi.biz:8443",
   "feedUrl": "https://storyblueprint.biaozi.biz:8443/updates",
   "channel": "stable",
+  "showGithub": false,
   "githubUrl": "https://github.com/Cola-s-Commune/StoryBlueprint",
   "brandName": "Story Blueprint"
 }

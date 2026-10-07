@@ -6,7 +6,7 @@
   <title>Story Blueprint | 跨引擎可视化剧情叙事框架</title>
   <meta name="description" content="Story Blueprint 是一个独立于具体游戏引擎的可视化剧情/任务蓝图编辑器，支持跨引擎统一运行时、AI提案审查与Git三方合并。">
   <link rel="icon" type="image/png" href="assets/logo.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261005b">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
         <a href="#downloads">版本下载</a>
         <a href="#architecture">架构与适配</a>
         <a href="#changelog">更新日志</a>
-        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer" class="github-link">
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer" class="github-link" data-github-only="true" style="display: none;">
           <svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
             <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
           </svg>
@@ -112,25 +112,37 @@
           </div>
         </div>
 
+        <script>
+          function switchPlatformTab(platform) {
+            var tabs = document.querySelectorAll('.platform-tab');
+            var contents = document.querySelectorAll('.platform-content');
+            for (var i = 0; i < tabs.length; i++) {
+              tabs[i].classList.toggle('active', tabs[i].getAttribute('data-platform') === platform);
+            }
+            for (var j = 0; j < contents.length; j++) {
+              contents[j].classList.toggle('active', contents[j].id === 'platform-' + platform);
+            }
+          }
+        </script>
         <!-- 平台切换器 -->
         <div class="platform-tabs" id="platform-tabs">
-          <button class="platform-tab active" data-platform="windows">
-            <svg class="tab-icon" viewBox="0 0 24 24" fill="currentColor">
+          <button class="platform-tab active" data-platform="windows" type="button" onclick="switchPlatformTab('windows')">
+            <svg class="tab-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;min-width:16px;min-height:16px;flex-shrink:0;">
               <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
             </svg>
             <span>Windows (x64)</span>
           </button>
-          <button class="platform-tab" data-platform="macos">
-            <svg class="tab-icon" viewBox="0 0 24 24" fill="currentColor">
+          <button class="platform-tab" data-platform="macos" type="button" onclick="switchPlatformTab('macos')">
+            <svg class="tab-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;min-width:16px;min-height:16px;flex-shrink:0;">
               <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.62-.75 1.04-1.8 0.92-2.85-.9.04-1.99.6-2.61 1.34-.55.63-1.03 1.68-.9 2.7.99.08 2.02-.49 2.59-1.19z"/>
             </svg>
             <span>macOS (Apple Silicon & Intel)</span>
           </button>
-          <button class="platform-tab" data-platform="linux">
-            <svg class="tab-icon" viewBox="0 0 24 24" fill="currentColor">
+          <button class="platform-tab" data-platform="linux" type="button" onclick="switchPlatformTab('linux')">
+            <svg class="tab-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;min-width:16px;min-height:16px;flex-shrink:0;">
               <path d="M12.003 2c-3.167 0-5.733 2.567-5.733 5.733 0 1.2.37 2.313 1 3.234L6 14.5l2 1.5-1 2 2.5 1 1 2 3-1 3 1 1-2 2.5-1-1-2 2-1.5-1.27-3.533c.63-.921 1-2.034 1-3.234C17.73 4.567 15.17 2 12.003 2z"/>
             </svg>
-            <span>Linux (x64)</span>
+            <span>Linux (x64 / ARM64)</span>
           </button>
         </div>
 
@@ -319,7 +331,7 @@
                 <span class="meta-label">架构平台</span>
                 <span class="meta-val">x86_64</span>
               </div>
-              <a href="#" class="btn btn-secondary download-action-btn" id="download-linux-tar-btn">
+              <a href="/updates/StoryBlueprint-0.1.0-x64.tar.gz" download="StoryBlueprint-0.1.0-x64.tar.gz" class="btn btn-secondary download-action-btn" id="download-linux-tar-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="7 10 12 15 17 10"></polyline>
@@ -341,7 +353,7 @@
                 <span class="meta-label">架构平台</span>
                 <span class="meta-val">aarch64 / ARM64</span>
               </div>
-              <a href="#" class="btn btn-secondary download-action-btn" id="download-linux-arm64-tar-btn">
+              <a href="/updates/StoryBlueprint-0.1.0-arm64.tar.gz" download="StoryBlueprint-0.1.0-arm64.tar.gz" class="btn btn-secondary download-action-btn" id="download-linux-arm64-tar-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="7 10 12 15 17 10"></polyline>
@@ -499,8 +511,8 @@
     </div>
   </section>
 
-  <!-- 快捷反馈与参与开源 -->
-  <section class="community-section">
+  <!-- 快捷反馈与参与开源 (受 showGithub 开关控制) -->
+  <section class="community-section" data-github-only="true" style="display: none;">
     <div class="container community-box">
       <div class="community-content">
         <h2>参与构建或反馈问题</h2>
@@ -528,10 +540,13 @@
         <p class="copyright">Copyright © 2026 Story Blueprint Contributors. Released under the MIT License.</p>
       </div>
       <div class="footer-links">
-        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/blob/main/readme.md" target="_blank" rel="noreferrer">文档</a>
+        <a href="#features">核心特性</a>
+        <a href="#downloads">版本下载</a>
+        <a href="#architecture">架构与适配</a>
         <a href="#changelog">更新日志</a>
-        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/issues" target="_blank" rel="noreferrer">反馈通道</a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint" target="_blank" rel="noreferrer" data-github-only="true" style="display: none;">GitHub</a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/blob/main/readme.md" target="_blank" rel="noreferrer" data-github-only="true" style="display: none;">开发文档</a>
+        <a href="https://github.com/Cola-s-Commune/StoryBlueprint/issues" target="_blank" rel="noreferrer" data-github-only="true" style="display: none;">反馈通道</a>
       </div>
     </div>
   </footer>
@@ -539,6 +554,6 @@
   <!-- Toast 通知弹窗 -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=20261005d"></script>
 </body>
 </html>

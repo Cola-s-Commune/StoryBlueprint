@@ -111,7 +111,9 @@ function serveFile(req, res, filePath) {
       'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
       'Access-Control-Allow-Origin': '*',
-      'Cache-Control': ext === '.json' ? 'no-cache' : 'public, max-age=3600',
+      'Cache-Control': ['.json', '.css', '.js', '.html'].includes(ext)
+        ? 'no-cache, no-store, must-revalidate'
+        : 'public, max-age=3600',
     });
     fs.createReadStream(filePath).pipe(res);
   }

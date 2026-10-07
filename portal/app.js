@@ -94,6 +94,22 @@ function showToast(message) {
   }, 2500);
 }
 
+function applyGithubVisibility(portalConf) {
+  const rawShow = portalConf?.showGithub ?? portalConf?.portal?.showGithub;
+  const isEnabled = rawShow === true || rawShow === 'true';
+  const customUrl = portalConf?.githubUrl || portalConf?.portal?.githubUrl;
+
+  document.querySelectorAll('[data-github-only="true"]').forEach((el) => {
+    el.style.display = isEnabled ? '' : 'none';
+  });
+
+  if (isEnabled && customUrl) {
+    document.querySelectorAll('a[href*="github.com/Cola-s-Commune/StoryBlueprint"]').forEach((a) => {
+      a.href = customUrl;
+    });
+  }
+}
+
 function resolveArtifactUrl(manifestUrl, artifactRelUrl) {
   try {
     return new URL(artifactRelUrl, manifestUrl).toString();
@@ -118,6 +134,7 @@ async function loadManifest() {
   }
 
   if (portalConf) {
+    applyGithubVisibility(portalConf);
     const rawFeed = portalConf.feedUrl || portalConf.server?.feedUrl;
     const rawServer = portalConf.serverUrl || portalConf.server?.url;
     if (rawFeed) {
@@ -125,12 +142,8 @@ async function loadManifest() {
     } else if (rawServer) {
       configuredFeedUrl = `${rawServer.replace(/\/+$/, '')}/updates/stable.json`;
     }
-
-    if (portalConf.githubUrl) {
-      document.querySelectorAll('a[href*="github.com/Cola-s-Commune/StoryBlueprint"]').forEach((a) => {
-        a.href = portalConf.githubUrl;
-      });
-    }
+  } else {
+    applyGithubVisibility(null);
   }
 
   const endpoints = [
@@ -281,6 +294,8 @@ function setupPlatformTabs() {
     });
   });
 
+  window.switchPlatformTab = switchTab;
+
   // 自动根据 User-Agent 智能高亮用户当前操作系统
   const ua = (navigator.userAgent || '').toLowerCase();
   let defaultPlatform = 'windows';
@@ -293,8 +308,13 @@ function setupPlatformTabs() {
 }
 
 // 页面载入初始化
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    setupPlatformTabs();
+    loadManifest();
+  });
+} else {
   setupPlatformTabs();
   loadManifest();
-});
+}
 
