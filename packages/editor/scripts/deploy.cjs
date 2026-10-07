@@ -81,6 +81,7 @@ const targetPort = parseInt(getArg('--port') || deployConf.port || '22', 10);
 const remoteDir = getArg('--remote-dir') || deployConf.remoteDir;
 const portalRemoteDir = getArg('--portal-dir') || deployConf.portalRemoteDir || (remoteDir ? remoteDir.replace(/\/updates\/?$/, '') : '');
 const shouldDeployPortal = hasFlag('--portal') || Boolean(deployConf.deployPortal);
+const shouldCreateDirs = hasFlag('--create-dirs') || Boolean(deployConf.createDirs);
 const onlyManifest = hasFlag('--only-manifest');
 const isDryRun = hasFlag('--dry-run');
 const forcedTool = getArg('--tool') || deployConf.tool;
@@ -184,6 +185,21 @@ console.log(`🛠️ 使用传输协议: [${tool.toUpperCase()}]`);
 // 4. 执行上传
 let totalSuccess = true;
 
+// 可选：预先在远程服务器创建目标目录
+if (shouldCreateDirs) {
+  console.log('📁 正在远程服务器预先创建目标目录...');
+  const dirs = [remoteDir];
+  if (shouldDeployPortal && portalRemoteDir) dirs.push(portalRemoteDir);
+  const mkdirCmd = `mkdir -p ${dirs.map((d) => `"${d}"`).join(' ')}`;
+  const sshRes = spawnSync('ssh', ['-p', String(targetPort), `${targetUser}@${targetHost}`, mkdirCmd], {
+    stdio: 'inherit',
+    cwd: workspaceRoot,
+  });
+  if (sshRes.status !== 0) {
+    console.warn('⚠️ 远程目录创建未完全成功，将继续尝试传输...');
+  }
+}
+
 if (tool === 'rsync') {
   // rsync 方案：原生支持断点续传 (-P / --partial)、增量压缩 (-z)、归档模式 (-a)
   console.log('📡 正在调用 rsync 进行增量同步（支持断点续传）...');
@@ -254,6 +270,10 @@ if (tool === 'rsync') {
 
   if (res.status !== 0) {
     console.error('❌ 文件批量传输中断。');
+    console.error(`💡 提示: 若报错包含 "remote mkdir: No such file or directory"，说明远程目录不存在。`);
+    console.error(`   当前目标路径: ${remoteDir}`);
+    console.error(`   请检查配置文件，或在服务器上执行: mkdir -p "${remoteDir}"`);
+    console.error(`   也可以附加 --create-dirs 参数自动创建: npm run deploy -- --create-dirs`);
     totalSuccess = false;
   } else {
     console.log('✅ 所有安装包与清单批量传输成功！');
@@ -264,7 +284,7 @@ if (tool === 'rsync') {
     console.log('\n⏳ 正在传输 portal/ 门户网页与服务脚本...');
     const remotePortalTarget = `${targetUser}@${targetHost}:${portalRemoteDir}/`;
     const portalEntries = readdirSync(portalDir)
-      .filter((f) => !f.startsWith('.') && f !== 'node_modules')
+      .filter((f) => !f.startsWith('.') && f !== 'node_modules' && f !== 'updates')
       .map((f) => join(portalDir, f));
     const res = spawnSync('scp', [...scpOptions, '-r', ...portalEntries, remotePortalTarget], {
       stdio: 'inherit',
@@ -272,6 +292,10 @@ if (tool === 'rsync') {
     });
     if (res.status !== 0) {
       console.error('❌ portal 门户网页传输失败。');
+      console.error(`💡 提示: 若报错包含 "remote mkdir: No such file or directory"，说明远程目录不存在。`);
+      console.error(`   当前目标路径: ${portalRemoteDir}`);
+      console.error(`   请检查配置文件，或在服务器上执行: mkdir -p "${portalRemoteDir}"`);
+      console.error(`   也可以附加 --create-dirs 参数自动创建: npm run deploy -- --portal --create-dirs`);
       totalSuccess = false;
     } else {
       console.log('✅ portal 门户网页传输成功！');
