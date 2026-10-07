@@ -1,6 +1,6 @@
 {
   "name": "story-blueprint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "A cross-engine visual narrative framework for games",
   "engines": {
@@ -25,6 +25,7 @@
     "release:mac:dmg": "npm run release:mac:dmg --workspace @story-blueprint/editor",
     "deploy": "node packages/editor/scripts/deploy.cjs",
     "deploy:portal": "node packages/editor/scripts/deploy.cjs --only-portal",
+    "version:set": "node packages/editor/scripts/set-version.cjs",
     "release:deploy": "npm run release:win && node packages/editor/scripts/deploy.cjs",
     "verify:release:win": "npm run verify:win --workspace @story-blueprint/editor",
     "serve:portal": "node portal/serve.cjs",

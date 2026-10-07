@@ -1,6 +1,6 @@
 {
   "name": "@story-blueprint/editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Blueprint-style visual narrative editor",
   "author": {
@@ -17,7 +17,9 @@
     "prerelease:win:portable": "node scripts/check-release-node.cjs",
     "release:win:portable": "npm run build && electron-builder --win portable --x64",
     "prerelease:win:installer": "node scripts/check-release-node.cjs",
+    "release:win:installer": "npm run build && electron-builder --win nsis --x64",
     "release:win:manifest": "node scripts/generate-update-manifest.cjs",
+    "release:win": "npm run release:win:installer && npm run release:win:portable && npm run release:win:manifest",
     "release:linux:appimage": "npm run build && electron-builder --linux AppImage --x64",
     "release:linux:appimage:arm64": "npm run build && electron-builder --linux AppImage --arm64",
     "release:linux:tar": "npm run build && electron-builder --linux tar.gz --x64",
@@ -112,11 +114,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "build/icon.png",
@@ -129,11 +137,17 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "tar.gz",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "build/icon.png",

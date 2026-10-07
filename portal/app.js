@@ -4,7 +4,7 @@ const DEFAULT_MANIFEST = {
   format: 'story-blueprint-update',
   version: 1,
   channel: 'stable',
-  latestVersion: '0.1.0',
+  latestVersion: '0.1.1',
   releaseDate: '2026-10-01T12:00:00.000Z',
   notes: `### 0.1.0 更新日志
 - **蓝图级智能连线路由器**：定制 \`BlueprintSmoothStepEdge\`，跨列长连线紧邻目标列正交变轨，彻底消除盲目下折交叉穿线。
@@ -12,8 +12,8 @@ const DEFAULT_MANIFEST = {
 - **AI 提案暂存审查沙盒 (Staging)**：AI Commands 执行进入画布暂存态（新节点绿、修改黄），顶部 Apply / Discard 审核横幅与局部邻域自动排版。
 - **官方发布与自更新体系**：集成 Ed25519 非对称签名验签与 SHA-512 流式校验，支持 Windows NSIS 安装包与便携绿色版。
 - **双通道问题反馈系统**：新增 Help 菜单与 AI 拦截报错直通 GitHub Issues 快速提交。`,
-  installerUrl: './updates/StoryBlueprint-Setup-0.1.0-x64.exe',
-  portableUrl: './updates/StoryBlueprint-Portable-0.1.0-x64.exe',
+  installerUrl: './updates/StoryBlueprint-Setup-0.1.1-x64.exe',
+  portableUrl: './updates/StoryBlueprint-Portable-0.1.1-x64.exe',
   installerSha512: '7bH8N...[等待生成]',
   portableSha512: '9aK2M...[等待生成]',
   installerSize: 89452010,
