@@ -228,8 +228,8 @@ if (tool === 'rsync') {
     }
   }
 } else {
-  // scp 方案：增强心跳 + 单文件自动重试 (防止大文件闪断重头来过)
-  console.log('📡 正在使用增强型 SCP 传输 (已开启防掉线心跳 + 失败重试)...');
+  // scp 方案：一次性批量传输所有文件，仅需输入一次密码！
+  console.log('📡 正在使用增强型批量 SCP 传输 (已开启防掉线心跳)...');
 
   const scpOptions = [
     '-P',
@@ -243,35 +243,20 @@ if (tool === 'rsync') {
     'ConnectTimeout=15',
   ];
 
-  for (const file of releaseFiles) {
-    const remoteTarget = `${targetUser}@${targetHost}:${remoteDir}/${file.name}`;
-    console.log(`\n⏳ 正在传输: ${file.name} (${formatBytes(file.size)})...`);
+  const remoteTarget = `${targetUser}@${targetHost}:${remoteDir}/`;
+  const filePaths = releaseFiles.map((f) => f.path);
 
-    let uploaded = false;
-    const maxRetries = 3;
+  console.log(`\n⏳ 正在批量传输 ${releaseFiles.length} 个文件到远程目录 (只需验证一次密码)...`);
+  const res = spawnSync('scp', [...scpOptions, ...filePaths, remoteTarget], {
+    stdio: 'inherit',
+    cwd: workspaceRoot,
+  });
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (attempt > 1) {
-        console.log(`   ⚠️ 网络波动中断，正在执行第 ${attempt}/${maxRetries} 次重试...`);
-      }
-
-      const res = spawnSync('scp', [...scpOptions, file.path, remoteTarget], {
-        stdio: 'inherit',
-        cwd: workspaceRoot,
-      });
-
-      if (res.status === 0) {
-        uploaded = true;
-        console.log(`   ✅ ${file.name} 传输成功！`);
-        break;
-      }
-    }
-
-    if (!uploaded) {
-      console.error(`   ❌ ${file.name} 在重试 ${maxRetries} 次后仍未能完成传输。`);
-      totalSuccess = false;
-      break;
-    }
+  if (res.status !== 0) {
+    console.error('❌ 文件批量传输中断。');
+    totalSuccess = false;
+  } else {
+    console.log('✅ 所有安装包与清单批量传输成功！');
   }
 
   // 同步 portal 目录
