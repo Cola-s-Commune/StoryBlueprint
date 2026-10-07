@@ -2,10 +2,13 @@ const { existsSync, readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 
 const candidates = [
+  'release.config.local.json',
+  'release.local.json',
   'release.config.json',
   'release.conf.json',
   'release.conf',
   'release.json',
+  'release.config.example.json',
 ];
 
 function loadReleaseConfig(searchDir) {

@@ -11,8 +11,10 @@ const releaseRoot = path.resolve(workspaceRoot, 'release');
 function loadConf() {
   // 优先查找 portal 目录下的专属配置文件，再回退到根目录全局配置
   const candidates = [
+    { dir: portalRoot, name: 'config.local.json' },
     { dir: portalRoot, name: 'config.json' },
     { dir: portalRoot, name: 'portal.config.json' },
+    { dir: workspaceRoot, name: 'release.config.local.json' },
     { dir: workspaceRoot, name: 'release.config.json' },
     { dir: workspaceRoot, name: 'release.conf.json' },
     { dir: workspaceRoot, name: 'release.conf' },

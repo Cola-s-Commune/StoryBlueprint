@@ -62,6 +62,12 @@ lerna-debug.log*
 *.pem
 *.key
 *.cert
+*.local.json
+release.config.local.json
+portal/config.local.json
+release.config.json
+release.conf.json
+release.conf
 
 # IDE & editor
 .vscode/
