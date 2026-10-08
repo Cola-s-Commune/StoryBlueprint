@@ -48,11 +48,18 @@
 - 提供 `package.json`、asmdef、UPM 安装说明、程序集 API 文档和最小 demo scene。
 - 提供 Unity 主线程调度适配，确保 Runtime 可异步等待 UI，同时所有 Unity API 调用回到主线程。
 - 提供可替换的 Dialogue / Choice presenter 示例，不绑定特定 UI 框架。
+- 同一份剧情同时支持两种交互策略：
+  - **手动推进模式**：对白/旁白显示后等待玩家点击继续；Choice 显示选项并等待玩家选择。
+  - **自动播放模式**：对白/旁白按配置的显示时长自动继续；Choice 默认仍暂停等待玩家选择，只有宿主明确启用限时 Choice 才自动结束等待。
+- Runtime 不保存“手动/自动”作为剧情数据；策略属于 Unity Presenter / Adapter 配置，保证同一个 `.storyc.json` 可以被文字游戏和自动播放游戏复用。
+- Presenter 必须支持跳过当前文字、取消当前等待和场景切换清理；自动播放计时器、打字机任务和 UI 回调都必须绑定 `CancellationToken`，避免旧对白在读档或销毁后继续推进。
+- 自动播放计时建议提供固定时长、按文本长度计算和语音结束后三种宿主策略；策略只决定何时完成 `showDialogue`，不改变 Runtime 的控制流。
+- Dialogue 与 Narration 均通过同一套等待/取消语义接入；没有专用 Narration UI 时允许回退到 speakerless Dialogue。
 - 提供 Character、Asset、Voice、Portrait、Localization 的解析/回调接口；资源解析与 JSON 中的稳定 ID 分离。
 - 提供 ScriptableObject 或普通 C# 配置承载项目文件路径、入口 Story、locale 与 Adapter 实现，不把项目源资源复制成第二权威数据。
 - 覆盖对象销毁、场景切换、取消、重复实例和异常时的清理行为。
 
-验收：新建 Unity 项目按文档安装后，Demo 场景可加载仓库示例产物、显示对白和选项，并通过 Adapter 调用一个假 Event。
+验收：新建 Unity 项目按文档安装后，Demo 场景可加载仓库示例产物；分别以手动推进和自动播放模式完成同一段对白，Choice 在两种模式下都能正确选择；跳过、取消、切场景不会留下悬挂任务，并通过 Adapter 调用一个假 Event。
 
 ## 阶段 4：存档、兼容与发布
 
@@ -73,6 +80,18 @@
 - C# JSON 表示先以 `System.Text.Json` 或 Unity 目标版本兼容的包为候选，阶段 0 实测 Unity 最低版本、IL2CPP/AOT 和保留字段策略后再定，不直接依赖反射式动态类型。
 - 每个指令提供结构化诊断：code、message、storyId、blockId、instructionId、JSON path；不得通过 `Debug.Log` 后继续执行来吞掉错误。
 
+## 是否需要新建 Unity 项目
+
+需要一个新的、最小的 Unity 示例项目用于集成验证，但它不是 Adapter 本身，也不应成为 Runtime 的唯一开发环境。
+
+- **Adapter / C# Runtime**：作为仓库内可发布的 UPM Package 开发，建议放在 `integrations/unity/package/` 或独立仓库；核心程序集不依赖某个游戏项目，不依赖 `UnityEditor`。
+- **Unity 示例项目**：单独放在 `integrations/unity/samples/RuntimeDemo/`（或单独仓库），只包含 Demo 场景、Presenter、假 Event / Signal、示例资源和测试配置。它引用本地 UPM Package，并加载 `docs/examples/sample-quest.storyc.json` 的复制品或 CI 生成产物。
+- **纯 C# 测试**：在 Unity 外运行，覆盖 JSON 解析、状态机、表达式、存档和手动/自动交互完成时机，避免每个逻辑测试都依赖启动 Unity。
+- **Unity Test Framework**：在示例项目中覆盖主线程调度、Presenter、场景销毁、CancellationToken、IL2CPP/AOT 和真实 UI 交互。
+- **仓库策略**：第一阶段先创建目录和包骨架，再创建最小示例项目；不要把完整商业游戏、素材库或游戏特有逻辑放进 Adapter 仓库。
+
+换句话说：做 Adapter 不需要把 Story Blueprint 编辑器改造成 Unity 项目，也不需要先创建一个完整游戏。需要的是“可发布 Package + 最小验证项目”两个独立层次。
+
 ## 主要风险与决策点
 
 1. 表达式语言一致性：当前表达式是 Blueprint 自定义 typed AST，不是 C# 表达式。需要 C# 解释器及跨语言语义测试。
@@ -83,4 +102,4 @@
 
 ## 首个可交付切片
 
-建议先完成“阶段 0 + 阶段 1 的最小核心”：加载示例 `.storyc.json`，运行对白、二选一 Choice、Branch、Set Variable、End，支持 CancellationToken 和纯 C# 测试。随后根据真实 adapter 消费反馈再决定是否一次性纳入 Substory、Signal 和 Ink；不要先建设庞大的 Unity UI 框架。
+建议先完成“阶段 0 + 阶段 1 的最小核心”：加载示例 `.storyc.json`，运行对白、二选一 Choice、Branch、Set Variable、End，支持 CancellationToken 和纯 C# 测试。随后创建最小 Unity RuntimeDemo，接入一个手动推进 Presenter 和一个自动播放 Presenter，验证同一产物在两种体验下的交互轨迹一致；再根据真实 adapter 消费反馈决定是否一次性纳入 Substory、Signal 和 Ink，不要先建设庞大的 Unity UI 框架。

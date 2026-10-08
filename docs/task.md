@@ -972,7 +972,8 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 ## Runtime
 
 - [x] External Function Out 数据 Pin：Call External Function 的每个返回值可作为强类型数据源，连接到 Set Variable / Branch 等节点；运行时缓存可序列化并支持多个消费者，保留 `resultVariableIds` 兼容路径
-- [ ] Unity Adapter：C# Runtime Package，读取 `.storyc.json`、Dialogue UI 事件绑定与变量持久化存档
+- [ ] Unity Adapter：C# Runtime Package，读取 `.storyc.json`、Dialogue UI 事件绑定与变量持久化存档（计划见 [Unity Adapter 计划](unity-adapter-plan.md)）
+- [ ] Unity 交互策略：同一剧情支持玩家点击推进与自动播放；Choice 默认始终等待玩家选择；跳过、取消和场景销毁遵守 CancellationToken
 - [ ] Unreal Adapter：UE5 Gameplay / Dialogue Subsystem 接入规范与示例工程
 - [ ] Godot Adapter：Godot 4 GDExtension / GDScript 驱动包
 
