@@ -23,7 +23,7 @@
 
 ## 阶段 1：纯 C# Runtime Core
 
-- 建立独立 Unity Package 仓库内目录（建议 `integrations/unity/`），以 asmdef 隔离运行时代码，不依赖 UnityEditor。
+- 建立独立 Unity Package 目录 `integrations/unity/package/`，以 asmdef 隔离运行时代码，不依赖 UnityEditor。
 - 实现 `.storyc.json` 解析、项目/Story 选择、格式与版本校验、结构校验、内容版本检查。
 - 实现基础指令状态机与可序列化状态：Dialogue、Narration、Choice、Branch、Jump、Set Variable、End。
 - 实现与 TypeScript 一致的表达式子集、文本插值和 Choice visible/enabled 条件；如不能完整一致，先用能力声明拒绝不兼容表达式。
@@ -45,7 +45,7 @@
 
 ## 阶段 3：Unity 包与展示组件
 
-- 提供 `package.json`、asmdef、UPM 安装说明、程序集 API 文档和最小 demo scene。
+- 提供 `integrations/unity/package/package.json`、asmdef、UPM 安装说明、程序集 API 文档和最小 demo scene。
 - 提供 Unity 主线程调度适配，确保 Runtime 可异步等待 UI，同时所有 Unity API 调用回到主线程。
 - 提供可替换的 Dialogue / Choice presenter 示例，不绑定特定 UI 框架。
 - 同一份剧情同时支持两种交互策略：
@@ -84,7 +84,7 @@
 
 需要一个新的、最小的 Unity 示例项目用于集成验证，但它不是 Adapter 本身，也不应成为 Runtime 的唯一开发环境。
 
-- **Adapter / C# Runtime**：作为仓库内可发布的 UPM Package 开发，建议放在 `integrations/unity/package/` 或独立仓库；核心程序集不依赖某个游戏项目，不依赖 `UnityEditor`。
+- **Adapter / C# Runtime**：作为仓库内可发布的 UPM Package 开发，位于 `integrations/unity/package/`；核心程序集不依赖某个游戏项目，不依赖 `UnityEditor`。
 - **Unity 示例项目**：单独放在 `integrations/unity/samples/RuntimeDemo/`（或单独仓库），只包含 Demo 场景、Presenter、假 Event / Signal、示例资源和测试配置。它引用本地 UPM Package，并加载 `docs/examples/sample-quest.storyc.json` 的复制品或 CI 生成产物。
 - **纯 C# 测试**：在 Unity 外运行，覆盖 JSON 解析、状态机、表达式、存档和手动/自动交互完成时机，避免每个逻辑测试都依赖启动 Unity。
 - **Unity Test Framework**：在示例项目中覆盖主线程调度、Presenter、场景销毁、CancellationToken、IL2CPP/AOT 和真实 UI 交互。
