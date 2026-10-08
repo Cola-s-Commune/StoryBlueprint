@@ -220,64 +220,19 @@ Unity UI
 
 Project Status：
 
-🚧 Milestone 2 — Graph System / Edge
+MVP 与核心编辑器、Compiler、Runtime Preview、Ink Block 互操作、Git 合并工作流及 Windows 发布链路已完成。当前下一阶段是 Unity Adapter：将版本化 `.storyc.json` 接入独立 C# Runtime，并提供 Unity 对话/选项 UI 桥接和可运行示例。
 
-当前阶段：
+项目进度和规划：
 
-- [x] Overall Architecture
-- [x] Editor (骨架：Electron + React + Dock 布局)
-- [x] Editor (画布：React Flow 节点图)
-- [x] Node Registry / Node Factory
-- [x] Start / Dialogue / Choice / Branch / End 节点渲染
-- [ ] Edge 校验与完整管理
-- [ ] Runtime
-- [ ] Compiler
-- [ ] Plugin SDK
-- [ ] Unity Adapter
-- [ ] Unreal Adapter
-- [ ] Godot Adapter
-
-> 详细进度见 `docs/devlog.md` 和 `docs/task.md`
+- [开发任务与完成状态](docs/task.md)
+- [npm 命令速查（开发、测试、构建、发布与部署）](docs/npm-commands.md)
+- [Unity Adapter 实施计划](docs/unity-adapter-plan.md)
+- [StoryAdapter 运行时契约](docs/story-adapter-specification.md)
+- [Ink 互操作范围](docs/ink-profile.md)
 
 ---
 
-# Windows Release
-
-发布环境需要 Node.js 22.12 或更高版本。
-
-```powershell
-# 可直接运行的目录版本
-npm run release:win:dir
-
-# 单文件 portable 版本
-npm run release:win:portable
-
-# 可选择安装目录、创建桌面/开始菜单快捷方式的安装包
-npm run release:win:installer
-
-# 同时生成安装包和 portable 版本
-# 完成后自动生成 release/stable.json
-npm run release:win
-
-# 仅重新生成更新清单（已有两个 EXE 时）
-npm run release:win:manifest
-
-# 首次发布前生成 Ed25519 发布密钥
-npm run release:keygen
-
-# 隐藏启动两个发行版本，验证 ASAR、preload 和 renderer
-npm run verify:release:win
-```
-
-发行产物写入 `release/`。`release:win` 会在两个 EXE 都成功后生成包含相对下载地址、字节大小、Base64 SHA-512 和 Ed25519 签名的 `stable.json`。预发布版本默认生成 `beta.json`，也可通过 `STORY_BLUEPRINT_UPDATE_CHANNEL` 指定通道；`STORY_BLUEPRINT_RELEASE_NOTES` 或 `STORY_BLUEPRINT_RELEASE_NOTES_FILE` 可提供更新说明。发布清单必须签名：通过 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY` 或 `STORY_BLUEPRINT_UPDATE_PRIVATE_KEY_FILE` 提供私钥，并用 `STORY_BLUEPRINT_UPDATE_KEY_ID` 指定已内置在客户端的公钥 ID。`release:keygen` 默认把私钥写入 Git 已忽略的 `.release-keys/release-2026.pem`，同时更新客户端公钥表；私钥应另行备份到安全存储或 CI Secret，不能提交到 Git。
-
-可在尚未购买服务器时本地验证 Feed：
-
-```powershell
-python -m http.server 8080 --directory release
-```
-
-然后在 `Help → Check for Updates...` 填写 `http://localhost:8080/`。更新包会下载到 `Downloads/Story Blueprint`，应用重新验证 Feed 后会按 Manifest 的 SHA-512 与大小校验文件。Installer 可在下载完成后显式安装并重启；Portable 仍需用户手动替换，应用不会覆盖正在运行的 EXE。
+命令行开发、构建、测试、发布和部署步骤见 [npm 命令速查](docs/npm-commands.md)。
 
 ---
 

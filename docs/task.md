@@ -1,6 +1,6 @@
 # Story Blueprint Editor - Task List
 
-> Status: Planning
+> Status: MVP Complete; core editor, compiler, runtime, Ink interoperability, collaboration, and Windows release pipeline implemented. Current focus: Unity Adapter.
 >
 > Goal:
 >
@@ -976,6 +976,8 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [ ] Unreal Adapter：UE5 Gameplay / Dialogue Subsystem 接入规范与示例工程
 - [ ] Godot Adapter：Godot 4 GDExtension / GDScript 驱动包
 
+> Unity Adapter 尚未实现。当前已有 TypeScript Runtime、`.storyc.json` 契约、Adapter 接口和接入规范；实施计划见 [Unity Adapter 计划](unity-adapter-plan.md)。
+
 ---
 
 ## Canvas QoL & Workflow
@@ -1037,8 +1039,4 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 # Current Goal
 
-> **不要追求功能丰富。**
-
-第一版只需要完成：
-
-**一个能够创建节点、连接节点、保存、打开，并能运行一个简单对话流程的 Story Blueprint Editor。**
+MVP 已完成。当前阶段聚焦 Unity Adapter：先实现独立的 C# Runtime Package，能够读取版本化 `.storyc.json` 并运行基础剧情流程；再补齐 Runtime 语义、Unity 展示层和示例项目。具体验收与阶段拆分见 [Unity Adapter 计划](unity-adapter-plan.md)。
