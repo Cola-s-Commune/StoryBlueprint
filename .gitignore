@@ -94,6 +94,16 @@ Desktop.ini
 .stylelintcache
 *.tsbuildinfo
 
+# Unity generated project state (keep source, packages, settings and assets)
+integrations/unity/samples/*/Library/
+integrations/unity/samples/*/Temp/
+integrations/unity/samples/*/Obj/
+integrations/unity/samples/*/Logs/
+integrations/unity/samples/*/UserSettings/
+integrations/unity/samples/*/*.sln
+integrations/unity/samples/*/*.csproj
+integrations/unity/samples/*/*.userprefs
+
 # Test & coverage
 coverage/
 .nyc_output/

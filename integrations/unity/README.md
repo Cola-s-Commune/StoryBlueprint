@@ -7,6 +7,8 @@ This directory is the planned home for the Unity integration. It is intentionall
 
 The first implementation slice is the native Blueprint Runtime only. Embedded or linked Ink Block instructions are rejected with a structured unsupported-instruction diagnostic until Ink C# runtime compatibility is separately evaluated.
 
+The created `samples/RuntimeDemo` project uses Unity 2022.3. Its local package reference points to `../../package`. Open the project in Unity, add `RuntimeDemoPresenter` and `RuntimeDemoRunner` to a scene object, and place a compiled `sample-quest.storyc.json` under `Assets/StreamingAssets/` to run the first smoke flow.
+
 ## Interaction modes
 
 The same `.storyc.json` must support both:

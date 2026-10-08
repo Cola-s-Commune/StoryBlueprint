@@ -1,0 +1,6 @@
+{
+  "name": "StoryBlueprint.Runtime.Tests",
+  "references": ["StoryBlueprint.Runtime"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
