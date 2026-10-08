@@ -18,7 +18,7 @@
 - 阶段 4 核心：`unity-story-state@1` 与 `unity-story-session@1` 保留变量、调用栈、输出、Pending Interaction、Signal Inbox、locale、外部待写值和实例注册表；恢复严格检查 Story / Program / Content Version，不做隐式迁移。
 - API / 安装 / 测试命令见 [Unity README](../integrations/unity/README.md)。Core CI 在 Windows / Ubuntu 上使用 .NET 9 跑同一套测试；Unity 程序集采用 C# 9 与 .NET Standard 2.1。
 
-剩余发布工作：其他 Unity LTS、Android / iOS / WebGL 设备构建与 IL2CPP / AOT 矩阵、UPM Git tag 发布。Ink Block 继续显式拒绝，不属于当前 Native v1 支持范围。以下阶段清单保留作为验收规范。
+2026-10-09：发布暂缓。下一阶段优先补齐目标平台验证和真实游戏接入，再根据反馈稳定 API。Ink Block 继续显式拒绝，不属于当前 Native v1 支持范围。以下阶段 0–4 清单保留作为原始验收规范，未完成事项以“下一步开发顺序”为准。
 
 ## 本次验证记录（2026-10-08）
 
@@ -28,6 +28,54 @@
 - TypeScript 契约与既有 Runtime 回归：7 个测试文件、49 / 49 通过，其中共享 fixture 一致性 3 / 3。
 - Windows x64 Mono Demo 构建成功；导出的 Player 实际完成接受任务 → 发出 Signal → Fake Event 稳定 ID 输出的 smoke flow。
 - 代码格式与 diff whitespace 检查通过；跨设备 IL2CPP / AOT 与其他 Unity 版本仍待发布前验证。
+
+## 下一步开发顺序（2026-10-09）
+
+当前已有可用的原生 Runtime 和可交互 Demo。下一轮以“游戏可以稳定接入”为目标，优先顺序如下；下面的交付物均为待开发内容，不代表当前已提供。
+
+| 顺序 | 工作                        | 交付物                                                            | 完成标准                                                                                             |
+| ---- | --------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| P0-1 | Windows IL2CPP / AOT 验证   | 可重复的构建与 Player smoke 脚本、构建配置、验证报告              | 同一示例在 IL2CPP Player 中完成对白、选项、Signal、Event 和存档恢复，无 AOT 或裁剪导致的缺失类型     |
+| P0-2 | 真实持久化与异常恢复示例    | 磁盘存档实现、游戏变量读写示例、恢复测试                          | 退出并重新启动 Player 后恢复进度、金币与暂停点；损坏或不兼容存档保留原文件并返回诊断                 |
+| P1-1 | 实际 UI 与资源接入          | 一种可替换的 uGUI 或 UI Toolkit Presenter、资源映射配置、接入场景 | 可使用真实角色、立绘、语音和两种语言，切换场景后旧 UI、音频和回调全部清理                            |
+| P1-2 | 多 Story 与宿主生命周期集成 | `StoryInstanceManager` 场景示例、生命周期策略、集成测试           | 主线与后台剧情可独立启动/暂停/恢复/结束；切场景和会话读档不留下后台实例或悬挂等待                    |
+| P1-3 | 接入契约与持续验证          | API/存档兼容规则、错误码说明、可重复 Unity 测试入口               | 开发者可在新项目按文档完成接入，CI 或固定验证环境可重复运行 Core、EditMode、PlayMode 和 Player smoke |
+| P2   | 扩展平台与 Ink 预研         | 平台支持矩阵、Ink C# 可行性报告                                   | 每项支持声明都有实际构建/运行证据；Ink 兼容结论包含 JSON、EXTERNAL 与存档验证                        |
+
+### 第一轮：验证 IL2CPP，补齐磁盘存档
+
+- [ ] 以已验证的 Unity 2022.3.62f3 / Windows x64 为基线，建立 IL2CPP 构建入口，记录 API Compatibility Level 和 Managed Stripping Level；在开发工具链具备时运行实际 Player。
+- [ ] 在 Player 中验证 typed AST、Array / Map / JSON、Event 稳定输出、Signal 匹配、Substory、Story Control 和存档恢复；必要的裁剪保留规则必须由实际失败定位后添加。
+- [ ] 为 Demo 提供基于 `Application.persistentDataPath` 的存档槽位和可替换的存储接口。先取消并等待运行结束，再保存 Runtime/Session 快照与游戏拥有的外部变量；明确恢复顺序与外部变量的权威来源。
+- [ ] 保存使用临时文件加原子替换，并提供旧文件备份；读档失败时保留原存档，区分格式错误、版本不匹配、缺失资源与外部变量写回失败。
+- [ ] 演示 Event 的业务幂等：成功发奖后重启/读档不会重复发奖，未确认写回可重试。`RequestId` 是指令稳定 ID；业务去重键还需包含实例和执行轮次，避免循环或重开剧情时误判重复。
+- [ ] 增加实际 Player 重启验收：在 Dialogue、Choice、Wait Signal、Substory 和后台实例暂停点分别存档，关闭程序后重开恢复，核对位置、变量、信号与游戏数据。
+
+本轮交付：一个 IL2CPP 构建验证入口、一套跨进程的存档示例及对应报告。工具链缺失时明确记录缺少的模块，不把 Mono 编译通过当作 IL2CPP 已验证。
+
+### 第二轮：让游戏代码能直接接入
+
+- [ ] 在现有 `IStoryPresenter` / Resolver 契约上提供一种真实 UI 实现，保留当前 IMGUI Presenter 作为最小诊断示例；不要求游戏绑定固定 UI 框架。
+- [ ] 给稳定 Character / Asset ID 提供宿主资源映射配置，演示角色名、Emotion Portrait、Voice、文本本地化与缺失资源回退；配置只映射资源，不复制剧情变量或建立第二份剧情数据。资源异步加载须支持取消，场景卸载时释放宿主持有的句柄。
+- [ ] 演示自动播放等待真实语音结束、手动跳过文字、停止音频以及语言切换；明确当前交互和下一次交互何时使用新的 locale。
+- [ ] 将 `StoryInstanceManager` 接入示例宿主，展示独立 Presenter、`TransitionHandler`、后台失败上报与 Session 保存/恢复；明确 `switch` 的场景/焦点策略及场景销毁时由谁结束实例。
+- [ ] 加入 Additive 场景、快速重复启动/取消/读档、并发实例与对象禁用再启用测试；验证旧异步完成不会推进新流程，事件总线取消后正确退订。
+
+验收：在一个新 Unity 项目中，按接入文档仅实现资源解析和游戏回调，即可运行两条 Story、使用真实 UI/语音、跨场景恢复进度，并观察到后台错误。
+
+### 第三轮：稳定兼容边界，再扩展平台
+
+- [ ] 补充 C# API 与 JSON 状态字段说明，分别规定 Package Version、Runtime Program Version、Content Version 和 State Version 的作用；记录取消、外部写回、非等待实例和 `switch` 的语义。
+- [ ] 扩展共享 TS / C# fixture，覆盖来自编辑器实际导出的多 Story 项目、章局部变量、复杂容器、本地化及错误轨迹；只有新增行为或失败时增加相应回归用例。
+- [ ] 将本次隔离工程中的 Unity 验证方式整理为仓库内可重复执行入口，记录 Unity 安装、许可和模块依赖；在具备许可的 CI/固定机器上运行 EditMode、PlayMode 和 Mono / IL2CPP Player smoke。
+- [ ] 先补一个后续 Unity LTS 的兼容验证，再按实际游戏目标选择 Android、iOS 或 WebGL。每个平台记录版本、后端、构建配置、资源加载、取消/线程行为和持久化结果；未验证目标继续标记“待验证”。
+- [ ] 为同版本存档和 Content Version 不匹配定义处理策略。迁移作为显式宿主扩展点，未经迁移验证不得静默改写或重置玩家进度。
+
+### Ink 与发布安排
+
+Ink Block 先做独立技术验证：检查当前编译器产出的 Ink JSON 与 Ink C# Runtime 兼容性、同步 EXTERNAL 桥接、变量双向绑定、Choice / Dialogue 暂停及 Ink State 往返。验证通过后再决定作为可选程序集/包接入；现有 Native Core 继续在导入时拒绝不支持的 Ink。
+
+UPM 分发、Git tag 与对外发布当前暂缓，恢复发布时先完成目标平台与兼容边界验收，再确认版本、产物和安装方式。此计划不启动打包、上传或发布。
 
 ## 阶段 0：冻结 C# 接入契约
 
@@ -96,7 +144,7 @@
 - 第一版聚焦原生 Blueprint 指令。Ink Block (`inkJson`) 明确诊断为 UnsupportedInstruction；后续单独评估 Ink C# / Unity Runtime、状态序列化和 EXTERNAL 同步语义后再纳入。
 - Event 与 Signal 是宿主回调契约，不尝试跨语言序列化游戏对象、UnityEngine.Object 或委托。
 - Character / Asset / Voice / Portrait 以稳定 ID 交给 Unity resolver；不推断磁盘路径或 Resources 路径。
-- C# JSON 表示先以 `System.Text.Json` 或 Unity 目标版本兼容的包为候选，阶段 0 实测 Unity 最低版本、IL2CPP/AOT 和保留字段策略后再定，不直接依赖反射式动态类型。
+- C# JSON 已采用 Unity `com.unity.nuget.newtonsoft-json@3.2.1` 的 `JObject` / `JToken`，不依赖反射式 DTO 反序列化；IL2CPP/AOT 与裁剪兼容性仍需实际构建验证。
 - 每个指令提供结构化诊断：code、message、storyId、blockId、instructionId、JSON path；不得通过 `Debug.Log` 后继续执行来吞掉错误。
 
 ## 是否需要新建 Unity 项目
@@ -117,8 +165,8 @@
 2. 运行状态与存档：JSON state 的版本、Pending Interaction、Signal Inbox 和 Story 实例必须在跨版本加载时保持契约。
 3. 非等待 Story Control：TypeScript Adapter 契约已有 `waitForCompletion`，C# 必须定义实例拥有者和后台异常上报。
 4. Ink Block：完整兼容需要 Ink C# Runtime、compiled Ink 格式兼容、Ink State 存档及同步 EXTERNAL 桥接，不能放进基础 v1 承诺。
-5. Unity 版本与 JSON 库：最低 Unity LTS 版本会影响 async API、JSON 库、AOT 和包分发，进入阶段 0 后应先做技术 spike。
+5. Unity 版本与 JSON 库：Unity 2022.3 / Newtonsoft 3.2.1 已完成 Mono 验证，IL2CPP、其他 LTS 与设备平台的兼容性仍需独立验证。
 
-## 首个可交付切片
+## 首个可交付切片（已完成）
 
-建议先完成“阶段 0 + 阶段 1 的最小核心”：加载示例 `.storyc.json`，运行对白、二选一 Choice、Branch、Set Variable、End，支持 CancellationToken 和纯 C# 测试。随后创建最小 Unity RuntimeDemo，接入一个手动推进 Presenter 和一个自动播放 Presenter，验证同一产物在两种体验下的交互轨迹一致；再根据真实 adapter 消费反馈决定是否一次性纳入 Substory、Signal 和 Ink，不要先建设庞大的 Unity UI 框架。
+初始切片已完成，并已扩展到全部原生指令、存档和 Unity Presenter。下一可交付切片为上文“第一轮”：Windows IL2CPP 验证与跨进程磁盘存档示例；完成后再推进真实 UI、资源与多 Story 场景接入。

@@ -1,6 +1,6 @@
 # Story Blueprint Editor - Task List
 
-> Status: MVP Complete; core editor, compiler, runtime, Ink interoperability, collaboration, Windows release pipeline and native Unity Adapter implemented. Current focus: Unity platform validation and integration feedback.
+> Status: MVP Complete; core editor, compiler, runtime, Ink interoperability, collaboration, Windows release pipeline and native Unity Adapter implemented. Current focus: Unity IL2CPP validation and persistent game integration; Unity publishing deferred.
 >
 > Goal:
 >
@@ -975,12 +975,18 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [x] Unity Adapter：纯 C# Core 与 UPM Package，校验 `.storyc.json`、原生 Runtime 指令、Event / Signal / Substory / Story Control、外部变量与版本化存档（见 [Unity Adapter 计划](unity-adapter-plan.md)）
 - [x] Unity 交互策略：同一剧情支持点击推进、打字机与自动播放；Choice 等待玩家选择；取消、重载、对象禁用和场景销毁清理等待与音频
 - [x] Unity RuntimeDemo：可直接运行的剧情、分支、游戏信号、奖励 Event 与保存/恢复；共享 TS / C# fixture、离线核心测试和真实 Presenter PlayMode 测试
-- [ ] Unity 发布前平台矩阵：其他 Unity LTS、设备端 Android / iOS / WebGL 与完整 IL2CPP / AOT 构建验证
+- [ ] Unity P0：Windows x64 IL2CPP / AOT 实际构建与 Player smoke，记录 API Compatibility / Managed Stripping 配置
+- [ ] Unity P0：磁盘存档与外部游戏数据一致性；覆盖退出/重启恢复、原子写入、损坏存档保留与 Event 业务去重
+- [ ] Unity P1：可替换的 uGUI / UI Toolkit Presenter、稳定 ID 资源映射、真实语音/立绘与两种语言接入示例
+- [ ] Unity P1：多 Story 宿主、场景切换和 Session 恢复；明确后台实例所有权并验证取消/退订/异常上报
+- [ ] Unity P1：API / 存档兼容规则、共享导出 fixture 与可重复 Unity 自动验证入口
+- [ ] Unity P2：其他 Unity LTS 与目标设备平台矩阵；按实际目标选择 Android / iOS / WebGL，不扩大未经验证的支持声明
 - [ ] Unity Ink Block：单独评估 Ink C# Runtime；当前导入明确拒绝，避免误报兼容
+- [ ] Unity 对外发布：暂缓，恢复后确认独立版本、UPM 产物与目标平台验收
 - [ ] Unreal Adapter：UE5 Gameplay / Dialogue Subsystem 接入规范与示例工程
 - [ ] Godot Adapter：Godot 4 GDExtension / GDScript 驱动包
 
-> Native Unity Adapter 已实现；安装、API、示例与限制见 [Unity 接入说明](../integrations/unity/README.md)。Ink Block 与发布前多平台构建矩阵继续独立跟踪。
+> Native Unity Adapter 已实现；下一步优先 IL2CPP 与真实持久化，然后补真实 UI/资源与多 Story 场景接入。顺序、交付物和验收标准见 [Unity Adapter 下一步计划](unity-adapter-plan.md#下一步开发顺序2026-10-09)，发布暂缓。
 
 ---
 
@@ -1043,4 +1049,4 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 # Current Goal
 
-MVP 与 Native Unity Adapter 已完成：独立 C# Runtime、原生指令语义、Unity 展示层、示例与契约测试已落地。后续聚焦平台构建矩阵与游戏接入反馈，Ink C# 兼容单独评估。具体验收见 [Unity Adapter 计划](unity-adapter-plan.md)。
+MVP 与 Native Unity Adapter 基线已完成。当前优先交付 Windows IL2CPP 验证和跨进程磁盘存档示例，再推进真实 UI/资源解析、多 Story 场景接入及 API 稳定。Ink C# 兼容独立预研，Unity 发布暂缓。顺序与验收见 [Unity Adapter 计划](unity-adapter-plan.md#下一步开发顺序2026-10-09)。

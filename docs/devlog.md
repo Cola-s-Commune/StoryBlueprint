@@ -1,5 +1,7 @@
 # Dev Log
 
+- 2026-10-09：Unity 发布暂缓，补充 Adapter 下一阶段路线：先完成 Windows IL2CPP / AOT 验证与跨进程磁盘存档，再接入真实 UI、资源、语音/本地化和多 Story 场景生命周期，随后稳定 API 与可重复 Unity 验证。每项记录交付物和验收条件；Ink C# 兼容继续独立预研。
+
 - 2026-10-08：完成 Native Unity Adapter。将 C# 骨架替换为 Unity 2022.3 / C# 9 可编译的 Core，使用 UPM Newtonsoft JSON 并正确隔离 Core / Unity asmdef；补齐 typed AST、容器、Event 稳定输出、信号匹配信箱、Substory 参数与返回值、外部变量持久化、版本化存档及独立 Story 实例注册表。新增可取消的主线程 Adapter、手动/自动 Presenter、真实 Choice 与可直接运行的龙任务 Demo；加入共享 TypeScript / C# fixture、离线核心 CI 与 Unity Presenter PlayMode 测试。Ink Block 明确拒绝，其他设备平台与版本矩阵继续按计划验证。
 
 - 官方 Web 发布门户与全链路分发验证体系（Release Portal & Pipeline）：

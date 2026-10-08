@@ -46,8 +46,10 @@ protected override void ConfigureAdapter(UnityStoryAdapter adapter)
 The example assumes your own `GameSave` implementation and imports `System.Threading.Tasks`,
 `Newtonsoft.Json.Linq` and `StoryBlueprint.Unity`. Event output keys must match compiled output
 IDs, including outputs not bound to a variable. Missing or invalid values fail before any result
-is committed. Extra event fields are ignored when storing declared outputs. Hosts should use
-the stable request ID to make side effects safe to retry after an interrupted interaction.
+is committed. Extra event fields are ignored when storing declared outputs. `RequestId` identifies
+the compiled instruction. For retryable side effects, hosts must persist a business operation key
+that also identifies the story instance and execution occurrence. Reuse that key for retries;
+later loop executions and new playthroughs need distinct keys.
 
 `project` and `character` variables hydrate through the adapter once, and dirty values flush at
 interactions and completion. Writes remain queued until the host confirms success; use
@@ -141,3 +143,14 @@ Unity 2022.3 and .NET Standard 2.1 are the baseline. Windows compiler/test resul
 build evidence are recorded in [the implementation plan](../../docs/unity-adapter-plan.md).
 Android/WebGL URL-based StreamingAssets loading is implemented; device/browser builds and
 additional Unity LTS versions require their own platform validation before release.
+
+## Next development steps
+
+Publishing is deferred as of 2026-10-09. The next deliverable is Windows IL2CPP validation plus
+a disk-backed save example that survives Player restart and keeps game variables consistent with
+the runtime snapshot. Then add a replaceable production UI/resource example, multi-story scene
+lifecycle integration, and repeatable Unity validation. Other Unity versions/platforms and Ink C#
+compatibility follow as separate work.
+
+Priorities, deliverables and acceptance criteria are tracked in
+[the next-step plan](../../docs/unity-adapter-plan.md#下一步开发顺序2026-10-09).
