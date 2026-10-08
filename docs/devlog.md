@@ -1,5 +1,7 @@
 # Dev Log
 
+- 2026-10-08：完成 Native Unity Adapter。将 C# 骨架替换为 Unity 2022.3 / C# 9 可编译的 Core，使用 UPM Newtonsoft JSON 并正确隔离 Core / Unity asmdef；补齐 typed AST、容器、Event 稳定输出、信号匹配信箱、Substory 参数与返回值、外部变量持久化、版本化存档及独立 Story 实例注册表。新增可取消的主线程 Adapter、手动/自动 Presenter、真实 Choice 与可直接运行的龙任务 Demo；加入共享 TypeScript / C# fixture、离线核心 CI 与 Unity Presenter PlayMode 测试。Ink Block 明确拒绝，其他设备平台与版本矩阵继续按计划验证。
+
 - 官方 Web 发布门户与全链路分发验证体系（Release Portal & Pipeline）：
   1. 在 `portal/` 下实现独立高保真的官方 Web 发布下载门户，基于蓝图深色科技质感设计，具备 Hero 产品概览、特性矩阵与架构说明；
   2. 新增 `portal/config.json` 专属配置文件，随 `portal/` 目录便携分发，支持配置本地端口、服务器地址、更新源与 GitHub 链接；
@@ -218,16 +220,19 @@ npm run dev
 ### Next: 后续演进路线规划 (Roadmap Assessment)
 
 **Priority 1: AI 深度剧情创作与逻辑重构 (AI Capabilities)**
+
 - 跨多列长连线自动 Router 辅助建议：长距离跳转或多层汇聚时由 AI 智能插入 Reroute 节点辅助规整布线
 - 剧本逻辑自检与一致性诊断：变量流动闭环、孤立死锁分支与角色性格前后一致性扫描
 - 连续多轮自然语言重构：支持复杂自然语言指令（如“重写第三幕对话，增加追逐结局分支并挂接变量判断”）
 
 **Priority 2: 游戏引擎运行时适配器 (Engine Adapters)**
+
 - Unity C# Runtime Package：轻量级驱动、读取 `.storyc.json`、Dialogue UI 事件绑定与变量持久化存档
 - Unreal Engine 5 插件评估：Gameplay / Dialogue Subsystem 接入规范与示例工程
 - Godot 4 GDExtension / GDScript Adapter 评估
 
 **Priority 3: 画布交互舒适度提升 (Canvas QoL & Workflow)**
+
 - 双击连线插入 Reroute 自动正交吸附到推荐转折通道
 - 智能对齐辅助线与吸附增强（Smart Snapping / Alignment Guides）
 - 剧情分组注释框（Comment Grouping & Framing）：多选节点一键包裹为可折叠/染色的 Comment Block
@@ -238,10 +243,10 @@ npm run dev
 
 | Date       | What                                                                                                               |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
-| 2026-10-02 | Router（Reroute 节点）正交排版优化，支持列间隙锚定与水平避障通道保持，实现复杂长分支零交叉布线                   |
-| 2026-10-02 | 蓝图级连线路由器（BlueprintSmoothStepEdge）定制，跨列前向连线目标间隙折线，消除中间穿切交叉线                     |
-| 2026-10-02 | 自动排版重构：端口感知有序排列、非重叠分块合并、汇聚节点跨度约束、稳定三阶段扫掠与水平平直对齐                   |
-| 2026-10-01 | AI 提案画布暂存与审查工作流（Proposal Staging）、Auto-Apply 配置选项与预览态画布自由漫游支持                     |
+| 2026-10-02 | Router（Reroute 节点）正交排版优化，支持列间隙锚定与水平避障通道保持，实现复杂长分支零交叉布线                     |
+| 2026-10-02 | 蓝图级连线路由器（BlueprintSmoothStepEdge）定制，跨列前向连线目标间隙折线，消除中间穿切交叉线                      |
+| 2026-10-02 | 自动排版重构：端口感知有序排列、非重叠分块合并、汇聚节点跨度约束、稳定三阶段扫掠与水平平直对齐                     |
+| 2026-10-01 | AI 提案画布暂存与审查工作流（Proposal Staging）、Auto-Apply 配置选项与预览态画布自由漫游支持                       |
 | 2026-07-27 | Dialogue Inspector 接入离线 Monaco Ink 编辑视图，支持行级元数据、诊断、稳定 ID 对齐、原生剪贴板及 Lines 双向同步   |
 | 2026-07-25 | 增加左下 Story Data、变量/角色编辑、拖拽创建 Get/Set/Dialogue，以及 Inspector 模板和表达式变量投放                 |
 | 2026-07-25 | `.story` 改为紧凑 v2：短稳定 ID、整数坐标、可选节点名、无 Edge ID；不兼容且不迁移旧格式                            |

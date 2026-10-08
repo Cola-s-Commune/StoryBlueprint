@@ -4,11 +4,30 @@
 
 - Editor、Compiler 与 TypeScript Runtime 已实现；项目可导出版本化 `.storyc.json`。
 - `StoryAdapter`、运行时交互、外部变量读写、Event / Signal / Story Control 契约已在 TypeScript Runtime 中定义。
-- 当前仓库没有 C# Runtime、Unity Package、Unity 示例工程或 Unity 自动化测试。
+- 2026-10-08：Native C# Runtime Core、Unity UPM Package、主线程 Adapter、手动/自动 Presenter、RuntimeDemo、共享 TS / C# fixture、离线测试与 Unity PlayMode 测试已实现。
 - Ink Block 的编译产物嵌入 Ink 专用 JSON，并依赖 `inkjs` 语义；第一版 C# Adapter 不应假称兼容 Ink Block。
 - 现有接口部分结果是异步的，但 Ink `EXTERNAL` 当前要求同步回调；跨语言实现需明确拒绝未支持的 Ink EXTERNAL，或单独评估 Ink Unity Runtime 集成。
 
 目标：实现一个可从 Unity 加载 `.storyc.json`、驱动原生 Blueprint Runtime 指令并把交互委托给 Unity 游戏代码的 C# Package。先验证核心格式与运行语义，再扩展 Unity 展示层；不把编辑器功能移植到 Unity。
+
+## 已完成实施
+
+- 阶段 0：支持 standalone `story-runtime@7` 与项目包络 `story-blueprint-compiled-project@1`；载入阶段验证必需字段、版本、控制流、引用、typed AST 和值类型，结构化诊断包含 JSON path；未知字段保留。JSON 使用 UPM Newtonsoft 3.2.1，纯 C# Core 不依赖 UnityEngine。
+- 阶段 1 / 2：全部原生指令及 typed AST 已实现，包括 Array / Map / JSON / struct / enum、章调用栈和局部变量、稳定 ID Event 输出、缓存 Signal 及独立 Story 实例。非等待实例由 `StoryInstanceManager` 持有并观察异常，重复实例与自等待显式拒绝。
+- 阶段 3：真实可交互 Presenter、打字机/跳过、自动计时/语音结束策略、默认暂停 Choice、主线程回调、禁用/销毁/重载清理、资源/文本 resolver 与可直接运行的 Demo 已落地。
+- 阶段 4 核心：`unity-story-state@1` 与 `unity-story-session@1` 保留变量、调用栈、输出、Pending Interaction、Signal Inbox、locale、外部待写值和实例注册表；恢复严格检查 Story / Program / Content Version，不做隐式迁移。
+- API / 安装 / 测试命令见 [Unity README](../integrations/unity/README.md)。Core CI 在 Windows / Ubuntu 上使用 .NET 9 跑同一套测试；Unity 程序集采用 C# 9 与 .NET Standard 2.1。
+
+剩余发布工作：其他 Unity LTS、Android / iOS / WebGL 设备构建与 IL2CPP / AOT 矩阵、UPM Git tag 发布。Ink Block 继续显式拒绝，不属于当前 Native v1 支持范围。以下阶段清单保留作为验收规范。
+
+## 本次验证记录（2026-10-08）
+
+- .NET 9 离线 Release Core：35 / 35 通过，使用与 Unity 相同的源码和用例，无 NuGet 下载。
+- Unity 2022.3.62f3 实际 EditMode：35 / 35 通过；使用隔离验证项目运行，不关闭原有编辑器。
+- Unity 2022.3.62f3 实际 PlayMode：8 / 8 通过，覆盖交互推进、选项、主线程回调、禁用/销毁与后台请求竞争。
+- TypeScript 契约与既有 Runtime 回归：7 个测试文件、49 / 49 通过，其中共享 fixture 一致性 3 / 3。
+- Windows x64 Mono Demo 构建成功；导出的 Player 实际完成接受任务 → 发出 Signal → Fake Event 稳定 ID 输出的 smoke flow。
+- 代码格式与 diff whitespace 检查通过；跨设备 IL2CPP / AOT 与其他 Unity 版本仍待发布前验证。
 
 ## 阶段 0：冻结 C# 接入契约
 

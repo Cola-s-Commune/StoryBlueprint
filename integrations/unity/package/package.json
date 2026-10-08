@@ -7,5 +7,11 @@
   "author": {
     "name": "Story Blueprint Contributors"
   },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0"
+  },
   "samples": []
 }

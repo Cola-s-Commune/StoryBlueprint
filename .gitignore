@@ -95,11 +95,14 @@ Desktop.ini
 *.tsbuildinfo
 
 # Unity generated project state (keep source, packages, settings and assets)
+integrations/unity/tests/bin/
+integrations/unity/tests/obj/
 integrations/unity/samples/*/Library/
 integrations/unity/samples/*/Temp/
 integrations/unity/samples/*/Obj/
 integrations/unity/samples/*/Logs/
 integrations/unity/samples/*/UserSettings/
+integrations/unity/samples/*/ProjectSettings/SceneTemplateSettings.json
 integrations/unity/samples/*/*.sln
 integrations/unity/samples/*/*.csproj
 integrations/unity/samples/*/*.userprefs

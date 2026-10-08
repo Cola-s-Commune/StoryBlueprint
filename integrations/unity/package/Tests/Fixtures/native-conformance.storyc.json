@@ -1,0 +1,339 @@
+{
+  "format": "story-runtime",
+  "version": 7,
+  "id": "p_unity_parity",
+  "contentVersion": "native-conformance-1",
+  "entryBlockId": "b_entry",
+  "sourceLocale": "en",
+  "locales": ["en", "zh", "zh-CN"],
+  "localeFallbacks": { "zh-CN": "zh" },
+  "variables": [
+    {
+      "id": "v_score",
+      "name": "score",
+      "displayName": "Score",
+      "scope": "story",
+      "valueType": { "kind": "number" },
+      "defaultValue": 0
+    },
+    {
+      "id": "v_items",
+      "name": "items",
+      "displayName": "Items",
+      "scope": "story",
+      "valueType": { "kind": "array", "elementType": { "kind": "number" } },
+      "defaultValue": [2]
+    },
+    {
+      "id": "v_map",
+      "name": "rewards",
+      "displayName": "Rewards",
+      "scope": "story",
+      "valueType": { "kind": "map", "keyType": "string", "valueType": { "kind": "number" } },
+      "defaultValue": {}
+    },
+    {
+      "id": "v_profile",
+      "name": "profile",
+      "displayName": "Profile",
+      "scope": "story",
+      "valueType": {
+        "kind": "struct",
+        "name": "Profile",
+        "fields": { "level": { "kind": "number" }, "name": { "kind": "string" } }
+      },
+      "defaultValue": { "level": 1, "name": "Hero" }
+    }
+  ],
+  "chapters": {
+    "ch_reward": {
+      "id": "ch_reward",
+      "entryBlockId": "b_chapter",
+      "parameters": [
+        { "variableId": "v_param", "valueType": { "kind": "number" }, "defaultValue": 0 }
+      ],
+      "outputs": [{ "variableId": "v_result", "valueType": { "kind": "number" } }],
+      "localVariables": [
+        {
+          "id": "v_bonus",
+          "name": "bonus",
+          "displayName": "Bonus",
+          "scope": "chapter",
+          "valueType": { "kind": "number" },
+          "defaultValue": 7
+        }
+      ]
+    }
+  },
+  "blocks": {
+    "b_entry": {
+      "id": "b_entry",
+      "instructions": [
+        {
+          "id": "i_event",
+          "op": "call-event",
+          "eventId": "ev_reward",
+          "arguments": {
+            "amount": {
+              "kind": "binary",
+              "operator": "add",
+              "left": { "kind": "literal", "value": 2, "valueType": { "kind": "number" } },
+              "right": { "kind": "literal", "value": 3, "valueType": { "kind": "number" } },
+              "valueType": { "kind": "number" }
+            }
+          },
+          "outputs": [{ "id": "evo_reward", "name": "reward", "valueType": { "kind": "number" } }],
+          "resultVariableIds": { "evo_reward": "v_score" }
+        },
+        {
+          "id": "i_append",
+          "op": "set-variable",
+          "variableId": "v_items",
+          "containerOperation": "append",
+          "value": { "kind": "literal", "value": 5, "valueType": { "kind": "number" } }
+        },
+        {
+          "id": "i_map",
+          "op": "set-variable",
+          "variableId": "v_map",
+          "containerOperation": "set-entry",
+          "key": { "kind": "literal", "value": "reward", "valueType": { "kind": "string" } },
+          "value": {
+            "kind": "event-output",
+            "instructionId": "i_event",
+            "outputId": "evo_reward",
+            "valueType": { "kind": "number" }
+          }
+        },
+        {
+          "id": "i_field",
+          "op": "set-variable",
+          "variableId": "v_profile",
+          "containerOperation": "set-field",
+          "fieldName": "level",
+          "value": { "kind": "literal", "value": 2, "valueType": { "kind": "number" } }
+        },
+        {
+          "id": "i_signal",
+          "op": "wait-signal",
+          "signalId": "sig_ready",
+          "matches": {
+            "bossId": {
+              "kind": "literal",
+              "value": "red_dragon",
+              "valueType": { "kind": "string" }
+            }
+          }
+        },
+        {
+          "id": "i_add_signal",
+          "op": "set-variable",
+          "variableId": "v_score",
+          "value": {
+            "kind": "binary",
+            "operator": "add",
+            "left": {
+              "kind": "variable",
+              "variableId": "v_score",
+              "valueType": { "kind": "number" }
+            },
+            "right": {
+              "kind": "signal-output",
+              "instructionId": "i_signal",
+              "outputId": "amount",
+              "valueType": { "kind": "number" }
+            },
+            "valueType": { "kind": "number" }
+          }
+        },
+        {
+          "id": "i_chapter",
+          "op": "call-chapter",
+          "chapterId": "ch_reward",
+          "target": "b_chapter",
+          "arguments": {
+            "v_param": {
+              "kind": "variable",
+              "variableId": "v_score",
+              "valueType": { "kind": "number" }
+            }
+          },
+          "returnTo": { "blockId": "b_present", "instructionIndex": 0 },
+          "resultVariableIds": { "v_result": "v_score" }
+        }
+      ]
+    },
+    "b_chapter": {
+      "id": "b_chapter",
+      "instructions": [
+        {
+          "id": "i_return",
+          "op": "return",
+          "values": {
+            "v_result": {
+              "kind": "binary",
+              "operator": "add",
+              "left": {
+                "kind": "variable",
+                "variableId": "v_param",
+                "valueType": { "kind": "number" }
+              },
+              "right": {
+                "kind": "variable",
+                "variableId": "v_bonus",
+                "valueType": { "kind": "number" }
+              },
+              "valueType": { "kind": "number" }
+            }
+          }
+        }
+      ]
+    },
+    "b_present": {
+      "id": "b_present",
+      "instructions": [
+        {
+          "id": "i_dialogue",
+          "op": "dialogue",
+          "speakerId": "c_hero",
+          "emotion": "happy",
+          "portraitId": "a_portrait",
+          "tags": ["quest:complete"],
+          "voice": { "default": "a_voice_en", "locales": { "zh": "a_voice_zh" } },
+          "text": {
+            "id": "t_greeting",
+            "parts": [
+              { "kind": "text", "value": "Hello " },
+              {
+                "kind": "expression",
+                "expression": {
+                  "kind": "member",
+                  "target": {
+                    "kind": "variable",
+                    "variableId": "v_profile",
+                    "valueType": {
+                      "kind": "struct",
+                      "name": "Profile",
+                      "fields": { "level": { "kind": "number" }, "name": { "kind": "string" } }
+                    }
+                  },
+                  "member": "name",
+                  "valueType": { "kind": "string" }
+                }
+              },
+              { "kind": "text", "value": ", score " },
+              {
+                "kind": "expression",
+                "expression": {
+                  "kind": "variable",
+                  "variableId": "v_score",
+                  "valueType": { "kind": "number" }
+                }
+              }
+            ],
+            "locales": {
+              "zh": {
+                "parts": [
+                  { "kind": "text", "value": "你好 Hero，分数 " },
+                  {
+                    "kind": "expression",
+                    "expression": {
+                      "kind": "variable",
+                      "variableId": "v_score",
+                      "valueType": { "kind": "number" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "i_choice",
+          "op": "choice",
+          "prompt": { "id": "t_prompt", "parts": [{ "kind": "text", "value": "Continue?" }] },
+          "options": [
+            {
+              "id": "opt_yes",
+              "text": { "id": "t_yes", "parts": [{ "kind": "text", "value": "Yes" }] },
+              "target": "b_branch"
+            },
+            {
+              "id": "opt_disabled",
+              "text": { "id": "t_disabled", "parts": [{ "kind": "text", "value": "Disabled" }] },
+              "enabledIf": {
+                "kind": "literal",
+                "value": false,
+                "valueType": { "kind": "boolean" }
+              },
+              "target": "b_wrong"
+            },
+            {
+              "id": "opt_hidden",
+              "text": { "id": "t_hidden", "parts": [{ "kind": "text", "value": "Hidden" }] },
+              "visibleIf": {
+                "kind": "literal",
+                "value": false,
+                "valueType": { "kind": "boolean" }
+              },
+              "target": "b_wrong"
+            }
+          ]
+        }
+      ]
+    },
+    "b_branch": {
+      "id": "b_branch",
+      "instructions": [
+        {
+          "id": "i_branch",
+          "op": "branch",
+          "condition": {
+            "kind": "binary",
+            "operator": "equal",
+            "left": {
+              "kind": "index",
+              "target": {
+                "kind": "variable",
+                "variableId": "v_items",
+                "valueType": { "kind": "array", "elementType": { "kind": "number" } }
+              },
+              "index": { "kind": "literal", "value": 1, "valueType": { "kind": "number" } },
+              "valueType": { "kind": "number" }
+            },
+            "right": { "kind": "literal", "value": 5, "valueType": { "kind": "number" } },
+            "valueType": { "kind": "boolean" }
+          },
+          "whenTrue": "b_finish",
+          "whenFalse": "b_wrong"
+        }
+      ]
+    },
+    "b_finish": {
+      "id": "b_finish",
+      "instructions": [
+        {
+          "id": "i_narration",
+          "op": "narration",
+          "text": {
+            "id": "t_finish",
+            "parts": [
+              { "kind": "text", "value": "Finished " },
+              {
+                "kind": "expression",
+                "expression": {
+                  "kind": "substory-output",
+                  "instructionId": "i_chapter",
+                  "outputId": "v_result",
+                  "valueType": { "kind": "number" }
+                }
+              }
+            ]
+          }
+        },
+        { "id": "i_end", "op": "end-story" }
+      ]
+    },
+    "b_wrong": { "id": "b_wrong", "instructions": [{ "id": "i_wrong_end", "op": "end-story" }] }
+  }
+}

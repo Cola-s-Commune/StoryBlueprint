@@ -1,6 +1,6 @@
 # Story Blueprint Editor - Task List
 
-> Status: MVP Complete; core editor, compiler, runtime, Ink interoperability, collaboration, and Windows release pipeline implemented. Current focus: Unity Adapter.
+> Status: MVP Complete; core editor, compiler, runtime, Ink interoperability, collaboration, Windows release pipeline and native Unity Adapter implemented. Current focus: Unity platform validation and integration feedback.
 >
 > Goal:
 >
@@ -972,12 +972,15 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 ## Runtime
 
 - [x] External Function Out 数据 Pin：Call External Function 的每个返回值可作为强类型数据源，连接到 Set Variable / Branch 等节点；运行时缓存可序列化并支持多个消费者，保留 `resultVariableIds` 兼容路径
-- [ ] Unity Adapter：C# Runtime Package，读取 `.storyc.json`、Dialogue UI 事件绑定与变量持久化存档（计划见 [Unity Adapter 计划](unity-adapter-plan.md)）
-- [ ] Unity 交互策略：同一剧情支持玩家点击推进与自动播放；Choice 默认始终等待玩家选择；跳过、取消和场景销毁遵守 CancellationToken
+- [x] Unity Adapter：纯 C# Core 与 UPM Package，校验 `.storyc.json`、原生 Runtime 指令、Event / Signal / Substory / Story Control、外部变量与版本化存档（见 [Unity Adapter 计划](unity-adapter-plan.md)）
+- [x] Unity 交互策略：同一剧情支持点击推进、打字机与自动播放；Choice 等待玩家选择；取消、重载、对象禁用和场景销毁清理等待与音频
+- [x] Unity RuntimeDemo：可直接运行的剧情、分支、游戏信号、奖励 Event 与保存/恢复；共享 TS / C# fixture、离线核心测试和真实 Presenter PlayMode 测试
+- [ ] Unity 发布前平台矩阵：其他 Unity LTS、设备端 Android / iOS / WebGL 与完整 IL2CPP / AOT 构建验证
+- [ ] Unity Ink Block：单独评估 Ink C# Runtime；当前导入明确拒绝，避免误报兼容
 - [ ] Unreal Adapter：UE5 Gameplay / Dialogue Subsystem 接入规范与示例工程
 - [ ] Godot Adapter：Godot 4 GDExtension / GDScript 驱动包
 
-> Unity Adapter 尚未实现。当前已有 TypeScript Runtime、`.storyc.json` 契约、Adapter 接口和接入规范；实施计划见 [Unity Adapter 计划](unity-adapter-plan.md)。
+> Native Unity Adapter 已实现；安装、API、示例与限制见 [Unity 接入说明](../integrations/unity/README.md)。Ink Block 与发布前多平台构建矩阵继续独立跟踪。
 
 ---
 
@@ -1040,4 +1043,4 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 
 # Current Goal
 
-MVP 已完成。当前阶段聚焦 Unity Adapter：先实现独立的 C# Runtime Package，能够读取版本化 `.storyc.json` 并运行基础剧情流程；再补齐 Runtime 语义、Unity 展示层和示例项目。具体验收与阶段拆分见 [Unity Adapter 计划](unity-adapter-plan.md)。
+MVP 与 Native Unity Adapter 已完成：独立 C# Runtime、原生指令语义、Unity 展示层、示例与契约测试已落地。后续聚焦平台构建矩阵与游戏接入反馈，Ink C# 兼容单独评估。具体验收见 [Unity Adapter 计划](unity-adapter-plan.md)。

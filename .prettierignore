@@ -1,0 +1,4 @@
+# The conformance test verifies byte-identical copies of this published artifact.
+docs/examples/sample-quest.storyc.json
+integrations/unity/package/Tests/Fixtures/sample-quest.storyc.json
+integrations/unity/samples/RuntimeDemo/Assets/StreamingAssets/sample-quest.storyc.json

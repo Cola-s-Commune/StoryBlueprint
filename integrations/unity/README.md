@@ -1,42 +1,143 @@
 # Story Blueprint Unity Adapter
 
-This directory is the planned home for the Unity integration. It is intentionally split into two layers:
+Reusable UPM package targeting Unity 2022.3 LTS. The pure C# `StoryBlueprint.Runtime`
+assembly executes native Blueprint instructions; `StoryBlueprint.Unity` connects them to
+the Unity main thread, presentation and game callbacks. Runtime code does not depend on UnityEditor.
 
-- `package/`: the reusable UPM package and C# runtime. It must not depend on a particular game or on `UnityEditor` for runtime execution.
-- `samples/RuntimeDemo/`: a small Unity host used to verify loading, presentation, cancellation, save/load, and platform builds.
+## Install and run
 
-The first implementation slice is the native Blueprint Runtime only. Embedded or linked Ink Block instructions are rejected with a structured unsupported-instruction diagnostic until Ink C# runtime compatibility is separately evaluated.
-
-The created `samples/RuntimeDemo` project uses Unity 2022.3. Its local package reference points to `../../package`. Open the project in Unity, add `RuntimeDemoPresenter` and `RuntimeDemoRunner` to a scene object, and place a compiled `sample-quest.storyc.json` under `Assets/StreamingAssets/` to run the first smoke flow.
-
-## Interaction modes
-
-The same `.storyc.json` must support both:
-
-1. Manual mode: Dialogue and Narration wait for player confirmation; Choice waits for a selected option.
-2. Auto-play mode: Dialogue and Narration complete after a host-defined duration or voice completion; Choice still waits for player selection unless the host explicitly enables timed choices.
-
-These modes belong to the Unity presenter/adapter configuration, not to the story file.
-
-## Planned layout
+Add `integrations/unity/package/package.json` with **Package Manager → Add package from disk**.
+Unity installs `com.unity.nuget.newtonsoft-json` 3.2.1 and the required engine modules.
+For a repository dependency, use a pinned commit or release tag:
 
 ```text
-integrations/unity/
-  package/
-  samples/RuntimeDemo/
-  README.md
+https://github.com/<owner>/StoryBlueprint.git?path=integrations/unity/package#<commit-or-tag>
 ```
 
-See [the implementation plan](../../docs/unity-adapter-plan.md) for milestones and acceptance criteria.
+Open `samples/RuntimeDemo` with Unity 2022.3 and play `Assets/Scenes/SampleScene.unity`.
+The scene bootstraps its runner automatically and includes the published dragon quest in
+StreamingAssets. Continue reveals typing text first, then advances. Both manual and auto
+playback wait for a choice. Accept the quest, click **Defeat the red dragon**, and the fake
+`ev_grant_reward` handler returns the stable `evo_success` output. The demo also supports
+cancel, restart and saving/loading the current pause with its game gold value.
 
-## Current core
+## Game integration
 
-`package/Runtime/StoryRuntime.cs` is a pure C# runtime slice. It loads either a standalone
-`story-runtime` program or a compiled-project envelope, executes dialogue, narration, choices,
-branches, jumps, variable assignments, and `end-story`, and delegates presentation to
-`IStoryPresenter`. Presenter implementations choose manual or automatic dialogue playback;
-choices remain interactive. `CancellationToken` is passed through every asynchronous presentation
-call so scene teardown and skip operations can stop pending work safely.
+Add `UnityStoryHost` to a scene object. It installs a `UnityStoryPresenter` and a
+`UnityMainThreadDispatcher`; set a compiled `TextAsset` or StreamingAssets path in the Inspector.
+For game handlers, subclass the host and override `ConfigureAdapter`:
 
-The offline smoke project under `package/Tests/` can be run with `dotnet run` in an environment
-with NuGet access. Unity imports the same source through the package assembly definition.
+```csharp
+protected override void ConfigureAdapter(UnityStoryAdapter adapter)
+{
+    adapter.RegisterEvent("ev_grant_reward", (request, token) =>
+    {
+        token.ThrowIfCancellationRequested();
+        // Implement the game action using request.Arguments and request.RequestId.
+        return Task.FromResult(new JObject { ["evo_success"] = true });
+    });
+    adapter.ExternalVariableReader = (definition, token) =>
+        Task.FromResult(GameSave.Read((string)definition["id"]));
+    adapter.ExternalVariableWriter = (definition, value, token) =>
+        GameSave.WriteAsync((string)definition["id"], value, token);
+}
+```
+
+The example assumes your own `GameSave` implementation and imports `System.Threading.Tasks`,
+`Newtonsoft.Json.Linq` and `StoryBlueprint.Unity`. Event output keys must match compiled output
+IDs, including outputs not bound to a variable. Missing or invalid values fail before any result
+is committed. Extra event fields are ignored when storing declared outputs. Hosts should use
+the stable request ID to make side effects safe to retry after an interrupted interaction.
+
+`project` and `character` variables hydrate through the adapter once, and dirty values flush at
+interactions and completion. Writes remain queued until the host confirms success; use
+`RetryExternalWritesAsync` after a failed write. Restored states retain hydrated values and queued
+writes. Without persistence callbacks, the adapter uses compiled defaults and acknowledges writes
+in memory.
+
+For custom UI, implement `IStoryPresenter`, subclass `UnityStoryPresenter`, or set `DrawDefaultGui`
+to false and subscribe to `DialoguePresented`, `NarrationPresented`, `ChoicePresented` and
+`InteractionCleared`. Complete interactions through `Advance`, `RevealText` and `SelectChoice`.
+`SpeakerResolver`, `PortraitResolver` and `VoiceResolver` receive stable resource IDs. Set
+`TextResolver` on the adapter for a game localization service; returning null uses the compiled
+text variants and locale fallbacks. The compiled project retains character/asset and event/signal
+manifests in `StoryProject.Data` for your resource resolver.
+
+Auto playback waits for the configured minimum/per-character duration after text is visible,
+and optionally for voice completion. Choice always requires player input. Scene destruction,
+object disable, reload and cancellation clean up the active UI, typing and audio. Each concurrent
+story needs its own presenter. Adapter game callbacks are marshalled to the Unity main thread.
+
+## Core API and saves
+
+```csharp
+var project = StoryProject.Parse(compiledJson);
+var storyId = project.EntryStoryId;
+var runtime = new StoryRuntime(project.Programs[storyId], adapter, storyId);
+runtime.Locale = "zh-CN";
+runtime.SendSignal("sig_boss_slain", new JObject { ["bossId"] = "red_dragon" });
+await runtime.RunAsync(PlaybackMode.Manual, cancellationToken);
+```
+
+The APIs accept standalone `story-runtime` version 7 and
+`story-blueprint-compiled-project` version 1. `StoryProgram.ParseProject(json, storyId)` selects a
+program; use the selected story ID in the runtime constructor when loading an envelope.
+Unknown fields are retained, while invalid versions, instruction/expression kinds, references,
+types and control flow fail with `StoryRuntimeException`. It exposes `Code`, `JsonPath`, `StoryId`,
+`BlockId` and `InstructionId`. JSON numbers follow finite double semantics. No reflection-based
+DTO deserialization or dynamic code generation is used.
+
+`ExportStateJson` stores location, typed variables, chapter frames, output caches, pending
+interaction, signal inbox, locale and retryable external writes in `unity-story-state` version 1.
+Cancel and await the current `RunAsync` before calling `RestoreStateJson`; then call `RunAsync`
+again to re-present its pending interaction. Cancellation preserves the pause and prevents late
+adapter completion from advancing it. The host provides `PlayAsync(savedJson)` to perform this
+sequence. Saves must match Story ID, Program ID and content version. Incompatible saves are
+rejected; no implicit migration or progress reset occurs. Persist the game-owned data alongside
+the runtime snapshot.
+
+`SendSignal` buffers unmatched payloads and wakes matching waits, including signals arriving
+before their instruction. Matched payloads are consumed once and exposed through signal-output
+expressions. An optional `SignalHandler` can connect to an existing game signal bus.
+
+## Independent Story instances
+
+`start-story`, `switch-story`, `resume-story` and `end-story-instance` call `StoryController` on
+`UnityStoryAdapter`. Implement your own game instance policy, or use `StoryInstanceManager` with
+a `StoryProject` and an adapter factory (one adapter/presenter per instance). Its `ControlAsync`
+routes nested Story Control automatically and binds initial arguments by variable ID or name.
+Returned values are keyed by story variable ID. Nonwaiting starts immediately return an instance
+ID; their lifetime belongs to the manager. `end` removes an instance after cancellation, and
+`Dispose` cancels all owned runs. Inspect `TryDequeueBackgroundError` for asynchronous failures.
+
+The manager's `switch` starts the target and advances the caller, matching the Runtime's host
+control request contract. Use `TransitionHandler` for scene/focus transitions, or a custom
+`StoryController` for a different ownership policy. Duplicate IDs, self-waits and wait cycles are rejected.
+`PauseAllAsync`, `ExportStateJson` and `RestoreStateJson` support registry saves in
+`unity-story-session` version 1; restored instances remain paused until resumed.
+
+## Validation and supported scope
+
+```powershell
+dotnet run --project integrations/unity/tests/StoryBlueprint.OfflineTests.csproj
+npm test -- integrations/unity/tests/nativeRuntimeParity.test.ts
+```
+
+The offline runner links the exact Core source and NUnit test cases, uses the .NET 9 SDK's
+Newtonsoft assembly (override `-p:NewtonsoftJsonPath=...` if needed), and downloads no NuGet
+packages. CI runs it on Ubuntu and Windows. Unity imports the same Core tests as EditMode tests;
+`Tests/PlayMode` verifies the real presenter and dispatcher. Add
+`"testables": ["com.storyblueprint.runtime"]` to your project's package manifest to discover them.
+The checked-in demo already enables package tests. Core fixtures also run through the TypeScript
+compiler/runtime to check matching traces and values.
+
+Supported native instructions include Dialogue, Narration, Choice, Branch, Jump, Set Variable
+(including append/map entry/object field), Call Event, Wait Signal, Call Chapter, Return, Story
+Control and End Story. Typed expressions, Array/Map/JSON/struct/enum values, localized text and
+voice IDs are implemented. **Ink Block is rejected at load with `UNSUPPORTED_INSTRUCTION`.**
+Ink C# interoperability remains a separate feature.
+
+Unity 2022.3 and .NET Standard 2.1 are the baseline. Windows compiler/test results and platform
+build evidence are recorded in [the implementation plan](../../docs/unity-adapter-plan.md).
+Android/WebGL URL-based StreamingAssets loading is implemented; device/browser builds and
+additional Unity LTS versions require their own platform validation before release.

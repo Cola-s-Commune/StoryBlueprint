@@ -1,6 +1,8 @@
 {
   "name": "StoryBlueprint.Runtime.Tests",
   "references": ["StoryBlueprint.Runtime"],
+  "overrideReferences": true,
+  "precompiledReferences": ["Newtonsoft.Json.dll", "nunit.framework.dll"],
   "includePlatforms": ["Editor"],
   "optionalUnityReferences": ["TestAssemblies"]
 }

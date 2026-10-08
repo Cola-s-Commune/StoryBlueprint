@@ -32,6 +32,7 @@
     "lint": "npm run lint --workspaces",
     "typecheck": "npm run build --workspace @story-blueprint/common && npm run typecheck --workspaces",
     "test": "vitest run",
+    "test:unity": "dotnet run --project integrations/unity/tests/StoryBlueprint.OfflineTests.csproj",
     "format:check": "prettier --check ."
   },
   "devDependencies": {

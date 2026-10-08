@@ -1,0 +1,10 @@
+{
+  "name": "StoryBlueprint.Unity.Tests",
+  "references": ["StoryBlueprint.Runtime", "StoryBlueprint.Unity"],
+  "includePlatforms": [],
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll", "Newtonsoft.Json.dll"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
