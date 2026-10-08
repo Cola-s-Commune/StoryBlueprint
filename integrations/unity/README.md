@@ -26,3 +26,15 @@ integrations/unity/
 ```
 
 See [the implementation plan](../../docs/unity-adapter-plan.md) for milestones and acceptance criteria.
+
+## Current core
+
+`package/Runtime/StoryRuntime.cs` is a pure C# runtime slice. It loads either a standalone
+`story-runtime` program or a compiled-project envelope, executes dialogue, narration, choices,
+branches, jumps, variable assignments, and `end-story`, and delegates presentation to
+`IStoryPresenter`. Presenter implementations choose manual or automatic dialogue playback;
+choices remain interactive. `CancellationToken` is passed through every asynchronous presentation
+call so scene teardown and skip operations can stop pending work safely.
+
+The offline smoke project under `package/Tests/` can be run with `dotnet run` in an environment
+with NuGet access. Unity imports the same source through the package assembly definition.
