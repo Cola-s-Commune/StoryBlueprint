@@ -14,9 +14,10 @@ For a repository dependency, use a pinned commit or release tag:
 https://github.com/<owner>/StoryBlueprint.git?path=integrations/unity/package#<commit-or-tag>
 ```
 
-Open `samples/RuntimeDemo` with Unity 2022.3 and play `Assets/Scenes/SampleScene.unity`.
-The scene bootstraps its runner automatically and includes the published dragon quest in
-StreamingAssets. Continue reveals typing text first, then advances. Both manual and auto
+Open `samples/RuntimeDemo` with Unity 2022.3. In `Assets/Prefabs`, drag
+`StoryBlueprintRuntimeDemo.prefab` into `Assets/Scenes/SampleScene.unity`, then press Play.
+The prefab contains the dispatcher, presenter and demo runner; it loads the published dragon
+quest from StreamingAssets. Continue reveals typing text first, then advances. Both manual and auto
 playback wait for a choice. Accept the quest, click **Defeat the red dragon**, and the fake
 `ev_grant_reward` handler returns the stable `evo_success` output. The demo also supports
 cancel, restart and saving/loading the current pause with its game gold value.

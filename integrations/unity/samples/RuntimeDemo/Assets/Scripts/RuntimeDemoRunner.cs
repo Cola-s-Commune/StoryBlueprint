@@ -15,16 +15,6 @@ public sealed class RuntimeDemoRunner : UnityStoryHost
     private GUIStyle _heading;
     private GUIStyle _body;
 
-    // The checked-in scene needs no manual component wiring. A scene with its own runner remains usable.
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void Bootstrap()
-    {
-        if (FindObjectOfType<RuntimeDemoRunner>() != null) return;
-        var demo = new GameObject("Story Blueprint Runtime Demo");
-        demo.AddComponent<RuntimeDemoPresenter>();
-        demo.AddComponent<RuntimeDemoRunner>();
-    }
-
     protected override void Awake()
     {
         base.Awake();
