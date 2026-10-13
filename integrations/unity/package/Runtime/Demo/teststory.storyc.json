@@ -1,0 +1,1709 @@
+{
+  "format": "story-blueprint-compiled-project",
+  "version": 1,
+  "projectId": "prj_2rxyb5jnsf034",
+  "name": "teststory",
+  "displayName": "TestStory",
+  "contentVersion": "content-eeac9d10",
+  "entryStoryId": "s_5q4dhvxs27mta",
+  "events": [
+    {
+      "id": "ev_50ftx814c1126",
+      "name": "TestFunc1",
+      "displayName": "TestFunc1",
+      "parameters": [
+        {
+          "name": "Pram1",
+          "valueType": {
+            "kind": "number"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "id": "evo_3z9v5p2b5kvqy",
+          "name": "Ret1",
+          "displayName": "Ret1",
+          "valueType": {
+            "kind": "string"
+          }
+        }
+      ],
+      "resumable": true,
+      "sideEffect": "write"
+    }
+  ],
+  "signals": [
+    {
+      "id": "sig_djd6fnvkb0ed5",
+      "name": "Signal1",
+      "displayName": "Signal1",
+      "parameters": [
+        {
+          "name": "Param2",
+          "valueType": {
+            "kind": "string"
+          }
+        }
+      ]
+    }
+  ],
+  "stories": {
+    "s_bus_heist": {
+      "storyId": "s_bus_heist",
+      "name": "bus_heist",
+      "displayName": "公交车投币箱劫案",
+      "program": {
+        "format": "story-runtime",
+        "version": 7,
+        "id": "p_bus_heist",
+        "contentVersion": "content-eeac9d10",
+        "entryBlockId": "b_entry",
+        "blocks": {
+          "b_entry": {
+            "id": "b_entry",
+            "instructions": [
+              {
+                "id": "i_entry_next",
+                "op": "jump",
+                "target": "b_brief"
+              }
+            ]
+          },
+          "b_brief": {
+            "id": "b_brief",
+            "instructions": [
+              {
+                "id": "i_brief_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_brief",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "你召集了全城最狠的二人组，宣布了一个惊天计划：今晚要撬开一辆公交车的投币箱，把里面的钱全搬空。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_brief_next",
+                "op": "jump",
+                "target": "b_choose_vehicle"
+              }
+            ]
+          },
+          "b_choose_vehicle": {
+            "id": "b_choose_vehicle",
+            "instructions": [
+              {
+                "id": "i_choose_vehicle_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_choose_vehicle",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "先得上了车。怎么上？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_crowd",
+                    "text": {
+                      "id": "t_choice_option_crowd",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "挤早高峰，混在通勤人潮里上车"
+                        }
+                      ]
+                    },
+                    "target": "b_crowd"
+                  },
+                  {
+                    "id": "o_last",
+                    "text": {
+                      "id": "t_choice_option_last",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "蹲末班车，整车往往就司机一个人"
+                        }
+                      ]
+                    },
+                    "target": "b_last"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_crowd": {
+            "id": "b_crowd",
+            "instructions": [
+              {
+                "id": "i_crowd_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_crowd",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "早高峰的公交车像沙丁鱼罐头。你被大妈们挤到投币箱正前方，胳膊都抬不起来，更别提动手了。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_crowd_next",
+                "op": "jump",
+                "target": "b_alert_crowd"
+              }
+            ]
+          },
+          "b_last": {
+            "id": "b_last",
+            "instructions": [
+              {
+                "id": "i_last_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_last",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "末班车的车厢空得能听见回声。司机打着哈欠，那个铁皮投币箱就挂在驾驶座旁，仿佛在朝你招手。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_last_next",
+                "op": "jump",
+                "target": "b_approach"
+              }
+            ]
+          },
+          "b_approach": {
+            "id": "b_approach",
+            "instructions": [
+              {
+                "id": "i_approach_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_approach",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "投币箱就在眼前。怎么开？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_smash",
+                    "text": {
+                      "id": "t_choice_option_smash",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "暴力——液压钳夹碎投币口"
+                        }
+                      ]
+                    },
+                    "target": "b_smash"
+                  },
+                  {
+                    "id": "o_smart",
+                    "text": {
+                      "id": "t_choice_option_smart",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "智取——假扮检修工，用钥匙开"
+                        }
+                      ]
+                    },
+                    "target": "b_smart"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_smash": {
+            "id": "b_smash",
+            "instructions": [
+              {
+                "id": "i_sm1_main",
+                "op": "dialogue",
+                "speakerId": "c_boss",
+                "text": {
+                  "id": "t_sm1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "老猫，上钳子！"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_sm2_main",
+                "op": "dialogue",
+                "speakerId": "c_cat",
+                "text": {
+                  "id": "t_sm2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "头儿，这塑料箱……一夹就碎，跟切豆腐似的。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_smash_next",
+                "op": "jump",
+                "target": "b_alert_smash"
+              }
+            ]
+          },
+          "b_smart": {
+            "id": "b_smart",
+            "instructions": [
+              {
+                "id": "i_sp1_main",
+                "op": "dialogue",
+                "speakerId": "c_boss",
+                "text": {
+                  "id": "t_sp1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "师傅，我是公交公司派来检修投币箱的。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_sp2_main",
+                "op": "dialogue",
+                "speakerId": "c_driver",
+                "text": {
+                  "id": "t_sp2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "哦，那快点啊，我这一趟还得跑完线呢。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_smart_next",
+                "op": "jump",
+                "target": "b_grab"
+              }
+            ]
+          },
+          "b_grab": {
+            "id": "b_grab",
+            "instructions": [
+              {
+                "id": "i_grab_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_grab",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "你把手探进投币箱，指尖触到一枚硬币——冰凉，圆润，带着多年积攒的包浆。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_grab_next",
+                "op": "jump",
+                "target": "b_check_alert"
+              }
+            ]
+          },
+          "b_loot_add": {
+            "id": "b_loot_add",
+            "instructions": [
+              {
+                "id": "i_loot_add_main",
+                "op": "set-variable",
+                "variableId": "v_loot",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_loot",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 0.5,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_loot_add_next",
+                "op": "jump",
+                "target": "b_count"
+              }
+            ]
+          },
+          "b_count": {
+            "id": "b_count",
+            "instructions": [
+              {
+                "id": "i_count_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_count",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "你把硬币一股脑倒在手心，借着车厢灯一枚枚数：一毛、两毛……整整五毛。五毛。你的呼吸停了一拍。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_count_next",
+                "op": "jump",
+                "target": "b_react"
+              }
+            ]
+          },
+          "b_react": {
+            "id": "b_react",
+            "instructions": [
+              {
+                "id": "i_react_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_react",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "这五毛钱，怎么处理？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_keep",
+                    "text": {
+                      "id": "t_choice_option_keep",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "默默塞进自己口袋，深藏功与名"
+                        }
+                      ]
+                    },
+                    "target": "b_keep"
+                  },
+                  {
+                    "id": "o_rage",
+                    "text": {
+                      "id": "t_choice_option_rage",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "拍箱怒吼：公交公司怎么穷成这样！"
+                        }
+                      ]
+                    },
+                    "target": "b_rage"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_keep": {
+            "id": "b_keep",
+            "instructions": [
+              {
+                "id": "i_keep_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_keep",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "你把那枚五毛硬币揣进兜里，提前两站下了车。从此江湖多了一段传说：有人为了五毛，撬了公交投币箱。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_keep_next",
+                "op": "jump",
+                "target": "b_end_win"
+              }
+            ]
+          },
+          "b_rage": {
+            "id": "b_rage",
+            "instructions": [
+              {
+                "id": "i_rg1_main",
+                "op": "dialogue",
+                "speakerId": "c_boss",
+                "text": {
+                  "id": "t_rg1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "这生意没法做了！一个投币箱就五毛？"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_rg2_main",
+                "op": "dialogue",
+                "speakerId": "c_driver",
+                "text": {
+                  "id": "t_rg2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "小伙子，你投币了吗？再闹我可报警了啊。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_rage_next",
+                "op": "jump",
+                "target": "b_bust_arrest"
+              }
+            ]
+          },
+          "b_end_win": {
+            "id": "b_end_win",
+            "instructions": [
+              {
+                "id": "i_end_win_main",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_end_bust": {
+            "id": "b_end_bust",
+            "instructions": [
+              {
+                "id": "i_end_bust_main",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_alert_crowd": {
+            "id": "b_alert_crowd",
+            "instructions": [
+              {
+                "id": "i_alert_crowd_main",
+                "op": "set-variable",
+                "variableId": "v_alert",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_alert",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 1,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_alert_crowd_next",
+                "op": "jump",
+                "target": "b_approach"
+              }
+            ]
+          },
+          "b_alert_smash": {
+            "id": "b_alert_smash",
+            "instructions": [
+              {
+                "id": "i_alert_smash_main",
+                "op": "set-variable",
+                "variableId": "v_alert",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_alert",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 1,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_alert_smash_next",
+                "op": "jump",
+                "target": "b_grab"
+              }
+            ]
+          },
+          "b_check_alert": {
+            "id": "b_check_alert",
+            "instructions": [
+              {
+                "id": "i_check_alert_main",
+                "op": "branch",
+                "condition": {
+                  "kind": "binary",
+                  "operator": "greater-than-or-equal",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_alert",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 1,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "boolean"
+                  }
+                },
+                "whenTrue": "b_spotted",
+                "whenFalse": "b_loot_add"
+              }
+            ]
+          },
+          "b_spotted": {
+            "id": "b_spotted",
+            "instructions": [
+              {
+                "id": "i_spotted_1_main",
+                "op": "dialogue",
+                "speakerId": "c_driver",
+                "text": {
+                  "id": "t_spotted_1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "哎——你手在那箱子里摸什么呢？！"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_spotted_2_main",
+                "op": "dialogue",
+                "speakerId": "c_cat",
+                "text": {
+                  "id": "t_spotted_2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "头儿，被、被看见了！"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_spotted_next",
+                "op": "jump",
+                "target": "b_choice_spotted"
+              }
+            ]
+          },
+          "b_choice_spotted": {
+            "id": "b_choice_spotted",
+            "instructions": [
+              {
+                "id": "i_choice_spotted_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_choice_spotted",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "被发现了。怎么办？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_flee",
+                    "text": {
+                      "id": "t_choice_option_flee",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "扔下硬币，撒腿就跑"
+                        }
+                      ]
+                    },
+                    "target": "b_flee"
+                  },
+                  {
+                    "id": "o_bluff",
+                    "text": {
+                      "id": "t_choice_option_bluff",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "面不改色：这是公司规定的例行检修"
+                        }
+                      ]
+                    },
+                    "target": "b_bluff"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_flee": {
+            "id": "b_flee",
+            "instructions": [
+              {
+                "id": "i_flee_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_flee",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "你和老猫连滚带爬冲出后门，那五毛钱还躺在投币箱里。江湖上从此少了两个传说，多了两个逃犯。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_flee_next",
+                "op": "jump",
+                "target": "b_flee_chase"
+              }
+            ]
+          },
+          "b_end_flee": {
+            "id": "b_end_flee",
+            "instructions": [
+              {
+                "id": "i_end_flee_main",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_bluff": {
+            "id": "b_bluff",
+            "instructions": [
+              {
+                "id": "i_bl1_main",
+                "op": "dialogue",
+                "speakerId": "c_boss",
+                "text": {
+                  "id": "t_bl1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "别紧张师傅，我这是按规程检查投币箱的积币厚度，好上报装钞时间。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_bl2_main",
+                "op": "dialogue",
+                "speakerId": "c_driver",
+                "text": {
+                  "id": "t_bl2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "……哦，那你们快点，别耽误我发车。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_bluff_next",
+                "op": "jump",
+                "target": "b_check_suspect"
+              }
+            ]
+          },
+          "b_check_suspect": {
+            "id": "b_check_suspect",
+            "instructions": [
+              {
+                "id": "i_check_suspect_main",
+                "op": "branch",
+                "condition": {
+                  "kind": "binary",
+                  "operator": "greater-than-or-equal",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_alert",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 2,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "boolean"
+                  }
+                },
+                "whenTrue": "b_bust_sus",
+                "whenFalse": "b_loot_add"
+              }
+            ]
+          },
+          "b_bust_sus": {
+            "id": "b_bust_sus",
+            "instructions": [
+              {
+                "id": "i_bs1_main",
+                "op": "dialogue",
+                "speakerId": "c_driver",
+                "text": {
+                  "id": "t_bs1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "检查？我看你就是个扒手，手别动！"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_bs2_main",
+                "op": "dialogue",
+                "speakerId": "c_cat",
+                "text": {
+                  "id": "t_bs2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "头儿，这回真栽了……"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_bust_sus_next",
+                "op": "jump",
+                "target": "b_end_bust"
+              }
+            ]
+          },
+          "b_flee_chase": {
+            "id": "b_flee_chase",
+            "instructions": [
+              {
+                "id": "i_flee_chase_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_flee_chase",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "司机一脚刹车踹开门追出来:「站住!你给我站住!」你和老猫钻进巷子,左拐右绕把他甩在身后。夜风里你回头望了眼那辆公交车——嘿,五毛钱的买卖,值了。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_flee_chase_next",
+                "op": "jump",
+                "target": "b_end_flee"
+              }
+            ]
+          },
+          "b_bust_arrest": {
+            "id": "b_bust_arrest",
+            "instructions": [
+              {
+                "id": "i_bust_arrest_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_bust_arrest",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "两站后,真来了俩警察。你攥着那枚五毛硬币被请进派出所,做笔录的小民警憋着笑:「就为五毛?」你低头:「……就为五毛。」"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_bust_arrest_next",
+                "op": "jump",
+                "target": "b_end_bust"
+              }
+            ]
+          }
+        },
+        "chapters": {},
+        "variables": [
+          {
+            "id": "v_loot",
+            "name": "loot",
+            "displayName": "战利品（元）",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 0
+          },
+          {
+            "id": "v_alert",
+            "name": "alert",
+            "displayName": "警觉值",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 0
+          }
+        ]
+      },
+      "characters": [
+        {
+          "id": "c_boss",
+          "name": "你",
+          "displayName": "你（总策划）",
+          "emotions": {}
+        },
+        {
+          "id": "c_cat",
+          "name": "老猫",
+          "displayName": "老猫（撬箱担当）",
+          "emotions": {}
+        },
+        {
+          "id": "c_driver",
+          "name": "司机",
+          "displayName": "司机（受害者）",
+          "emotions": {}
+        }
+      ],
+      "assets": []
+    },
+    "s_5q4dhvxs27mta": {
+      "storyId": "s_5q4dhvxs27mta",
+      "name": "main",
+      "displayName": "Main Story",
+      "program": {
+        "format": "story-runtime",
+        "version": 7,
+        "id": "p_5q4dhvxs27mta",
+        "contentVersion": "content-eeac9d10",
+        "entryBlockId": "b_1qc2wr6hghwgv",
+        "blocks": {
+          "b_1qc2wr6hghwgv": {
+            "id": "b_1qc2wr6hghwgv",
+            "instructions": [
+              {
+                "id": "i_1qc2wr6hghwgv_next",
+                "op": "jump",
+                "target": "b_6gd015f637fmd"
+              }
+            ]
+          },
+          "b_motive": {
+            "id": "b_motive",
+            "instructions": [
+              {
+                "id": "i_motive_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_motive",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "凌晨三点，催债人的电话第三次响起。你盯着桌上五千万的欠条，指节发白。窗外的城市在沉睡，而你清楚——合法的路已经走死了。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_motive_next",
+                "op": "jump",
+                "target": "b_call_debt"
+              }
+            ]
+          },
+          "b_choose_target": {
+            "id": "b_choose_target",
+            "instructions": [
+              {
+                "id": "i_choose_target_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_choose_target",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "天亮前必须决定：第一票打哪里？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_city",
+                    "text": {
+                      "id": "t_choice_option_city",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "市中心总行——金库深、现金足，但安保全市最硬"
+                        }
+                      ]
+                    },
+                    "target": "b_recon_city"
+                  },
+                  {
+                    "id": "o_suburb",
+                    "text": {
+                      "id": "t_choice_option_suburb",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "城西郊区支行——现金少，但周末只有一个保安值班"
+                        }
+                      ]
+                    },
+                    "target": "b_recon_suburb"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_recon_city": {
+            "id": "b_recon_city",
+            "instructions": [
+              {
+                "id": "i_recon_city_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_recon_city",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "你蹲守三天。总行运钞车每天十点零七分到，金库在地下二层，闸机要双人指纹。监控死角在东侧货梯。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_recon_city_next",
+                "op": "jump",
+                "target": "b_gold_city"
+              }
+            ]
+          },
+          "b_recon_suburb": {
+            "id": "b_recon_suburb",
+            "instructions": [
+              {
+                "id": "i_recon_suburb_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_recon_suburb",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "城西支行你只看了半小时。老旧卷帘门、一台醉醺醺的监视器、柜员午休时连保险柜密码都懒得遮。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_recon_suburb_next",
+                "op": "jump",
+                "target": "b_gold_suburb"
+              }
+            ]
+          },
+          "b_gold_city": {
+            "id": "b_gold_city",
+            "instructions": [
+              {
+                "id": "i_gold_city_main",
+                "op": "set-variable",
+                "variableId": "v_gold",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_gold",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 500,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_gold_city_next",
+                "op": "jump",
+                "target": "b_plan"
+              }
+            ]
+          },
+          "b_gold_suburb": {
+            "id": "b_gold_suburb",
+            "instructions": [
+              {
+                "id": "i_gold_suburb_main",
+                "op": "set-variable",
+                "variableId": "v_gold",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_gold",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 80,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_gold_suburb_next",
+                "op": "jump",
+                "target": "b_plan"
+              }
+            ]
+          },
+          "b_plan": {
+            "id": "b_plan",
+            "instructions": [
+              {
+                "id": "i_plan_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_plan",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "动手方式？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_smash",
+                    "text": {
+                      "id": "t_choice_option_smash",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "强攻——霰弹枪开路，九十秒清空柜台，不计代价"
+                        }
+                      ]
+                    },
+                    "target": "b_recruit_smash"
+                  },
+                  {
+                    "id": "o_smart",
+                    "text": {
+                      "id": "t_choice_option_smart",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "智取——买通内应，伪造检修工牌，从消防通道进"
+                        }
+                      ]
+                    },
+                    "target": "b_recruit_smart"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_recruit_smash": {
+            "id": "b_recruit_smash",
+            "instructions": [
+              {
+                "id": "i_rs1_main",
+                "op": "dialogue",
+                "speakerId": "c_you",
+                "text": {
+                  "id": "t_rs1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "老猫，这票要硬。你负责把门，司机在三个路口外接应。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_rs2_main",
+                "op": "dialogue",
+                "speakerId": "c_partner",
+                "text": {
+                  "id": "t_rs2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "明白，头儿。但我的人头费得按双倍算。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_recruit_smash_next",
+                "op": "jump",
+                "target": "b_execute"
+              }
+            ]
+          },
+          "b_recruit_smart": {
+            "id": "b_recruit_smart",
+            "instructions": [
+              {
+                "id": "i_rk1_main",
+                "op": "dialogue",
+                "speakerId": "c_you",
+                "text": {
+                  "id": "t_rk1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "眼镜，周六是你值班。消防通道的锁，提前给我留个缝。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_rk2_main",
+                "op": "dialogue",
+                "speakerId": "c_mole",
+                "text": {
+                  "id": "t_rk2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "工牌我帮你做。但金库里那三百万，得有我一份。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_recruit_smart_next",
+                "op": "jump",
+                "target": "b_mole_warn"
+              }
+            ]
+          },
+          "b_execute": {
+            "id": "b_execute",
+            "instructions": [
+              {
+                "id": "i_execute_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_execute",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "行动日。门推开的那一刻——"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_smooth",
+                    "text": {
+                      "id": "t_choice_option_smooth",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "一切如计划，柜员乖乖蹲下"
+                        }
+                      ]
+                    },
+                    "target": "b_escape"
+                  },
+                  {
+                    "id": "o_trouble",
+                    "text": {
+                      "id": "t_choice_option_trouble",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "角落里突然站起一名便衣，手伸向腰后"
+                        }
+                      ]
+                    },
+                    "target": "b_alert_bump"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_alert_bump": {
+            "id": "b_alert_bump",
+            "instructions": [
+              {
+                "id": "i_alert_bump_main",
+                "op": "set-variable",
+                "variableId": "v_alert",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_alert",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 1,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_alert_bump_next",
+                "op": "jump",
+                "target": "b_end_cheap_text"
+              }
+            ]
+          },
+          "b_escape": {
+            "id": "b_escape",
+            "instructions": [
+              {
+                "id": "i_escape_main",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_choice_prompt_escape",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "钱到手，怎么走？"
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "o_car",
+                    "text": {
+                      "id": "t_choice_option_car",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "面包车撞开卷帘门冲上主路"
+                        }
+                      ]
+                    },
+                    "target": "b_payout"
+                  },
+                  {
+                    "id": "o_tunnel",
+                    "text": {
+                      "id": "t_choice_option_tunnel",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "钻进提前挖好的排水支管"
+                        }
+                      ]
+                    },
+                    "target": "b_payout"
+                  },
+                  {
+                    "id": "o_hostage",
+                    "text": {
+                      "id": "t_choice_option_hostage",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "抓一名经理当人盾，逼警方让路"
+                        }
+                      ]
+                    },
+                    "target": "b_payout"
+                  }
+                ]
+              }
+            ]
+          },
+          "b_payout": {
+            "id": "b_payout",
+            "instructions": [
+              {
+                "id": "i_payout_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_payout",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "后视镜里警笛渐远。后备箱里是沉甸甸的金条与成捆现钞——这一票，够你还清所有债，也够你买下后半生的逃亡。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_payout_next",
+                "op": "jump",
+                "target": "b_branch_end"
+              }
+            ]
+          },
+          "b_branch_end": {
+            "id": "b_branch_end",
+            "instructions": [
+              {
+                "id": "i_branch_end_main",
+                "op": "branch",
+                "condition": {
+                  "kind": "binary",
+                  "operator": "greater-than-or-equal",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_gold",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 400,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "boolean"
+                  }
+                },
+                "whenTrue": "b_end_big_text",
+                "whenFalse": "b_end_small_text"
+              }
+            ]
+          },
+          "b_end_big": {
+            "id": "b_end_big",
+            "instructions": [
+              {
+                "id": "i_end_big_main",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_end_small": {
+            "id": "b_end_small",
+            "instructions": [
+              {
+                "id": "i_end_small_main",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_call_debt": {
+            "id": "b_call_debt",
+            "instructions": [
+              {
+                "id": "i_call_debt_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_call_debt",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "电话那头，债主轻笑：明早八点前看不到钱，你女儿放学那条路，我不保证安全。你挂断，指节捏得发白——这已不是还钱的事，是生死。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_call_debt_next",
+                "op": "jump",
+                "target": "b_choose_target"
+              }
+            ]
+          },
+          "b_mole_warn": {
+            "id": "b_mole_warn",
+            "instructions": [
+              {
+                "id": "i_mw1_main",
+                "op": "dialogue",
+                "speakerId": "c_you",
+                "text": {
+                  "id": "t_mw1",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "眼镜，话别说得这么绝。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_mw2_main",
+                "op": "dialogue",
+                "speakerId": "c_mole",
+                "text": {
+                  "id": "t_mw2",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "绝不绝看你们够不够意思。金库那三百万，少我一个子儿，明天头条就是你们被一锅端。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_mole_warn_next",
+                "op": "jump",
+                "target": "b_execute"
+              }
+            ]
+          },
+          "b_end_big_text": {
+            "id": "b_end_big_text",
+            "instructions": [
+              {
+                "id": "i_end_big_text_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_end_big",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "金库里整五百万现金、八公斤金条。你分给团伙两成，剩下的足够让全家在边境线外消失得干干净净。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_end_big_text_next",
+                "op": "jump",
+                "target": "b_end_big"
+              }
+            ]
+          },
+          "b_end_small_text": {
+            "id": "b_end_small_text",
+            "instructions": [
+              {
+                "id": "i_end_small_text_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_end_small",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "郊区支行只榨出八十万。还完债你兜里剩不到十万，但这条命，还在。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_end_small_text_next",
+                "op": "jump",
+                "target": "b_end_small"
+              }
+            ]
+          },
+          "b_end_cheap_text": {
+            "id": "b_end_cheap_text",
+            "instructions": [
+              {
+                "id": "i_end_cheap_text_main",
+                "op": "narration",
+                "text": {
+                  "id": "t_end_cheap",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "手铐扣紧的瞬间，你才摸到裤兜里那枚不知谁遗落的五毛硬币。催债人的笑声穿过看守所的窗缝——这趟买卖，你连本带利赔了个底朝天。"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_end_cheap_text_next",
+                "op": "jump",
+                "target": "b_end_cheap"
+              }
+            ]
+          },
+          "b_end_cheap": {
+            "id": "b_end_cheap",
+            "instructions": [
+              {
+                "id": "i_end_cheap_main",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_6gd015f637fmd": {
+            "id": "b_6gd015f637fmd",
+            "instructions": [
+              {
+                "id": "i_6gd015f637fmd_main",
+                "op": "call-event",
+                "eventId": "ev_50ftx814c1126",
+                "arguments": {
+                  "Pram1": {
+                    "kind": "literal",
+                    "value": 0,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  }
+                },
+                "outputs": [
+                  {
+                    "id": "evo_3z9v5p2b5kvqy",
+                    "name": "Ret1",
+                    "valueType": {
+                      "kind": "string"
+                    }
+                  }
+                ],
+                "resultVariableIds": {}
+              },
+              {
+                "id": "i_6gd015f637fmd_next",
+                "op": "jump",
+                "target": "b_motive"
+              }
+            ]
+          }
+        },
+        "chapters": {},
+        "variables": [
+          {
+            "id": "v_alert",
+            "name": "alert_level",
+            "displayName": "警报值",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 0
+          },
+          {
+            "id": "v_gold",
+            "name": "gold",
+            "displayName": "收益（万）",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 0
+          }
+        ]
+      },
+      "characters": [
+        {
+          "id": "c_you",
+          "name": "You",
+          "displayName": "你（劫匪头目）",
+          "emotions": {}
+        },
+        {
+          "id": "c_partner",
+          "name": "Lao Mao",
+          "displayName": "老猫（打手）",
+          "emotions": {}
+        },
+        {
+          "id": "c_mole",
+          "name": "Glasses",
+          "displayName": "眼镜（内应）",
+          "emotions": {}
+        },
+        {
+          "id": "c_guard",
+          "name": "Guard",
+          "displayName": "保安",
+          "emotions": {}
+        }
+      ],
+      "assets": []
+    }
+  }
+}

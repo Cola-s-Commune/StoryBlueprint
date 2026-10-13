@@ -1,0 +1,14 @@
+{
+  "name": "StoryBlueprint.Demo",
+  "rootNamespace": "StoryBlueprint.Demo",
+  "references": ["StoryBlueprint.Runtime", "StoryBlueprint.Unity", "UnityEngine.UI"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": ["Newtonsoft.Json.dll"],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

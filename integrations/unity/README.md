@@ -8,30 +8,61 @@ the Unity main thread, presentation and game callbacks. Runtime code does not de
 
 Add `integrations/unity/package/package.json` with **Package Manager → Add package from disk**.
 Unity installs `com.unity.nuget.newtonsoft-json` 3.2.1 and the required engine modules.
+For an Assets-based import, use `integrations/unity/StoryBlueprintRuntimeDemo.unitypackage`.
+It includes the Newtonsoft DLLs; if the target project already has
+`com.unity.nuget.newtonsoft-json`, uncheck `ThirdParty/Newtonsoft.Json` during import.
+The target project also needs `com.unity.ugui`. Rebuild this archive after source changes
+with `python integrations/unity/build_unitypackage.py` from the repository root.
+After import, open `Assets/StoryBlueprint/Runtime/Demo/SBDemoScene.unity` or place
+`Assets/StoryBlueprint/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab` in your own scene.
+For a story-agnostic player UI, use `Assets/StoryBlueprint/Runtime/Demo/StoryBlueprintStoryPlayer.prefab`;
+the JSON importer adds this prefab and the generated Host together to the open scene.
 For a repository dependency, use a pinned commit or release tag:
 
 ```text
 https://github.com/<owner>/StoryBlueprint.git?path=integrations/unity/package#<commit-or-tag>
 ```
 
-Open `samples/RuntimeDemo` with Unity 2022.3. In `Assets/Prefabs`, drag
-`StoryBlueprintRuntimeDemo.prefab` into `Assets/Scenes/SampleScene.unity`, then press Play.
-The prefab contains the dispatcher, presenter and demo runner; it loads the published dragon
-quest from StreamingAssets. Continue reveals typing text first, then advances. Both manual and auto
+Open `samples/RuntimeDemo` with Unity 2022.3 and play `Assets/Scenes/SampleScene.unity`.
+The scene uses `Packages/com.storyblueprint.runtime/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab`.
+You can also drag that prefab into another scene. Its Canvas, panels, text and buttons are
+ordinary uGUI objects that can be edited in the Prefab editor. The prefab, its scripts and compiled dragon
+quest are all in the package. Continue reveals typing text first, then advances. Both manual and auto
 playback wait for a choice. Accept the quest, click **Defeat the red dragon**, and the fake
 `ev_grant_reward` handler returns the stable `evo_success` output. The demo also supports
 cancel, restart and saving/loading the current pause with its game gold value.
 
 ## Game integration
 
-Add `UnityStoryHost` to a scene object. It installs a `UnityStoryPresenter` and a
-`UnityMainThreadDispatcher`; set a compiled `TextAsset` or StreamingAssets path in the Inspector.
-For game handlers, subclass the host and override `ConfigureAdapter`:
+The normal import path is the dockable **Story Blueprint** Editor panel. It opens automatically
+when the package loads in the Unity Editor. If you close it, select a Story Host in the scene
+and click **Open Story Import Panel** in its Inspector.
+
+1. In Story Blueprint, build the project to a compiled `.storyc.json` file.
+2. In Unity, open the Story Blueprint panel, select that file, review its
+   External Functions and Signals, then click **Import, Generate Host, and Add to Scene**.
+3. Unity copies the JSON to `Assets/StoryBlueprintStories`, creates a typed Host script in
+   `Assets/StoryBlueprintGenerated`, and adds the editable `StoryBlueprintStoryPlayer` UI prefab
+   with a configured Host to the open scene after the script compiles. You can turn off
+   **Play On Start** before importing.
+4. Open the generated script and implement each External Function stub. The generated Signal
+   methods are ready for game code to call when those signals occur.
+
+External Function stubs deliberately throw `NotImplementedException` until implemented. The
+generated Host is attached to the generic player prefab, which supplies its `UnityStoryPresenter`
+and `UnityMainThreadDispatcher`. The player UI renders any story's dialogue, narration and choice
+options; it contains no dragon-quest variable, Signal, or External Function assumptions. Edit the
+prefab to change its layout, art or typography. The Inspector-based binding UI remains available
+as an alternative.
+
+For fully manual setup, add `UnityStoryHost` to a scene object and assign a compiled `TextAsset`
+or StreamingAssets path in the Inspector. For game handlers, subclass the host and override
+`ConfigureAdapter`:
 
 ```csharp
 protected override void ConfigureAdapter(UnityStoryAdapter adapter)
 {
-    adapter.RegisterEvent("ev_grant_reward", (request, token) =>
+    adapter.RegisterExternalFunction("ev_grant_reward", (request, token) =>
     {
         token.ThrowIfCancellationRequested();
         // Implement the game action using request.Arguments and request.RequestId.
@@ -43,6 +74,48 @@ protected override void ConfigureAdapter(UnityStoryAdapter adapter)
         GameSave.WriteAsync((string)definition["id"], value, token);
 }
 ```
+
+The `UnityStoryHost` Inspector can list the manifest in Unity. Assign a compiled project or
+standalone story `TextAsset`, then choose one of two integration styles:
+
+- Click **Generate C# Host** to create an editable `UnityStoryHost` subclass. It registers a handler
+  stub for every External Function and adds a typed `SendSignal_*` method for every Signal. Fill in
+  game-specific behavior in that file and attach the generated host to a GameObject with a
+  `UnityStoryPresenter`. You do not need to make or drag a separate MonoBehaviour for each entry.
+  Generated method names use each definition's readable `name`; stable IDs are kept in named
+  constants for runtime registration. Generated External Function stubs throw
+  `NotImplementedException` until implemented. Inputs and outputs use `string`, `double`, and
+  `bool` for those primitive types; other types use `JToken`. A function with no outputs returns
+  `Task`, one output returns `Task<T>`, and multiple outputs return a generated result class, so
+  game logic does not need to read or build a `JObject` itself.
+- Click **Refresh Bindings** to use the Inspector mapping UI. Drag a component implementing
+  `IUnityStoryExternalFunctionHandler` into each External Function row and a component implementing
+  `IUnityStorySignalSource` into each Signal row. Signal sources return an `IDisposable` subscription.
+
+This keeps stable IDs in the compiled project while the game supplies the actual behavior. The
+manifest is stored as `events` in compiled JSON for compatibility, but is presented as External
+Functions in Unity. For standalone story JSON, the Inspector derives the IDs and used parameters
+from `call-event` and `wait-signal` instructions; the compiled project envelope provides the full
+declarations.
+
+```csharp
+public sealed class GrantReward : MonoBehaviour, IUnityStoryExternalFunctionHandler
+{
+    public Task<JObject> InvokeAsync(EventRequest request, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var amount = request.Arguments.Value<int>("amount");
+        GivePlayerGold(amount);
+        return Task.FromResult(new JObject { ["evo_success"] = true });
+    }
+}
+```
+
+For a Signal, implement `Subscribe(Action<JObject>)` by connecting to your game event bus and return
+an `IDisposable` that removes the listener. Invoke the callback with the parameter payload when the
+game event occurs. The host forwards it under the Signal ID shown in the Inspector. The story runtime
+checks it against wait conditions and, for a compiled project, the declared parameter types.
+`UnityStoryHost.SendSignal(id, payload)` is also available for direct code integration.
 
 The example assumes your own `GameSave` implementation and imports `System.Threading.Tasks`,
 `Newtonsoft.Json.Linq` and `StoryBlueprint.Unity`. Event output keys must match compiled output
@@ -58,9 +131,10 @@ interactions and completion. Writes remain queued until the host confirms succes
 writes. Without persistence callbacks, the adapter uses compiled defaults and acknowledges writes
 in memory.
 
-For custom UI, implement `IStoryPresenter`, subclass `UnityStoryPresenter`, or set `DrawDefaultGui`
-to false and subscribe to `DialoguePresented`, `NarrationPresented`, `ChoicePresented` and
-`InteractionCleared`. Complete interactions through `Advance`, `RevealText` and `SelectChoice`.
+`UnityStoryPresenter` owns presentation state and input, but draws no UI. For custom UI,
+implement `IStoryPresenter` or subclass `UnityStoryPresenter` and subscribe to
+`DialoguePresented`, `NarrationPresented`, `ChoicePresented` and `InteractionCleared`.
+Complete interactions through `Advance`, `RevealText` and `SelectChoice`.
 `SpeakerResolver`, `PortraitResolver` and `VoiceResolver` receive stable resource IDs. Set
 `TextResolver` on the adapter for a game localization service; returning null uses the compiled
 text variants and locale fallbacks. The compiled project retains character/asset and event/signal

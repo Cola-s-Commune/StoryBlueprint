@@ -19,7 +19,6 @@ namespace StoryBlueprint.Unity.Tests
         {
             _object = new GameObject("Presenter test");
             _presenter = _object.AddComponent<UnityStoryPresenter>();
-            _presenter.DrawDefaultGui = false;
         }
 
         [TearDown]

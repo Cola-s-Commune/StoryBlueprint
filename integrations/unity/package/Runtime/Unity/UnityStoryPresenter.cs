@@ -6,13 +6,12 @@ using UnityEngine;
 
 namespace StoryBlueprint.Unity
 {
-    /// <summary>A replaceable presenter with a working default UI. Choice always waits for player input.</summary>
+    /// <summary>Presentation state and input hooks for a game-owned UI. Choice always waits for player input.</summary>
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(-90)]
     [RequireComponent(typeof(UnityMainThreadDispatcher))]
     public class UnityStoryPresenter : MonoBehaviour, IStoryPresenter
     {
-        [SerializeField] private bool drawDefaultGui = true;
         [SerializeField] private PlaybackMode playbackMode = PlaybackMode.Manual;
         [SerializeField, Min(0)] private float charactersPerSecond = 36;
         [SerializeField, Min(0)] private float automaticMinimumSeconds = 1.5f;
@@ -26,10 +25,6 @@ namespace StoryBlueprint.Unity
         private bool _available;
         private bool _destroyed;
         private PlaybackMode? _modeOverride;
-        private GUIStyle _textStyle;
-        private GUIStyle _speakerStyle;
-        private GUIStyle _buttonStyle;
-        private Vector2 _scroll;
 
         private sealed class Pending
         {
@@ -45,7 +40,6 @@ namespace StoryBlueprint.Unity
 
         public UnityMainThreadDispatcher Dispatcher { get { return _dispatcher; } }
         public PlaybackMode PlaybackMode { get { return playbackMode; } set { SetPlaybackMode(value); } }
-        public bool DrawDefaultGui { get { return drawDefaultGui; } set { drawDefaultGui = value; } }
         public float CharactersPerSecond { get { return charactersPerSecond; } set { charactersPerSecond = Mathf.Max(0, value); } }
         public float AutomaticMinimumSeconds { get { return automaticMinimumSeconds; } set { automaticMinimumSeconds = Mathf.Max(0, value); } }
         public float AutomaticSecondsPerCharacter { get { return automaticSecondsPerCharacter; } set { automaticSecondsPerCharacter = Mathf.Max(0, value); } }
@@ -54,6 +48,8 @@ namespace StoryBlueprint.Unity
         public bool IsTyping { get { return _pending != null && _pending.Choice == null && _pending.VisibleCharacters < _pending.Text.Length; } }
         public string DisplayedText { get { return _pending == null ? "" : _pending.Text.Substring(0, Mathf.Min(_pending.Text.Length, Mathf.FloorToInt(_pending.VisibleCharacters))); } }
         public ChoiceRequest CurrentChoice { get { return _pending == null ? null : _pending.Choice; } }
+        public string CurrentSpeaker { get { return _pending == null ? "" : _pending.Speaker; } }
+        public Texture CurrentPortrait { get { return _portrait; } }
 
         // Stable IDs are handed to the game; the package never treats an ID as a Resources path.
         public Func<string, string> SpeakerResolver { get; set; }
@@ -121,7 +117,6 @@ namespace StoryBlueprint.Unity
             };
             if (choice != null || charactersPerSecond <= 0) pending.VisibleCharacters = pending.Text.Length;
             _pending = pending;
-            _scroll = Vector2.zero;
             pending.Registration = token.Register(() =>
             {
                 pending.Completion.TrySetCanceled();
@@ -217,49 +212,6 @@ namespace StoryBlueprint.Unity
             {
                 var seconds = Mathf.Max(automaticMinimumSeconds, pending.Text.Length * automaticSecondsPerCharacter);
                 if (Time.unscaledTime - pending.FullyVisibleAt >= seconds && (!waitForVoice || _voice == null || !_voice.isPlaying)) Advance();
-            }
-        }
-
-        protected virtual void OnGUI()
-        {
-            if (!drawDefaultGui || _pending == null) return;
-            if (_textStyle == null)
-            {
-                _textStyle = new GUIStyle(GUI.skin.label) { wordWrap = true, fontSize = 22, richText = false };
-                _speakerStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, richText = false };
-                _buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 18, wordWrap = true, richText = false };
-            }
-            var pending = _pending;
-            var width = Mathf.Min(860, Screen.width - 32);
-            var height = Mathf.Min(pending.Choice == null ? 270 : 370, Screen.height - 160);
-            GUILayout.BeginArea(new Rect((Screen.width - width) / 2, Screen.height - height - 24, width, height), GUI.skin.box);
-            _scroll = GUILayout.BeginScrollView(_scroll);
-            if (_portrait != null) GUILayout.Label(_portrait, GUILayout.Width(80), GUILayout.Height(80));
-            GUILayout.Label(pending.Choice == null ? pending.Speaker : "Choose an option", _speakerStyle);
-            GUILayout.Label(DisplayedText, _textStyle, GUILayout.MinHeight(70));
-            if (pending.Choice != null)
-            {
-                foreach (var option in pending.Choice.Options)
-                {
-                    GUI.enabled = option.Enabled;
-                    if (GUILayout.Button(option.Text, _buttonStyle, GUILayout.MinHeight(44))) SelectChoice(option.Id);
-                    GUI.enabled = true;
-                }
-            }
-            else
-            {
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(IsTyping ? "Reveal text" : "Continue", _buttonStyle, GUILayout.Height(44))) Advance();
-                if (GUILayout.Button(pending.Mode == PlaybackMode.Manual ? "Enable auto" : "Enable manual", _buttonStyle, GUILayout.Width(165), GUILayout.Height(44)))
-                    SetPlaybackMode(pending.Mode == PlaybackMode.Manual ? PlaybackMode.Automatic : PlaybackMode.Manual);
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
-            if (pending.Choice == null && Event.current.type == EventType.KeyDown && (Event.current.keyCode == KeyCode.Space || Event.current.keyCode == KeyCode.Return))
-            {
-                Advance();
-                Event.current.Use();
             }
         }
 

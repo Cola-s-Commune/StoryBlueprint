@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -9,6 +10,9 @@ using UnityEngine.Networking;
 
 namespace StoryBlueprint.Unity
 {
+    [AttributeUsage(AttributeTargets.Class, Inherited = false)]
+    public sealed class GeneratedStoryHostAttribute : Attribute { }
+
     /// <summary>Owns one runtime. Stop, reload, and scene destruction cancel every active presentation.</summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(UnityStoryPresenter))]
@@ -18,11 +22,22 @@ namespace StoryBlueprint.Unity
         [SerializeField] private string streamingAssetsPath = "sample-quest.storyc.json";
         [SerializeField] private string entryStoryId = "";
         [SerializeField] private bool playOnStart = true;
+        [SerializeField] private List<UnityStoryExternalFunctionBinding> externalFunctionBindings = new List<UnityStoryExternalFunctionBinding>();
+        [SerializeField] private List<UnityStorySignalBinding> signalBindings = new List<UnityStorySignalBinding>();
 
         private CancellationTokenSource _runCancellation;
         private Task _runTask;
         private bool _destroyed;
         private readonly SemaphoreSlim _startGate = new SemaphoreSlim(1, 1);
+        private readonly object _signalGate = new object();
+        private readonly Queue<QueuedSignal> _signalsBeforeLoad = new Queue<QueuedSignal>();
+        private readonly List<IDisposable> _signalSubscriptions = new List<IDisposable>();
+
+        private sealed class QueuedSignal
+        {
+            public string Id;
+            public JObject Payload;
+        }
 
         public StoryRuntime Runtime { get; private set; }
         public UnityStoryPresenter Presenter { get; private set; }
@@ -37,6 +52,8 @@ namespace StoryBlueprint.Unity
             Presenter = GetComponent<UnityStoryPresenter>();
             Adapter = new UnityStoryAdapter(Presenter);
             ConfigureAdapter(Adapter);
+            BindConfiguredExternalFunctions();
+            BindConfiguredSignals();
         }
 
         protected virtual void ConfigureAdapter(UnityStoryAdapter adapter) { }
@@ -76,11 +93,43 @@ namespace StoryBlueprint.Unity
             var selectedId = string.IsNullOrWhiteSpace(entryStoryId) ? project.EntryStoryId : entryStoryId;
             if (!project.Programs.TryGetValue(selectedId, out var program))
                 throw new StoryRuntimeException("MISSING_STORY", "Story does not exist: " + selectedId, "$.stories", selectedId);
-            Runtime = new StoryRuntime(program, Adapter, selectedId);
+            var storyDefinitions = project.Data["stories"] as JObject;
+            var storyDefinition = storyDefinitions == null ? null : storyDefinitions[selectedId] as JObject;
+            var characters = storyDefinition == null ? null : storyDefinition["characters"] as JArray;
+            if (characters == null) characters = project.Data["characters"] as JArray;
+            ConfigureSpeakerNames(program, characters);
+            SetRuntime(new StoryRuntime(program, Adapter, selectedId));
             if (restoreStateJson != null) Runtime.RestoreStateJson(restoreStateJson);
             await Runtime.RunAsync(Presenter.PlaybackMode, token);
             token.ThrowIfCancellationRequested();
             Completed?.Invoke();
+        }
+
+        private void ConfigureSpeakerNames(StoryProgram program, JArray projectCharacters)
+        {
+            if (Presenter == null || Presenter.SpeakerResolver != null) return;
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            // Compiled projects keep resource metadata beside each program, not inside it.
+            // Standalone runtime JSON keeps the character list on the program itself.
+            var characters = projectCharacters ?? program.Data["characters"] as JArray;
+            if (characters != null)
+            {
+                foreach (var character in characters)
+                {
+                    var id = (string)character["id"];
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    var displayName = (string)character["displayName"];
+                    if (string.IsNullOrWhiteSpace(displayName)) displayName = (string)character["name"];
+                    if (!string.IsNullOrWhiteSpace(displayName))
+                    {
+                        names[id] = displayName;
+                        var authoredName = (string)character["name"];
+                        if (!string.IsNullOrWhiteSpace(authoredName) && !names.ContainsKey(authoredName))
+                            names[authoredName] = displayName;
+                    }
+                }
+            }
+            Presenter.SpeakerResolver = id => names.TryGetValue(id, out var name) ? name : id;
         }
 
         public string ExportStateJson()
@@ -91,8 +140,54 @@ namespace StoryBlueprint.Unity
 
         public void SendSignal(string signalId, JObject payload)
         {
-            if (Runtime == null) throw new InvalidOperationException("No story has been loaded.");
-            Runtime.SendSignal(signalId, payload);
+            if (string.IsNullOrWhiteSpace(signalId)) throw new ArgumentException("A stable Signal ID is required.", nameof(signalId));
+            lock (_signalGate)
+            {
+                if (Runtime == null)
+                {
+                    _signalsBeforeLoad.Enqueue(new QueuedSignal { Id = signalId, Payload = payload == null ? new JObject() : (JObject)payload.DeepClone() });
+                    return;
+                }
+                Runtime.SendSignal(signalId, payload);
+            }
+        }
+
+        private void SetRuntime(StoryRuntime runtime)
+        {
+            lock (_signalGate)
+            {
+                Runtime = runtime;
+                while (_signalsBeforeLoad.Count > 0)
+                {
+                    var signal = _signalsBeforeLoad.Dequeue();
+                    Runtime.SendSignal(signal.Id, signal.Payload);
+                }
+            }
+        }
+
+        private void BindConfiguredExternalFunctions()
+        {
+            foreach (var binding in externalFunctionBindings)
+            {
+                if (binding == null || string.IsNullOrWhiteSpace(binding.FunctionId) || binding.Handler == null) continue;
+                var handler = binding.Handler as IUnityStoryExternalFunctionHandler;
+                if (handler == null)
+                    throw new InvalidOperationException("External Function handler must implement IUnityStoryExternalFunctionHandler: " + binding.FunctionId);
+                Adapter.RegisterExternalFunction(binding.FunctionId, handler.InvokeAsync);
+            }
+        }
+
+        private void BindConfiguredSignals()
+        {
+            foreach (var binding in signalBindings)
+            {
+                if (binding == null || string.IsNullOrWhiteSpace(binding.SignalId) || binding.Source == null) continue;
+                var source = binding.Source as IUnityStorySignalSource;
+                if (source == null)
+                    throw new InvalidOperationException("Signal source must implement IUnityStorySignalSource: " + binding.SignalId);
+                var signalId = binding.SignalId;
+                _signalSubscriptions.Add(source.Subscribe(payload => SendSignal(signalId, payload)));
+            }
         }
 
         public void Stop()
@@ -158,6 +253,8 @@ namespace StoryBlueprint.Unity
         {
             _destroyed = true;
             Stop();
+            foreach (var subscription in _signalSubscriptions) subscription?.Dispose();
+            _signalSubscriptions.Clear();
             _runCancellation?.Dispose();
             _runCancellation = null;
         }

@@ -1,0 +1,14 @@
+{
+  "name": "StoryBlueprint.Demo.Editor",
+  "rootNamespace": "StoryBlueprint.Demo.Editor",
+  "references": ["StoryBlueprint.Demo", "StoryBlueprint.Unity", "StoryBlueprint.Runtime", "UnityEngine.UI"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

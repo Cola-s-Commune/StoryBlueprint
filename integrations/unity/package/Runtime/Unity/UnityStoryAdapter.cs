@@ -27,10 +27,18 @@ namespace StoryBlueprint.Unity
         public Func<StoryControlRequest, CancellationToken, Task<StoryControlResult>> StoryController { get; set; }
         public Func<string, string, CancellationToken, Task<string>> TextResolver { get; set; }
 
+        /// <summary>Compatibility alias. New integrations should use RegisterExternalFunction.</summary>
         public void RegisterEvent(string eventId, Func<EventRequest, CancellationToken, Task<JObject>> handler)
         {
             if (string.IsNullOrWhiteSpace(eventId)) throw new ArgumentException("A stable Event ID is required.", nameof(eventId));
             _events[eventId] = handler ?? throw new ArgumentNullException(nameof(handler));
+        }
+
+        /// <summary>Registers a Blueprint External Function by its stable function ID.</summary>
+        public void RegisterExternalFunction(string functionId, Func<EventRequest, CancellationToken, Task<JObject>> handler)
+        {
+            if (string.IsNullOrWhiteSpace(functionId)) throw new ArgumentException("A stable External Function ID is required.", nameof(functionId));
+            _events[functionId] = handler ?? throw new ArgumentNullException(nameof(handler));
         }
 
         public override Task PresentDialogueAsync(DialogueRequest request, PlaybackMode mode, CancellationToken cancellationToken)
