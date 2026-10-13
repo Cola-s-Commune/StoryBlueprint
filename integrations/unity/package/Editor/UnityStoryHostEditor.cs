@@ -12,6 +12,19 @@ using UnityEngine;
 [CustomEditor(typeof(UnityStoryHost), true)]
 public sealed class UnityStoryHostEditor : Editor
 {
+    private static readonly HashSet<string> CSharpKeywords = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
+        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
+        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
+        "void", "volatile", "while"
+    };
+
     private bool _showManualBindings;
     private bool _showFunctions;
     private bool _showSignals;
@@ -209,7 +222,6 @@ public sealed class UnityStoryHostEditor : Editor
         {
             var function = functionDefinitions[functionIndex];
             var parameters = (function["parameters"] as JArray ?? new JArray()).OfType<JObject>().ToArray();
-            var parameterNames = ParameterNames(parameters);
             var arguments = string.Join(", ", parameters.Select(ReadArgumentExpression));
             if (!string.IsNullOrEmpty(arguments)) arguments += ", ";
             arguments += "cancellationToken";
@@ -244,7 +256,7 @@ public sealed class UnityStoryHostEditor : Editor
             var function = functionDefinitions[functionIndex];
             var name = DefinitionName(function);
             var parameters = (function["parameters"] as JArray ?? new JArray()).OfType<JObject>().ToArray();
-            var parameterNames = ParameterNames(parameters);
+            var parameterNames = ParameterNames(parameters, "cancellationToken");
             var outputs = (function["outputs"] as JArray ?? new JArray()).OfType<JObject>().ToArray();
             var resultType = ResultTypeName(functionMethodNames[functionIndex]);
             var returnType = outputs.Length == 0 ? "" : "<" + (outputs.Length == 1 ? CSharpType((string)outputs[0]["valueType"]?["kind"]) : resultType) + ">";
@@ -268,7 +280,7 @@ public sealed class UnityStoryHostEditor : Editor
             source.AppendLine("        cancellationToken.ThrowIfCancellationRequested();");
             source.AppendLine("        // External Function: " + SafeComment(name));
             foreach (var parameter in parameters.Select((value, index) => new { Value = value, Name = parameterNames[index] }))
-                source.AppendLine("        // Input: " + SafeComment((string)parameter.Value["name"]) + " (" + SafeComment(CSharpType((string)parameter.Value["valueType"]?["kind"])) + ") → " + parameter.Name);
+                source.AppendLine("        // Input: " + parameter.Name + " (" + SafeComment(CSharpType((string)parameter.Value["valueType"]?["kind"])) + ")");
             for (var outputIndex = 0; outputIndex < outputs.Length; outputIndex++)
             {
                 var output = outputs[outputIndex];
@@ -279,11 +291,24 @@ public sealed class UnityStoryHostEditor : Editor
                     : "        // Output: " + outputType + " " + functionOutputNames[functionIndex][outputIndex] + " for " + outputName + ".");
             }
             if (outputs.Length == 0)
-                source.AppendLine("        // TODO: Perform the game action; return Task.CompletedTask when it is finished.");
+            {
+                source.AppendLine("        // TODO: Perform the game action.");
+                source.AppendLine("        // Return with: return Task.CompletedTask;");
+            }
             else if (outputs.Length == 1)
+            {
                 source.AppendLine("        // TODO: Perform the game action and return its typed value.");
+                source.AppendLine("        // Example: return Task.FromResult(default(" + CSharpType((string)outputs[0]["valueType"]?["kind"]) + ")); // Replace default(...) with the real result.");
+            }
             else
-                source.AppendLine("        // TODO: Return a " + resultType + " with all output properties filled in.");
+            {
+                source.AppendLine("        // TODO: Return all output values.");
+                source.AppendLine("        // Return with: return Task.FromResult(new " + resultType + "");
+                source.AppendLine("        // {");
+                for (var outputIndex = 0; outputIndex < outputs.Length; outputIndex++)
+                    source.AppendLine("        //     " + functionOutputNames[functionIndex][outputIndex] + " = default(" + CSharpType((string)outputs[outputIndex]["valueType"]?["kind"]) + ")" + (outputIndex + 1 == outputs.Length ? "" : ","));
+                source.AppendLine("        // });");
+            }
             source.AppendLine("        throw new NotImplementedException(" + CSharpString("Implement External Function " + name) + ");");
             source.AppendLine("    }");
         }
@@ -293,8 +318,7 @@ public sealed class UnityStoryHostEditor : Editor
             var signal = signalDefinitions[signalIndex];
             var name = DefinitionName(signal);
             var parameters = (signal["parameters"] as JArray ?? new JArray()).OfType<JObject>().ToArray();
-            var usedNames = new HashSet<string>(StringComparer.Ordinal);
-            var parameterNames = parameters.Select(parameter => UniqueIdentifier("arg_" + MakeIdentifier((string)parameter["name"]), usedNames)).ToArray();
+            var parameterNames = ParameterNames(parameters, "payload");
             var signature = string.Join(", ", parameters.Select((parameter, index) => CSharpType((string)parameter["valueType"]?["kind"]) + " " + parameterNames[index]));
             source.AppendLine();
             source.AppendLine("    // Call this when the game observes Signal " + SafeComment(name) + ".");
@@ -322,10 +346,16 @@ public sealed class UnityStoryHostEditor : Editor
         return (string)definition["name"] ?? (string)definition["displayName"] ?? (string)definition["id"] ?? "Binding";
     }
 
-    private static string[] ParameterNames(JObject[] parameters)
+    private static string[] ParameterNames(JObject[] parameters, params string[] reservedNames)
     {
-        var used = new HashSet<string>(StringComparer.Ordinal);
-        return parameters.Select(parameter => UniqueIdentifier("arg_" + MakeIdentifier((string)parameter["name"]), used)).ToArray();
+        var used = new HashSet<string>(reservedNames ?? new string[0], StringComparer.Ordinal);
+        return parameters.Select(parameter => UniqueIdentifier(ParameterIdentifier((string)parameter["name"]), used)).ToArray();
+    }
+
+    private static string ParameterIdentifier(string value)
+    {
+        var identifier = MakeIdentifier(value);
+        return CSharpKeywords.Contains(identifier) ? "@" + identifier : identifier;
     }
 
     private static string ReadArgumentExpression(JObject parameter)
