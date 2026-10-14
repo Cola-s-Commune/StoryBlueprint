@@ -1,30 +1,35 @@
 # Story Blueprint Unity Adapter
 
-Reusable UPM package targeting Unity 2022.3 LTS. The pure C# `StoryBlueprint.Runtime`
-assembly executes native Blueprint instructions; `StoryBlueprint.Unity` connects them to
+Unity 2022.3 LTS adapter, maintained directly in the RuntimeDemo project's `Assets` tree.
+The pure C# `StoryBlueprint.Runtime` assembly executes native Blueprint instructions;
+`StoryBlueprint.Unity` connects them to
 the Unity main thread, presentation and game callbacks. Runtime code does not depend on UnityEditor.
 
 ## Install and run
 
-Add `integrations/unity/package/package.json` with **Package Manager → Add package from disk**.
-Unity installs `com.unity.nuget.newtonsoft-json` 3.2.1 and the required engine modules.
-For an Assets-based import, use `integrations/unity/StoryBlueprintRuntimeDemo.unitypackage`.
-It includes the Newtonsoft DLLs; if the target project already has
-`com.unity.nuget.newtonsoft-json`, uncheck `ThirdParty/Newtonsoft.Json` during import.
-The target project also needs `com.unity.ugui`. Rebuild this archive after source changes
-with `python integrations/unity/build_unitypackage.py` from the repository root.
-After import, open `Assets/StoryBlueprint/Runtime/Demo/SBDemoScene.unity` or place
-`Assets/StoryBlueprint/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab` in your own scene.
-For a story-agnostic player UI, use `Assets/StoryBlueprint/Runtime/Demo/StoryBlueprintStoryPlayer.prefab`;
+The adapter source is inside this project at `samples/RuntimeDemo/Assets/StoryBlueprintAdapter`;
+there is no external `file:` package link or duplicated source tree. Open `samples/RuntimeDemo`
+with Unity 2022.3. Its manifest declares Newtonsoft JSON and uGUI. To make the distributable,
+wait for Unity to compile, select `Assets/StoryBlueprintAdapter` in the Project window, choose
+**Assets → Export Package**, keep **Include dependencies** enabled, verify that
+`Runtime/Demo/StoryBlueprintStoryPlayer.prefab` and the Runtime/Editor scripts are selected, and
+save as `StoryBlueprintAdapter.unitypackage`. This is Unity's native export and includes the
+asset metadata needed by the importing project.
+Save the native export to `integrations/unity/StoryBlueprintAdapter.unitypackage` for release.
+Run `npm run release:unity` from the repository root to validate it against the current source
+and stage the unchanged archive and SHA-512 metadata in `release/`. `npm run deploy:unity`
+validates and uploads the Unity archive, metadata and portal page. The full deployment command
+`npm run deploy -- --portal` also includes these files.
+The target project must also have `com.unity.nuget.newtonsoft-json` 3.2.1 and `com.unity.ugui`
+installed through Package Manager. Unity's `.unitypackage` export does not add UPM dependencies
+to the target project's manifest.
+After import, open `Assets/StoryBlueprintAdapter/Runtime/Demo/SBDemoScene.unity` or place
+`Assets/StoryBlueprintAdapter/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab` in your own scene.
+For a story-agnostic player UI, use `Assets/StoryBlueprintAdapter/Runtime/Demo/StoryBlueprintStoryPlayer.prefab`;
 the JSON importer adds this prefab and the generated Host together to the open scene.
-For a repository dependency, use a pinned commit or release tag:
-
-```text
-https://github.com/<owner>/StoryBlueprint.git?path=integrations/unity/package#<commit-or-tag>
-```
 
 Open `samples/RuntimeDemo` with Unity 2022.3 and play `Assets/Scenes/SampleScene.unity`.
-The scene uses `Packages/com.storyblueprint.runtime/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab`.
+The scene uses `Assets/StoryBlueprintAdapter/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab`.
 You can also drag that prefab into another scene. Its Canvas, panels, text and buttons are
 ordinary uGUI objects that can be edited in the Prefab editor. The prefab, its scripts and compiled dragon
 quest are all in the package. Continue reveals typing text first, then advances. Both manual and auto
@@ -204,9 +209,9 @@ The offline runner links the exact Core source and NUnit test cases, uses the .N
 Newtonsoft assembly (override `-p:NewtonsoftJsonPath=...` if needed), and downloads no NuGet
 packages. CI runs it on Ubuntu and Windows. Unity imports the same Core tests as EditMode tests;
 `Tests/PlayMode` verifies the real presenter and dispatcher. Add
-`"testables": ["com.storyblueprint.runtime"]` to your project's package manifest to discover them.
-The checked-in demo already enables package tests. Core fixtures also run through the TypeScript
-compiler/runtime to check matching traces and values.
+the Test Framework package in the project to discover them. The checked-in demo already includes
+that package. Core fixtures also run through the TypeScript compiler/runtime to check matching
+traces and values.
 
 Supported native instructions include Dialogue, Narration, Choice, Branch, Jump, Set Variable
 (including append/map entry/object field), Call Event, Wait Signal, Call Chapter, Return, Story

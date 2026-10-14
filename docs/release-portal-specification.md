@@ -51,10 +51,23 @@ Story Blueprint 采用**轻量、安全、解耦**的分发与反馈体系：
     ├── stable.json                    # 稳定版更新元数据清单（必需）
     ├── beta.json                      # 测试版更新元数据清单（可选）
     ├── StoryBlueprint-Setup-0.1.0-x64.exe  # Windows NSIS 安装包
-    └── StoryBlueprint-Portable-0.1.0-x64.exe # Windows 便携绿色版
+    ├── StoryBlueprint-Portable-0.1.0-x64.exe # Windows 便携绿色版
+    ├── StoryBlueprintAdapter.unitypackage  # Unity 原生导出的 Adapter
+    └── unity-adapter.json                 # Unity 下载地址、版本、大小及 SHA-512
 ```
 
 ### 2.2 更新清单协议契约 (`UpdateManifest`)
+
+Unity Adapter 使用独立的 `unity-adapter.json` 下载元数据，不参与编辑器自更新。
+在 RuntimeDemo 中通过 Unity 原生 Export Package 将 `Assets/StoryBlueprintAdapter`
+导出到 `integrations/unity/StoryBlueprintAdapter.unitypackage`。执行 `npm run release:unity`
+可校验导出包中的源码和 GUID，原样复制包到 `release/` 并生成下载元数据。
+执行 `npm run deploy:unity` 会部署这两个文件及门户页面；执行前可加 `-- --dry-run`
+查看上传清单。完整部署 `npm run deploy -- --portal` 也会包含这些文件。
+
+门户独立展示 Unity Adapter 下载卡片及导入步骤，适用于 Windows、macOS 和 Linux。
+目标 Unity 项目需安装 Newtonsoft JSON 3.2.1 及 uGUI。元数据缺失时显示暂未发布，
+保持下载按钮不可用。
 
 `stable.json` 和 `beta.json` 必须满足以下 JSON 规范，且根字段通过 Ed25519 私钥签名：
 

@@ -71,6 +71,7 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
   '.exe': 'application/vnd.microsoft.portable-executable',
   '.zip': 'application/zip',
+  '.unitypackage': 'application/octet-stream',
   '.txt': 'text/plain; charset=utf-8',
 };
 

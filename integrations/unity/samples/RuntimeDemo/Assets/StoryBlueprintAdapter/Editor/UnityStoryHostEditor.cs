@@ -146,6 +146,7 @@ public sealed class UnityStoryHostEditor : Editor
         source.AppendLine("using System;");
         source.AppendLine("using System.Threading;");
         source.AppendLine("using System.Threading.Tasks;");
+        source.AppendLine("using UnityEngine;");
         source.AppendLine("using Newtonsoft.Json.Linq;");
         source.AppendLine("using StoryBlueprint.Runtime;");
         source.AppendLine("using StoryBlueprint.Unity;");

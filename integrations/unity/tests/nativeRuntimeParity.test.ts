@@ -12,7 +12,7 @@ import {
   type StoryAdapter,
 } from '../../../packages/runtime/src';
 
-const fixturePath = new URL('../package/Tests/Fixtures/', import.meta.url);
+const fixturePath = new URL('../samples/RuntimeDemo/Assets/StoryBlueprintAdapter/Tests/Fixtures/', import.meta.url);
 
 function fixture(name: string): RuntimeProgram {
   return JSON.parse(readFileSync(new URL(name, fixturePath), 'utf8')) as RuntimeProgram;

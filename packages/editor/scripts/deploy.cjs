@@ -55,6 +55,7 @@ Story Blueprint 自动化发版推送工具
   --portal             一并推送 portal/ 发布页前端文件到根目录
   --only-portal        【快速】仅推送 portal/ 门户网页与服务脚本（不上传大型安装包）
   --only-manifest      仅推送 stable.json 更新元数据清单
+  --only-unity         仅推送 Unity Adapter 包和 unity-adapter.json（可与 --portal 同用）
   --create-dirs        自动在服务器上预先执行 mkdir -p 创建目标目录
   --tool <rsync|scp>   强制指定传输工具 (默认优先自动探测 rsync，回退 scp)
   --dry-run            仅打印将要上传的文件清单，不执行实际传输
@@ -86,6 +87,11 @@ const onlyPortal = hasFlag('--only-portal') || hasFlag('--portal-only');
 const shouldDeployPortal = onlyPortal || hasFlag('--portal') || Boolean(deployConf.deployPortal);
 const shouldCreateDirs = hasFlag('--create-dirs') || Boolean(deployConf.createDirs);
 const onlyManifest = hasFlag('--only-manifest');
+const onlyUnity = hasFlag('--only-unity');
+if (onlyUnity && (onlyPortal || onlyManifest)) {
+  console.error('❌ --only-unity cannot be combined with --only-portal or --only-manifest');
+  process.exit(1);
+}
 const isDryRun = hasFlag('--dry-run');
 const forcedTool = getArg('--tool') || deployConf.tool;
 
@@ -107,6 +113,14 @@ if (!targetHost || !targetUser || (!onlyPortal && !remoteDir) || (onlyPortal && 
 // 2. 收集待上传的发布产物 (若为 onlyPortal 则跳过 release 安装包)
 let releaseFiles = [];
 if (!onlyPortal) {
+  if (!onlyManifest) {
+    try {
+      require('./prepare-unity-release.cjs').prepareUnityRelease(workspaceRoot);
+    } catch (error) {
+      console.error(`❌ [deploy] Unity Adapter: ${error.message}`);
+      process.exit(1);
+    }
+  }
   if (!existsSync(releaseDir)) {
     console.error(`❌ [deploy] 未找到 release/ 目录: ${releaseDir}`);
     console.error('请先执行 npm run release:win 构建安装包后再执行推送。');
@@ -120,8 +134,11 @@ if (!onlyPortal) {
       const stat = statSync(join(releaseDir, f));
       if (!stat.isFile()) return false;
       if (onlyManifest) return f === 'stable.json';
+      if (onlyUnity) return f === 'unity-adapter.json' || f === 'StoryBlueprintAdapter.unitypackage';
       return (
         f === 'stable.json' ||
+        f === 'unity-adapter.json' ||
+        f === 'StoryBlueprintAdapter.unitypackage' ||
         f.endsWith('.exe') ||
         f.endsWith('.tar.gz') ||
         f.endsWith('.dmg') ||

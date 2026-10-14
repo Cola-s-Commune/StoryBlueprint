@@ -303,11 +303,9 @@ internal static class StoryBlueprintImportFinalizer
 
         try
         {
-            var playerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/StoryBlueprint/Runtime/Demo/StoryBlueprintStoryPlayer.prefab");
+            var playerPrefab = FindStoryPlayerPrefab();
             if (playerPrefab == null)
-                playerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(StoryPlayerPrefabBuilder.PrefabPath);
-            if (playerPrefab == null)
-                throw new InvalidOperationException("The generic Story Player prefab is missing. Import the full Story Blueprint package, including Runtime/Demo/StoryBlueprintStoryPlayer.prefab.");
+                throw new InvalidOperationException("The generic Story Player prefab is missing. Include StoryBlueprintStoryPlayer.prefab from the package's Runtime/Demo folder when exporting, then import it into the project.");
 
             var gameObject = PrefabUtility.InstantiatePrefab(playerPrefab, EditorSceneManager.GetActiveScene()) as GameObject;
             if (gameObject == null) throw new InvalidOperationException("Could not add the Story Player prefab to the current scene.");
@@ -333,6 +331,28 @@ internal static class StoryBlueprintImportFinalizer
             UnityStoryImporterWindow.NotifyImportCompleted("Unity could not finish creating the Host. See the Console for details.");
             ClearPending();
         }
+    }
+
+    private static GameObject FindStoryPlayerPrefab()
+    {
+        var packagePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(StoryPlayerPrefabBuilder.PrefabPath);
+        if (IsStoryPlayerPrefab(packagePrefab)) return packagePrefab;
+
+        // The adapter may be imported under any Assets folder name, so locate the prefab by asset identity/name.
+        var guids = AssetDatabase.FindAssets("StoryBlueprintStoryPlayer t:Prefab");
+        foreach (var guid in guids)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(guid);
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (IsStoryPlayerPrefab(prefab)) return prefab;
+        }
+        return null;
+    }
+
+    private static bool IsStoryPlayerPrefab(GameObject prefab)
+    {
+        return prefab != null && prefab.GetComponent<StoryPlayerPresenter>() != null &&
+               prefab.GetComponent<UnityStoryHost>() == null;
     }
 
     private static void ClearPending()

@@ -181,6 +181,41 @@ async function loadManifest() {
   }
 
   applyManifestToDOM(manifest, activeUrl);
+  await loadUnityAdapter(activeUrl);
+}
+
+async function loadUnityAdapter(manifestUrl) {
+  const button = document.getElementById('download-unity-adapter-btn');
+  if (!button) return;
+  const endpoints = [...new Set([
+    resolveArtifactUrl(manifestUrl, './unity-adapter.json'),
+    new URL('./updates/unity-adapter.json', window.location.href).toString(),
+  ])];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, { cache: 'no-cache' });
+      if (!response.ok) continue;
+      const adapter = await response.json();
+      if (adapter.format !== 'story-blueprint-unity-adapter' || !adapter.url ||
+          !adapter.sha512 || !Number.isFinite(adapter.size) || adapter.size <= 0) continue;
+      const url = new URL(adapter.url, endpoint);
+      if (!['http:', 'https:'].includes(url.protocol)) continue;
+      button.href = url.toString();
+      button.download = 'StoryBlueprintAdapter.unitypackage';
+      button.removeAttribute('aria-disabled');
+      button.textContent = '下载 Unity Adapter (.unitypackage)';
+      document.getElementById('unity-adapter-version').textContent = `v${adapter.version}`;
+      document.getElementById('unity-adapter-size').textContent = formatBytes(adapter.size);
+      document.getElementById('unity-adapter-sha').textContent = adapter.sha512;
+      document.getElementById('copy-unity-adapter-sha').disabled = false;
+      setupCopyBtn('copy-unity-adapter-sha', adapter.sha512);
+      return;
+    } catch (error) { /* Try the next local feed URL. */ }
+  }
+  button.textContent = 'Unity Adapter 暂未发布';
+  document.getElementById('unity-adapter-version').textContent = '等待发布';
+  document.getElementById('unity-adapter-size').textContent = '暂不可下载';
+  document.getElementById('unity-adapter-sha').textContent = '暂未提供';
 }
 
 function applyManifestToDOM(manifest, manifestUrl) {

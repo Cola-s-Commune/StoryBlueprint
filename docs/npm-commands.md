@@ -57,12 +57,16 @@ python -m http.server 8080 --directory release
 npm run deploy
 npm run deploy -- --portal
 npm run deploy:portal
+npm run deploy:unity
+npm run release:unity
 npm run release:deploy
 ```
 
-- `deploy` 上传现有 `release/` 更新产物。
+- `release:unity` 校验 Unity 原生导出的 `integrations/unity/StoryBlueprintAdapter.unitypackage` 与当前源码一致，复制到 `release/` 并生成 `unity-adapter.json`（版本、大小、SHA-512）。
+- `deploy` 自动执行 Unity Adapter 发布准备，并上传现有 `release/` 更新产物及 Unity 包。源码变更后需要先在 RuntimeDemo 重新原生导出；过期或缺失的包会阻止部署。
 - `deploy -- --portal` 同时部署更新产物与 `portal/`。
 - `deploy:portal` 只部署门户。
+- `deploy:unity` 校验并部署 Unity Adapter 包、下载元数据及门户页面。部署前可执行 `npm run deploy:unity -- --dry-run` 查看清单。
 - `release:deploy` 依次构建 Windows 安装器、Portable、签名 Manifest 并部署。
 
 部署需在本地 `release.config.json` 配置主机、用户、远程目录和目标方式；该文件包含环境信息，不应提交。可使用 `npm run deploy -- --help` 查看脚本支持的参数。

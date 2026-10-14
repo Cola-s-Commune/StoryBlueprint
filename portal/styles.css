@@ -468,6 +468,27 @@ body {
 }
 
 /* Artifacts Grid */
+.unity-adapter-card {
+  margin-bottom: 36px;
+}
+
+.unity-import-steps {
+  padding-left: 22px;
+  margin-bottom: 18px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.unity-import-steps li {
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+
+.download-action-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .artifacts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
