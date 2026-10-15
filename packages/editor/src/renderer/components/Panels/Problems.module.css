@@ -7,6 +7,7 @@
   color: #d4d4d4;
 }
 
+/* ── Toolbar ── */
 .toolbar {
   display: flex;
   min-height: 35px;
@@ -28,26 +29,18 @@
   cursor: pointer;
 }
 
-/* Severity toggle buttons (Errors / Warnings) */
+/* Severity toggle buttons */
 .severityToggle {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 3px 8px !important;
   opacity: 0.45;
-  transition: opacity 0.15s, background 0.15s;
+  transition: opacity 0.15s;
 }
 
 .severityToggle[data-active='true'] {
   opacity: 1;
-}
-
-.severityToggle[data-severity='error'] .toggleIcon {
-  color: #f48771;
-}
-
-.severityToggle[data-severity='warning'] .toggleIcon {
-  color: #cca700;
 }
 
 .severityToggle[data-active='false'] {
@@ -55,31 +48,120 @@
   color: #666 !important;
 }
 
+.severityToggle[data-severity='error'] .toggleIcon { color: #f48771; }
+.severityToggle[data-severity='warning'] .toggleIcon { color: #cca700; }
+
 .toggleIcon {
   font-size: 9px;
 }
 
-/* "Show all (N hidden)" restore button */
-.clearHidden {
-  padding: 3px 8px !important;
-  color: #9eb5c8 !important;
-  border-color: #3a5060 !important;
-  background: #1e2e38 !important;
-}
-
-.summary,
-.buildPath {
-  color: #858585;
-  font-size: 10px;
-}
-
-.buildPath {
+.buildPath,
+.summary {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #858585;
+  font-size: 10px;
+  user-select: text;
 }
 
+/* ── Type-filter chip strip ── */
+.typeStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #282828;
+  background: #1a1a1a;
+}
+
+.typeGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Separator line between error group and warning group */
+.typeGroup + .typeGroup {
+  padding-left: 6px;
+  border-left: 1px solid #333;
+}
+
+.typeChip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px !important;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: #2a2a2a !important;
+  color: #999 !important;
+  font: inherit;
+  font-size: 10px !important;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.typeChip[data-active='true'] {
+  opacity: 1;
+}
+
+.typeChip[data-active='false'] {
+  text-decoration: line-through;
+}
+
+.typeChip[data-active='true']:hover {
+  background: #333 !important;
+}
+
+/* Chip label (E1 / W2) */
+.chipLabel {
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.typeChip[data-severity='error'] .chipLabel { color: #e07060; }
+.typeChip[data-severity='warning'] .chipLabel { color: #b89200; }
+
+/* Chip code text */
+.chipCode {
+  color: #777;
+  font-size: 9px;
+}
+
+/* Chip occurrence count badge */
+.chipCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #383838;
+  color: #aaa;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Reset types" button inside the strip */
+.clearHidden {
+  margin-left: auto;
+  padding: 2px 8px !important;
+  border: 1px solid #3a5060 !important;
+  border-radius: 3px !important;
+  background: #1e2e38 !important;
+  color: #9eb5c8 !important;
+  font-size: 10px !important;
+  cursor: pointer;
+}
+
+/* ── Problem list ── */
 .list {
   flex: 1;
   overflow: auto;
@@ -93,11 +175,11 @@
   text-align: center;
 }
 
-/* grid: [seq badge] [icon] [message] [origin] [code] [hide btn] */
+/* grid: [type badge] [icon] [message] [origin] [code] */
 .problem {
   display: grid;
   width: 100%;
-  grid-template-columns: 26px 15px minmax(0, 1fr) auto auto 18px;
+  grid-template-columns: 26px 15px minmax(0, 1fr) auto auto;
   align-items: start;
   gap: 7px;
   padding: 6px 10px;
@@ -116,21 +198,13 @@ button.problem:hover {
   background: #2a2d2e;
 }
 
-button.problem:hover .hideBtn {
-  opacity: 1;
-}
+.problem[data-severity='error'] .icon { color: #f48771; }
+.problem[data-severity='warning'] .icon { color: #cca700; }
 
-.problem[data-severity='error'] .icon {
-  color: #f48771;
-}
-
-.problem[data-severity='warning'] .icon {
-  color: #cca700;
-}
-
-/* Per-item sequence badge */
-.seq {
+/* Type badge: E1, W2 … */
+.typeBadge {
   font-size: 9px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: right;
   padding-top: 1px;
@@ -138,13 +212,8 @@ button.problem:hover .hideBtn {
   user-select: text;
 }
 
-.seq[data-severity='error'] {
-  color: #a86050;
-}
-
-.seq[data-severity='warning'] {
-  color: #8a7100;
-}
+.typeBadge[data-severity='error']   { color: #a86050; }
+.typeBadge[data-severity='warning'] { color: #8a7100; }
 
 .message {
   min-width: 0;
@@ -174,31 +243,3 @@ button.problem:hover .hideBtn {
   font-size: 9px;
   user-select: text;
 }
-
-/* Per-item hide (✕) button */
-.hideBtn {
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-  color: #555 !important;
-  font-size: 10px !important;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s, color 0.1s;
-  line-height: 1;
-  align-self: center;
-}
-
-.hideBtn:hover {
-  color: #cc6666 !important;
-}
-
-/* Show hide button on row hover for non-button rows too */
-.problem:hover .hideBtn {
-  opacity: 1;
-}
-
-.buildPath {
-  user-select: text;
-}
-
