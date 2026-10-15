@@ -448,12 +448,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
 }
 
 .functionPortLabel {
   display: grid;
   min-width: 0;
   gap: 2px;
+  pointer-events: none;
+  user-select: none;
 }
 
 .functionPortLabel strong,
@@ -475,6 +479,8 @@
   font-size: 8px;
   font-style: normal;
   text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
 }
 
 .functionExecHandle {
@@ -653,6 +659,7 @@
 }
 
 .dataHandle {
+  z-index: 5 !important;
   width: 26px !important;
   height: 26px !important;
   border: 0 !important;
@@ -672,6 +679,7 @@
   background: #20242b;
   content: '';
   transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .variableDataHandle::after {
@@ -685,10 +693,12 @@
 
 .dataHandleOutput {
   right: -7px !important;
+  left: auto !important;
 }
 
 .dataHandleInput {
   left: -7px !important;
+  right: auto !important;
 }
 
 .functionReturnValueHandle {

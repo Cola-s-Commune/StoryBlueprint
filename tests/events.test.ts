@@ -907,5 +907,27 @@ describe('project events', () => {
       expect(err).toBeDefined();
     });
   });
+
+  describe('defaultExpressionForValueType', () => {
+    it('generates correct default expressions for each value type', async () => {
+      const { defaultExpressionForValueType } = await import('../packages/common/src');
+      expect(defaultExpressionForValueType({ kind: 'boolean' })).toBe('false');
+      expect(defaultExpressionForValueType({ kind: 'number' })).toBe('0');
+      expect(defaultExpressionForValueType({ kind: 'string' })).toBe('""');
+      expect(defaultExpressionForValueType({ kind: 'character-ref' })).toBe('""');
+      expect(defaultExpressionForValueType({ kind: 'asset-ref' })).toBe('""');
+      expect(defaultExpressionForValueType({ kind: 'array', elementType: { kind: 'number' } })).toBe('[]');
+      expect(defaultExpressionForValueType({ kind: 'map', keyType: 'string', valueType: { kind: 'string' } })).toBe('{}');
+      expect(defaultExpressionForValueType({ kind: 'json', name: 'MyPayload' })).toBe('{}');
+      expect(defaultExpressionForValueType({ kind: 'enum', name: 'Status', values: ['idle', 'running'] })).toBe('"idle"');
+      expect(
+        defaultExpressionForValueType({
+          kind: 'struct',
+          name: 'Point',
+          fields: { x: { kind: 'number' }, y: { kind: 'number' } },
+        }),
+      ).toBe('{"x":0,"y":0}');
+    });
+  });
 });
 

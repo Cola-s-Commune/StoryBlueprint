@@ -467,9 +467,11 @@ AI Semantic Snapshot 直接包含 Character Field 定义；Blueprint Command API
 
 Engine Adapter 负责将 AssetRef 解析为实际引擎资源。
 
-### 6.4 项目事件
+### 6.4 项目外部函数与事件 (External Function / Event)
 
-Event Definition 保存在 `.storyproject`，由同一项目内的 Story 共享。事件表展示稳定 Event ID、Name、
+> **术语与概念说明**：在项目早期定义和内部底层协议中，该机制被称为 Event（如 `EventSource`、`StoryNodeType.CallEvent`、`eventId` 等）。随着节点支持强类型返回值（Out 引脚数据连线）以及与 Ink `EXTERNAL` 函数互操作映射，面向创作者与引擎程序员的统一概念为 **External Function（外部函数）**。两者指代同一套体系：由剧情主动调用游戏引擎逻辑并可同步/异步接收返回数据。
+
+External Function（Event）Definition 保存在 `.storyproject`，由同一项目内的 Story 共享。事件表展示稳定 Event ID、Name、
 Display Name、参数签名和 Description；Description 应说明调用时机与引擎 Handler 的职责。
 同一张事件表进入 node-free 编译项目清单，供引擎程序直接据此实现 Adapter。名称和说明变化不改变节点引用。第一阶段参数支持 Boolean、Number、String，Call Event
 节点使用与 Branch / Set Variable 相同的 Typed Expression 输入，因此 Literal、变量和组合表达式不需要

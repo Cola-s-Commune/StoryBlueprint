@@ -201,6 +201,7 @@ export type {
 } from './types/values';
 export {
   defaultForValueType,
+  defaultExpressionForValueType,
   runtimeValueMatchesType,
   serializeValueTypeDescriptor,
   parseValueTypeDescriptor,

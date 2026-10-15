@@ -29,6 +29,7 @@ import {
   NodeFactory,
   nodeRegistry,
   createStableId,
+  defaultExpressionForValueType,
   resolveNodePorts,
   validateGraphConnection,
   type GraphEdgeLike,
@@ -173,12 +174,15 @@ function toGraphNodes(
       const data = node.data as WaitSignalNodeData;
       const signal = signals.find((candidate) => candidate.id === data.signalId);
       const outputPorts =
-        data.outputPorts ??
-        (signal?.parameters ?? []).map((param) => ({
-          id: param.name,
-          label: param.name,
-          valueType: param.valueType,
-        }));
+        (signal?.parameters && signal.parameters.length > 0)
+          ? signal.parameters.map((param) => ({
+              id: param.name,
+              label: param.name,
+              valueType: param.valueType,
+            }))
+          : (data.outputPorts && data.outputPorts.length > 0)
+            ? data.outputPorts
+            : [];
       return {
         id: node.id,
         type: node.type,
@@ -261,27 +265,27 @@ function toGraphNodes(
     };
     const event = events.find((candidate) => candidate.id === data.eventId);
     if (!event) return { id: node.id, type: node.type, data: node.data };
-    return {
-      id: node.id,
-      type: node.type,
-      data: event
-        ? {
-            ...node.data,
-            ...(data.outputPorts === undefined
-              ? {
-                  outputPorts: (event.outputs ?? []).map((output) => ({
-                    id: output.id,
-                    label: output.displayName,
-                    valueType: output.valueType,
-                  })),
-                }
-              : {}),
-            argumentInputTypes: Object.fromEntries(
-              event.parameters.map((parameter) => [parameter.name, parameter.valueType]),
-            ),
-          }
-        : node.data,
-    };
+      const outputPorts =
+        (event.outputs && event.outputs.length > 0)
+          ? event.outputs.map((output) => ({
+              id: output.id,
+              label: output.displayName,
+              valueType: output.valueType,
+            }))
+          : (data.outputPorts && data.outputPorts.length > 0)
+            ? data.outputPorts
+            : [];
+      return {
+        id: node.id,
+        type: node.type,
+        data: {
+          ...node.data,
+          outputPorts,
+          argumentInputTypes: Object.fromEntries(
+            event.parameters.map((parameter) => [parameter.name, parameter.valueType]),
+          ),
+        },
+      };
   });
 }
 
@@ -590,7 +594,7 @@ export function StoryGraph() {
             outputPorts?: readonly unknown[];
           };
           const event = events.find((candidate) => candidate.id === call.eventId);
-          if (event && call.outputPorts === undefined) {
+          if (event && (!call.outputPorts || call.outputPorts.length === 0)) {
             setNodes((current) =>
               current.map((node) =>
                 node.id === sourceNode.id
@@ -613,7 +617,7 @@ export function StoryGraph() {
         if (sourceNode?.type === StoryNodeType.CallSubstory) {
           const call = sourceNode.data as CallSubstoryNodeData;
           const chapter = chapters.find((candidate) => candidate.id === call.chapterId);
-          if (chapter && call.outputPorts === undefined) {
+          if (chapter && (!call.outputPorts || call.outputPorts.length === 0)) {
             setNodes((current) =>
               current.map((node) =>
                 node.id === sourceNode.id
@@ -625,6 +629,32 @@ export function StoryGraph() {
                           id: output.variable.id,
                           label: output.variable.displayName,
                           valueType: output.variable.valueType,
+                        })),
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }
+        }
+      }
+      if (connection.sourceHandle.startsWith('payload:')) {
+        const sourceNode = nodes.find((node) => node.id === connection.source);
+        if (sourceNode?.type === StoryNodeType.WaitSignal) {
+          const wait = sourceNode.data as WaitSignalNodeData;
+          const signal = signals.find((candidate) => candidate.id === wait.signalId);
+          if (signal && (!wait.outputPorts || wait.outputPorts.length === 0)) {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === sourceNode.id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        outputPorts: (signal.parameters ?? []).map((param) => ({
+                          id: param.name,
+                          label: param.name,
+                          valueType: param.valueType,
                         })),
                       },
                     }
@@ -2012,18 +2042,15 @@ export function StoryGraph() {
                 (definition?.parameters ?? []).map((parameter) => [
                   parameter.name,
                   {
-                    source:
-                      parameter.valueType.kind === 'string' ||
-                      parameter.valueType.kind === 'character-ref' ||
-                      parameter.valueType.kind === 'asset-ref'
-                        ? '""'
-                        : parameter.valueType.kind === 'boolean'
-                          ? 'false'
-                          : parameter.valueType.kind === 'json'
-                            ? '{}'
-                            : '0',
+                    source: defaultExpressionForValueType(parameter.valueType),
                     bindings: {},
                   },
+                ]),
+              ),
+              argumentInputTypes: Object.fromEntries(
+                (definition?.parameters ?? []).map((parameter) => [
+                  parameter.name,
+                  parameter.valueType,
                 ]),
               ),
               outputPorts: (definition?.outputs ?? []).map((output) => ({

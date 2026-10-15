@@ -3159,7 +3159,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                 onChange={(elementType) =>
                   updateVariable(variable.id, {
                     valueType: { kind: 'array', elementType },
-                    defaultValue: variable.defaultValue,
+                    defaultValue: [],
                   })
                 }
               />
@@ -3237,7 +3237,7 @@ function VariableEditor({ variable }: { variable: VariableDefinition }) {
                           .keyType,
                         valueType,
                       },
-                      defaultValue: variable.defaultValue,
+                      defaultValue: {},
                     })
                   }
                 />
@@ -4812,13 +4812,13 @@ function EventEditor({ event }: { event: EventSource }) {
         rows={4}
         value={event.description ?? ''}
         saveError={workspaceError}
-        placeholder="Explain when this event is called and what the engine handler should do."
+        placeholder="Explain when this external function is called and what the engine handler should do."
         onCommit={(value) => updateEvent(event.id, { description: value || undefined })}
       />
       <div className={styles.parameterHeader}>
         <span>Parameters</span>
         <NamedCreateControl
-          title="Add event parameter"
+          title="Add external function parameter"
           placeholder="Parameter name"
           buttonLabel="Add"
           existingNames={event.parameters.map((parameter) => parameter.name)}
@@ -4927,7 +4927,7 @@ function EventEditor({ event }: { event: EventSource }) {
       <div className={styles.parameterHeader}>
         <span>Return Values</span>
         <NamedCreateControl
-          title="Add event return value"
+          title="Add external function return value"
           placeholder="Return value name"
           buttonLabel="Add"
           existingNames={(event.outputs ?? []).map((output) => output.name)}
@@ -5728,7 +5728,7 @@ function EventTable({
         <CopyButton text={markdown} label="Copy Markdown" />
       </div>
       {events.length === 0 ? (
-        <div className={styles.empty}>No project events</div>
+        <div className={styles.empty}>No project external functions</div>
       ) : (
         <div className={styles.eventTableScroll}>
           <table className={styles.eventTable}>
@@ -6361,13 +6361,13 @@ export function StoryData() {
               <div className={styles.sectionHeaderActions}>
                 <button
                   type="button"
-                  title="Open event interface table"
+                  title="Open project interface table"
                   onClick={() => selectStoryData({ kind: 'event-table' })}
                 >
                   ≡
                 </button>
                 <NamedCreateControl
-                  title="Add event"
+                  title="Add external function"
                   placeholder="External Function name"
                   existingNames={events.map((item) => item.name)}
                   onCreate={(name) => {
@@ -6377,7 +6377,7 @@ export function StoryData() {
                 />
               </div>
             </div>
-            {events.length === 0 && <div className={styles.empty}>No events</div>}
+            {events.length === 0 && <div className={styles.empty}>No external functions</div>}
             {filteredEvents.map((event) => (
               <div
                 key={event.id}

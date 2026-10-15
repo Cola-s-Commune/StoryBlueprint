@@ -102,6 +102,11 @@ export interface AssetSource {
   locales?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Definition of an External Function (historically named Event in serialization contracts).
+ * Shared by Call External Function nodes (`StoryNodeType.CallEvent`), the Project Interface Table,
+ * and Ink `EXTERNAL` function bindings.
+ */
 export interface EventSource {
   id: EventId;
   name: string;
@@ -118,7 +123,11 @@ export interface EventSource {
   sideEffect: 'none' | 'read' | 'write';
 }
 
-/** Engine-facing function definition shared by native nodes and Ink EXTERNAL declarations. */
+/**
+ * Engine-facing External Function definition.
+ * Alias for `EventSource` to clarify that project "Events" are External Functions
+ * with optional typed input parameters and return values.
+ */
 export type ExternalFunctionSource = EventSource;
 
 /** A project-level notification that story execution can explicitly wait for. */

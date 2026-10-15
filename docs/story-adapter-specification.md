@@ -336,11 +336,13 @@ runtime.hydrateExternalVariable(variableDefinition.id, value);
 
 ---
 
-## 7. 信号与事件通信机制 (Signals vs Events)
+## 7. 信号与外部函数/事件通信机制 (Signals vs External Functions / Events)
 
-许多初学者容易混淆 `CallEvent` 和 `WaitSignal`，两者在设计理念上有本质区别：
+> **术语说明**：在编辑器界面和作者视角中，`CallEvent` 节点显示为 **Call External Function**（外部函数调用），二者在代码底层为同一实现（`CallEvent` / `EventRequest`）。
 
-| 特性维度 | Call Event 节点 | Wait for Signal 节点 |
+许多初学者容易混淆 `Call External Function`（`CallEvent`）和 `Wait for Signal`（`WaitSignal`），两者在设计理念上有本质区别：
+
+| 特性维度 | Call External Function (CallEvent) 节点 | Wait for Signal 节点 |
 | :--- | :--- | :--- |
 | **通信方向** | **剧情 ➔ 引擎**（命令模式 Command） | **引擎 ➔ 剧情**（观察者/信号模式 Observer） |
 | **触发主体** | 剧情流经该节点时发起 | 游戏外部系统随时产生 |

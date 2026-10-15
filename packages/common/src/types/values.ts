@@ -356,3 +356,13 @@ export function defaultForValueType(type: ValueType): RuntimeValue {
       );
   }
 }
+
+/** Returns a valid Story expression string conforming to a value type. */
+export function defaultExpressionForValueType(type: ValueType): string {
+  if (type.kind === 'boolean') return 'false';
+  if (type.kind === 'number') return '0';
+  if (type.kind === 'string' || type.kind === 'character-ref' || type.kind === 'asset-ref') {
+    return '""';
+  }
+  return JSON.stringify(defaultForValueType(type));
+}

@@ -37,6 +37,9 @@ import {
   StoryNodeType,
   blueprintOperationFingerprint,
   createStableId,
+  defaultForValueType,
+  defaultExpressionForValueType,
+  runtimeValueMatchesType,
   migrateEngineJsonValue,
   migrateEmbeddedEngineObjects,
   normalizeEngineTypeDefaults,
@@ -2399,6 +2402,20 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               )
               .map((node) => node.id),
           );
+          const invalidatedParameterIds = new Set(
+            previous.parameters
+              .filter((prevParam) => {
+                const nextParam = next.parameters.find(
+                  (candidate) => candidate.variable.id === prevParam.variable.id,
+                );
+                return (
+                  !nextParam ||
+                  JSON.stringify(nextParam.variable.valueType) !==
+                    JSON.stringify(prevParam.variable.valueType)
+                );
+              })
+              .map((parameter) => parameter.variable.id),
+          );
           return {
             ...candidate,
             nodes: candidate.nodes.map((node) => {
@@ -2422,10 +2439,13 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                   arguments: Object.fromEntries(
                     next.parameters.map((parameter) => [
                       parameter.variable.id,
-                      data.arguments?.[parameter.variable.id] ?? {
-                        source: JSON.stringify(parameter.variable.defaultValue),
-                        bindings: {},
-                      },
+                      !invalidatedParameterIds.has(parameter.variable.id) &&
+                      data.arguments?.[parameter.variable.id]
+                        ? data.arguments[parameter.variable.id]
+                        : {
+                            source: defaultExpressionForValueType(parameter.variable.valueType),
+                            bindings: {},
+                          },
                     ]),
                   ),
                   resultVariableIds: Object.fromEntries(
@@ -2438,7 +2458,8 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             }),
             edges: candidate.edges.filter((edge) => {
               if (matchingCallIds.has(edge.target) && edge.targetHandle.startsWith('argument:')) {
-                return parameterIds.has(edge.targetHandle.slice('argument:'.length) as VariableId);
+                const paramId = edge.targetHandle.slice('argument:'.length) as VariableId;
+                return parameterIds.has(paramId) && !invalidatedParameterIds.has(paramId);
               }
               if (matchingCallIds.has(edge.source) && edge.sourceHandle.startsWith('output:')) {
                 return outputIds.has(edge.sourceHandle.slice('output:'.length) as VariableId);
@@ -2849,6 +2870,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
         variables.find((variable) => variable.id === id) ??
         substoryVariables.find((variable) => variable.id === id);
       if (!previous) return false;
+      if (nextUpdate.valueType !== undefined) {
+        const typeChanged =
+          JSON.stringify(nextUpdate.valueType) !== JSON.stringify(previous.valueType);
+        if (typeChanged) {
+          if (
+            nextUpdate.defaultValue === undefined ||
+            !runtimeValueMatchesType(nextUpdate.defaultValue, nextUpdate.valueType)
+          ) {
+            nextUpdate.defaultValue = defaultForValueType(nextUpdate.valueType);
+          }
+        }
+      }
       if (substory) {
         const normalized = { ...nextUpdate, scope: 'local' as const };
         updateSubstory(substory.id, {
@@ -3009,6 +3042,46 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             renameVariableReferencesInCondition(condition, id, previous.name, nextUpdate.name!),
           ),
         );
+      }
+      if (
+        previous &&
+        nextUpdate.valueType &&
+        JSON.stringify(nextUpdate.valueType) !== JSON.stringify(previous.valueType)
+      ) {
+        const updateVariableNodes = (candidate: EditorGraphState): EditorGraphState => ({
+          ...candidate,
+          nodes: candidate.nodes.map((node) => {
+            if (node.type === StoryNodeType.SetVariable) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.SetVariable];
+              if (data.variableId !== id) return node;
+              return {
+                ...node,
+                data: {
+                  ...data,
+                  valueInputType: nextUpdate.valueType,
+                  value: {
+                    source: defaultExpressionForValueType(nextUpdate.valueType!),
+                    bindings: {},
+                  },
+                },
+              };
+            }
+            if (node.type === StoryNodeType.GetVariable) {
+              const data = node.data as StoryNodeDataMap[StoryNodeType.GetVariable];
+              if (data.variableId !== id) return node;
+              return {
+                ...node,
+                data: {
+                  ...data,
+                  outputValueType: nextUpdate.valueType,
+                },
+              };
+            }
+            return node;
+          }),
+        });
+        setNodes((current) => updateVariableNodes({ nodes: current, edges }).nodes);
+        updateInactiveGraphs(updateVariableNodes);
       }
       setVariables((current) =>
         current.map((variable) =>
@@ -3749,6 +3822,34 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             }
           });
         }
+        const findPreviousParameter = (
+          nextParam: { name: string; valueType: ValueType },
+          index: number,
+        ) => {
+          for (const [oldName, newName] of renamed) {
+            if (newName === nextParam.name) {
+              return previous.parameters.find((p) => p.name === oldName);
+            }
+          }
+          const byName = previous.parameters.find((p) => p.name === nextParam.name);
+          if (byName) return byName;
+          if (previous.parameters.length === nextEvent.parameters.length) {
+            return previous.parameters[index];
+          }
+          return undefined;
+        };
+        const invalidatedParamNames = new Set<string>();
+        for (const prevParam of previous.parameters) {
+          const newName = renamed.get(prevParam.name) ?? prevParam.name;
+          const nextParam = nextEvent.parameters.find((p) => p.name === newName);
+          if (
+            !nextParam ||
+            JSON.stringify(nextParam.valueType) !== JSON.stringify(prevParam.valueType)
+          ) {
+            invalidatedParamNames.add(prevParam.name);
+            invalidatedParamNames.add(newName);
+          }
+        }
         const updateCalls = (candidate: EditorGraphState): EditorGraphState => ({
           ...candidate,
           nodes: candidate.nodes.map((node) => {
@@ -3764,27 +3865,55 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
               delete argumentsByName[oldName];
             }
             const nextArguments = Object.fromEntries(
-              nextEvent.parameters.map((parameter) => [
-                parameter.name,
-                argumentsByName[parameter.name] ?? {
-                  source:
-                    parameter.valueType.kind === 'string' ||
-                    parameter.valueType.kind === 'character-ref' ||
-                    parameter.valueType.kind === 'asset-ref'
-                      ? '""'
-                      : parameter.valueType.kind === 'boolean'
-                        ? 'false'
-                        : parameter.valueType.kind === 'json'
-                          ? '{}'
-                          : '0',
-                  bindings: {},
-                },
-              ]),
+              nextEvent.parameters.map((parameter, index) => {
+                const prevParam = findPreviousParameter(parameter, index);
+                const typeChanged =
+                  !prevParam ||
+                  JSON.stringify(prevParam.valueType) !== JSON.stringify(parameter.valueType);
+                return [
+                  parameter.name,
+                  !typeChanged && argumentsByName[parameter.name]
+                    ? argumentsByName[parameter.name]
+                    : {
+                        source: defaultExpressionForValueType(parameter.valueType),
+                        bindings: {},
+                      },
+                ];
+              }),
             );
-            return { ...node, data: { ...node.data, arguments: nextArguments } };
+            const argumentInputTypes = Object.fromEntries(
+              nextEvent.parameters.map((parameter) => [parameter.name, parameter.valueType]),
+            );
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                arguments: nextArguments,
+                argumentInputTypes,
+              },
+            };
+          }),
+          edges: candidate.edges.flatMap((edge) => {
+            const targetNode = candidate.nodes.find((node) => node.id === edge.target);
+            if (
+              targetNode?.type === StoryNodeType.CallEvent &&
+              (targetNode.data as StoryNodeDataMap[StoryNodeType.CallEvent]).eventId === id
+            ) {
+              if (edge.targetHandle?.startsWith('argument:')) {
+                const paramName = edge.targetHandle.slice('argument:'.length);
+                if (invalidatedParamNames.has(paramName)) {
+                  return [];
+                }
+                if (renamed.has(paramName)) {
+                  return [{ ...edge, targetHandle: `argument:${renamed.get(paramName)}` }];
+                }
+              }
+            }
+            return [edge];
           }),
         });
         setNodes((current) => updateCalls({ nodes: current, edges }).nodes);
+        setEdges((current) => updateCalls({ nodes, edges: current }).edges);
         updateInactiveGraphs(updateCalls);
         setWorkspaceStories((current) =>
           current.map((story) => ({
@@ -3970,6 +4099,18 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
             }
           });
         }
+        const invalidatedParamNames = new Set<string>();
+        for (const prevParam of previous.parameters) {
+          const newName = renamed.get(prevParam.name) ?? prevParam.name;
+          const nextParam = nextSignal.parameters.find((p) => p.name === newName);
+          if (
+            !nextParam ||
+            JSON.stringify(nextParam.valueType) !== JSON.stringify(prevParam.valueType)
+          ) {
+            invalidatedParamNames.add(prevParam.name);
+            invalidatedParamNames.add(newName);
+          }
+        }
         const updateWaits = (candidate: EditorGraphState): EditorGraphState => ({
           ...candidate,
           nodes: candidate.nodes.map((node) => {
@@ -3989,11 +4130,35 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
                 matches: Object.fromEntries(
                   Object.entries(matches).filter(([name]) => allowed.has(name)),
                 ),
+                outputPorts: nextSignal.parameters.map((parameter) => ({
+                  id: parameter.name,
+                  label: parameter.name,
+                  valueType: parameter.valueType,
+                })),
               },
             };
           }),
+          edges: candidate.edges.flatMap((edge) => {
+            const sourceNode = candidate.nodes.find((node) => node.id === edge.source);
+            if (
+              sourceNode?.type === StoryNodeType.WaitSignal &&
+              (sourceNode.data as StoryNodeDataMap[StoryNodeType.WaitSignal]).signalId === id
+            ) {
+              if (edge.sourceHandle?.startsWith('output:')) {
+                const paramName = edge.sourceHandle.slice('output:'.length);
+                if (invalidatedParamNames.has(paramName)) {
+                  return [];
+                }
+                if (renamed.has(paramName)) {
+                  return [{ ...edge, sourceHandle: `output:${renamed.get(paramName)}` }];
+                }
+              }
+            }
+            return [edge];
+          }),
         });
         setNodes((current) => updateWaits({ nodes: current, edges }).nodes);
+        setEdges((current) => updateWaits({ nodes, edges: current }).edges);
         updateInactiveGraphs(updateWaits);
         setWorkspaceStories((current) =>
           current.map((story) => ({
@@ -4011,7 +4176,16 @@ export function StoryGraphStoreProvider({ children }: PropsWithChildren) {
       }
       writeProjectSignals(signals.map((signal) => (signal.id === id ? nextSignal : signal)));
     },
-    [checkpoint, edges, markDirty, setNodes, signals, updateInactiveGraphs, writeProjectSignals],
+    [
+      checkpoint,
+      edges,
+      markDirty,
+      setEdges,
+      setNodes,
+      signals,
+      updateInactiveGraphs,
+      writeProjectSignals,
+    ],
   );
 
   const removeSignal = useCallback(

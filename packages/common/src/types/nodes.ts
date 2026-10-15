@@ -182,7 +182,11 @@ export interface SetVariableNodeData {
   keyInputType?: ValueType;
 }
 
-/** Calls a project-defined engine event and optionally stores its returned values. */
+/**
+ * Data for Call External Function node (`StoryNodeType.CallEvent`).
+ * Calls a project-defined External Function (historically named Event in serialization)
+ * and optionally stores its returned values into story variables.
+ */
 export interface CallEventNodeData {
   eventId?: EventId;
   arguments: Record<string, ExpressionSource>;
@@ -194,7 +198,7 @@ export interface CallEventNodeData {
   argumentInputTypes?: Readonly<Record<string, ValueType>>;
   /** Snapshot of the selected External Function's typed data outputs.
    *  Keeping the port contract on the node lets graph validation resolve links
-   *  without needing project-level resources. It is refreshed when the Event changes.
+   *  without needing project-level resources. It is refreshed when the External Function changes.
    */
   outputPorts?: readonly {
     id: EventOutputId;
