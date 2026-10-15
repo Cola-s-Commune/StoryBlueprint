@@ -14,6 +14,7 @@
   gap: 9px;
   padding: 0 10px;
   border-bottom: 1px solid #303030;
+  flex-wrap: wrap;
 }
 
 .toolbar button {
@@ -25,6 +26,45 @@
   font: inherit;
   font-size: 11px;
   cursor: pointer;
+}
+
+/* Severity toggle buttons (Errors / Warnings) */
+.severityToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px !important;
+  opacity: 0.45;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.severityToggle[data-active='true'] {
+  opacity: 1;
+}
+
+.severityToggle[data-severity='error'] .toggleIcon {
+  color: #f48771;
+}
+
+.severityToggle[data-severity='warning'] .toggleIcon {
+  color: #cca700;
+}
+
+.severityToggle[data-active='false'] {
+  text-decoration: line-through;
+  color: #666 !important;
+}
+
+.toggleIcon {
+  font-size: 9px;
+}
+
+/* "Show all (N hidden)" restore button */
+.clearHidden {
+  padding: 3px 8px !important;
+  color: #9eb5c8 !important;
+  border-color: #3a5060 !important;
+  background: #1e2e38 !important;
 }
 
 .summary,
@@ -53,10 +93,11 @@
   text-align: center;
 }
 
+/* grid: [seq badge] [icon] [message] [origin] [code] [hide btn] */
 .problem {
   display: grid;
   width: 100%;
-  grid-template-columns: 15px minmax(0, 1fr) auto auto;
+  grid-template-columns: 26px 15px minmax(0, 1fr) auto auto 18px;
   align-items: start;
   gap: 7px;
   padding: 6px 10px;
@@ -75,12 +116,34 @@ button.problem:hover {
   background: #2a2d2e;
 }
 
+button.problem:hover .hideBtn {
+  opacity: 1;
+}
+
 .problem[data-severity='error'] .icon {
   color: #f48771;
 }
 
 .problem[data-severity='warning'] .icon {
   color: #cca700;
+}
+
+/* Per-item sequence badge */
+.seq {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-top: 1px;
+  color: #666;
+  user-select: text;
+}
+
+.seq[data-severity='error'] {
+  color: #a86050;
+}
+
+.seq[data-severity='warning'] {
+  color: #8a7100;
 }
 
 .message {
@@ -112,6 +175,30 @@ button.problem:hover {
   user-select: text;
 }
 
+/* Per-item hide (✕) button */
+.hideBtn {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: #555 !important;
+  font-size: 10px !important;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+  line-height: 1;
+  align-self: center;
+}
+
+.hideBtn:hover {
+  color: #cc6666 !important;
+}
+
+/* Show hide button on row hover for non-button rows too */
+.problem:hover .hideBtn {
+  opacity: 1;
+}
+
 .buildPath {
   user-select: text;
 }
+
