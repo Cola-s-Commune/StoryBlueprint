@@ -12,3 +12,17 @@ Story Blueprint 是一个面向游戏开发的可视化剧情编辑器。通过�
 - **Ink 导入**：将支持的 Ink 内容转换为节点，也可通过 Ink Block 运行 Ink 剧情。
 - **Git 协作**：以剧情内容和图结构展示差异，辅助处理多人修改产生的冲突。
 - **Unity 集成**：提供 C# 剧情运行时、导入工具和示例，将编辑好的故事接入游戏。
+
+## Unity 安装
+
+Story Blueprint Unity Adapter 以 UPM 包形式发布，支持 Unity 2022.3。无需通过 Unity Asset Store 安装。
+
+1. 在 Unity 中打开 **Window > Package Manager**。
+2. 点击左上角 **+**，选择 **Add package from git URL…**。
+3. 粘贴以下地址并点击 **Add**：
+
+```text
+https://github.com/Cola-s-Commune/StoryBlueprint.git?path=/integrations/unity/samples/RuntimeDemo/Packages/com.storyblueprint.runtime#main
+```
+
+UPM 会自动安装包声明的 Newtonsoft JSON 等依赖。安装后可通过包内的导入窗口导入故事 JSON；RuntimeDemo 示例项目位于 [`integrations/unity/samples/RuntimeDemo`](integrations/unity/samples/RuntimeDemo)。

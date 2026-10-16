@@ -52,22 +52,17 @@ Story Blueprint 采用**轻量、安全、解耦**的分发与反馈体系：
     ├── beta.json                      # 测试版更新元数据清单（可选）
     ├── StoryBlueprint-Setup-0.1.0-x64.exe  # Windows NSIS 安装包
     ├── StoryBlueprint-Portable-0.1.0-x64.exe # Windows 便携绿色版
-    ├── StoryBlueprintAdapter.unitypackage  # Unity 原生导出的 Adapter
-    └── unity-adapter.json                 # Unity 下载地址、版本、大小及 SHA-512
+    └── unity-adapter.json                 # Unity UPM 包 ID、Git 安装地址及版本
 ```
 
 ### 2.2 更新清单协议契约 (`UpdateManifest`)
 
-Unity Adapter 使用独立的 `unity-adapter.json` 下载元数据，不参与编辑器自更新。
-在 RuntimeDemo 中通过 Unity 原生 Export Package 将 `Assets/StoryBlueprintAdapter`
-导出到 `integrations/unity/StoryBlueprintAdapter.unitypackage`。执行 `npm run release:unity`
-可校验导出包中的源码和 GUID，原样复制包到 `release/` 并生成下载元数据。
-执行 `npm run deploy:unity` 会部署这两个文件及门户页面；执行前可加 `-- --dry-run`
-查看上传清单。完整部署 `npm run deploy -- --portal` 也会包含这些文件。
-
-门户独立展示 Unity Adapter 下载卡片及导入步骤，适用于 Windows、macOS 和 Linux。
-目标 Unity 项目需安装 Newtonsoft JSON 3.2.1 及 uGUI。元数据缺失时显示暂未发布，
-保持下载按钮不可用。
+Unity Adapter 使用独立的 `unity-adapter.json` 安装元数据，不参与编辑器自更新。
+UPM 源码作为嵌入式包维护在 RuntimeDemo 项目的 Packages 目录中，包清单声明 Newtonsoft
+JSON 和 uGUI 依赖。门户展示 Git URL；用户从 Package Manager 添加后由 UPM 解析依赖。
+执行 `npm run release:unity` 会校验 UPM 包并生成安装元数据；执行 `npm run deploy:unity`
+会部署元数据和门户页面。UPM 源码须先推送到 GitHub。完整部署
+`npm run deploy -- --portal` 也包含安装元数据。
 
 `stable.json` 和 `beta.json` 必须满足以下 JSON 规范，且根字段通过 Ed25519 私钥签名：
 

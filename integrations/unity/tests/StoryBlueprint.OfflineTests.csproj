@@ -9,13 +9,13 @@
     <NewtonsoftJsonPath Condition="'$(NewtonsoftJsonPath)' == ''">$(MSBuildSDKsPath)/../Newtonsoft.Json.dll</NewtonsoftJsonPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../samples/RuntimeDemo/Assets/StoryBlueprintAdapter/Runtime/Core/**/*.cs" />
-    <Compile Include="../samples/RuntimeDemo/Assets/StoryBlueprintAdapter/Tests/StoryRuntimeTests.cs" />
+    <Compile Include="../samples/RuntimeDemo/Packages/com.storyblueprint.runtime/Runtime/Core/**/*.cs" />
+    <Compile Include="../samples/RuntimeDemo/Packages/com.storyblueprint.runtime/Tests/StoryRuntimeTests.cs" />
     <Compile Include="OfflineRunner.cs" />
     <Reference Include="Newtonsoft.Json">
       <HintPath>$(NewtonsoftJsonPath)</HintPath>
     </Reference>
-    <EmbeddedResource Include="../samples/RuntimeDemo/Assets/StoryBlueprintAdapter/Tests/Fixtures/*.json" LogicalName="Fixtures.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../samples/RuntimeDemo/Packages/com.storyblueprint.runtime/Tests/Fixtures/*.json" LogicalName="Fixtures.%(Filename)%(Extension)" />
   </ItemGroup>
   <Target Name="CheckNewtonsoft" BeforeTargets="ResolveReferences" Condition="!Exists('$(NewtonsoftJsonPath)')">
     <Error Text="Set -p:NewtonsoftJsonPath to a Newtonsoft.Json.dll from Unity's com.unity.nuget.newtonsoft-json package or the .NET SDK." />

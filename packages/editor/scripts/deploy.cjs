@@ -55,7 +55,7 @@ Story Blueprint 自动化发版推送工具
   --portal             一并推送 portal/ 发布页前端文件到根目录
   --only-portal        【快速】仅推送 portal/ 门户网页与服务脚本（不上传大型安装包）
   --only-manifest      仅推送 stable.json 更新元数据清单
-  --only-unity         仅推送 Unity Adapter 包和 unity-adapter.json（可与 --portal 同用）
+  --only-unity         仅推送 Unity UPM 安装元数据（可与 --portal 同用）
   --create-dirs        自动在服务器上预先执行 mkdir -p 创建目标目录
   --tool <rsync|scp>   强制指定传输工具 (默认优先自动探测 rsync，回退 scp)
   --dry-run            仅打印将要上传的文件清单，不执行实际传输
@@ -134,11 +134,10 @@ if (!onlyPortal) {
       const stat = statSync(join(releaseDir, f));
       if (!stat.isFile()) return false;
       if (onlyManifest) return f === 'stable.json';
-      if (onlyUnity) return f === 'unity-adapter.json' || f === 'StoryBlueprintAdapter.unitypackage';
+      if (onlyUnity) return f === 'unity-adapter.json';
       return (
         f === 'stable.json' ||
         f === 'unity-adapter.json' ||
-        f === 'StoryBlueprintAdapter.unitypackage' ||
         f.endsWith('.exe') ||
         f.endsWith('.tar.gz') ||
         f.endsWith('.dmg') ||

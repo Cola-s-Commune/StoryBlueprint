@@ -484,6 +484,16 @@ body {
   overflow-wrap: anywhere;
 }
 
+.unity-package-url {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
 .download-action-btn[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;

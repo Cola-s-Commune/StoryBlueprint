@@ -1,0 +1,20 @@
+{
+  "name": "com.storyblueprint.runtime",
+  "version": "0.1.1",
+  "displayName": "Story Blueprint Runtime",
+  "description": "Unity runtime adapter for Story Blueprint compiled story projects.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Story Blueprint Contributors"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cola-s-Commune/StoryBlueprint.git"
+  },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.ugui": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0"
+  }
+}

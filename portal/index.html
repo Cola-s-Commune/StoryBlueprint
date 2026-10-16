@@ -366,25 +366,19 @@
         </div>
 
         <div class="artifact-box unity-adapter-card" id="unity-adapter">
-          <h3 class="artifact-name">Story Blueprint Unity Adapter</h3>
-          <p class="artifact-desc">将编译后的故事接入 Unity。包含可编辑的玩家对话 UI、故事导入面板，以及 External Function 和 Signal 的 C# 接口生成。</p>
+          <h3 class="artifact-name">Story Blueprint Unity Adapter · UPM</h3>
+          <p class="artifact-desc">通过 Unity Package Manager 安装故事运行时、可编辑的玩家对话 UI、故事导入面板，以及 External Function 和 Signal 的 C# 接口生成。</p>
           <div class="artifact-meta">
             <span class="meta-label">Unity 2022.3 LTS · <span id="unity-adapter-version">版本加载中</span></span>
-            <span class="meta-val" id="unity-adapter-size">加载中...</span>
+            <span class="meta-val">Unity Package Manager</span>
           </div>
           <ol class="unity-import-steps">
-            <li>在 Unity Package Manager 中安装 <code>com.unity.nuget.newtonsoft-json</code> 3.2.1，并确保已安装 uGUI。</li>
-            <li>导入下方 unitypackage，保留完整的 <code>Assets/StoryBlueprintAdapter</code> 文件夹。</li>
-            <li>在自动打开的 Story Blueprint 面板中导入编译后的 <code>.storyc.json</code>，生成 StoryHost 和玩家 UI，再实现生成的 External Function 方法。</li>
+            <li>打开 Unity：<strong>Window → Package Management → Package Manager</strong>。</li>
+            <li>点击左上角 <strong>+</strong>，选择 <strong>Add package from git URL…</strong>，粘贴下方地址。</li>
+            <li>UPM 会自动解析 Newtonsoft 依赖。安装后，在 Story Blueprint 面板导入编译后的 <code>.storyc.json</code>。</li>
           </ol>
-          <a class="btn btn-primary download-action-btn" id="download-unity-adapter-btn" aria-disabled="true">正在加载 Unity Adapter...</a>
-          <details class="checksum-details">
-            <summary>校验信息 (SHA-512)</summary>
-            <div class="checksum-body">
-              <code class="sha-code" id="unity-adapter-sha">加载中...</code>
-              <button class="copy-btn" id="copy-unity-adapter-sha" title="复制 SHA-512" disabled>复制哈希</button>
-            </div>
-          </details>
+          <div class="unity-package-url"><code id="unity-adapter-git-url">正在加载 UPM 地址...</code></div>
+          <button class="btn btn-primary download-action-btn" id="copy-unity-adapter-url" disabled>复制 Git 安装地址</button>
         </div>
 
         <!-- 更新日志卡片 -->
