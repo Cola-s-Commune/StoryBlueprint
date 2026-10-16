@@ -1,35 +1,31 @@
 # Story Blueprint Unity Adapter
 
-Unity 2022.3 LTS adapter, maintained directly in the RuntimeDemo project's `Assets` tree.
-The pure C# `StoryBlueprint.Runtime` assembly executes native Blueprint instructions;
-`StoryBlueprint.Unity` connects them to
-the Unity main thread, presentation and game callbacks. Runtime code does not depend on UnityEditor.
+Unity 2022.3 LTS adapter, maintained as an embedded UPM package inside the RuntimeDemo project at
+`samples/RuntimeDemo/Packages/com.storyblueprint.runtime`. The pure C# `StoryBlueprint.Runtime`
+assembly executes native Blueprint instructions; `StoryBlueprint.Unity` connects them to the
+Unity main thread, presentation and game callbacks.
 
 ## Install and run
 
-The adapter source is inside this project at `samples/RuntimeDemo/Assets/StoryBlueprintAdapter`;
-there is no external `file:` package link or duplicated source tree. Open `samples/RuntimeDemo`
-with Unity 2022.3. Its manifest declares Newtonsoft JSON and uGUI. To make the distributable,
-wait for Unity to compile, select `Assets/StoryBlueprintAdapter` in the Project window, choose
-**Assets → Export Package**, keep **Include dependencies** enabled, verify that
-`Runtime/Demo/StoryBlueprintStoryPlayer.prefab` and the Runtime/Editor scripts are selected, and
-save as `StoryBlueprintAdapter.unitypackage`. This is Unity's native export and includes the
-asset metadata needed by the importing project.
-Save the native export to `integrations/unity/StoryBlueprintAdapter.unitypackage` for release.
-Run `npm run release:unity` from the repository root to validate it against the current source
-and stage the unchanged archive and SHA-512 metadata in `release/`. `npm run deploy:unity`
-validates and uploads the Unity archive, metadata and portal page. The full deployment command
-`npm run deploy -- --portal` also includes these files.
-The target project must also have `com.unity.nuget.newtonsoft-json` 3.2.1 and `com.unity.ugui`
-installed through Package Manager. Unity's `.unitypackage` export does not add UPM dependencies
-to the target project's manifest.
-After import, open `Assets/StoryBlueprintAdapter/Runtime/Demo/SBDemoScene.unity` or place
-`Assets/StoryBlueprintAdapter/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab` in your own scene.
-For a story-agnostic player UI, use `Assets/StoryBlueprintAdapter/Runtime/Demo/StoryBlueprintStoryPlayer.prefab`;
-the JSON importer adds this prefab and the generated Host together to the open scene.
+Open `samples/RuntimeDemo` with Unity 2022.3. The embedded package manifest declares Newtonsoft
+JSON and uGUI, so Package Manager resolves the dependency automatically. For another project, use
+**Window → Package Management → Package Manager → + → Add package from git URL…** and paste:
+
+```text
+https://github.com/Cola-s-Commune/StoryBlueprint.git?path=/integrations/unity/samples/RuntimeDemo/Packages/com.storyblueprint.runtime#main
+```
+
+No Asset Store listing is required. Run `npm run release:unity` from the repository root to
+validate the embedded package and prepare its installation metadata for the release page. Run
+`npm run deploy:unity` to deploy that metadata and the updated page.
+
+Open `Packages/com.storyblueprint.runtime/Runtime/Demo/SBDemoScene.unity` or add
+`Packages/com.storyblueprint.runtime/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab` to a scene.
+For another story, use the editable `StoryBlueprintStoryPlayer.prefab`; the JSON importer adds
+that prefab and the generated Host together to the open scene.
 
 Open `samples/RuntimeDemo` with Unity 2022.3 and play `Assets/Scenes/SampleScene.unity`.
-The scene uses `Assets/StoryBlueprintAdapter/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab`.
+The scene uses `Packages/com.storyblueprint.runtime/Runtime/Demo/StoryBlueprintRuntimeDemo.prefab`.
 You can also drag that prefab into another scene. Its Canvas, panels, text and buttons are
 ordinary uGUI objects that can be edited in the Prefab editor. The prefab, its scripts and compiled dragon
 quest are all in the package. Continue reveals typing text first, then advances. Both manual and auto
