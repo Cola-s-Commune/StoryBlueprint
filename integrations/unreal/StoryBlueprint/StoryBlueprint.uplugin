@@ -1,0 +1,12 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Story Blueprint",
+  "Description": "Native runtime for compiled Story Blueprint stories",
+  "Category": "Narrative",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "EnabledByDefault": true,
+  "Modules": [{ "Name": "StoryBlueprint", "Type": "Runtime", "LoadingPhase": "Default" }]
+}
