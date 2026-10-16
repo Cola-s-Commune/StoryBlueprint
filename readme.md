@@ -15,7 +15,7 @@ Story Blueprint 是一个面向游戏开发的可视化剧情编辑器。通过�
 
 ## Unity 安装
 
-Story Blueprint Unity Adapter 以 UPM 包形式发布，支持 Unity 2022.3。无需通过 Unity Asset Store 安装。
+Story Blueprint Unity Adapter 支持 Unity 2022.3。
 
 1. 在 Unity 中打开 **Window > Package Manager**。
 2. 点击左上角 **+**，选择 **Add package from git URL…**。
