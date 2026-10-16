@@ -1,0 +1,651 @@
+{
+  "format": "story-blueprint-compiled-project",
+  "version": 1,
+  "projectId": "p_ue_contract",
+  "name": "ue-contract",
+  "displayName": "UE Runtime Contract",
+  "contentVersion": "ue-contract-v1",
+  "entryStoryId": "s_conditions",
+  "events": [],
+  "signals": [],
+  "stories": {
+    "s_conditions": {
+      "storyId": "s_conditions",
+      "name": "s_conditions",
+      "displayName": "s_conditions",
+      "program": {
+        "format": "story-runtime",
+        "version": 7,
+        "id": "p_conditions",
+        "contentVersion": "ue-contract-v1",
+        "entryBlockId": "b_entry",
+        "blocks": {
+          "b_entry": {
+            "id": "b_entry",
+            "instructions": [
+              {
+                "id": "i_add_gold",
+                "op": "set-variable",
+                "variableId": "v_condition_gold",
+                "value": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "variable",
+                    "variableId": "v_condition_gold",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 5,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "number"
+                  }
+                }
+              },
+              {
+                "id": "i_branch_main",
+                "op": "branch",
+                "condition": {
+                  "kind": "binary",
+                  "operator": "and",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "greater-than-or-equal",
+                    "left": {
+                      "kind": "variable",
+                      "variableId": "v_condition_gold",
+                      "valueType": {
+                        "kind": "number"
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 15,
+                      "valueType": {
+                        "kind": "number"
+                      }
+                    },
+                    "valueType": {
+                      "kind": "boolean"
+                    }
+                  },
+                  "right": {
+                    "kind": "unary",
+                    "operator": "not",
+                    "operand": {
+                      "kind": "literal",
+                      "value": false,
+                      "valueType": {
+                        "kind": "boolean"
+                      }
+                    },
+                    "valueType": {
+                      "kind": "boolean"
+                    }
+                  },
+                  "valueType": {
+                    "kind": "boolean"
+                  }
+                },
+                "whenTrue": "b_choice",
+                "whenFalse": "b_failure"
+              }
+            ]
+          },
+          "b_choice": {
+            "id": "b_choice",
+            "instructions": [
+              {
+                "id": "i_choice_conditions",
+                "op": "choice",
+                "prompt": {
+                  "id": "t_condition_prompt",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "gold="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "variable",
+                        "variableId": "v_condition_gold",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "options": [
+                  {
+                    "id": "opt_hidden",
+                    "text": {
+                      "id": "t_hidden",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "Hidden"
+                        }
+                      ]
+                    },
+                    "target": "b_failure",
+                    "visibleIf": {
+                      "kind": "literal",
+                      "value": false,
+                      "valueType": {
+                        "kind": "boolean"
+                      }
+                    },
+                    "enabledIf": {
+                      "kind": "binary",
+                      "operator": "greater-than",
+                      "left": {
+                        "kind": "binary",
+                        "operator": "divide",
+                        "left": {
+                          "kind": "literal",
+                          "value": 1,
+                          "valueType": {
+                            "kind": "number"
+                          }
+                        },
+                        "right": {
+                          "kind": "literal",
+                          "value": 0,
+                          "valueType": {
+                            "kind": "number"
+                          }
+                        },
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      },
+                      "right": {
+                        "kind": "literal",
+                        "value": 0,
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      },
+                      "valueType": {
+                        "kind": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "id": "opt_locked",
+                    "text": {
+                      "id": "t_locked",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "Locked"
+                        }
+                      ]
+                    },
+                    "target": "b_failure",
+                    "enabledIf": {
+                      "kind": "binary",
+                      "operator": "less-than",
+                      "left": {
+                        "kind": "variable",
+                        "variableId": "v_condition_gold",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      },
+                      "right": {
+                        "kind": "literal",
+                        "value": 0,
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      },
+                      "valueType": {
+                        "kind": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "id": "opt_ready",
+                    "text": {
+                      "id": "t_ready",
+                      "parts": [
+                        {
+                          "kind": "text",
+                          "value": "Ready "
+                        },
+                        {
+                          "kind": "expression",
+                          "expression": {
+                            "kind": "variable",
+                            "variableId": "v_condition_gold",
+                            "valueType": {
+                              "kind": "number"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "target": "b_result",
+                    "enabledIf": {
+                      "kind": "binary",
+                      "operator": "or",
+                      "left": {
+                        "kind": "literal",
+                        "value": true,
+                        "valueType": {
+                          "kind": "boolean"
+                        }
+                      },
+                      "right": {
+                        "kind": "binary",
+                        "operator": "greater-than",
+                        "left": {
+                          "kind": "binary",
+                          "operator": "divide",
+                          "left": {
+                            "kind": "literal",
+                            "value": 1,
+                            "valueType": {
+                              "kind": "number"
+                            }
+                          },
+                          "right": {
+                            "kind": "literal",
+                            "value": 0,
+                            "valueType": {
+                              "kind": "number"
+                            }
+                          },
+                          "valueType": {
+                            "kind": "number"
+                          }
+                        },
+                        "right": {
+                          "kind": "literal",
+                          "value": 0,
+                          "valueType": {
+                            "kind": "number"
+                          }
+                        },
+                        "valueType": {
+                          "kind": "boolean"
+                        }
+                      },
+                      "valueType": {
+                        "kind": "boolean"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "b_result": {
+            "id": "b_result",
+            "instructions": [
+              {
+                "id": "i_result_dialogue",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_result",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "gold="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "variable",
+                        "variableId": "v_condition_gold",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; member="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "member",
+                        "target": {
+                          "kind": "variable",
+                          "variableId": "v_stats",
+                          "valueType": {
+                            "kind": "struct",
+                            "name": "Stats",
+                            "fields": {
+                              "reputation": {
+                                "kind": "number"
+                              }
+                            }
+                          }
+                        },
+                        "member": "reputation",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; index="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "index",
+                        "target": {
+                          "kind": "variable",
+                          "variableId": "v_basket",
+                          "valueType": {
+                            "kind": "array",
+                            "elementType": {
+                              "kind": "number"
+                            }
+                          }
+                        },
+                        "index": {
+                          "kind": "literal",
+                          "value": 1,
+                          "valueType": {
+                            "kind": "number"
+                          }
+                        },
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; map="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "index",
+                        "target": {
+                          "kind": "variable",
+                          "variableId": "v_costs",
+                          "valueType": {
+                            "kind": "map",
+                            "keyType": "number",
+                            "valueType": {
+                              "kind": "number"
+                            }
+                          }
+                        },
+                        "index": {
+                          "kind": "literal",
+                          "value": 42,
+                          "valueType": {
+                            "kind": "number"
+                          }
+                        },
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; hex="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "convert",
+                        "target": {
+                          "kind": "literal",
+                          "value": "0x10",
+                          "valueType": {
+                            "kind": "string"
+                          }
+                        },
+                        "to": {
+                          "kind": "number"
+                        },
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; concat="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "binary",
+                        "operator": "add",
+                        "left": {
+                          "kind": "literal",
+                          "value": "A",
+                          "valueType": {
+                            "kind": "string"
+                          }
+                        },
+                        "right": {
+                          "kind": "literal",
+                          "value": "B",
+                          "valueType": {
+                            "kind": "string"
+                          }
+                        },
+                        "valueType": {
+                          "kind": "string"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; null="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "literal",
+                        "value": null,
+                        "valueType": {
+                          "kind": "string",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; decimal="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "literal",
+                        "value": 0.1,
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_result_end",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_failure": {
+            "id": "b_failure",
+            "instructions": [
+              {
+                "id": "i_failure_dialogue",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_failure",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "Unexpected branch"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_failure_end",
+                "op": "end-story"
+              }
+            ]
+          }
+        },
+        "chapters": {},
+        "variables": [
+          {
+            "id": "v_condition_gold",
+            "name": "v_condition_gold",
+            "displayName": "v_condition_gold",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 10
+          },
+          {
+            "id": "v_stats",
+            "name": "v_stats",
+            "displayName": "v_stats",
+            "scope": "story",
+            "valueType": {
+              "kind": "struct",
+              "name": "Stats",
+              "fields": {
+                "reputation": {
+                  "kind": "number"
+                }
+              }
+            },
+            "defaultValue": {
+              "reputation": 12
+            }
+          },
+          {
+            "id": "v_basket",
+            "name": "v_basket",
+            "displayName": "v_basket",
+            "scope": "story",
+            "valueType": {
+              "kind": "array",
+              "elementType": {
+                "kind": "number"
+              }
+            },
+            "defaultValue": [
+              3,
+              8
+            ]
+          },
+          {
+            "id": "v_costs",
+            "name": "v_costs",
+            "displayName": "v_costs",
+            "scope": "story",
+            "valueType": {
+              "kind": "map",
+              "keyType": "number",
+              "valueType": {
+                "kind": "number"
+              }
+            },
+            "defaultValue": {
+              "42": 4
+            }
+          }
+        ]
+      },
+      "characters": [],
+      "assets": []
+    },
+    "s_alternate": {
+      "storyId": "s_alternate",
+      "name": "s_alternate",
+      "displayName": "s_alternate",
+      "program": {
+        "format": "story-runtime",
+        "version": 7,
+        "id": "p_alternate",
+        "contentVersion": "ue-contract-v1",
+        "entryBlockId": "b_entry",
+        "blocks": {
+          "b_entry": {
+            "id": "b_entry",
+            "instructions": [
+              {
+                "id": "i_branch_false",
+                "op": "branch",
+                "condition": {
+                  "kind": "literal",
+                  "value": false,
+                  "valueType": {
+                    "kind": "boolean"
+                  }
+                },
+                "whenTrue": "b_wrong",
+                "whenFalse": "b_alt"
+              }
+            ]
+          },
+          "b_alt": {
+            "id": "b_alt",
+            "instructions": [
+              {
+                "id": "i_alternate_dialogue",
+                "op": "narration",
+                "text": {
+                  "id": "t_alternate",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "Alternate Story"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_alternate_end",
+                "op": "end-story"
+              }
+            ]
+          },
+          "b_wrong": {
+            "id": "b_wrong",
+            "instructions": [
+              {
+                "id": "i_wrong_end",
+                "op": "end-story"
+              }
+            ]
+          }
+        },
+        "chapters": {},
+        "variables": []
+      },
+      "characters": [],
+      "assets": []
+    }
+  }
+}

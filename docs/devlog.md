@@ -1,5 +1,8 @@
 # Dev Log
 
+- 2026-10-16：Unreal 补齐 Event 全量返回值校验、结果缓存与变量原子写回，支持 event-output / signal-output 表达式；Signal 提前到达可入队，Wait 按嵌套 JSON 约束消费最早匹配载荷并保留非匹配项。新增 Event/Signal 双 Story fixture、缓存/匹配/重复调用/失败不部分提交的 UE Automation 与 TS 参考测试代码，暴露只读调试快照；按用户要求不执行编译或测试，由用户验收。
+- 2026-10-16：Unreal 增加 compiled-project@1 解析、默认/指定 Story 入口、项目内容版本校验；补齐原生非输出 Pin 的 typed AST、Branch、Choice visibleIf/enabledIf 与禁用状态传递，修复隐藏选项过滤后的 Text ID 索引。新增双 Story 与表达式共享 fixture、UE Automation 和 TS 参考测试代码；按用户要求仅写入/静态检查，UE 编译与运行验收由用户执行。Event 输出写回、信号缓存和外部变量仍待后续实现。
+- 2026-10-16：Unreal 最小示例按 Unity 分层重构为 C++ Core、Adapter、独立实例 Host 和可替换 Presenter；结构化交互请求支持可选蓝图接入，完成 ID 拒绝停止/重启后的旧 UI 与 Event 回调。按键、GameMode、Fake Reward 和 Debug Presenter 移入示例工程模块。新增 Host 独立性与生命周期自动化测试代码；本轮编译和运行验证由用户执行。
 - 2026-10-09：Unity 发布暂缓，补充 Adapter 下一阶段路线：先完成 Windows IL2CPP / AOT 验证与跨进程磁盘存档，再接入真实 UI、资源、语音/本地化和多 Story 场景生命周期，随后稳定 API 与可重复 Unity 验证。每项记录交付物和验收条件；Ink C# 兼容继续独立预研。
 
 - 2026-10-08：完成 Native Unity Adapter。将 C# 骨架替换为 Unity 2022.3 / C# 9 可编译的 Core，使用 UPM Newtonsoft JSON 并正确隔离 Core / Unity asmdef；补齐 typed AST、容器、Event 稳定输出、信号匹配信箱、Substory 参数与返回值、外部变量持久化、版本化存档及独立 Story 实例注册表。新增可取消的主线程 Adapter、手动/自动 Presenter、真实 Choice 与可直接运行的龙任务 Demo；加入共享 TypeScript / C# fixture、离线核心 CI 与 Unity Presenter PlayMode 测试。Ink Block 明确拒绝，其他设备平台与版本矩阵继续按计划验证。

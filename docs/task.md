@@ -984,6 +984,7 @@ Linked 或 Embedded Ink Block 运行；完整节点转换不阻塞这一能力�
 - [ ] Unity Ink Block：单独评估 Ink C# Runtime；当前导入明确拒绝，避免误报兼容
 - [ ] Unity 对外发布：暂缓，恢复后确认独立版本、UPM 产物与目标平台验收
 - [ ] Unreal Adapter：UE5 Gameplay / Dialogue Subsystem 接入规范与示例工程
+  - 已有 UE 5.5 最小示例；Core / Adapter / Host / Presenter 分层、可选蓝图接口、项目文件 Story 选择、typed AST（含 Event/Signal 输出）、Branch、选项条件、Event 原子写回与缓存、Signal 匹配信箱代码已落地；新增共享 fixture 与自动化测试代码，编译和测试由用户执行。外部变量、Substory、存档等完整运行时语义与其他 UE5 版本待补齐。接入方式见 [Unreal README](../integrations/unreal/README.md)。
 - [ ] Godot Adapter：Godot 4 GDExtension / GDScript 驱动包
 
 > Native Unity Adapter 已实现；下一步优先 IL2CPP 与真实持久化，然后补真实 UI/资源与多 Story 场景接入。顺序、交付物和验收标准见 [Unity Adapter 下一步计划](unity-adapter-plan.md#下一步开发顺序2026-10-09)，发布暂缓。

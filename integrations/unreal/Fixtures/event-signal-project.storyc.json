@@ -1,0 +1,707 @@
+{
+  "format": "story-blueprint-compiled-project",
+  "version": 1,
+  "projectId": "p_output_contract",
+  "name": "output-contract",
+  "displayName": "Event and Signal Contract",
+  "contentVersion": "ue-contract-v1",
+  "entryStoryId": "s_flow",
+  "events": [
+    {
+      "id": "ev_reward",
+      "name": "reward",
+      "displayName": "Reward",
+      "parameters": [
+        {
+          "name": "amount",
+          "valueType": {
+            "kind": "number"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "id": "evo_amount",
+          "name": "amount",
+          "displayName": "Amount",
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        {
+          "id": "evo_status",
+          "name": "status",
+          "displayName": "Status",
+          "valueType": {
+            "kind": "enum",
+            "name": "RewardStatus",
+            "values": [
+              "ok",
+              "bad"
+            ]
+          }
+        },
+        {
+          "id": "evo_success",
+          "name": "success",
+          "displayName": "Success",
+          "valueType": {
+            "kind": "boolean"
+          }
+        }
+      ],
+      "resumable": false,
+      "sideEffect": "write"
+    }
+  ],
+  "signals": [
+    {
+      "id": "sig_enemy",
+      "name": "enemy",
+      "displayName": "Enemy",
+      "parameters": [
+        {
+          "name": "bossId",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "score",
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        {
+          "name": "detail",
+          "valueType": {
+            "kind": "struct",
+            "name": "EnemyDetail",
+            "fields": {
+              "tags": {
+                "kind": "array",
+                "elementType": {
+                  "kind": "number"
+                }
+              },
+              "meta": {
+                "kind": "struct",
+                "name": "Location",
+                "fields": {
+                  "zone": {
+                    "kind": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "stories": {
+    "s_flow": {
+      "storyId": "s_flow",
+      "name": "s_flow",
+      "displayName": "s_flow",
+      "program": {
+        "format": "story-runtime",
+        "version": 7,
+        "id": "p_output_flow",
+        "contentVersion": "ue-contract-v1",
+        "entryBlockId": "b_entry",
+        "blocks": {
+          "b_entry": {
+            "id": "b_entry",
+            "instructions": [
+              {
+                "id": "i_before_signal",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_before_signal",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "Before signal"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_to_red",
+                "op": "jump",
+                "target": "b_wait_red"
+              }
+            ]
+          },
+          "b_wait_red": {
+            "id": "b_wait_red",
+            "instructions": [
+              {
+                "id": "i_wait_red",
+                "op": "wait-signal",
+                "signalId": "sig_enemy",
+                "matches": {
+                  "bossId": {
+                    "kind": "literal",
+                    "value": "red",
+                    "valueType": {
+                      "kind": "string"
+                    }
+                  },
+                  "detail": {
+                    "kind": "literal",
+                    "value": {
+                      "tags": [
+                        1,
+                        2
+                      ],
+                      "meta": {
+                        "zone": "cave"
+                      }
+                    },
+                    "valueType": {
+                      "kind": "struct",
+                      "name": "EnemyDetail",
+                      "fields": {
+                        "tags": {
+                          "kind": "array",
+                          "elementType": {
+                            "kind": "number"
+                          }
+                        },
+                        "meta": {
+                          "kind": "struct",
+                          "name": "Location",
+                          "fields": {
+                            "zone": {
+                              "kind": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "i_reward",
+                "op": "call-event",
+                "eventId": "ev_reward",
+                "arguments": {
+                  "amount": {
+                    "kind": "signal-output",
+                    "instructionId": "i_wait_red",
+                    "outputId": "score",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  }
+                },
+                "outputs": [
+                  {
+                    "id": "evo_amount",
+                    "name": "amount",
+                    "displayName": "Amount",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  {
+                    "id": "evo_status",
+                    "name": "status",
+                    "displayName": "Status",
+                    "valueType": {
+                      "kind": "enum",
+                      "name": "RewardStatus",
+                      "values": [
+                        "ok",
+                        "bad"
+                      ]
+                    }
+                  },
+                  {
+                    "id": "evo_success",
+                    "name": "success",
+                    "displayName": "Success",
+                    "valueType": {
+                      "kind": "boolean"
+                    }
+                  }
+                ],
+                "resultVariableIds": {
+                  "evo_amount": "v_reward",
+                  "evo_status": "v_reward_status"
+                }
+              },
+              {
+                "id": "i_to_report",
+                "op": "jump",
+                "target": "b_report"
+              }
+            ]
+          },
+          "b_report": {
+            "id": "b_report",
+            "instructions": [
+              {
+                "id": "i_reward_report",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_reward_report",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "reward="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "variable",
+                        "variableId": "v_reward",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; event="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "event-output",
+                        "instructionId": "i_reward",
+                        "outputId": "evo_amount",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; signal="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "signal-output",
+                        "instructionId": "i_wait_red",
+                        "outputId": "score",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; status="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "event-output",
+                        "instructionId": "i_reward",
+                        "outputId": "evo_status",
+                        "valueType": {
+                          "kind": "enum",
+                          "name": "RewardStatus",
+                          "values": [
+                            "ok",
+                            "bad"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; ok="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "event-output",
+                        "instructionId": "i_reward",
+                        "outputId": "evo_success",
+                        "valueType": {
+                          "kind": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_to_blue",
+                "op": "jump",
+                "target": "b_wait_blue"
+              }
+            ]
+          },
+          "b_wait_blue": {
+            "id": "b_wait_blue",
+            "instructions": [
+              {
+                "id": "i_wait_blue",
+                "op": "wait-signal",
+                "signalId": "sig_enemy",
+                "matches": {
+                  "bossId": {
+                    "kind": "literal",
+                    "value": "blue",
+                    "valueType": {
+                      "kind": "string"
+                    }
+                  },
+                  "detail": {
+                    "kind": "literal",
+                    "value": {
+                      "tags": [
+                        1,
+                        2
+                      ],
+                      "meta": {
+                        "zone": "cave"
+                      }
+                    },
+                    "valueType": {
+                      "kind": "struct",
+                      "name": "EnemyDetail",
+                      "fields": {
+                        "tags": {
+                          "kind": "array",
+                          "elementType": {
+                            "kind": "number"
+                          }
+                        },
+                        "meta": {
+                          "kind": "struct",
+                          "name": "Location",
+                          "fields": {
+                            "zone": {
+                              "kind": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "i_to_blue_report",
+                "op": "jump",
+                "target": "b_blue_report"
+              }
+            ]
+          },
+          "b_blue_report": {
+            "id": "b_blue_report",
+            "instructions": [
+              {
+                "id": "i_blue_report",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_blue_report",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "blue="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "signal-output",
+                        "instructionId": "i_wait_blue",
+                        "outputId": "score",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_to_red_again",
+                "op": "jump",
+                "target": "b_wait_red_again"
+              }
+            ]
+          },
+          "b_wait_red_again": {
+            "id": "b_wait_red_again",
+            "instructions": [
+              {
+                "id": "i_wait_red_again",
+                "op": "wait-signal",
+                "signalId": "sig_enemy",
+                "matches": {
+                  "bossId": {
+                    "kind": "literal",
+                    "value": "red",
+                    "valueType": {
+                      "kind": "string"
+                    }
+                  },
+                  "detail": {
+                    "kind": "literal",
+                    "value": {
+                      "tags": [
+                        1,
+                        2
+                      ],
+                      "meta": {
+                        "zone": "cave"
+                      }
+                    },
+                    "valueType": {
+                      "kind": "struct",
+                      "name": "EnemyDetail",
+                      "fields": {
+                        "tags": {
+                          "kind": "array",
+                          "elementType": {
+                            "kind": "number"
+                          }
+                        },
+                        "meta": {
+                          "kind": "struct",
+                          "name": "Location",
+                          "fields": {
+                            "zone": {
+                              "kind": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "i_to_red_report",
+                "op": "jump",
+                "target": "b_red_report"
+              }
+            ]
+          },
+          "b_red_report": {
+            "id": "b_red_report",
+            "instructions": [
+              {
+                "id": "i_red_report",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_red_report",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "red2="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "signal-output",
+                        "instructionId": "i_wait_red_again",
+                        "outputId": "score",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "text",
+                      "value": "; cached="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "event-output",
+                        "instructionId": "i_reward",
+                        "outputId": "evo_amount",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_flow_end",
+                "op": "end-story"
+              }
+            ]
+          }
+        },
+        "chapters": {},
+        "variables": [
+          {
+            "id": "v_reward",
+            "name": "v_reward",
+            "displayName": "v_reward",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 0
+          },
+          {
+            "id": "v_reward_status",
+            "name": "v_reward_status",
+            "displayName": "v_reward_status",
+            "scope": "story",
+            "valueType": {
+              "kind": "enum",
+              "name": "RewardStatus",
+              "values": [
+                "ok"
+              ]
+            },
+            "defaultValue": "ok"
+          }
+        ]
+      },
+      "characters": [],
+      "assets": []
+    },
+    "s_repeat": {
+      "storyId": "s_repeat",
+      "name": "s_repeat",
+      "displayName": "s_repeat",
+      "program": {
+        "format": "story-runtime",
+        "version": 7,
+        "id": "p_output_repeat",
+        "contentVersion": "ue-contract-v1",
+        "entryBlockId": "b_entry",
+        "blocks": {
+          "b_entry": {
+            "id": "b_entry",
+            "instructions": [
+              {
+                "id": "i_repeat",
+                "op": "call-event",
+                "eventId": "ev_reward",
+                "arguments": {
+                  "amount": {
+                    "kind": "literal",
+                    "value": 1,
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  }
+                },
+                "outputs": [
+                  {
+                    "id": "evo_amount",
+                    "name": "amount",
+                    "displayName": "Amount",
+                    "valueType": {
+                      "kind": "number"
+                    }
+                  },
+                  {
+                    "id": "evo_status",
+                    "name": "status",
+                    "displayName": "Status",
+                    "valueType": {
+                      "kind": "enum",
+                      "name": "RewardStatus",
+                      "values": [
+                        "ok",
+                        "bad"
+                      ]
+                    }
+                  },
+                  {
+                    "id": "evo_success",
+                    "name": "success",
+                    "displayName": "Success",
+                    "valueType": {
+                      "kind": "boolean"
+                    }
+                  }
+                ],
+                "resultVariableIds": {
+                  "evo_amount": "v_reward",
+                  "evo_status": "v_reward_status"
+                }
+              },
+              {
+                "id": "i_repeat_report",
+                "op": "jump",
+                "target": "b_report"
+              }
+            ]
+          },
+          "b_report": {
+            "id": "b_report",
+            "instructions": [
+              {
+                "id": "i_repeat_dialogue",
+                "op": "dialogue",
+                "text": {
+                  "id": "t_repeat",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "value="
+                    },
+                    {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "event-output",
+                        "instructionId": "i_repeat",
+                        "outputId": "evo_amount",
+                        "valueType": {
+                          "kind": "number"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "i_repeat_loop",
+                "op": "jump",
+                "target": "b_entry"
+              }
+            ]
+          }
+        },
+        "chapters": {},
+        "variables": [
+          {
+            "id": "v_reward",
+            "name": "v_reward",
+            "displayName": "v_reward",
+            "scope": "story",
+            "valueType": {
+              "kind": "number"
+            },
+            "defaultValue": 0
+          },
+          {
+            "id": "v_reward_status",
+            "name": "v_reward_status",
+            "displayName": "v_reward_status",
+            "scope": "story",
+            "valueType": {
+              "kind": "enum",
+              "name": "RewardStatus",
+              "values": [
+                "ok"
+              ]
+            },
+            "defaultValue": "ok"
+          }
+        ]
+      },
+      "characters": [],
+      "assets": []
+    }
+  }
+}

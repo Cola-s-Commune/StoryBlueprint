@@ -31,6 +31,25 @@ Get-ChildItem -LiteralPath $pluginSource -Recurse -File | ForEach-Object {
     }
     Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
 }
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'README.md') -Destination (Join-Path $pluginTarget 'README.md') -Force
+
+# These two files belonged to the first sample and now live in the project module.
+foreach ($relative in @('Source\StoryBlueprint\Public\StoryBlueprintDemo.h', 'Source\StoryBlueprint\Private\StoryBlueprintDemo.cpp')) {
+    $legacyFile = Join-Path $pluginTarget $relative
+    if (Test-Path -LiteralPath $legacyFile -PathType Leaf) { Remove-Item -LiteralPath $legacyFile -Force }
+}
+
+$sampleSource = Join-Path $sourceRoot 'SampleSource\StoryBlueprintDemo'
+$gameModuleDir = Join-Path $projectRootPath 'Source\StoryBlueprintDemo'
+Get-ChildItem -LiteralPath $sampleSource -File | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $gameModuleDir $_.Name) -Force
+}
+$buildFile = Join-Path $gameModuleDir 'StoryBlueprintDemo.Build.cs'
+$buildText = Get-Content -LiteralPath $buildFile -Raw
+if (-not $buildText.Contains('"StoryBlueprint"')) {
+    $buildText = $buildText.Replace('"Core",', '"StoryBlueprint", "Core",')
+    Set-Content -LiteralPath $buildFile -Value $buildText -Encoding utf8 -NoNewline
+}
 
 $contentDir = Join-Path $projectRootPath 'Content\StoryBlueprint'
 if (-not (Test-Path -LiteralPath $contentDir)) {
@@ -38,6 +57,13 @@ if (-not (Test-Path -LiteralPath $contentDir)) {
 }
 $fixture = Join-Path $sourceRoot '..\..\docs\examples\sample-quest.storyc.json'
 Copy-Item -LiteralPath $fixture -Destination (Join-Path $contentDir 'sample-quest.storyc.json') -Force
+$contractDir = Join-Path $contentDir 'Fixtures'
+if (-not (Test-Path -LiteralPath $contractDir)) {
+    New-Item -ItemType Directory -Path $contractDir | Out-Null
+}
+Get-ChildItem -LiteralPath (Join-Path $sourceRoot 'Fixtures') -Filter '*.json' -File | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $contractDir $_.Name) -Force
+}
 
 if (-not @($project.Plugins | Where-Object { $_.Name -eq 'StoryBlueprint' }).Count) {
     $project.Plugins = @($project.Plugins) + @([pscustomobject]@{ Name = 'StoryBlueprint'; Enabled = $true })
@@ -46,7 +72,11 @@ if (-not @($project.Plugins | Where-Object { $_.Name -eq 'StoryBlueprint' }).Cou
 
 $engineConfig = Join-Path $projectRootPath 'Config\DefaultEngine.ini'
 $configText = Get-Content -LiteralPath $engineConfig -Raw
-$modeLine = 'GlobalDefaultGameMode=/Script/StoryBlueprint.StoryBlueprintDemoGameMode'
+$modeLine = 'GlobalDefaultGameMode=/Script/StoryBlueprintDemo.StoryDemoGameMode'
+if ($configText.Contains('GlobalDefaultGameMode=/Script/StoryBlueprint.StoryBlueprintDemoGameMode')) {
+    $configText = $configText.Replace('GlobalDefaultGameMode=/Script/StoryBlueprint.StoryBlueprintDemoGameMode', $modeLine)
+    Set-Content -LiteralPath $engineConfig -Value $configText -Encoding utf8 -NoNewline
+}
 if ($configText -notmatch '(?m)^GlobalDefaultGameMode=') {
     $heading = '[/Script/EngineSettings.GameMapsSettings]'
     if (-not $configText.Contains($heading)) { throw 'Missing GameMapsSettings section' }

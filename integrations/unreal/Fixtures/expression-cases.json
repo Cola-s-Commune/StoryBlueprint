@@ -1,0 +1,1352 @@
+{
+  "cases": [
+    {
+      "name": "add",
+      "expression": {
+        "kind": "binary",
+        "operator": "add",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 5,
+      "expectedText": "5"
+    },
+    {
+      "name": "subtract",
+      "expression": {
+        "kind": "binary",
+        "operator": "subtract",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": -1,
+      "expectedText": "-1"
+    },
+    {
+      "name": "multiply",
+      "expression": {
+        "kind": "binary",
+        "operator": "multiply",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 6,
+      "expectedText": "6"
+    },
+    {
+      "name": "divide",
+      "expression": {
+        "kind": "binary",
+        "operator": "divide",
+        "left": {
+          "kind": "literal",
+          "value": 7,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 3.5,
+      "expectedText": "3.5"
+    },
+    {
+      "name": "modulo",
+      "expression": {
+        "kind": "binary",
+        "operator": "modulo",
+        "left": {
+          "kind": "literal",
+          "value": -7,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": -1,
+      "expectedText": "-1"
+    },
+    {
+      "name": "equal",
+      "expression": {
+        "kind": "binary",
+        "operator": "equal",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "not-equal",
+      "expression": {
+        "kind": "binary",
+        "operator": "not-equal",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "less-than",
+      "expression": {
+        "kind": "binary",
+        "operator": "less-than",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "less-than-or-equal",
+      "expression": {
+        "kind": "binary",
+        "operator": "less-than-or-equal",
+        "left": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "greater-than",
+      "expression": {
+        "kind": "binary",
+        "operator": "greater-than",
+        "left": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "greater-than-or-equal",
+      "expression": {
+        "kind": "binary",
+        "operator": "greater-than-or-equal",
+        "left": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "string concatenation",
+      "expression": {
+        "kind": "binary",
+        "operator": "add",
+        "left": {
+          "kind": "literal",
+          "value": "A",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": "B",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "AB",
+      "expectedText": "AB"
+    },
+    {
+      "name": "ordinal comparison",
+      "expression": {
+        "kind": "binary",
+        "operator": "less-than",
+        "left": {
+          "kind": "literal",
+          "value": "Z",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": "a",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "negate",
+      "expression": {
+        "kind": "unary",
+        "operator": "negate",
+        "operand": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": -2,
+      "expectedText": "-2"
+    },
+    {
+      "name": "not",
+      "expression": {
+        "kind": "unary",
+        "operator": "not",
+        "operand": {
+          "kind": "literal",
+          "value": true,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": false,
+      "expectedText": "false"
+    },
+    {
+      "name": "and short circuit",
+      "expression": {
+        "kind": "binary",
+        "operator": "and",
+        "left": {
+          "kind": "literal",
+          "value": false,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "right": {
+          "kind": "binary",
+          "operator": "greater-than",
+          "left": {
+            "kind": "binary",
+            "operator": "divide",
+            "left": {
+              "kind": "literal",
+              "value": 1,
+              "valueType": {
+                "kind": "number"
+              }
+            },
+            "right": {
+              "kind": "literal",
+              "value": 0,
+              "valueType": {
+                "kind": "number"
+              }
+            },
+            "valueType": {
+              "kind": "number"
+            }
+          },
+          "right": {
+            "kind": "literal",
+            "value": 0,
+            "valueType": {
+              "kind": "number"
+            }
+          },
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": false,
+      "expectedText": "false"
+    },
+    {
+      "name": "or short circuit",
+      "expression": {
+        "kind": "binary",
+        "operator": "or",
+        "left": {
+          "kind": "literal",
+          "value": true,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "right": {
+          "kind": "binary",
+          "operator": "greater-than",
+          "left": {
+            "kind": "binary",
+            "operator": "divide",
+            "left": {
+              "kind": "literal",
+              "value": 1,
+              "valueType": {
+                "kind": "number"
+              }
+            },
+            "right": {
+              "kind": "literal",
+              "value": 0,
+              "valueType": {
+                "kind": "number"
+              }
+            },
+            "valueType": {
+              "kind": "number"
+            }
+          },
+          "right": {
+            "kind": "literal",
+            "value": 0,
+            "valueType": {
+              "kind": "number"
+            }
+          },
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "and evaluates right",
+      "expression": {
+        "kind": "binary",
+        "operator": "and",
+        "left": {
+          "kind": "literal",
+          "value": true,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": false,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": false,
+      "expectedText": "false"
+    },
+    {
+      "name": "or evaluates right",
+      "expression": {
+        "kind": "binary",
+        "operator": "or",
+        "left": {
+          "kind": "literal",
+          "value": false,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": true,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "member",
+      "expression": {
+        "kind": "member",
+        "target": {
+          "kind": "literal",
+          "value": {
+            "reputation": 12
+          },
+          "valueType": {
+            "kind": "struct",
+            "name": "Stats",
+            "fields": {
+              "reputation": {
+                "kind": "number"
+              }
+            }
+          }
+        },
+        "member": "reputation",
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 12,
+      "expectedText": "12"
+    },
+    {
+      "name": "array lookup",
+      "expression": {
+        "kind": "index",
+        "target": {
+          "kind": "literal",
+          "value": [
+            3,
+            8
+          ],
+          "valueType": {
+            "kind": "array",
+            "elementType": {
+              "kind": "number"
+            }
+          }
+        },
+        "index": {
+          "kind": "literal",
+          "value": 1,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 8,
+      "expectedText": "8"
+    },
+    {
+      "name": "numeric map key",
+      "expression": {
+        "kind": "index",
+        "target": {
+          "kind": "literal",
+          "value": {
+            "42": 4
+          },
+          "valueType": {
+            "kind": "map",
+            "keyType": "number",
+            "valueType": {
+              "kind": "number"
+            }
+          }
+        },
+        "index": {
+          "kind": "literal",
+          "value": 42,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 4,
+      "expectedText": "4"
+    },
+    {
+      "name": "number text shortest",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": 0.1,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "0.1",
+      "expectedText": "0.1"
+    },
+    {
+      "name": "number text fixed small",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": 0.000001,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "0.000001",
+      "expectedText": "0.000001"
+    },
+    {
+      "name": "number text exponent",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": 1e+21,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "1e+21",
+      "expectedText": "1e+21"
+    },
+    {
+      "name": "large number shortest significant digits",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": 1000000000000000100,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "1000000000000000100",
+      "expectedText": "1000000000000000100"
+    },
+    {
+      "name": "number text negative zero",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": 0,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "0",
+      "expectedText": "0"
+    },
+    {
+      "name": "hexadecimal conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "0x10",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 16,
+      "expectedText": "16"
+    },
+    {
+      "name": "binary conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "0b101",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 5,
+      "expectedText": "5"
+    },
+    {
+      "name": "octal conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "0o17",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 15,
+      "expectedText": "15"
+    },
+    {
+      "name": "whitespace conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "  ",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 0,
+      "expectedText": "0"
+    },
+    {
+      "name": "boolean conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": true,
+          "valueType": {
+            "kind": "boolean"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 1,
+      "expectedText": "1"
+    },
+    {
+      "name": "null number conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": null,
+          "valueType": {
+            "kind": "any"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 0,
+      "expectedText": "0"
+    },
+    {
+      "name": "decimal underflow",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "1e-400",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expected": 0,
+      "expectedText": "0"
+    },
+    {
+      "name": "empty string is false",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "boolean"
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": false,
+      "expectedText": "false"
+    },
+    {
+      "name": "nonempty string zero is true",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "0",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "boolean"
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "empty array is true",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": [],
+          "valueType": {
+            "kind": "array",
+            "elementType": {
+              "kind": "number"
+            }
+          }
+        },
+        "to": {
+          "kind": "boolean"
+        },
+        "valueType": {
+          "kind": "boolean"
+        }
+      },
+      "expected": true,
+      "expectedText": "true"
+    },
+    {
+      "name": "array string conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": [
+            1,
+            null,
+            3
+          ],
+          "valueType": {
+            "kind": "array",
+            "elementType": {
+              "kind": "number",
+              "nullable": true
+            }
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "1,,3",
+      "expectedText": "1,,3"
+    },
+    {
+      "name": "object string conversion",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": {
+            "reputation": 12
+          },
+          "valueType": {
+            "kind": "struct",
+            "name": "Stats",
+            "fields": {
+              "reputation": {
+                "kind": "number"
+              }
+            }
+          }
+        },
+        "to": {
+          "kind": "string"
+        },
+        "valueType": {
+          "kind": "string"
+        }
+      },
+      "expected": "[object Object]",
+      "expectedText": "[object Object]"
+    },
+    {
+      "name": "division by zero",
+      "expression": {
+        "kind": "binary",
+        "operator": "divide",
+        "left": {
+          "kind": "literal",
+          "value": 1,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 0,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "modulo by zero",
+      "expression": {
+        "kind": "binary",
+        "operator": "modulo",
+        "left": {
+          "kind": "literal",
+          "value": 1,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 0,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "numeric overflow",
+      "expression": {
+        "kind": "binary",
+        "operator": "multiply",
+        "left": {
+          "kind": "literal",
+          "value": 1e+308,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 10,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "missing member",
+      "expression": {
+        "kind": "member",
+        "target": {
+          "kind": "literal",
+          "value": {
+            "reputation": 12
+          },
+          "valueType": {
+            "kind": "struct",
+            "name": "Stats",
+            "fields": {
+              "reputation": {
+                "kind": "number"
+              }
+            }
+          }
+        },
+        "member": "missing",
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "missing map key",
+      "expression": {
+        "kind": "index",
+        "target": {
+          "kind": "literal",
+          "value": {
+            "42": 4
+          },
+          "valueType": {
+            "kind": "map",
+            "keyType": "number",
+            "valueType": {
+              "kind": "number"
+            }
+          }
+        },
+        "index": {
+          "kind": "literal",
+          "value": "missing",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "negative array index",
+      "expression": {
+        "kind": "index",
+        "target": {
+          "kind": "literal",
+          "value": [
+            1
+          ],
+          "valueType": {
+            "kind": "array",
+            "elementType": {
+              "kind": "number"
+            }
+          }
+        },
+        "index": {
+          "kind": "literal",
+          "value": -1,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "fractional array index",
+      "expression": {
+        "kind": "index",
+        "target": {
+          "kind": "literal",
+          "value": [
+            1
+          ],
+          "valueType": {
+            "kind": "array",
+            "elementType": {
+              "kind": "number"
+            }
+          }
+        },
+        "index": {
+          "kind": "literal",
+          "value": 0.5,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "out of range array index",
+      "expression": {
+        "kind": "index",
+        "target": {
+          "kind": "literal",
+          "value": [
+            1
+          ],
+          "valueType": {
+            "kind": "array",
+            "elementType": {
+              "kind": "number"
+            }
+          }
+        },
+        "index": {
+          "kind": "literal",
+          "value": 1,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "invalid numeric string",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "12px",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "invalid numeric signs",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "+-1",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "numeric string overflow",
+      "expression": {
+        "kind": "convert",
+        "target": {
+          "kind": "literal",
+          "value": "1e400",
+          "valueType": {
+            "kind": "string"
+          }
+        },
+        "to": {
+          "kind": "number"
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedError": true
+    },
+    {
+      "name": "unknown variable",
+      "expression": {
+        "kind": "variable",
+        "variableId": "v_missing",
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedValidationError": true
+    },
+    {
+      "name": "output reference without producer context",
+      "expression": {
+        "kind": "event-output",
+        "instructionId": "i_event",
+        "outputId": "evo_value",
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedValidationError": true
+    },
+    {
+      "name": "unknown binary operator",
+      "expression": {
+        "kind": "binary",
+        "operator": "power",
+        "left": {
+          "kind": "literal",
+          "value": 2,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "right": {
+          "kind": "literal",
+          "value": 3,
+          "valueType": {
+            "kind": "number"
+          }
+        },
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedValidationError": true
+    },
+    {
+      "name": "opaque JSON member access",
+      "expression": {
+        "kind": "member",
+        "target": {
+          "kind": "literal",
+          "value": {
+            "value": 1
+          },
+          "valueType": {
+            "kind": "json",
+            "name": "EngineObject"
+          }
+        },
+        "member": "value",
+        "valueType": {
+          "kind": "number"
+        }
+      },
+      "expectedValidationError": true
+    }
+  ]
+}
